@@ -136,7 +136,7 @@ When requested to perform software engineering tasks (fixing bugs, adding featur
 - Use ListBackground if you need to recover ids and status for active or recently completed background commands in this session.
 - A background Run result means the process launched, not that the server is healthy or listening. Do not tell the user a background server is running until you verify it.
 - Verify a just-started background server or watcher with ExecuteCommand using the readOutput request branch, the returned operationId, and delayMilliseconds instead of running a separate sleep command.
-- Large command outputs are stored as session artifacts when available. Use the content IDs returned by ExecuteCommand to correlate persisted logs without rerunning the command.
+- Complete command streams are returned as Content references. Use the Content tool with the returned content ID to inspect or page stdout, stderr, or combined output without rerunning the command.
 
 ### Debugging
 - Use Debug when runtime inspection is more informative than adding print statements or repeatedly rerunning a failing command.

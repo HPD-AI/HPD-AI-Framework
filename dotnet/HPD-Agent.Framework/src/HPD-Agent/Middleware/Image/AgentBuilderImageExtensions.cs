@@ -21,7 +21,7 @@ public static class AgentBuilderImageExtensions
     /// </para>
     /// <para>
     /// <b>Default behavior:</b> Images are passed through to vision models unchanged.
-    /// ContentUploadMiddleware (auto-registered) handles storage automatically.
+    /// ContentLifecycleMiddleware (auto-registered) handles storage automatically.
     /// </para>
     /// <para>
     /// <b>Example (unnecessary but explicit):</b>

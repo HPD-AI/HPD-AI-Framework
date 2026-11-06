@@ -83,6 +83,9 @@ var agent = await new AgentBuilder(agentConfig)
 See [ToolHarness construction](Tools/TOOL_HARNESS_CONSTRUCTION.md) for settings,
 run overrides, dependency ownership, supplied instances, and migration.
 
+For explicit native result offloading and the bounded `Content` retrieval tool,
+see [Native tool outputs and retrieval](Tools/TOOL_OUTPUTS.md).
+
 ## Pre-1.0 API Evolution
 
 HPD-Agent is still pre-1.0. Until `1.0.0`, minor and patch releases may refine

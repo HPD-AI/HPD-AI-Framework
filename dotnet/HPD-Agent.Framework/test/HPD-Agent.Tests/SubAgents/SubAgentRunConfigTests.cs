@@ -70,6 +70,34 @@ public sealed class SubAgentRunConfigTests
     }
 
     [Fact]
+    public void DurablePolicyFingerprintIncludesToolOutputPolicy()
+    {
+        var chat = new ChatClientConfig
+        {
+            Provider = new ProviderReference { Key = "test" },
+            ModelName = "child-model"
+        };
+        SubAgentExecutionPolicy Create(bool enabled) => SubAgentExecutionPolicy.Create(
+            new AgentRunConfig
+            {
+                ToolOutputs = new ToolOutputRunPolicy
+                {
+                    Enabled = enabled,
+                    RetrievalLimits = new ContentRetrievalLimits { MaxReadCallsPerTurn = 3 }
+                }
+            },
+            new AgentClientsConfig { Chat = chat },
+            new Dictionary<ProviderClientFamily, SubAgentClientSelectionSource>
+            {
+                [ProviderClientFamily.Chat] = SubAgentClientSelectionSource.InputSubAgentRun
+            },
+            new AgentSecurityRunConfig(),
+            new NoSubAgentClientPropagation());
+
+        Assert.NotEqual(Create(true).Fingerprint, Create(false).Fingerprint);
+    }
+
+    [Fact]
     public void DurablePolicyRejectsRuntimeOnlyInitialConfiguration()
     {
         var run = new AgentRunConfig

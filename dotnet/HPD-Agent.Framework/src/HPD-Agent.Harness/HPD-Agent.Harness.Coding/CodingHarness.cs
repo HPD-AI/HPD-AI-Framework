@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
 using HPD.Agent;
+using HPD.Agent.Serialization;
 using HPDOS.ToolHarnesses.Middleware;
 
 /// <summary>
@@ -41,6 +42,7 @@ public partial class CodingToolHarness
     static CodingToolHarness()
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        HpdAgentJsonUtilities.RegisterTypeInfoResolver(CodingToolHarnessJsonContext.Default);
     }
 
     /// <summary>Creates a coding harness with optional host-provided dependencies.</summary>

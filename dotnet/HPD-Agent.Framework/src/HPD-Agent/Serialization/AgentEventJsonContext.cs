@@ -58,6 +58,11 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(ToolOutputRunPolicy))]
 [JsonSerializable(typeof(ToolOutputFailureMode))]
 [JsonSerializable(typeof(ContentRetrievalLimits))]
+[JsonSerializable(typeof(ContentResult))]
+[JsonSerializable(typeof(ContentListResult))]
+[JsonSerializable(typeof(ContentStatResult))]
+[JsonSerializable(typeof(ContentToolReadResult))]
+[JsonSerializable(typeof(StoredContentReferenceContent))]
 [JsonSerializable(typeof(List<HarnessRunOverride>))]
 [JsonSerializable(typeof(List<List<HarnessRunOverride>>))]
 [JsonSerializable(typeof(AgentRunConfig))]
@@ -191,6 +196,11 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(ClientTools.ClientToolOperationOutcomeEvent))]
 
 // Content Events
+[JsonSerializable(typeof(ToolOutputProjectedEvent))]
+[JsonSerializable(typeof(ToolOutputProjectionFailedEvent))]
+[JsonSerializable(typeof(ContentCaptureFinalizedEvent))]
+[JsonSerializable(typeof(ContentReadEvent))]
+[JsonSerializable(typeof(ContentScopeCleanedEvent))]
 
 // Reasoning Events
 

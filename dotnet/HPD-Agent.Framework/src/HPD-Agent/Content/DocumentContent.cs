@@ -17,7 +17,7 @@ namespace HPD.Agent;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Document bytes are stored by ContentUploadMiddleware. Text extraction is intentionally
+/// Document bytes are stored by ContentLifecycleMiddleware. Text extraction is intentionally
 /// not built in: applications that need document text in the model context supply their own
 /// middleware (for example, backed by HPD-Extract).
 /// </para>
@@ -28,7 +28,7 @@ namespace HPD.Agent;
 /// <para>
 /// <b>Middleware Behavior:</b>
 /// <list type="bullet">
-/// <item>ContentUploadMiddleware: Uploads to IContentStore with kind=upload metadata</item>
+/// <item>ContentLifecycleMiddleware: Uploads to IContentStore with kind=upload metadata</item>
 /// </list>
 /// </para>
 /// </remarks>

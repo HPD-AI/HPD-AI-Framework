@@ -46,7 +46,7 @@
           { $type: 'text', text: 'The message can render structured text.' },
           {
             $type: 'uri',
-            uri: 'hpd-content://report-1',
+            uri: 'https://assets.example/report-1',
             mediaType: 'text/markdown',
           },
         ],

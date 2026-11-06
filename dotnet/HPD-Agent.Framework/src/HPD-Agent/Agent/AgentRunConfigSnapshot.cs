@@ -43,6 +43,9 @@ internal static class AgentRunConfigSnapshot
         if (source is null)
             return null;
 
+        var toolOutputErrors = source.ToolOutputs?.Validate("ToolOutputs").ToArray() ?? [];
+        if (toolOutputErrors.Length > 0)
+            throw new InvalidOperationException(string.Join(" ", toolOutputErrors));
         var snapshot = CloneCore(source, composition);
         snapshot.Clients = CloneClients(source.Clients);
         SnapshotProviderPayloads(snapshot.Clients, composition);

@@ -1,5 +1,7 @@
 using HPD.Agent;
 using HPD.Agent.Middleware;
+using HPD.Agent.Serialization;
+using System.Text.Json.Serialization;
 
 namespace HPD.Agent.ToolHarness.AotFixture;
 
@@ -16,6 +18,11 @@ public sealed record ExternalExecutionSettings
     Middlewares = [typeof(ExternalExecutionMiddleware)])]
 public partial class ExternalExecutionHarness(IHarnessConfig<ExternalExecutionSettings> configuration)
 {
+    static ExternalExecutionHarness()
+    {
+        HpdAgentJsonUtilities.RegisterTypeInfoResolver(AotToolOutputJsonContext.Default);
+    }
+
     public static int LastConfiguredValue { get; private set; }
 
     [AIFunction]
@@ -28,7 +35,31 @@ public partial class ExternalExecutionHarness(IHarnessConfig<ExternalExecutionSe
         LastConfiguredValue = value;
         return value.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
+
+    [AIFunction]
+    public AotOffloadResult OffloadEvidence(FunctionExecutionContext context)
+    {
+        var capture = context.Outputs.CreatePart(
+            "capture",
+            "text/plain",
+            ContentSensitivity.Internal);
+        capture.WriteAsync("EVIDENCE-AOT"u8.ToArray()).AsTask().GetAwaiter().GetResult();
+        return new AotOffloadResult("AOT offload summary", "EVIDENCE-AOT", capture);
+    }
 }
+
+/// <summary>Cross-assembly AOT offload result.</summary>
+public sealed record AotOffloadResult(
+    string Summary,
+    [property: Offload] string Evidence,
+    [property: Offload] ContentCapturePart Capture);
+
+/// <summary>Source-generated metadata for AOT offload results.</summary>
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    IncludeFields = true)]
+[JsonSerializable(typeof(AotOffloadResult))]
+public partial class AotToolOutputJsonContext : JsonSerializerContext;
 
 public sealed partial class DerivedExecutionHarness(
     IHarnessConfig<ExternalExecutionSettings> configuration)

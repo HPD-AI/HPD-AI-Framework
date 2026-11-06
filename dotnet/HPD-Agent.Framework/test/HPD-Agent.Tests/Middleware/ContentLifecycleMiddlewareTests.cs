@@ -1,8 +1,11 @@
 using HPD.Agent;
 using HPD.Agent.Middleware;
 using HPD.Agent.Providers;
+using HPD.Agent.Serialization;
 using HPD.Events.Core;
 using Microsoft.Extensions.AI;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Xunit;
 using SessionModel = global::HPD.Agent.Session;
 
@@ -10,12 +13,12 @@ using SessionModel = global::HPD.Agent.Session;
 
 namespace HPD.Agent.Tests.Middleware;
 
-public class ContentUploadMiddlewareTests
+public class ContentLifecycleMiddlewareTests
 {
     [Fact]
     public async Task BeforeMessageTurnAsync_NoDataContent_DoesNothing()
     {
-        var middleware = new ContentUploadMiddleware();
+        var middleware = new ContentLifecycleMiddleware();
         var session = new SessionModel("test-session");
         var message = new ChatMessage(ChatRole.User, "Hello");
         using var capture = new EventCapture();
@@ -31,7 +34,7 @@ public class ContentUploadMiddlewareTests
     public async Task BeforeMessageTurnAsync_StrategyLocal_WithContentStore_UploadsToStore()
     {
         var contentStore = new InMemoryContentStore();
-        var middleware = new ContentUploadMiddleware(contentStore);
+        var middleware = new ContentLifecycleMiddleware(contentStore);
         var session = new SessionModel("test-session");
         var imageBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
         var message = new ChatMessage(ChatRole.User, [
@@ -46,12 +49,10 @@ public class ContentUploadMiddlewareTests
 
         Assert.Equal(2, context.UserInputMessages[0].Contents.Count);
         Assert.IsType<TextContent>(context.UserInputMessages[0].Contents[0]);
-        var uriContent = Assert.IsType<UriContent>(context.UserInputMessages[0].Contents[1]);
-        Assert.Equal(ContentReferenceResolverMiddleware.ContentUriScheme, uriContent.Uri.Scheme);
-        Assert.Equal("image/png", uriContent.MediaType);
+        var storedContent = Assert.IsType<StoredContentReferenceContent>(context.UserInputMessages[0].Contents[1]);
+        Assert.Equal("image/png", storedContent.MediaType);
 
-        var stored = await contentStore.ReadBytesAsync(new ContentAddress(
-            ContentScope.Create(ContentStoreScopes.ForThread(session.Id, "main")), uriContent.Uri.Host));
+        var stored = await contentStore.ReadBytesAsync(storedContent.Address);
         Assert.NotNull(stored);
         Assert.Equal(imageBytes, stored);
         Assert.Single(await capture.WaitForAsync<ContentUploadedEvent>());
@@ -61,7 +62,7 @@ public class ContentUploadMiddlewareTests
     public async Task BeforeMessageTurnAsync_TransformedMessage_PreservesMessageIdentity()
     {
         var contentStore = new InMemoryContentStore();
-        var middleware = new ContentUploadMiddleware(contentStore);
+        var middleware = new ContentLifecycleMiddleware(contentStore);
         var session = new SessionModel("test-session");
         var createdAt = new DateTimeOffset(2026, 6, 2, 12, 0, 0, TimeSpan.Zero);
         var raw = new object();
@@ -85,14 +86,14 @@ public class ContentUploadMiddlewareTests
         Assert.Equal(createdAt, context.UserInputMessages[0].CreatedAt);
         Assert.Equal("ewoof", context.UserInputMessages[0].AuthorName);
         Assert.Same(raw, context.UserInputMessages[0].RawRepresentation);
-        Assert.IsType<UriContent>(Assert.Single(context.UserInputMessages[0].Contents));
+        Assert.IsType<StoredContentReferenceContent>(Assert.Single(context.UserInputMessages[0].Contents));
     }
 
     [Fact]
     public async Task BeforeMessageTurnAsync_StrategyHosted_UsesRunConfigHostedClient()
     {
         var hostedClient = new FakeHostedFileClient();
-        var middleware = new ContentUploadMiddleware(contentStore: null);
+        var middleware = new ContentLifecycleMiddleware(store: null);
         var session = new SessionModel("test-session");
         var data = new DataContent(new byte[] { 1, 2, 3 }, "application/pdf") { Name = "report.pdf" };
         var message = new ChatMessage(ChatRole.User, [data]);
@@ -129,7 +130,7 @@ public class ContentUploadMiddlewareTests
     {
         var contentStore = new InMemoryContentStore();
         var hostedClient = new FakeHostedFileClient();
-        var middleware = new ContentUploadMiddleware(contentStore);
+        var middleware = new ContentLifecycleMiddleware(contentStore);
         var session = new SessionModel("test-session");
         var message = new ChatMessage(ChatRole.User, [new DataContent(new byte[] { 1 }, "image/png")]);
         using var capture = new EventCapture();
@@ -143,14 +144,14 @@ public class ContentUploadMiddlewareTests
 
         Assert.IsType<HostedFileContent>(Assert.Single(context.UserInputMessages[0].Contents));
         Assert.Single(hostedClient.Uploads);
-        Assert.Empty(await contentStore.QueryAsync(ContentScope.Create(ContentStoreScopes.ForThread(session.Id, "main"))));
+        Assert.Empty(await contentStore.QueryAsync(ContentScope.Create(session.Id)));
     }
 
     [Fact]
     public async Task BeforeMessageTurnAsync_Hosted_CompilesResolvedFamilyOptions()
     {
         var hostedClient = new FakeHostedFileClient();
-        var middleware = new ContentUploadMiddleware();
+        var middleware = new ContentLifecycleMiddleware();
         var session = new SessionModel("test-session");
         var message = new ChatMessage(ChatRole.User, [new DataContent(new byte[] { 1 }, "image/png")]);
         using var capture = new EventCapture();
@@ -188,7 +189,7 @@ public class ContentUploadMiddlewareTests
     {
         var contentStore = new InMemoryContentStore();
         var hostedClient = new FakeHostedFileClient { ThrowOnUpload = true };
-        var middleware = new ContentUploadMiddleware(contentStore);
+        var middleware = new ContentLifecycleMiddleware(contentStore);
         var session = new SessionModel("test-session");
         var bytes = new byte[] { 9, 8, 7 };
         var message = new ChatMessage(ChatRole.User, [new DataContent(bytes, "image/png")]);
@@ -201,9 +202,8 @@ public class ContentUploadMiddlewareTests
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        var uriContent = Assert.IsType<UriContent>(Assert.Single(context.UserInputMessages[0].Contents));
-        var stored = await contentStore.ReadBytesAsync(new ContentAddress(
-            ContentScope.Create(ContentStoreScopes.ForThread(session.Id, "main")), uriContent.Uri.Host));
+        var storedContent = Assert.IsType<StoredContentReferenceContent>(Assert.Single(context.UserInputMessages[0].Contents));
+        var stored = await contentStore.ReadBytesAsync(storedContent.Address);
         Assert.NotNull(stored);
         Assert.Equal(bytes, stored);
         Assert.Single(await capture.WaitForAsync<HostedFileUploadFailedEvent>());
@@ -214,7 +214,7 @@ public class ContentUploadMiddlewareTests
     public async Task BeforeMessageTurnAsync_StrategyHosted_NoHostedClient_EmitsFailureKeepsOriginal()
     {
         var contentStore = new InMemoryContentStore();
-        var middleware = new ContentUploadMiddleware(contentStore);
+        var middleware = new ContentLifecycleMiddleware(contentStore);
         var session = new SessionModel("test-session");
         var data = new DataContent(new byte[] { 1, 2, 3 }, "image/png");
         var message = new ChatMessage(ChatRole.User, [data]);
@@ -232,7 +232,7 @@ public class ContentUploadMiddlewareTests
     public async Task BeforeMessageTurnAsync_MultipleDataContents_AllTransformed()
     {
         var contentStore = new InMemoryContentStore();
-        var middleware = new ContentUploadMiddleware(contentStore);
+        var middleware = new ContentLifecycleMiddleware(contentStore);
         var session = new SessionModel("test-session");
         var message = new ChatMessage(ChatRole.User, [
             new TextContent("Compare:"),
@@ -248,9 +248,9 @@ public class ContentUploadMiddlewareTests
 
         Assert.Equal(4, context.UserInputMessages[0].Contents.Count);
         Assert.IsType<TextContent>(context.UserInputMessages[0].Contents[0]);
-        Assert.IsType<UriContent>(context.UserInputMessages[0].Contents[1]);
+        Assert.IsType<StoredContentReferenceContent>(context.UserInputMessages[0].Contents[1]);
         Assert.IsType<TextContent>(context.UserInputMessages[0].Contents[2]);
-        Assert.IsType<UriContent>(context.UserInputMessages[0].Contents[3]);
+        Assert.IsType<StoredContentReferenceContent>(context.UserInputMessages[0].Contents[3]);
         Assert.Equal(2, (await capture.WaitForAsync<ContentUploadedEvent>(2)).Count);
     }
 
@@ -375,13 +375,13 @@ public class ContentUploadMiddlewareTests
     }
 }
 
-public class ContentReferenceResolverMiddlewareTests
+public class ContentLifecycleMaterializationTests
 {
     [Fact]
     public async Task BeforeMessageTurnAsync_NoContentUris_DoesNothing()
     {
         var contentStore = new InMemoryContentStore();
-        var middleware = new ContentReferenceResolverMiddleware(contentStore);
+        var middleware = new ContentLifecycleMiddleware(contentStore);
         var session = new SessionModel("test-session");
         var message = new ChatMessage(ChatRole.User, [
             new TextContent("Hello"),
@@ -402,16 +402,21 @@ public class ContentReferenceResolverMiddlewareTests
     public async Task BeforeMessageTurnAsync_WithContentReference_ResolvesToDataContent()
     {
         var contentStore = new InMemoryContentStore();
-        var middleware = new ContentReferenceResolverMiddleware(contentStore);
+        var middleware = new ContentLifecycleMiddleware(contentStore);
         var session = new SessionModel("test-session");
         var imageBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
         var contentInfo = await contentStore.WriteBytesAsync(
-            ContentScope.Create(ContentStoreScopes.ForThread(session.Id, "main")),
+            ContentScope.Create(session.Id),
             imageBytes,
             "image/png",
-            new ContentMetadata { Origin = ContentSource.User });
-        var contentUri = new UriContent(ContentReferenceResolverMiddleware.CreateContentUri(contentInfo.Address.ContentId), "image/png");
-        var message = new ChatMessage(ChatRole.User, [new TextContent("Analyze:"), contentUri]);
+            new ContentMetadata
+            {
+                Origin = ContentSource.User,
+                Tags = new Dictionary<string, string> { ["thread-id"] = "main" }
+            });
+        var storedContent = new StoredContentReferenceContent(
+            contentInfo.Address, "image/png", "image.png");
+        var message = new ChatMessage(ChatRole.User, [new TextContent("Analyze:"), storedContent]);
         using var capture = new EventCapture();
         var context = CreateBeforeIterationContext(session, message, capture.Coordinator);
 
@@ -427,35 +432,39 @@ public class ContentReferenceResolverMiddlewareTests
     public async Task BeforeMessageTurnAsync_ContentReferenceNotFound_KeepsOriginal()
     {
         var contentStore = new InMemoryContentStore();
-        var middleware = new ContentReferenceResolverMiddleware(contentStore);
+        var middleware = new ContentLifecycleMiddleware(contentStore);
         var session = new SessionModel("test-session");
-        var contentUri = new UriContent(new Uri("hpd-content://non-existent-id"), "image/png");
-        var message = new ChatMessage(ChatRole.User, [contentUri]);
+        var storedContent = new StoredContentReferenceContent(
+            ContentAddress.Create(ContentScope.Create(session.Id), "non-existent-id"),
+            "image/png",
+            "image.png");
+        var message = new ChatMessage(ChatRole.User, [storedContent]);
         using var capture = new EventCapture();
         var context = CreateBeforeIterationContext(session, message, capture.Coordinator);
 
         await middleware.BeforeIterationAsync(context, CancellationToken.None);
 
-        Assert.Same(contentUri, Assert.Single(context.Messages[0].Contents));
-        Assert.Contains(
-            "not found",
-            (await capture.WaitForAsync<ContentReferenceResolutionFailedEvent>()).Single().ErrorMessage,
-            StringComparison.OrdinalIgnoreCase);
+        var unavailable = Assert.IsType<TextContent>(Assert.Single(context.Messages[0].Contents));
+        Assert.Contains("content unavailable", unavailable.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Single(await capture.WaitForAsync<ContentReferenceResolutionFailedEvent>());
     }
 
     [Fact]
     public async Task BeforeMessageTurnAsync_NoContentStore_DoesNothing()
     {
-        var middleware = new ContentReferenceResolverMiddleware(contentStore: null);
+        var middleware = new ContentLifecycleMiddleware(store: null);
         var session = new SessionModel("test-session");
-        var contentUri = new UriContent(new Uri("hpd-content://any-id"), "image/png");
-        var message = new ChatMessage(ChatRole.User, [contentUri]);
+        var storedContent = new StoredContentReferenceContent(
+            ContentAddress.Create(ContentScope.Create(session.Id), "any-id"),
+            "image/png",
+            "image.png");
+        var message = new ChatMessage(ChatRole.User, [storedContent]);
         using var capture = new EventCapture();
         var context = CreateBeforeIterationContext(session, message, capture.Coordinator);
 
         await middleware.BeforeIterationAsync(context, CancellationToken.None);
 
-        Assert.Same(contentUri, Assert.Single(context.Messages[0].Contents));
+        Assert.Same(storedContent, Assert.Single(context.Messages[0].Contents));
         Assert.Empty(capture.Events);
     }
 
@@ -463,8 +472,8 @@ public class ContentReferenceResolverMiddlewareTests
     public async Task RoundTrip_Upload_Then_Resolve()
     {
         var contentStore = new InMemoryContentStore();
-        var uploadMiddleware = new ContentUploadMiddleware(contentStore);
-        var resolveMiddleware = new ContentReferenceResolverMiddleware(contentStore);
+        var uploadMiddleware = new ContentLifecycleMiddleware(contentStore);
+        var resolveMiddleware = new ContentLifecycleMiddleware(contentStore);
         var session = new SessionModel("test-session");
         var imageBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
         var originalMessage = new ChatMessage(ChatRole.User, [new DataContent(imageBytes, "image/png")]);
@@ -474,7 +483,7 @@ public class ContentReferenceResolverMiddlewareTests
 
         await uploadMiddleware.BeforeMessageTurnAsync(context, CancellationToken.None);
         var uploadedMessage = context.UserInputMessages[0];
-        Assert.IsType<UriContent>(uploadedMessage.Contents[0]);
+        Assert.IsType<StoredContentReferenceContent>(uploadedMessage.Contents[0]);
 
         var iterationContext = CreateBeforeIterationContext(session, uploadedMessage, capture.Coordinator, runConfig);
         await resolveMiddleware.BeforeIterationAsync(iterationContext, CancellationToken.None);
@@ -488,8 +497,8 @@ public class ContentReferenceResolverMiddlewareTests
     public async Task RoundTrip_ContentReference_DoesNotResolveFromOtherThreadScope()
     {
         var contentStore = new InMemoryContentStore();
-        var uploadMiddleware = new ContentUploadMiddleware(contentStore);
-        var resolveMiddleware = new ContentReferenceResolverMiddleware(contentStore);
+        var uploadMiddleware = new ContentLifecycleMiddleware(contentStore);
+        var resolveMiddleware = new ContentLifecycleMiddleware(contentStore);
         var session = new SessionModel("test-session");
         var imageBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
         var originalMessage = new ChatMessage(ChatRole.User, [new DataContent(imageBytes, "image/png")]);
@@ -499,13 +508,100 @@ public class ContentReferenceResolverMiddlewareTests
 
         await uploadMiddleware.BeforeMessageTurnAsync(context, CancellationToken.None);
         var uploadedMessage = context.UserInputMessages[0];
-        var contentReference = Assert.IsType<UriContent>(uploadedMessage.Contents[0]);
+        var contentReference = Assert.IsType<StoredContentReferenceContent>(uploadedMessage.Contents[0]);
 
         var siblingContext = CreateBeforeIterationContext(session, uploadedMessage, capture.Coordinator, runConfig, "alternate");
         await resolveMiddleware.BeforeIterationAsync(siblingContext, CancellationToken.None);
 
-        Assert.Same(contentReference, Assert.Single(siblingContext.Messages[0].Contents));
+        Assert.IsType<TextContent>(Assert.Single(siblingContext.Messages[0].Contents));
         Assert.Single(await capture.WaitForAsync<ContentReferenceResolutionFailedEvent>());
+    }
+
+    [Fact]
+    public async Task DurableStore_RestartAndDirectForkMaterializeStoredAttachment()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"hpd-lifecycle-{Guid.NewGuid():N}");
+        try
+        {
+            var session = new SessionModel("test-session");
+            var bytes = new byte[] { 1, 2, 3, 4 };
+            using (var capture = new EventCapture())
+            {
+                var upload = new ContentLifecycleMiddleware(new LocalFileContentStore(root));
+                var context = CreateBeforeMessageTurnContext(
+                    session,
+                    new ChatMessage(ChatRole.User, [new DataContent(bytes, "application/pdf")]),
+                    capture.Coordinator,
+                    new AgentRunConfig { UploadStrategy = UploadStrategy.Local });
+                await upload.BeforeMessageTurnAsync(context, CancellationToken.None);
+            }
+
+            StoredContentReferenceContent stored;
+            using (var capture = new EventCapture())
+            {
+                var reopened = new ContentLifecycleMiddleware(new LocalFileContentStore(root));
+                var upload = CreateBeforeMessageTurnContext(
+                    session,
+                    new ChatMessage(ChatRole.User, [new DataContent(bytes, "application/pdf")]),
+                    capture.Coordinator,
+                    new AgentRunConfig { UploadStrategy = UploadStrategy.Local });
+                await reopened.BeforeMessageTurnAsync(upload, CancellationToken.None);
+                stored = Assert.IsType<StoredContentReferenceContent>(
+                    Assert.Single(upload.UserInputMessages[0].Contents));
+            }
+
+            using (var capture = new EventCapture())
+            {
+                var reopened = new ContentLifecycleMiddleware(new LocalFileContentStore(root));
+                var context = CreateBeforeIterationContext(
+                    session,
+                    new ChatMessage(ChatRole.User, [stored]),
+                    capture.Coordinator,
+                    threadId: "fork",
+                    forkedFrom: "main");
+                await reopened.BeforeIterationAsync(context, CancellationToken.None);
+                var materialized = Assert.IsType<DataContent>(
+                    Assert.Single(context.Messages[0].Contents));
+                Assert.Equal(bytes, materialized.Data.ToArray());
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void StoredContentReference_RoundTripsThroughDurableAIContentContract()
+    {
+        var content = new StoredContentReferenceContent(
+            ContentAddress.Create(
+                ContentScope.Create("test-session"),
+                "content-1",
+                "version-1",
+                "abcdef"),
+            "application/pdf",
+            "report.pdf");
+        var message = new ChatMessage(ChatRole.User, [content])
+        {
+            MessageId = "message-1",
+            AuthorName = "user"
+        };
+        var typeInfo = (JsonTypeInfo<ChatMessage>)SessionJsonContext.CombinedOptions.GetTypeInfo(
+            typeof(ChatMessage));
+        var json = JsonSerializer.Serialize(message, typeInfo);
+        Assert.Contains("hpd:stored-content-reference", json, StringComparison.Ordinal);
+        var restored = JsonSerializer.Deserialize(json, typeInfo)!;
+        var stored = Assert.IsType<StoredContentReferenceContent>(Assert.Single(restored.Contents));
+
+        Assert.Equal("test-session", stored.Address.Scope.Value);
+        Assert.Equal("content-1", stored.Address.ContentId);
+        Assert.Equal("version-1", stored.Address.Version);
+        Assert.Equal("application/pdf", stored.MediaType);
+        Assert.Equal("report.pdf", stored.Name);
+        Assert.Equal("message-1", restored.MessageId);
+        Assert.Equal("user", restored.AuthorName);
     }
 
     private static BeforeIterationContext CreateBeforeIterationContext(
@@ -513,7 +609,8 @@ public class ContentReferenceResolverMiddlewareTests
         ChatMessage userMessage,
         EventCoordinator coordinator,
         AgentRunConfig? runConfig = null,
-        string threadId = "main")
+        string threadId = "main",
+        string? forkedFrom = null)
     {
         var state = AgentLoopState.InitialSafe(
             new List<ChatMessage>(),
@@ -521,13 +618,14 @@ public class ContentReferenceResolverMiddlewareTests
             session.Id,
             "TestAgent");
 
+        var thread = new Thread(session.Id, threadId, "test-agent") { ForkedFrom = forkedFrom };
         var context = new AgentContext(
             "TestAgent",
             session.Id,
             state,
             coordinator,
             session,
-            new Thread(session.Id, threadId, "test-agent"),
+            thread,
             CancellationToken.None);
 
         return context.AsBeforeIteration(

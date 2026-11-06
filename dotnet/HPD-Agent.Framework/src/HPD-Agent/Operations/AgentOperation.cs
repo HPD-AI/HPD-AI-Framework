@@ -106,9 +106,11 @@ public sealed record AgentOperationNotificationPolicy
 /// <summary>Contains a successful terminal operation result.</summary>
 /// <param name="Summary">A bounded, non-secret result summary.</param>
 /// <param name="ArtifactReferences">Durable references to result artifacts.</param>
+/// <param name="ResultPayload">The canonical normalized result shared with model and event projections.</param>
 public sealed record AgentOperationCompletion(
     string? Summary,
-    IReadOnlyList<string>? ArtifactReferences = null);
+    IReadOnlyList<string>? ArtifactReferences = null,
+    ToolResultPayload? ResultPayload = null);
 
 /// <summary>Contains a sanitized terminal operation failure.</summary>
 /// <param name="Code">The stable machine-readable failure code.</param>

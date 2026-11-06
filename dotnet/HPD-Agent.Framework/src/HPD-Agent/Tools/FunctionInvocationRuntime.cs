@@ -139,7 +139,14 @@ internal static class FunctionInvocationRuntime
                     operationContext,
                     runtimeToken).ConfigureAwait(false);
 
-                return new AgentOperationCompletion(ToolResultText.FromResult(result));
+                var normalized = await ToolResultNormalizer.NormalizeAsync(
+                    result,
+                    declaredResultType: null,
+                    HPDToolArgumentBinder.DefaultSerializerOptions,
+                    runtimeToken).ConfigureAwait(false);
+                return new AgentOperationCompletion(
+                    normalized.ToSummary(),
+                    ResultPayload: normalized.ToPayload());
             },
             parentContext.ToolHarnessExecutionScope,
             clientExecutionOwner).ConfigureAwait(false);

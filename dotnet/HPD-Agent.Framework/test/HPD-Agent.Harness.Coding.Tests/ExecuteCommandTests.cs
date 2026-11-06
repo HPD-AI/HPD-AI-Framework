@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text;
 using System.Text.Json;
 using System.Xml.Linq;
 using HPD.Agent;
@@ -737,36 +738,28 @@ public sealed class ExecuteCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task ExecuteCommand_ForegroundRun_WritesExplicitMetadataJson()
+    public async Task ExecuteCommand_ForegroundRun_ReturnsCompleteTypedCaptures()
     {
-        var store = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
-        var contentStore = new LocalFileContentStore(Path.Combine(_tempRoot, "content"));
         var runner = new FakeProcessProvider
         {
             Result = CreateResult(stdout: "metadata stdout\n", stderr: "metadata stderr\n", exitCode: 0)
         };
 
-        await CodingHarnessTestFactory.Create().ExecuteCommandCore(
-            context: CreateContext(runner, store, contentStore: contentStore),
+        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
+            context: CreateContext(runner),
             command: "dotnet test");
 
-        var artifacts = await contentStore.QueryAsync(ContentScope.Create("session-1"), new ContentQuery
-        {
-            Tags = new Dictionary<string, string> { ["kind"] = "artifact" }
-        });
-        var metadataInfo = artifacts.Should().ContainSingle(item =>
-            item.Name.EndsWith("/metadata.json", StringComparison.Ordinal)).Subject;
-        await using var content = await contentStore.OpenReadAsync(metadataInfo.Address);
-        content.Should().NotBeNull();
-        using var metadata = await JsonDocument.ParseAsync(content!.Content);
-        var root = metadata.RootElement;
-        root.GetProperty("command_id").GetString().Should().StartWith("cmd_");
-        root.GetProperty("command").GetString().Should().Be("dotnet test");
-        root.GetProperty("exit_code").GetInt32().Should().Be(0);
-        root.GetProperty("completion_kind").GetString().Should().Be("Completed");
-        root.GetProperty("stdout").GetProperty("ContentType").GetString().Should().Be("text/plain");
-        root.GetProperty("stdout").GetProperty("Bytes").GetInt64().Should().BeGreaterThan(0);
-        root.GetProperty("stderr").GetProperty("Bytes").GetInt64().Should().BeGreaterThan(0);
+        result.Command.Should().Be("dotnet test");
+        result.ExitCode.Should().Be(0);
+        result.Stdout.Should().NotBeNull();
+        result.Stderr.Should().NotBeNull();
+        result.CombinedOutput.Should().NotBeNull();
+        Encoding.UTF8.GetString(result.Stdout!.Complete()).Should().Be("metadata stdout\n");
+        Encoding.UTF8.GetString(result.Stderr!.Complete()).Should().Be("metadata stderr\n");
+        Encoding.UTF8.GetString(result.CombinedOutput!.Complete()).Should()
+            .Contain("hpd.execute-command.interleaved.v1")
+            .And.Contain("metadata stdout")
+            .And.Contain("metadata stderr");
     }
 
     [Fact]
@@ -807,62 +800,6 @@ public sealed class ExecuteCommandTests : IDisposable
         error.Should().NotBeNull();
         error!.Attribute("kind")?.Value.Should().Be("start_failed");
         error.Value.Should().Contain("process start failure");
-    }
-
-    [Fact]
-    public async Task ExecuteCommand_ForegroundRun_CommitsArtifactsWhenSessionContentStoreExists()
-    {
-        var store = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
-        var contentStore = new LocalFileContentStore(Path.Combine(_tempRoot, "content"));
-        var runner = new FakeProcessProvider
-        {
-            Result = CreateResult(stdout: "artifact stdout\n", stderr: "artifact stderr\n", exitCode: 0)
-        };
-
-        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
-            context: CreateContext(runner, store, contentStore: contentStore),
-            command: "dotnet test");
-
-        var xml = result.ToString();
-        xml.Should().NotContain("artifact_path=");
-        xml.Should().Contain("content_id=");
-
-        var artifacts = await contentStore.QueryAsync(ContentScope.Create("session-1"), new ContentQuery
-        {
-            Tags = new Dictionary<string, string> { ["kind"] = "artifact" }
-        });
-
-        artifacts.Select(item => item.Name).Should().Contain(name => name.EndsWith("/stdout.txt", StringComparison.Ordinal));
-        artifacts.Select(item => item.Name).Should().Contain(name => name.EndsWith("/stderr.txt", StringComparison.Ordinal));
-        artifacts.Select(item => item.Name).Should().Contain(name => name.EndsWith("/combined.log", StringComparison.Ordinal));
-        artifacts.Select(item => item.Name).Should().Contain(name => name.EndsWith("/metadata.json", StringComparison.Ordinal));
-        foreach (var artifact in artifacts)
-        {
-            artifact.Tags.Should().NotBeNull();
-            artifact.Tags!["artifact-kind"].Should().Be("execute_command_output");
-            artifact.Tags["command-id"].Should().StartWith("cmd_");
-            artifact.Tags["cwd"].Should().Be(Directory.GetCurrentDirectory());
-        }
-    }
-
-    [Fact]
-    public async Task ExecuteCommand_OutputStoreCommitFailure_ReturnsStructuredWarning()
-    {
-        var runner = new FakeProcessProvider
-        {
-            Result = CreateResult(stdout: "preview survives\n", exitCode: 0)
-        };
-
-        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
-            context: CreateContext(runner, contentStore: new ThrowingContentStore()),
-            command: "dotnet test");
-
-        var xml = result.ToString();
-        xml.Should().Contain("preview survives");
-        xml.Should().Contain("<output_store");
-        xml.Should().Contain("content_store_available=\"true\"");
-        xml.Should().Contain("warning=\"Failed to commit command output artifacts: commit blocked\"");
-        xml.Should().Contain("local_path=");
     }
 
     [Fact]
@@ -2081,46 +2018,5 @@ public sealed class ExecuteCommandTests : IDisposable
         public async IAsyncEnumerable<ThreadEventBatch> ObserveThreadEventsAsync(ThreadKey thread, ThreadJournalCursor after, ThreadObservationOptions options, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default) { await Task.CompletedTask; yield break; }
         public Task DeleteThreadAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<int> DeleteInactiveSessionsAsync(TimeSpan inactivityThreshold, bool dryRun = false, CancellationToken cancellationToken = default) => Task.FromResult(0);
-    }
-
-    private sealed class ThrowingContentStore : IContentStore
-    {
-        public ContentStorePersistenceCapability PersistenceCapability
-            => ContentStorePersistenceCapability.RestartDurable;
-
-        public ValueTask<ContentInfo> WriteAsync(
-            ContentScope scope,
-            Stream data,
-            ContentMetadata metadata,
-            ContentWriteOptions options,
-            CancellationToken cancellationToken = default)
-            => throw new InvalidOperationException("commit blocked");
-
-        public ValueTask<ContentReadResult?> OpenReadAsync(
-            ContentAddress address,
-            CancellationToken cancellationToken = default)
-            => ValueTask.FromResult<ContentReadResult?>(null);
-
-        public ValueTask<Uri?> CreateReadUriAsync(
-            ContentAddress address,
-            TimeSpan expiresIn,
-            CancellationToken cancellationToken = default)
-            => ValueTask.FromResult<Uri?>(null);
-
-        public ValueTask<ContentInfo?> StatAsync(
-            ContentAddress address,
-            CancellationToken cancellationToken = default)
-            => ValueTask.FromResult<ContentInfo?>(null);
-
-        public ValueTask DeleteAsync(
-            ContentAddress address,
-            CancellationToken cancellationToken = default)
-            => ValueTask.CompletedTask;
-
-        public ValueTask<IReadOnlyList<ContentInfo>> QueryAsync(
-            ContentScope scope,
-            ContentQuery? query = null,
-            CancellationToken cancellationToken = default)
-            => ValueTask.FromResult<IReadOnlyList<ContentInfo>>([]);
     }
 }

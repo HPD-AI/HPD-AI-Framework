@@ -44,6 +44,10 @@ public sealed class ToolResultLifecycleTests : AgentTestBase
         client.EnqueueToolCall("OffloadProbe", "call-offload");
         client.EnqueueTextResponse("done");
         var store = new InMemoryContentStore();
+        var applicationArtifact = await store.WriteBytesAsync(
+            ContentScope.Create("application-artifacts"),
+            "authoritative"u8.ToArray(),
+            "application/octet-stream");
         var tool = HPDAIFunctionFactory.Create(
             (_, _, _) => Task.FromResult<object?>(new OffloadResult(
                 "summary",
@@ -88,6 +92,70 @@ public sealed class ToolResultLifecycleTests : AgentTestBase
         Assert.False(reference.TryGetProperty("body", out _));
         var stored = await store.QueryAsync(ContentScope.Create("offload-session"));
         Assert.Single(stored);
+        await agent.DeleteSessionAsync("offload-session");
+        Assert.Empty(await store.QueryAsync(ContentScope.Create("offload-session")));
+        Assert.Single(await store.QueryAsync(ContentScope.Create("application-artifacts")));
+        Assert.NotNull(await store.StatAsync(applicationArtifact.Address));
+    }
+
+    [Fact]
+    public async Task FinalizedCapture_IsPublishedAsCompletePartAndRetryIsIdempotent()
+    {
+        var client = new FakeChatClient();
+        client.EnqueueToolCall("CaptureProbe", "call-capture");
+        client.EnqueueTextResponse("first");
+        client.EnqueueToolCall("CaptureProbe", "call-capture");
+        client.EnqueueTextResponse("second");
+        var store = new InMemoryContentStore();
+        var options = new JsonSerializerOptions(
+            HPD.Agent.Serialization.HpdAgentJsonUtilities.CreateDefaultOptions());
+        options.TypeInfoResolverChain.Insert(0, ToolResultLifecycleJsonContext.Default);
+        options.MakeReadOnly();
+        var tool = HPDAIFunctionFactory.Create(
+            (_, context, _) =>
+            {
+                var output = context.Outputs.CreatePart("stdout", "text/plain");
+                output.WriteAsync(System.Text.Encoding.UTF8.GetBytes("HEAD\ncomplete tail\n"))
+                    .AsTask().GetAwaiter().GetResult();
+                return Task.FromResult<object?>(new CaptureResult("finished", output));
+            },
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = "CaptureProbe",
+                ResultType = typeof(CaptureResult),
+                SerializerOptions = options,
+                ContentProjectionPlan = new(
+                    typeof(CaptureResult),
+                    [new("/output", "output", ContentSensitivity.Internal, StreamingCapture: true)])
+            });
+
+        await using var agent = await new AgentBuilder(new AgentConfig
+            {
+                Name = "capture-test",
+                ToolOutputs = new ToolOutputConfig { MaxInlineResultBytes = 64 * 1024 }
+            })
+            .WithEventComposition(HPD.Agent.Serialization.CoreAgentEventComposition.Instance)
+            .WithChatClient(new IdentifiedClient(client))
+            .WithContentStore(store)
+            .WithNativeFunction(tool)
+            .BuildAsync();
+
+        await agent.CreateSessionAsync("capture-session");
+        for (var index = 0; index < 2; index++)
+        {
+            await agent.RunAsync(new UserMessagesInputEvent
+            {
+                SessionId = "capture-session",
+                ThreadId = "main",
+                Messages = [new(ChatRole.User, "run capture")]
+            });
+        }
+
+        var stored = Assert.Single(await store.QueryAsync(ContentScope.Create("capture-session")));
+        await using var opened = await store.OpenReadAsync(stored.Address);
+        using var document = await JsonDocument.ParseAsync(opened!.Content);
+        Assert.Equal("HEAD\ncomplete tail\n",
+            document.RootElement.GetProperty("parts").GetProperty("stdout").GetString());
     }
 
     private sealed class ResultCaptureMiddleware : IAgentMiddleware
@@ -118,7 +186,10 @@ public sealed class ToolResultLifecycleTests : AgentTestBase
 
 public sealed record OffloadResult(string Summary, string Evidence);
 
+public sealed record CaptureResult(string Summary, ContentCapturePart Output);
+
 [System.Text.Json.Serialization.JsonSourceGenerationOptions(
     PropertyNamingPolicy = System.Text.Json.Serialization.JsonKnownNamingPolicy.CamelCase)]
 [System.Text.Json.Serialization.JsonSerializable(typeof(OffloadResult))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(CaptureResult))]
 internal partial class ToolResultLifecycleJsonContext : System.Text.Json.Serialization.JsonSerializerContext;

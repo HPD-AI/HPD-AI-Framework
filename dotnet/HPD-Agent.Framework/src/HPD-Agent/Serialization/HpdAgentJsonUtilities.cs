@@ -13,6 +13,8 @@ public static class HpdAgentJsonUtilities
 
     public static JsonSerializerOptions DefaultOptions { get; } = CreateDefaultOptions(makeReadOnly: true);
 
+    internal static IJsonTypeInfoResolver RegisteredResolver => RegisteredTypeInfoResolver.Instance;
+
     /// <summary>
     /// Adds a source-generated JSON metadata resolver for integration-specific runtime types.
     /// </summary>
@@ -37,7 +39,8 @@ public static class HpdAgentJsonUtilities
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-            WriteIndented = false
+            WriteIndented = false,
+            IncludeFields = true
         };
 
         options.TypeInfoResolverChain.Clear();
@@ -50,10 +53,21 @@ public static class HpdAgentJsonUtilities
                 options.TypeInfoResolverChain.Add(resolver);
         }
 
+        RegisterContentTypes(options);
+
         if (makeReadOnly)
             options.MakeReadOnly();
 
         return options;
+    }
+
+    /// <summary>Adds framework content transport types to an effective serializer contract.</summary>
+    internal static void RegisterContentTypes(JsonSerializerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        if (!options.Converters.Any(static converter => converter is ContentCaptureJsonConverter))
+            options.Converters.Add(new ContentCaptureJsonConverter());
+        options.AddAIContentType<Middleware.StoredContentReferenceContent>("hpd:stored-content-reference");
     }
 
     private sealed class RegisteredTypeInfoResolver : IJsonTypeInfoResolver

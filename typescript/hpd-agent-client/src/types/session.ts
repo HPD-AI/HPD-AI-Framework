@@ -472,7 +472,7 @@ export type ThreadEvent = AgentEvent & {
 /**
  * Reference to an uploaded content (returned by POST /sessions/{sid}/threads/{bid}/content).
  * Passed as attachments in SendOptions; the workspace converts these to
- * UriContent references in the outgoing message.
+ * StoredContentReferenceContent values in the outgoing message.
  */
 export interface ContentReference {
   contentId: string;

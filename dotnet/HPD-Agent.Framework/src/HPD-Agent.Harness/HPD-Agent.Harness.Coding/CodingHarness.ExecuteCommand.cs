@@ -48,7 +48,7 @@ public partial class CodingToolHarness
     /// <returns>The command result or a structured command error.</returns>
     [AIFunction]
     [Description("Runs, lists, inspects, or stops shell commands for the coding workspace. Select exactly one action shape. Use run for builds, tests, project scripts, package managers, git inspection, code generation, formatters, linters, and local servers. Use listBackground, readOutput, or stop only for background commands previously started by this function.")]
-    public async Task<object> ExecuteCommand(
+    public async Task<ExecuteCommandResult> ExecuteCommand(
         [Description("The closed command operation to perform.")]
         ExecuteCommandOperation request,
         FunctionExecutionContext context = null!,
@@ -106,7 +106,7 @@ public partial class CodingToolHarness
             _ => throw new ArgumentOutOfRangeException(nameof(request))
         };
 
-    internal async Task<object> ExecuteCommandCore(
+    internal async Task<ExecuteCommandResult> ExecuteCommandCore(
         ExecuteCommandAction action = ExecuteCommandAction.Run,
         string? command = null,
         string? operationId = null,
@@ -165,7 +165,7 @@ public partial class CodingToolHarness
             cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<string> RunExecuteCommandBackgroundAsync(
+    private async Task<ExecuteCommandResult> RunExecuteCommandBackgroundAsync(
         ExecuteCommandRequest request,
         FunctionExecutionContext context,
         CancellationToken cancellationToken,
@@ -332,7 +332,8 @@ public partial class CodingToolHarness
                     baseCommand,
                     result,
                     outputMetadata,
-                    duration);
+                    duration,
+                    context.Outputs);
             }
 
             await RegisterBackgroundProcessAsync(context, background, cancellationToken).ConfigureAwait(false);
@@ -364,7 +365,7 @@ public partial class CodingToolHarness
         }
     }
 
-    private async Task<string> RunExecuteCommandForegroundAsync(
+    private async Task<ExecuteCommandResult> RunExecuteCommandForegroundAsync(
         ExecuteCommandRequest request,
         FunctionExecutionContext context,
         CancellationToken cancellationToken,
@@ -542,7 +543,8 @@ public partial class CodingToolHarness
                 baseCommand,
                 result,
                 outputMetadata,
-                stopwatch.Elapsed);
+                stopwatch.Elapsed,
+                context.Outputs);
         }
         catch (OperationCanceledException)
         {
@@ -1086,14 +1088,15 @@ public partial class CodingToolHarness
         return values;
     }
 
-    private static string FormatExecuteCommandResult(
+    private static ExecuteCommandResult FormatExecuteCommandResult(
         ExecuteCommandRequest request,
         string shell,
         ExecuteCommandCategory category,
         string baseCommand,
         ProcessInvocationResult result,
         ExecuteCommandOutputStoreMetadata outputMetadata,
-        TimeSpan duration)
+        TimeSpan duration,
+        FunctionContentOutputs outputs)
     {
         var stdout = BuildExecuteCommandStreamResult(result.Output.Stdout);
         var stderr = BuildExecuteCommandStreamResult(result.Output.Stderr);
@@ -1136,10 +1139,23 @@ public partial class CodingToolHarness
 
         writer.WriteEndElement();
         writer.Flush();
-        return builder.ToString();
+        return new ExecuteCommandResult
+        {
+            Status = FormatEnum(ToExecuteCommandCompletionKind(result.CompletionKind)),
+            Summary = builder.ToString(),
+            Command = request.Command,
+            WorkingDirectory = request.WorkingDirectory,
+            ExitCode = result.ExitCode,
+            CompletionKind = FormatEnum(ToExecuteCommandCompletionKind(result.CompletionKind)),
+            DurationMilliseconds = (long)duration.TotalMilliseconds,
+            Stdout = CreateCapture(outputs, "stdout", result.Output.Stdout, outputMetadata.Stdout),
+            Stderr = CreateCapture(outputs, "stderr", result.Output.Stderr, outputMetadata.Stderr),
+            CombinedOutput = CreateCapture(outputs, "combined", result.Output.Stdout,
+                outputMetadata.Combined)
+        };
     }
 
-    private static string FormatExecuteCommandBackgroundStarted(
+    private static ExecuteCommandResult FormatExecuteCommandBackgroundStarted(
         ExecuteCommandRequest request,
         string operationId,
         string outputPath,
@@ -1162,7 +1178,15 @@ public partial class CodingToolHarness
         writer.WriteEndElement();
         writer.WriteEndElement();
         writer.Flush();
-        return builder.ToString();
+        return new ExecuteCommandResult
+        {
+            Status = "background_started",
+            Summary = builder.ToString(),
+            Command = request.Command,
+            WorkingDirectory = request.WorkingDirectory,
+            OperationId = operationId,
+            CompletionKind = "launched_not_verified"
+        };
     }
 
     private async ValueTask<ExecuteCommandProcessOperation?> TryRegisterExistingHandleAsBackgroundAsync(
@@ -1233,7 +1257,7 @@ public partial class CodingToolHarness
         }
     }
 
-    private static string ListBackgroundCommands(
+    private static ExecuteCommandResult ListBackgroundCommands(
         ExecuteCommandRequest request,
         FunctionExecutionContext context)
     {
@@ -1250,10 +1274,14 @@ public partial class CodingToolHarness
             WriteBackgroundCommandElement(writer, command);
         writer.WriteEndElement();
         writer.Flush();
-        return builder.ToString();
+        return new ExecuteCommandResult
+        {
+            Status = "background_list",
+            Summary = builder.ToString()
+        };
     }
 
-    private static async Task<string> ReadBackgroundCommandOutputAsync(
+    private static async Task<ExecuteCommandResult> ReadBackgroundCommandOutputAsync(
         ExecuteCommandRequest request,
         FunctionExecutionContext context,
         CancellationToken cancellationToken)
@@ -1314,10 +1342,18 @@ public partial class CodingToolHarness
 
         writer.WriteEndElement();
         writer.Flush();
-        return builder.ToString();
+        return new ExecuteCommandResult
+        {
+            Status = FormatEnum(background.Status),
+            Summary = builder.ToString(),
+            Command = background.Request.Command,
+            WorkingDirectory = background.Request.WorkingDirectory,
+            ExitCode = background.ExitCode,
+            OperationId = background.CommandId
+        };
     }
 
-    private static async Task<string> StopBackgroundCommandAsync(
+    private static async Task<ExecuteCommandResult> StopBackgroundCommandAsync(
         ExecuteCommandRequest request,
         FunctionExecutionContext context,
         CancellationToken cancellationToken)
@@ -1361,7 +1397,16 @@ public partial class CodingToolHarness
         }
         writer.WriteEndElement();
         writer.Flush();
-        return builder.ToString();
+        return new ExecuteCommandResult
+        {
+            Status = FormatEnum(background.Status),
+            Summary = builder.ToString(),
+            Command = background.Request.Command,
+            WorkingDirectory = background.Request.WorkingDirectory,
+            ExitCode = result.ExitCode,
+            CompletionKind = FormatEnum(ToExecuteCommandCompletionKind(result.CompletionKind)),
+            OperationId = background.CommandId
+        };
     }
 
     private static async ValueTask<bool> EmitExecuteCommandProcessExitedEventAsync(
@@ -1572,6 +1617,24 @@ public partial class CodingToolHarness
             stream.Truncated || previewTruncated);
     }
 
+    private static ContentCapturePart? CreateCapture(
+        FunctionContentOutputs outputs,
+        string name,
+        ProcessStreamOutput stream,
+        ExecuteCommandOutputHandle handle)
+    {
+        var bytes = handle.LocalPath is { } path && File.Exists(path)
+            ? File.ReadAllBytes(path)
+            : stream.CapturedBytes.ToArray();
+        if (bytes.Length == 0)
+            return null;
+        var capture = outputs.CreatePart(
+            name,
+            handle.Binary ? "application/octet-stream" : "text/plain");
+        capture.WriteAsync(bytes).AsTask().GetAwaiter().GetResult();
+        return capture;
+    }
+
     private static string SanitizeTerminalOutputForXml(string value)
     {
         var withoutAnsi = AnsiEscapeSequencePattern.Replace(value, "");
@@ -1727,7 +1790,7 @@ public partial class CodingToolHarness
             _ => ExecuteCommandCompletionKind.Faulted
         };
 
-    private static string FormatExecuteCommandError(ExecuteCommandError error)
+    private static ExecuteCommandResult FormatExecuteCommandError(ExecuteCommandError error)
     {
         var builder = new StringBuilder();
         using var writer = CreateCodingToolHarnessXmlWriter(builder);
@@ -1741,7 +1804,15 @@ public partial class CodingToolHarness
         writer.WriteString(error.Message);
         writer.WriteEndElement();
         writer.Flush();
-        return builder.ToString();
+        return new ExecuteCommandResult
+        {
+            Status = "error",
+            Summary = builder.ToString(),
+            Command = error.Command,
+            WorkingDirectory = error.WorkingDirectory,
+            ErrorKind = FormatEnum(error.Kind),
+            ErrorMessage = error.Message
+        };
     }
 
     private static ExecuteCommandNormalizationResult InvalidArguments(
@@ -2040,6 +2111,43 @@ internal sealed record ExecuteCommandWorkingDirectoryResult(
     string? WorkingDirectory,
     ExecuteCommandError? Error);
 
+/// <summary>Canonical typed result for every ExecuteCommand action.</summary>
+public sealed record ExecuteCommandResult
+{
+    /// <summary>Gets the stable result status.</summary>
+    public required string Status { get; init; }
+    /// <summary>Gets the bounded XML summary presented inline to the model.</summary>
+    public required string Summary { get; init; }
+    /// <summary>Gets the command text when applicable.</summary>
+    public string? Command { get; init; }
+    /// <summary>Gets the working directory when applicable.</summary>
+    public string? WorkingDirectory { get; init; }
+    /// <summary>Gets the process exit code when available.</summary>
+    public int? ExitCode { get; init; }
+    /// <summary>Gets the process completion kind when available.</summary>
+    public string? CompletionKind { get; init; }
+    /// <summary>Gets the operation identifier for background actions.</summary>
+    public string? OperationId { get; init; }
+    /// <summary>Gets the elapsed command duration when available.</summary>
+    public long? DurationMilliseconds { get; init; }
+    /// <summary>Gets a stable error kind when the action failed.</summary>
+    public string? ErrorKind { get; init; }
+    /// <summary>Gets a bounded error message when the action failed.</summary>
+    public string? ErrorMessage { get; init; }
+    /// <summary>Gets the complete stdout capture.</summary>
+    [Offload]
+    public ContentCapturePart? Stdout { get; init; }
+    /// <summary>Gets the complete stderr capture.</summary>
+    [Offload]
+    public ContentCapturePart? Stderr { get; init; }
+    /// <summary>Gets the complete interleaved output capture.</summary>
+    [Offload]
+    public ContentCapturePart? CombinedOutput { get; init; }
+
+    /// <inheritdoc />
+    public override string ToString() => Summary;
+}
+
 internal sealed record ExecuteCommandError(
     ExecuteCommandErrorKind Kind,
     string? Command,
@@ -2250,16 +2358,10 @@ internal sealed class ExecuteCommandOutputSink(
 
 internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
 {
-    private const int MaxStartupReconciliationDirectories = 32;
-    private const int MaxDiagnosticTailCharacters = 4096;
-    private const string PendingContentFileName = ".pending-content.jsonl";
     private const string CommittedFileName = ".committed";
     private readonly string _commandId;
     private readonly ExecuteCommandRequest _request;
     private readonly ExecuteCommandOptions _options;
-    private readonly IContentStore? _contentStore;
-    private readonly string? _sessionId;
-    private readonly string? _threadId;
     private readonly string _rootDirectory;
     private readonly CappedOutputFile _stdout;
     private readonly CappedOutputFile _stderr;
@@ -2271,17 +2373,11 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
         string commandId,
         ExecuteCommandRequest request,
         ExecuteCommandOptions options,
-        IContentStore? contentStore,
-        string? sessionId,
-        string? threadId,
         string rootDirectory)
     {
         _commandId = commandId;
         _request = request;
         _options = options;
-        _contentStore = contentStore;
-        _sessionId = sessionId;
-        _threadId = threadId;
         _rootDirectory = rootDirectory;
         _lease = new FileStream(Path.Combine(rootDirectory, ".lease"), FileMode.OpenOrCreate,
             FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);
@@ -2298,13 +2394,6 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         var spoolRoot = Path.Combine(Path.GetTempPath(), "hpd-command-results");
-        var contentStore = context.SessionId is { Length: > 0 }
-            ? context.ContentStore
-            : null;
-        if (context.SessionId is { Length: > 0 } sessionId)
-            await ReconcileOrphansAsync(spoolRoot, contentStore, ContentScope.Create(sessionId),
-                MaxStartupReconciliationDirectories, cancellationToken).ConfigureAwait(false);
-
         var rootDirectory = Path.Combine(spoolRoot, commandId);
         Directory.CreateDirectory(rootDirectory);
 
@@ -2312,9 +2401,6 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
             commandId,
             request,
             options,
-            contentStore,
-            context.SessionId,
-            context.ThreadId,
             rootDirectory);
         await session.OpenAsync(cancellationToken).ConfigureAwait(false);
         return session;
@@ -2373,8 +2459,6 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
 
         var stdoutBinary = IsBinary(result.Output.Stdout);
         var stderrBinary = IsBinary(result.Output.Stderr);
-        string? warning = null;
-        ExecuteCommandContentWriteFailure? contentWriteFailure = null;
 
         var stdout = CreateLocalHandle(_stdout, "text/plain", stdoutBinary);
         var stderr = CreateLocalHandle(_stderr, "text/plain", stderrBinary);
@@ -2391,64 +2475,15 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
             metadataBytes.Length,
             false,
             false);
-        var contentState = _contentStore is null
-            ? ExecuteCommandOutputContentState.Unavailable
-            : _contentStore.PersistenceCapability == ContentStorePersistenceCapability.RestartDurable
-                ? ExecuteCommandOutputContentState.RestartDurable
-                : ExecuteCommandOutputContentState.Ephemeral;
-
-        if (_contentStore is not null && _sessionId is not null &&
-            contentState == ExecuteCommandOutputContentState.RestartDurable)
-        {
-            var localStdout = stdout;
-            var localStderr = stderr;
-            var localCombined = combined;
-            var localMetadata = metadata;
-            var createdAddresses = new List<ContentAddress>(4);
-            string? artifactRole = null;
-            try
-            {
-                artifactRole = "stdout";
-                stdout = await CommitAsync(stdout, "stdout.txt", "stdout", createdAddresses, cancellationToken).ConfigureAwait(false);
-                artifactRole = "stderr";
-                stderr = await CommitAsync(stderr, "stderr.txt", "stderr", createdAddresses, cancellationToken).ConfigureAwait(false);
-                artifactRole = "combined";
-                combined = await CommitAsync(combined, "combined.log", "combined", createdAddresses, cancellationToken).ConfigureAwait(false);
-                artifactRole = "metadata";
-                metadata = await CommitAsync(metadata, "metadata.json", "metadata", createdAddresses, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                warning = $"Failed to commit command output artifacts: {ex.Message}";
-                var cleanupFailed = false;
-                foreach (var committedAddress in createdAddresses)
-                {
-                    try { await _contentStore.DeleteAsync(committedAddress, CancellationToken.None).ConfigureAwait(false); }
-                    catch { cleanupFailed = true; }
-                }
-                contentWriteFailure = new(
-                    cleanupFailed ? ExecuteCommandContentWriteFailureKind.CleanupFailed : ExecuteCommandContentWriteFailureKind.WriteRejected,
-                    artifactRole,
-                    TruncateDiagnostic(ex.Message),
-                    await ReadTailAsync(_stdout.Path, cancellationToken).ConfigureAwait(false),
-                    await ReadTailAsync(_stderr.Path, cancellationToken).ConfigureAwait(false));
-                stdout = localStdout;
-                stderr = localStderr;
-                combined = localCombined;
-                metadata = localMetadata;
-                contentState = ExecuteCommandOutputContentState.Unavailable;
-            }
-        }
-
         return new ExecuteCommandOutputStoreMetadata(
             stdout,
             stderr,
             combined,
             metadata,
-            _contentStore is not null,
-            warning,
-            contentWriteFailure,
-            contentState,
+            false,
+            null,
+            null,
+            ExecuteCommandOutputContentState.Unavailable,
             _options.MaxPersistedOutputBytes);
     }
 
@@ -2466,78 +2501,6 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
     {
         await File.WriteAllTextAsync(Path.Combine(_rootDirectory, CommittedFileName), "committed", cancellationToken)
             .ConfigureAwait(false);
-        TryDeleteFile(Path.Combine(_rootDirectory, PendingContentFileName));
-    }
-
-    internal static async ValueTask ReconcileOrphansAsync(
-        string spoolRoot,
-        IContentStore? contentStore,
-        ContentScope scope,
-        int maxDirectories,
-        CancellationToken cancellationToken)
-    {
-        if (!Directory.Exists(spoolRoot) || maxDirectories <= 0) return;
-        var processedDirectories = 0;
-        var scannedDirectories = 0;
-        var scanBudget = checked(maxDirectories * 4);
-        foreach (var directory in Directory.EnumerateDirectories(spoolRoot))
-        {
-            if (processedDirectories >= maxDirectories || scannedDirectories >= scanBudget) break;
-            scannedDirectories++;
-            cancellationToken.ThrowIfCancellationRequested();
-            FileStream? lease = null;
-            try
-            {
-                lease = new FileStream(Path.Combine(directory, ".lease"), FileMode.OpenOrCreate,
-                    FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);
-            }
-            catch (IOException) { continue; }
-
-            await using (lease.ConfigureAwait(false))
-            {
-                var pendingPath = Path.Combine(directory, PendingContentFileName);
-                var committedPath = Path.Combine(directory, CommittedFileName);
-                var ownedByScope = !File.Exists(pendingPath) || File.Exists(committedPath);
-                if (!File.Exists(committedPath) && File.Exists(pendingPath))
-                {
-                    if (contentStore is null)
-                        continue;
-
-                    var unresolved = new List<string>();
-                    foreach (var line in await File.ReadAllLinesAsync(pendingPath, cancellationToken).ConfigureAwait(false))
-                    {
-                        if (string.IsNullOrWhiteSpace(line)) continue;
-                        try
-                        {
-                            var address = System.Text.Json.JsonSerializer.Deserialize(
-                                line,
-                                CodingToolHarnessJsonContext.Default.ContentAddress);
-                            if (address.Scope == scope)
-                            {
-                                ownedByScope = true;
-                                await contentStore.DeleteAsync(address, cancellationToken).ConfigureAwait(false);
-                            }
-                            else
-                                unresolved.Add(line);
-                        }
-                        catch
-                        {
-                            // Preserve entries that this authority cannot safely reconcile.
-                            unresolved.Add(line);
-                        }
-                    }
-
-                    if (unresolved.Count > 0)
-                    {
-                        await File.WriteAllLinesAsync(pendingPath, unresolved, cancellationToken).ConfigureAwait(false);
-                        if (ownedByScope) processedDirectories++;
-                        continue;
-                    }
-                }
-            }
-            processedDirectories++;
-            TryDeleteDirectory(directory);
-        }
     }
 
     private async ValueTask OpenAsync(CancellationToken cancellationToken)
@@ -2590,93 +2553,6 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
         bytes.CopyTo(framed.AsMemory(header.Length));
         framed[^1] = (byte)'\n';
         return framed;
-    }
-
-    private async ValueTask<ExecuteCommandOutputHandle> CommitAsync(
-        ExecuteCommandOutputHandle local,
-        string fileName,
-        string stream,
-        ICollection<ContentAddress> createdAddresses,
-        CancellationToken cancellationToken)
-    {
-        if (local.LocalPath is null || _contentStore is null || _sessionId is null)
-            return local;
-
-        var artifactName = $"commands/{_commandId}/{fileName}";
-        var contentId = Uri.EscapeDataString(artifactName);
-        var scope = ContentScope.Create(_sessionId);
-        if (await _contentStore.StatAsync(new ContentAddress(scope, contentId), cancellationToken).ConfigureAwait(false) is { } existing)
-        {
-            return local with
-            {
-                ArtifactPath = null,
-                ContentId = existing.Address.ContentId,
-                Address = existing.Address
-            };
-        }
-        var provisionalAddress = new ContentAddress(scope, contentId);
-        await File.AppendAllTextAsync(
-            Path.Combine(_rootDirectory, PendingContentFileName),
-            System.Text.Json.JsonSerializer.Serialize(
-                provisionalAddress,
-                CodingToolHarnessJsonContext.Default.ContentAddress) + Environment.NewLine,
-            cancellationToken).ConfigureAwait(false);
-        await using var data = new FileStream(
-            local.LocalPath,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read | FileShare.Delete,
-            bufferSize: 81920,
-            useAsync: true);
-        var contentInfo = await _contentStore.WriteAsync(
-            scope,
-            data,
-            new ContentMetadata
-            {
-                ContentType = local.ContentType,
-                Name = artifactName,
-                Origin = ContentSource.Agent,
-                Tags = new Dictionary<string, string>
-                {
-                    ["kind"] = "artifact",
-                    ["artifact-kind"] = "execute_command_output",
-                    ["command-id"] = _commandId,
-                    ["thread-id"] = _threadId ?? string.Empty,
-                    ["stream"] = stream,
-                    ["truncated"] = FormatBoolean(local.Truncated),
-                    ["binary"] = FormatBoolean(local.Binary),
-                    ["cwd"] = _request.WorkingDirectory
-                }
-            },
-            new ContentWriteOptions
-            {
-                Mode = ContentWriteMode.Create,
-                ContentId = contentId,
-                FailIfNameExists = true
-            },
-            cancellationToken).ConfigureAwait(false);
-        createdAddresses.Add(contentInfo.Address);
-        return local with
-        {
-            ArtifactPath = null,
-            ContentId = contentInfo.Address.ContentId,
-            Address = contentInfo.Address
-        };
-    }
-
-    private static async ValueTask<string> ReadTailAsync(string path, CancellationToken cancellationToken)
-    {
-        if (!File.Exists(path)) return string.Empty;
-        var text = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
-        return text.Length <= MaxDiagnosticTailCharacters ? text : text[^MaxDiagnosticTailCharacters..];
-    }
-
-    private static string TruncateDiagnostic(string message) =>
-        message.Length <= 512 ? message : message[..512];
-
-    private static void TryDeleteFile(string path)
-    {
-        try { File.Delete(path); } catch { }
     }
 
     private static void TryDeleteDirectory(string path)

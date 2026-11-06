@@ -54,6 +54,7 @@ public sealed class AgentContext
     private readonly ToolHarnessExecutionScope? _toolHarnessExecutionScope;
     private readonly IReadOnlyDictionary<Type, object> _agentResources;
     private readonly SubAgentRunConfig? _subAgentRunConfig;
+    private readonly ContentRetrievalBudget _contentRetrievalBudget = new();
 
     //
     // INTERNAL ACCESS (for adapters)
@@ -71,6 +72,7 @@ public sealed class AgentContext
     internal string? CanonicalWorkspaceIdentity => _toolHarnessExecutionScope?.CanonicalWorkspaceIdentity;
     internal IReadOnlyDictionary<Type, object> AgentResources => _agentResources;
     internal SubAgentRunConfig? SubAgentRunConfig => _subAgentRunConfig;
+    internal ContentRetrievalBudget ContentRetrievalBudget => _contentRetrievalBudget;
 
     /// <summary>
     /// Effective chat-client handle for this invocation.

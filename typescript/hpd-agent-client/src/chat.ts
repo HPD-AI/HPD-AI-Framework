@@ -261,16 +261,18 @@ export function createTextContent(text: string): AIContent {
   return { $type: 'text', text };
 }
 
-export function contentReferenceToUriContent(reference: ContentReference): AIContent {
+export function contentReferenceToStoredContent(
+  reference: ContentReference,
+  sessionId: string,
+): AIContent {
   return {
-    $type: 'uri',
-    uri: `hpd-content://${reference.contentId}`,
-    mediaType: reference.contentType,
-    additionalProperties: {
+    $type: 'hpd:stored-content-reference',
+    address: {
+      scope: { value: sessionId },
       contentId: reference.contentId,
       version: reference.version,
-      name: reference.name,
-      sizeBytes: reference.sizeBytes,
     },
+    mediaType: reference.contentType,
+    name: reference.name,
   };
 }

@@ -246,7 +246,7 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
                 foreach (var path in offloadPaths)
                 {
                     options.AppendLine(
-                        $"                    new({SymbolDisplay.FormatLiteral(path.Pointer, true)}, {SymbolDisplay.FormatLiteral(path.Name, true)}, global::HPD.Agent.ContentSensitivity.{path.Sensitivity}),");
+                        $"                    new({SymbolDisplay.FormatLiteral(path.Pointer, true)}, {SymbolDisplay.FormatLiteral(path.Name, true)}, global::HPD.Agent.ContentSensitivity.{path.Sensitivity}, {(path.StreamingCapture ? "true" : "false")}, {SymbolDisplay.FormatLiteral(path.MediaType, true)}),");
                 }
                 options.AppendLine("                }),");
             }
@@ -509,10 +509,10 @@ $@"HPDAIFunctionFactory.Create(
         return normalized;
     }
 
-    private static List<(string Pointer, string Name, string Sensitivity)> GetOffloadPaths(
+    private static List<(string Pointer, string Name, string Sensitivity, bool StreamingCapture, string MediaType)> GetOffloadPaths(
         INamedTypeSymbol? type)
     {
-        var result = new List<(string, string, string)>();
+        var result = new List<(string, string, string, bool, string)>();
         if (type is null) return result;
         Collect(type, "", new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default));
         return result;
@@ -520,16 +520,25 @@ $@"HPDAIFunctionFactory.Create(
         void Collect(INamedTypeSymbol current, string prefix, HashSet<ITypeSymbol> visiting)
         {
             if (!visiting.Add(current)) return;
-            foreach (var property in current.GetMembers().OfType<IPropertySymbol>()
-                         .Where(static property => !property.IsStatic && property.DeclaredAccessibility == Accessibility.Public))
+            foreach (var member in current.GetMembers())
             {
-                var jsonName = property.GetAttributes().FirstOrDefault(attribute =>
+                if (member.IsStatic || member.DeclaredAccessibility != Accessibility.Public ||
+                    member is not (IPropertySymbol or IFieldSymbol) ||
+                    member is IPropertySymbol { IsIndexer: true })
+                    continue;
+                var memberType = member switch
+                {
+                    IPropertySymbol property => property.Type,
+                    IFieldSymbol field => field.Type,
+                    _ => throw new InvalidOperationException()
+                };
+                var jsonName = member.GetAttributes().FirstOrDefault(attribute =>
                         attribute.AttributeClass?.ToDisplayString() == "System.Text.Json.Serialization.JsonPropertyNameAttribute")
                     ?.ConstructorArguments.FirstOrDefault().Value as string
-                    ?? char.ToLowerInvariant(property.Name[0]) + property.Name.Substring(1)
-                    ?? property.Name;
+                    ?? char.ToLowerInvariant(member.Name[0]) + member.Name.Substring(1)
+                    ?? member.Name;
                 var pointer = prefix + "/" + jsonName.Replace("~", "~0").Replace("/", "~1");
-                var offload = property.GetAttributes().FirstOrDefault(attribute =>
+                var offload = member.GetAttributes().FirstOrDefault(attribute =>
                     attribute.AttributeClass?.ToDisplayString() == "HPD.Agent.OffloadAttribute");
                 if (offload is not null)
                 {
@@ -537,10 +546,16 @@ $@"HPDAIFunctionFactory.Create(
                         .Value.Value is int value && value is >= 0 and <= 2
                         ? new[] { "Public", "Internal", "Restricted" }[value]
                         : "Internal";
-                    result.Add((pointer, jsonName, sensitivity));
+                    var typeName = memberType.ToDisplayString().TrimEnd('?');
+                    result.Add((pointer, jsonName, sensitivity,
+                        typeName == "HPD.Agent.ContentCapturePart",
+                        typeName is "string" or "System.String" ? "text/plain"
+                        : typeName is "byte[]" or "System.Byte[]" or "System.IO.Stream" or "System.ReadOnlyMemory<byte>"
+                            ? "application/octet-stream"
+                            : "application/json"));
                     continue;
                 }
-                if (property.Type is INamedTypeSymbol nested &&
+                if (memberType is INamedTypeSymbol nested &&
                     nested.SpecialType == SpecialType.None &&
                     nested.TypeKind == TypeKind.Class &&
                     nested.OriginalDefinition.ToDisplayString() is not "System.String")

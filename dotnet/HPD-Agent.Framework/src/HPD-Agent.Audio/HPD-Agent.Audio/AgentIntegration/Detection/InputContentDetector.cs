@@ -69,6 +69,10 @@ public sealed class InputContentDetector
                 inputContent = FromUriContent(uri);
                 return true;
 
+            case StoredContentReferenceContent stored when TryGetSupportedKind(stored.MediaType, out var storedKind):
+                inputContent = FromStoredContent(stored, storedKind);
+                return true;
+
             case HostedFileContent hosted when TryGetSupportedKind(hosted.MediaType, out _):
                 inputContent = FromHostedFileContent(hosted);
                 return true;
@@ -109,40 +113,46 @@ public sealed class InputContentDetector
 
     private static InputContentRef FromUriContent(UriContent content)
     {
-        var sourceKind = ContentReferenceResolverMiddleware.IsContentReference(content)
-            ? InputContentSourceKind.ContentStore
-            : InputContentSourceKind.UriContent;
         var kind = ResolveKind(content.MediaType);
-
-        InputContentStoreRef? storeRef = null;
-        if (sourceKind is InputContentSourceKind.ContentStore)
-        {
-            storeRef = new InputContentStoreRef(
-                StoreKind: "hpd-content",
-                Scope: null,
-                ContentId: content.Uri.Host,
-                Version: null,
-                ReadUri: null);
-        }
 
         return new InputContentRef
         {
             Id = NewInputContentId(),
             Kind = kind,
-            SourceKind = sourceKind,
+            SourceKind = InputContentSourceKind.UriContent,
             MediaType = content.MediaType,
             Name = GetFileName(content.Uri),
-            ContentStore = storeRef,
-            Source = sourceKind is InputContentSourceKind.ContentStore
-                ? null
-                : new InputContentSourceRef(
-                    sourceKind.ToString(),
-                    GetFileName(content.Uri),
-                    content.MediaType,
-                    SizeBytes: null,
-                    Sha256: null)
+            Source = new InputContentSourceRef(
+                InputContentSourceKind.UriContent.ToString(),
+                GetFileName(content.Uri),
+                content.MediaType,
+                SizeBytes: null,
+                Sha256: null)
         };
     }
+
+    private static InputContentRef FromStoredContent(
+        StoredContentReferenceContent content,
+        InputContentKind kind) => new()
+        {
+            Id = NewInputContentId(),
+            Kind = kind,
+            SourceKind = InputContentSourceKind.ContentStore,
+            MediaType = content.MediaType,
+            Name = content.Name,
+            ContentStore = new InputContentStoreRef(
+                StoreKind: "session-content",
+                Scope: content.Address.Scope.Value,
+                ContentId: content.Address.ContentId,
+                Version: content.Address.Version,
+                ReadUri: null),
+            Source = new InputContentSourceRef(
+                InputContentSourceKind.ContentStore.ToString(),
+                content.Name,
+                content.MediaType,
+                SizeBytes: null,
+                Sha256: content.Address.Sha256)
+        };
 
     private static InputContentRef FromHostedFileContent(HostedFileContent content)
     {

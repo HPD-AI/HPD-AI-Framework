@@ -14,7 +14,7 @@ namespace HPD.Agent.Middleware.Image;
 /// <para>
 /// <b>What happens:</b>
 /// <list type="bullet">
-/// <item>ContentUploadMiddleware: Uploads image bytes → transforms to UriContent (automatic)</item>
+/// <item>ContentLifecycleMiddleware: Uploads image bytes → transforms to UriContent (automatic)</item>
 /// <item>PassThroughImageStrategy: No-op (images pass through unchanged)</item>
 /// <item>LLM: Receives image for native vision processing</item>
 /// </list>
@@ -32,7 +32,7 @@ public class PassThroughImageStrategy : IImageStrategy
         CancellationToken cancellationToken)
     {
         // PassThrough: No processing needed
-        // ContentUploadMiddleware handles storage automatically
+        // ContentLifecycleMiddleware handles storage automatically
         // Vision models receive images as-is
         return Task.CompletedTask;
     }

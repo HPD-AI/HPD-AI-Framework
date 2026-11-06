@@ -1228,7 +1228,7 @@ public class AgentBuilder
 
     /// <summary>
     /// Configure the provider registry for intelligent content upload routing.
-    /// When set, ContentUploadMiddleware can automatically detect provider capabilities
+    /// When set, ContentLifecycleMiddleware can automatically detect provider capabilities
     /// and route DataContent uploads to HostedFileClient (provider-native) or IContentStore.
     /// </summary>
     public AgentBuilder WithProviderRegistry(IProviderRegistry registry)
@@ -2729,16 +2729,8 @@ public class AgentBuilder
         //   agentBuilder.WithMiddleware(new ContinuationPermissionMiddleware(maxIterations: 15))
         // This gives users full control over whether to ask for permission at iteration limits.
 
-        // Register ContentUploadMiddleware for intelligent file upload routing.
-        // Routes DataContent to HostedFileClient (provider-native) or IContentStore based on
-        // provider capabilities and RunConfig.UploadStrategy (Auto/Hosted/Local).
-        // _contentStore is guaranteed to be non-null due to auto-initialization in Build().
-        _middlewares.Add(new Middleware.ContentUploadMiddleware(_contentStore));
-
-        // Register ContentReferenceResolverMiddleware immediately after ContentUploadMiddleware.
-        // Converts hpd-content:// URIs to provider-facing UriContent, HostedFileContent, or DataContent.
-        // This ensures efficient message storage (URI refs) with transparent resolution.
-        _middlewares.Add(new Middleware.ContentReferenceResolverMiddleware(_contentStore));
+        // One content lifecycle owns attachment publication and provider-boundary materialization.
+        _middlewares.Add(new Middleware.ContentLifecycleMiddleware(_contentStore));
 
         // Register ImageMiddleware ALWAYS with default PassThrough strategy
         // Allows images to flow to vision models without processing
@@ -3838,9 +3830,12 @@ public class AgentBuilder
         ArgumentNullException.ThrowIfNull(serializerOptions);
 
         var options = new JsonSerializerOptions(serializerOptions);
+        options.IncludeFields = true;
         if (AIJsonUtilities.DefaultOptions.TypeInfoResolver is { } aiResolver)
             options.TypeInfoResolverChain.Add(aiResolver);
         options.TypeInfoResolverChain.Add(HPDJsonContext.Default);
+        options.TypeInfoResolverChain.Add(Serialization.HpdAgentJsonUtilities.RegisteredResolver);
+        Serialization.HpdAgentJsonUtilities.RegisterContentTypes(options);
         options.MakeReadOnly();
         _toolSerializerOptions = options;
         return this;

@@ -4,11 +4,11 @@ using HPD.Agent;
 namespace HPD.Agent.Middleware;
 
 /// <summary>
-/// Emitted when DataContent is successfully uploaded to IContentStore and transformed to UriContent(hpd-content://id).
+/// Emitted when DataContent is successfully uploaded to session-owned content storage.
 /// </summary>
 /// <remarks>
 /// This event indicates framework-managed local or ephemeral storage was used.
-/// The hpd-content:// URI will require resolver middleware before being sent to LLM.
+/// The provider boundary materializes the stored reference before model delivery.
 /// </remarks>
 [HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("CONTENT_UPLOADED")]
@@ -88,12 +88,12 @@ public enum ContentReferenceResolutionKind
 }
 
 /// <summary>
-/// Emitted when an hpd-content:// URI is resolved from IContentStore.
+/// Emitted when a stored content attachment is materialized at the provider boundary.
 /// </summary>
 [HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("CONTENT_REFERENCE_RESOLVED")]
 public record ContentReferenceResolvedEvent(
-    /// <summary>The hpd-content:// URI that was resolved.</summary>
+    /// <summary>The synthetic stored-content event address; never sent to a provider.</summary>
     Uri ContentUri,
     /// <summary>The resolution shape selected for provider dispatch.</summary>
     ContentReferenceResolutionKind ResolutionKind,
@@ -103,12 +103,12 @@ public record ContentReferenceResolvedEvent(
     long? SizeBytes) : AgentEvent;
 
 /// <summary>
-/// Emitted when an hpd-content:// URI cannot be resolved.
+/// Emitted when a stored content attachment cannot be materialized.
 /// </summary>
 [HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("CONTENT_REFERENCE_RESOLUTION_FAILED")]
 public record ContentReferenceResolutionFailedEvent(
-    /// <summary>The hpd-content:// URI that failed to resolve.</summary>
+    /// <summary>The synthetic stored-content event address that failed to materialize.</summary>
     Uri ContentUri,
     /// <summary>Error message describing why resolution failed.</summary>
     string ErrorMessage) : AgentEvent, IErrorEvent

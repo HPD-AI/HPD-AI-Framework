@@ -22,7 +22,7 @@ export { SseParser } from './parser.js';
 // Chat runtime
 export { ChatManager, ChatSession } from './chat.js';
 export {
-  contentReferenceToUriContent,
+  contentReferenceToStoredContent,
   createTextContent,
 } from './chat.js';
 export type {

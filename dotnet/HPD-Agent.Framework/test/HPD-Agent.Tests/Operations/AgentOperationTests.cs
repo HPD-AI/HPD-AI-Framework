@@ -1,11 +1,34 @@
 using HPD.Agent.Middleware;
+using HPD.Agent.Serialization;
 using HPD.Agent.Tests.Infrastructure;
 using Microsoft.Extensions.AI;
+using System.Text.Json;
 
 namespace HPD.Agent.Tests.Operations;
 
 public sealed class AgentOperationTests
 {
+    [Fact]
+    public void CanonicalResultPayload_RoundTripsThroughOperationCompletion()
+    {
+        var payload = new ToolResultPayload(
+            Text: "{\"summary\":\"ok\"}",
+            Json: JsonSerializer.SerializeToElement(new { summary = "ok" }),
+            ResultType: "CapturedResult");
+        var completion = new AgentOperationCompletion("ok", ResultPayload: payload);
+
+        var json = JsonSerializer.Serialize(
+            completion,
+            AgentEventJsonContext.Default.AgentOperationCompletion);
+        var restored = JsonSerializer.Deserialize(
+            json,
+            AgentEventJsonContext.Default.AgentOperationCompletion)!;
+
+        Assert.Equal("ok", restored.Summary);
+        Assert.Equal(payload.Text, restored.ResultPayload?.Text);
+        Assert.Equal("CapturedResult", restored.ResultPayload?.ResultType);
+    }
+
     [Fact]
     public async Task ProviderAndObservationTransitionsRemainIndependent()
     {

@@ -15,6 +15,8 @@ public sealed record AgentOperationNotification
     public required string ProviderStatus { get; init; }
     /// <summary>Gets a bounded completion or failure summary.</summary>
     public string? Summary { get; init; }
+    /// <summary>Gets the canonical normalized result that produced the summary.</summary>
+    public ToolResultPayload? Result { get; init; }
     /// <summary>Gets the execution that produced the source operation transition.</summary>
     public string? SourceThreadExecutionId { get; init; }
 }
@@ -166,6 +168,7 @@ internal sealed class AgentOperationNotificationDispatcher : IDisposable
             Name = operation.Name,
             ProviderStatus = operation.ProviderStatus.ToString().ToLowerInvariant(),
             Summary = Bound(operation.Completion?.Summary ?? operation.Failure?.Message),
+            Result = operation.Completion?.ResultPayload,
             SourceThreadExecutionId = evt.ThreadExecutionId
         };
         try

@@ -171,7 +171,7 @@ public class CodingToolHarnessAgentBuilderTests
         // model-visible subset. The generated activation remains present so scoped middleware
         // and graph relationships can be resolved without reflection.
         toolNames.Should().BeEquivalentTo([
-            nameof(CodingToolHarness), "ReadFile", "ListDirectory", "GlobSearch", "Grep",
+            nameof(CodingToolHarness), "Content", "ReadFile", "ListDirectory", "GlobSearch", "Grep",
         ]);
         toolNames.Should().NotContain(["Parent", "AskUser"]);
         toolNames.Should().NotContain("SubAgents",
@@ -226,9 +226,9 @@ public class CodingToolHarnessAgentBuilderTests
         await reviewer.RunAsync("Review this workspace.");
 
         chatClient.ToolNamesByRequest.Should().HaveCount(2);
-        chatClient.ToolNamesByRequest[0].Should().BeEquivalentTo([nameof(CodingToolHarness)]);
+        chatClient.ToolNamesByRequest[0].Should().BeEquivalentTo([nameof(CodingToolHarness), "Content"]);
         chatClient.ToolNamesByRequest[1].Should().BeEquivalentTo([
-            "ReadFile", "ListDirectory", "GlobSearch", "Grep"
+            "Content", "ReadFile", "ListDirectory", "GlobSearch", "Grep"
         ]);
         chatClient.ToolNamesByRequest[1].Should().NotContain([
             "EditFile", "WriteFile", "ExecuteCommand", "SubAgents", "explore", "worker", "reviewer"
@@ -247,7 +247,7 @@ public class CodingToolHarnessAgentBuilderTests
         CodingToolHarnessPrompts.SystemPrompt.Should().Contain("background Run result means the process launched");
         CodingToolHarnessPrompts.SystemPrompt.Should().Contain("the readOutput request branch");
         CodingToolHarnessPrompts.SystemPrompt.Should().Contain("delayMilliseconds instead of running a separate sleep command");
-        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("content IDs returned by ExecuteCommand");
+        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("Use the Content tool with the returned content ID");
     }
 
     [Fact]

@@ -55,6 +55,7 @@ using HPDOS.ToolHarnesses.Middleware;
 [JsonSerializable(typeof(ExecuteCommandNetworkEffect))]
 [JsonSerializable(typeof(ExecuteCommandRedirectionPlan))]
 [JsonSerializable(typeof(ExecuteCommandCategory))]
+[JsonSerializable(typeof(ExecuteCommandResult))]
 [JsonSerializable(typeof(ExecuteCommandStreamKind))]
 [JsonSerializable(typeof(ExecuteCommandCompletionKind))]
 [JsonSerializable(typeof(ExecuteCommandPermissionBehavior))]

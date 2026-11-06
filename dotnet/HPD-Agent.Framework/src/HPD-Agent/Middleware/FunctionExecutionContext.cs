@@ -111,6 +111,9 @@ public sealed class FunctionExecutionContext : IHarnessConfigurationContext
     private readonly AgentClientSet? _clientSet;
     private readonly ToolHarnessExecutionScope? _toolHarnessExecutionScope;
     private readonly FunctionOperationCommitGate? _operationCommitGate;
+    private readonly ContentRetrievalBudget _contentRetrievalBudget;
+    private readonly FunctionContentOutputs _outputs;
+    private readonly string? _threadForkedFrom;
 
     internal FunctionExecutionContext(
         HookContext hookContext,
@@ -154,6 +157,9 @@ public sealed class FunctionExecutionContext : IHarnessConfigurationContext
         _clientSet = hookContext.Base.ClientSet;
         _toolHarnessExecutionScope = hookContext.Base.ToolHarnessExecutionScope;
         _operationCommitGate = request.OperationCommitGate;
+        _contentRetrievalBudget = request.ExecutionContext?.ContentRetrievalBudget ?? new();
+        _outputs = new FunctionContentOutputs();
+        _threadForkedFrom = hookContext.Thread?.ForkedFrom;
     }
 
     private FunctionExecutionContext(FunctionExecutionContext source)
@@ -180,6 +186,9 @@ public sealed class FunctionExecutionContext : IHarnessConfigurationContext
         _effectiveChatClient = source._effectiveChatClient;
         _toolHarnessExecutionScope = null;
         _operationCommitGate = source._operationCommitGate;
+        _contentRetrievalBudget = source._contentRetrievalBudget;
+        _outputs = source._outputs;
+        _threadForkedFrom = source._threadForkedFrom;
     }
 
     /// <summary>Gets the captured configuration for direct subagents invoked during this input.</summary>
@@ -272,6 +281,15 @@ public sealed class FunctionExecutionContext : IHarnessConfigurationContext
     internal AgentClientSet? ClientSet => _clientSet;
     internal AgentConfig? ParentConfig => _parentConfig;
     internal ToolHarnessExecutionScope? ToolHarnessExecutionScope => _toolHarnessExecutionScope;
+    internal ContentRetrievalBudget ContentRetrievalBudget => _contentRetrievalBudget;
+
+    /// <summary>Gets the capture surface owned by this function invocation.</summary>
+    public FunctionContentOutputs Outputs => _outputs;
+
+    /// <summary>Tests content ownership against the active thread and its direct immutable fork source.</summary>
+    internal bool CanAccessContentOwnedBy(string ownerThreadId) =>
+        string.Equals(ownerThreadId, ThreadId, StringComparison.Ordinal) ||
+        string.Equals(ownerThreadId, _threadForkedFrom, StringComparison.Ordinal);
 
     /// <summary>Gets the unified operation registry owned by the active runtime.</summary>
     internal AgentOperationRegistry? OperationRegistry =>

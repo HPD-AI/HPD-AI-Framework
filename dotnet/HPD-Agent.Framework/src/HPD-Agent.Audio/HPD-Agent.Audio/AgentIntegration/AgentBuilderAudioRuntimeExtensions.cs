@@ -3,6 +3,7 @@ using HPD.Agent.Audio.AgentIntegration;
 using HPD.Agent.Audio.AgentIntegration.Thread;
 using HPD.Agent.Audio.AgentIntegration.Middleware;
 using HPD.Agent.Audio.Ledger;
+using HPD.Agent.Middleware;
 
 namespace HPD.Agent.Audio;
 
@@ -66,7 +67,14 @@ public static class AgentBuilderAudioRuntimeExtensions
         ArgumentNullException.ThrowIfNull(options);
 
         options = AudioRuntimeCompositionRegistryV1.Apply(builder, options);
-        return builder.WithMiddleware(new AudioRuntimeAttachment(options));
+        var middleware = new AudioRuntimeAttachment(options);
+        var contentLifecycle = builder.Middlewares.FindIndex(
+            static item => item is ContentLifecycleMiddleware);
+        if (contentLifecycle >= 0)
+            builder.Middlewares.Insert(contentLifecycle, middleware);
+        else
+            builder.Middlewares.Add(middleware);
+        return builder;
     }
 
     public static AgentBuilder WithAudioRuntimeAttachment(

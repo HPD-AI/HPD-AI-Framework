@@ -39,7 +39,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
             .BuildAsync();
 
         var audioIndex = IndexOfMiddleware<AudioRuntimeAttachment>(agent.Middlewares);
-        var uploadIndex = IndexOfMiddleware<ContentUploadMiddleware>(agent.Middlewares);
+        var uploadIndex = IndexOfMiddleware<ContentLifecycleMiddleware>(agent.Middlewares);
 
         Assert.True(audioIndex >= 0);
         Assert.True(uploadIndex >= 0);
@@ -80,14 +80,14 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
             .BuildAsync();
 
         var audioIndex = IndexOfMiddleware<AudioRuntimeAttachment>(agent.Middlewares);
-        var uploadIndex = IndexOfMiddleware<ContentUploadMiddleware>(agent.Middlewares);
+        var uploadIndex = IndexOfMiddleware<ContentLifecycleMiddleware>(agent.Middlewares);
 
         Assert.True(audioIndex >= 0);
         Assert.True(uploadIndex >= 0);
         Assert.True(audioIndex < uploadIndex);
 
         var attachment = Assert.IsType<AudioRuntimeAttachment>(agent.Middlewares[audioIndex]);
-        var upload = Assert.IsType<ContentUploadMiddleware>(agent.Middlewares[uploadIndex]);
+        var upload = Assert.IsType<ContentLifecycleMiddleware>(agent.Middlewares[uploadIndex]);
         var audio = AudioContent.Wav(new byte[] { 9, 8, 7, 6 });
         audio.Name = "builder-order.wav";
         var context = CreateBeforeMessageTurnContext(
@@ -110,7 +110,10 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
 
         await upload.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        Assert.IsType<UriContent>(context.UserInputMessages.FirstOrDefault()?.Contents.Single());
+        var stored = Assert.IsType<StoredContentReferenceContent>(
+            context.UserInputMessages.FirstOrDefault()?.Contents.Single());
+        Assert.Equal("audio/wav", stored.MediaType);
+        Assert.Equal("builder-order.wav", stored.Name);
         Assert.IsNotType<TextContent>(context.UserInputMessages.FirstOrDefault()?.Contents.Single());
         Assert.Equal(
             inputContentMetadata,

@@ -111,9 +111,14 @@ describe('FileAttachmentState', () => {
     ]);
     expect(state.readyContents).toEqual([
       expect.objectContaining({
-        $type: 'uri',
-        uri: 'hpd-content://content-note.txt',
+        $type: 'hpd:stored-content-reference',
+        address: expect.objectContaining({
+          contentId: 'content-note.txt',
+          version: 'v1',
+          scope: { value: 's1' },
+        }),
         mediaType: 'text/plain',
+        name: 'note.txt',
       }),
     ]);
     expect(state.canSubmit).toBe(true);
@@ -184,7 +189,11 @@ describe('FileAttachmentState', () => {
     ]);
     expect(state.readyContents).toEqual([
       expect.objectContaining({
-        uri: 'hpd-content://content-dropped.txt',
+        $type: 'hpd:stored-content-reference',
+        address: expect.objectContaining({
+          contentId: 'content-dropped.txt',
+          scope: { value: 's1' },
+        }),
       }),
     ]);
 
@@ -465,7 +474,7 @@ describe('Message', () => {
         { $type: 'text', text: 'delta chunks.' },
         {
           $type: 'uri',
-          uri: 'hpd-content://asset-1',
+          uri: 'https://assets.example/asset-1',
           mediaType: 'text/plain',
         },
       ],
@@ -510,7 +519,7 @@ describe('Message', () => {
             { $type: 'text', text: 'Structured text' },
             {
               $type: 'uri',
-              uri: 'hpd-content://asset-1',
+              uri: 'https://assets.example/asset-1',
               mediaType: 'text/plain',
             },
           ],
@@ -522,7 +531,7 @@ describe('Message', () => {
 
     expect(target.querySelector('[data-hpd-message-parts]')).not.toBeNull();
     expect(target.querySelector('[data-part-type="text"]')?.textContent).toContain('Structured text');
-    expect(target.querySelector('[data-part-type="content"]')?.textContent).toContain('hpd-content://asset-1');
+    expect(target.querySelector('[data-part-type="content"]')?.textContent).toContain('https://assets.example/asset-1');
     expect(target.querySelector('[data-part-type="cursor"]')?.textContent).toBe('|');
 
     await unmount(component);

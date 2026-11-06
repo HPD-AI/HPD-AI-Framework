@@ -1,7 +1,7 @@
 namespace HPD.Agent.Middleware;
 
 /// <summary>
-/// Controls how DataContent attachments are uploaded in ContentUploadMiddleware.
+/// Controls how DataContent attachments are uploaded in ContentLifecycleMiddleware.
 /// </summary>
 public enum UploadStrategy
 {
@@ -22,7 +22,7 @@ public enum UploadStrategy
     /// <summary>
     /// Force upload to IContentStore (framework-managed local/ephemeral storage).
     /// Ignores provider capabilities and always uses ContentStore.
-    /// Throws InvalidOperationException if no IContentStore is configured.
+    /// Emits a bounded upload failure and keeps the original DataContent when no store is configured.
     /// </summary>
     Local = 2
 }

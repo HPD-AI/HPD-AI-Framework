@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using HPD.Agent.ClientTools;
+using HPD.Agent.Middleware;
 using HPD.Agent.Planning;
 using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
@@ -180,6 +181,7 @@ public partial class SessionJsonContext : JsonSerializerContext
         options.AddAIContentType<AudioContent>("hpd:audio");
         options.AddAIContentType<VideoContent>("hpd:video");
         options.AddAIContentType<DocumentContent>("hpd:document");
+        options.AddAIContentType<StoredContentReferenceContent>("hpd:stored-content-reference");
 
         options.MakeReadOnly();
         return options;

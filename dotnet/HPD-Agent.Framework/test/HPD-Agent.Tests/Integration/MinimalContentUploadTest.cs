@@ -28,7 +28,7 @@ public class MinimalContentUploadTest
             Assert.NotNull(session.Store);
             Assert.Same(store, session.Store);
 
-            // Create agent with content store so ContentUploadMiddleware can upload content
+            // Create agent with content store so ContentLifecycleMiddleware can upload content
             var chatClient = new FakeChatClient();
             chatClient.EnqueueTextResponse("Response");
 

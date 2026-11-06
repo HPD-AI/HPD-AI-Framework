@@ -38,6 +38,10 @@ public static class AgentConfigValidator
         if (config.Goals is { } goals) errors.AddRange(goals.Validate());
         ValidateCaching(config, errors);
         ValidateOperations(config, errors);
+        if (config.ToolOutputs is null)
+            errors.Add("ToolOutputs is required.");
+        else
+            errors.AddRange(config.ToolOutputs.Validate("ToolOutputs"));
         ValidateAudio(config, errors);
         ValidateMcp(config, errors);
         ValidateCrossConfiguration(config, errors);

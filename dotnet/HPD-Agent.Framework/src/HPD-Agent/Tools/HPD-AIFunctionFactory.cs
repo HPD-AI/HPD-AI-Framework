@@ -679,8 +679,13 @@ public static class HPDToolArgumentBinder
 
     private static JsonSerializerOptions CreateDefaultSerializerOptions()
     {
-        var options = new JsonSerializerOptions(AIJsonUtilities.DefaultOptions);
+        var options = new JsonSerializerOptions(AIJsonUtilities.DefaultOptions)
+        {
+            IncludeFields = true
+        };
         options.TypeInfoResolverChain.Add(HPDJsonContext.Default);
+        options.TypeInfoResolverChain.Add(Serialization.HpdAgentJsonUtilities.RegisteredResolver);
+        Serialization.HpdAgentJsonUtilities.RegisterContentTypes(options);
         options.MakeReadOnly();
         return options;
     }

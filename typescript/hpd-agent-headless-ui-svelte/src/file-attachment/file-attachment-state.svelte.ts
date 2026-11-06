@@ -1,6 +1,6 @@
 import type { Attachment } from 'svelte/attachments';
 import {
-  contentReferenceToUriContent,
+  contentReferenceToStoredContent,
   type AIContent,
   type ContentReference,
 } from '@hpd-research/hpd-agent-client';
@@ -69,7 +69,7 @@ export class FileAttachmentState {
     return this.items
       .filter((item): item is PendingFileAttachment & { content: ContentReference } =>
         item.status === 'ready' && item.content !== undefined)
-      .map((item) => contentReferenceToUriContent(item.content));
+      .map((item) => contentReferenceToStoredContent(item.content, this.sessionId));
   }
 
   add = async (files: FileList | File[]): Promise<void> => {

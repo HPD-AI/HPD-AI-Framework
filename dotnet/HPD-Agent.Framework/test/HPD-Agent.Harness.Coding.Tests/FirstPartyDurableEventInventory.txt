@@ -224,3 +224,8 @@ HPDOS.ToolHarnesses.Middleware.LanguageServerDocumentOpenedEvent
 HPDOS.ToolHarnesses.Middleware.LanguageServerDocumentSavedEvent
 HPDOS.ToolHarnesses.Middleware.LanguageServerStatusSnapshotEvent
 HPDOS.ToolHarnesses.Middleware.LanguageServerWatchedFileChangedEvent
+HPD.Agent.ContentCaptureFinalizedEvent
+HPD.Agent.ContentReadEvent
+HPD.Agent.ContentScopeCleanedEvent
+HPD.Agent.ToolOutputProjectedEvent
+HPD.Agent.ToolOutputProjectionFailedEvent

@@ -102,6 +102,46 @@ public sealed class AgentConfigSerializationTests
         restored.AllowUserQuestions.Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData(HpdConfigFormat.Json)]
+    [InlineData(HpdConfigFormat.Yaml)]
+    public void ToolOutputs_RoundTripAllIndependentControls(HpdConfigFormat format)
+    {
+        var config = new AgentConfig
+        {
+            Name = "Content Agent",
+            ToolOutputs = new ToolOutputConfig
+            {
+                Enabled = false,
+                MaxInlineResultBytes = 4096,
+                FailureMode = ToolOutputFailureMode.PreserveInline,
+                ContentRetrievalEnabled = true,
+                RetrievalLimits = new ContentRetrievalLimits
+                {
+                    MaxListResultsPerCall = 7,
+                    MaxReadBytesPerCall = 2048,
+                    MaxReadBytesPerTurn = 8192,
+                    MaxReadCallsPerTurn = 3,
+                    MaxListCallsPerTurn = 4
+                }
+            }
+        };
+
+        var restored = HpdAgentConfigSerializer.Deserialize(
+            HpdAgentConfigSerializer.Serialize(config, format),
+            format)!;
+
+        restored.ToolOutputs.Enabled.Should().BeFalse();
+        restored.ToolOutputs.MaxInlineResultBytes.Should().Be(4096);
+        restored.ToolOutputs.FailureMode.Should().Be(ToolOutputFailureMode.PreserveInline);
+        restored.ToolOutputs.ContentRetrievalEnabled.Should().BeTrue();
+        restored.ToolOutputs.RetrievalLimits.MaxListResultsPerCall.Should().Be(7);
+        restored.ToolOutputs.RetrievalLimits.MaxReadBytesPerCall.Should().Be(2048);
+        restored.ToolOutputs.RetrievalLimits.MaxReadBytesPerTurn.Should().Be(8192);
+        restored.ToolOutputs.RetrievalLimits.MaxReadCallsPerTurn.Should().Be(3);
+        restored.ToolOutputs.RetrievalLimits.MaxListCallsPerTurn.Should().Be(4);
+    }
+
     [Fact]
     public void Deserialize_RejectsUnknownAgentConfigProperties()
     {

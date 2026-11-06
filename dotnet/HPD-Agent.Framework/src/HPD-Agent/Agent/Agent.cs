@@ -1200,7 +1200,8 @@ public sealed partial class Agent : IAsyncDisposable
         serializable.AdditionalProperties = null;
         var messageJson = JsonSerializer.Serialize(
             serializable,
-            Serialization.AgentEventJsonContext.Default.MicrosoftExtensionsAiChatMessage);
+            (System.Text.Json.Serialization.Metadata.JsonTypeInfo<ChatMessage>)
+            Serialization.HpdAgentJsonUtilities.DefaultOptions.GetTypeInfo(typeof(ChatMessage)));
         if (message.AdditionalProperties is null || message.AdditionalProperties.Count == 0)
             return messageJson;
 
@@ -8824,6 +8825,8 @@ public sealed partial class Agent : IAsyncDisposable
     {
         AudioContent audio => AudioContent.IsAudioMediaType(audio.MediaType),
         DataContent data => AudioContent.IsAudioMediaType(data.MediaType),
+        Middleware.StoredContentReferenceContent stored =>
+            stored.MediaType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase),
         UriContent uri => uri.HasTopLevelMediaType("audio"),
         HostedFileContent hosted => hosted.HasTopLevelMediaType("audio"),
         _ => false
@@ -9014,7 +9017,25 @@ public sealed partial class Agent : IAsyncDisposable
 
         await store.DeleteSessionAsync(sessionId, cancellationToken);
         if (_contentStore is IContentStoreLifecycle lifecycle)
+        {
             await lifecycle.DeleteScopeAsync(ContentScope.Create(sessionId), cancellationToken).ConfigureAwait(false);
+            var cleanupEvent = new ContentScopeCleanedEvent
+            {
+                Scope = sessionId,
+                SessionId = sessionId
+            };
+            try
+            {
+                await _eventCoordinator.EmitAsync(
+                    cleanupEvent,
+                    AgentEventRoutes.Create(_eventCoordinator, cleanupEvent),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Session deletion has already committed and must not be rolled back by telemetry.
+            }
+        }
     }
 
     /// <summary>

@@ -190,7 +190,6 @@ public sealed class LanguageServerWorkspaceRegistryTests
         params ToolHarnessMiddlewareDescriptor[] additional) => new(
             "CodingHarness",
             typeof(object),
-            static () => new object(),
             static (_, _, _) => [],
             static () => [],
             static () => [],

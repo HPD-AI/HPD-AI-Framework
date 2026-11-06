@@ -172,7 +172,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         Assert.Equal(
             "How are you doing today?",
             Assert.Single(userMessage.Contents.OfType<TextContent>()).Text);
-        Assert.Single(userMessage.Contents.OfType<UriContent>());
+        Assert.Single(userMessage.Contents.OfType<StoredContentReferenceContent>());
         Assert.Contains(thread.Messages, message => message.Role == ChatRole.Assistant && message.Text == "Doing well.");
     }
 

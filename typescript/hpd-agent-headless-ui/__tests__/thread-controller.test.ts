@@ -128,7 +128,7 @@ describe('createThreadController', () => {
         { $type: 'text', text: 'inspect this' },
         {
           $type: 'uri',
-          uri: 'hpd-content://content-1',
+          uri: 'https://assets.example/content-1',
           mediaType: 'image/png',
           additionalProperties: {
             contentId: 'content-1',
@@ -151,7 +151,7 @@ describe('createThreadController', () => {
           { $type: 'text', text: 'inspect this' },
           {
             $type: 'uri',
-            uri: 'hpd-content://content-1',
+            uri: 'https://assets.example/content-1',
             mediaType: 'image/png',
             additionalProperties: {
               contentId: 'content-1',

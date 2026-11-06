@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using HPD.Agent.Audio.AgentIntegration.Middleware;
+using HPD.Agent.Middleware;
 
 namespace HPD.Agent.Audio.AgentIntegration;
 
@@ -27,6 +28,12 @@ public static class AudioAgentFeatureActivator
             builder.Config.Audio,
             textToSpeech: builder.Config.ResolveClientConfig(global::HPD.Agent.Providers.ProviderClientFamily.TextToSpeech)
                 as TextToSpeechClientConfig);
-        builder.Middlewares.Add(new AudioRuntimeAttachment(options));
+        var middleware = new AudioRuntimeAttachment(options);
+        var contentLifecycle = builder.Middlewares.FindIndex(
+            static item => item is ContentLifecycleMiddleware);
+        if (contentLifecycle >= 0)
+            builder.Middlewares.Insert(contentLifecycle, middleware);
+        else
+            builder.Middlewares.Add(middleware);
     }
 }

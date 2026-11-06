@@ -106,6 +106,32 @@ public sealed record ToolOutputConfig
     public bool ContentRetrievalEnabled { get; init; } = true;
     /// <summary>Gets retrieval limits.</summary>
     public ContentRetrievalLimits RetrievalLimits { get; init; } = new();
+
+    internal IReadOnlyList<string> Validate(string path)
+    {
+        var errors = new List<string>();
+        if (MaxInlineResultBytes <= 0)
+            errors.Add($"{path}.MaxInlineResultBytes must be positive.");
+        if (!Enum.IsDefined(FailureMode))
+            errors.Add($"{path}.FailureMode is invalid.");
+        if (RetrievalLimits is null)
+        {
+            errors.Add($"{path}.RetrievalLimits is required.");
+            return errors;
+        }
+        var limits = RetrievalLimits;
+        if (limits.MaxListResultsPerCall <= 0)
+            errors.Add($"{path}.RetrievalLimits.MaxListResultsPerCall must be positive.");
+        if (limits.MaxReadBytesPerCall <= 0)
+            errors.Add($"{path}.RetrievalLimits.MaxReadBytesPerCall must be positive.");
+        if (limits.MaxReadBytesPerTurn < limits.MaxReadBytesPerCall)
+            errors.Add($"{path}.RetrievalLimits.MaxReadBytesPerTurn must be at least MaxReadBytesPerCall.");
+        if (limits.MaxReadCallsPerTurn <= 0)
+            errors.Add($"{path}.RetrievalLimits.MaxReadCallsPerTurn must be positive.");
+        if (limits.MaxListCallsPerTurn <= 0)
+            errors.Add($"{path}.RetrievalLimits.MaxListCallsPerTurn must be positive.");
+        return errors;
+    }
 }
 
 /// <summary>Controls final result behavior after offload projection.</summary>
@@ -156,6 +182,34 @@ public sealed record ToolOutputRunPolicy
             RetrievalLimits = RetrievalLimits ?? defaults.RetrievalLimits
         };
     }
+
+    internal IReadOnlyList<string> Validate(string path)
+    {
+        var errors = new List<string>();
+        if (MaxInlineResultBytes is <= 0)
+            errors.Add($"{path}.MaxInlineResultBytes must be positive.");
+        if (FailureMode is { } failureMode && !Enum.IsDefined(failureMode))
+            errors.Add($"{path}.FailureMode is invalid.");
+        if (RetrievalLimits is { } limits)
+            errors.AddRange(ValidateLimits(limits, path + ".RetrievalLimits"));
+        return errors;
+    }
+
+    private static IReadOnlyList<string> ValidateLimits(ContentRetrievalLimits limits, string path)
+    {
+        var errors = new List<string>();
+        if (limits.MaxListResultsPerCall <= 0)
+            errors.Add($"{path}.MaxListResultsPerCall must be positive.");
+        if (limits.MaxReadBytesPerCall <= 0)
+            errors.Add($"{path}.MaxReadBytesPerCall must be positive.");
+        if (limits.MaxReadBytesPerTurn < limits.MaxReadBytesPerCall)
+            errors.Add($"{path}.MaxReadBytesPerTurn must be at least MaxReadBytesPerCall.");
+        if (limits.MaxReadCallsPerTurn <= 0)
+            errors.Add($"{path}.MaxReadCallsPerTurn must be positive.");
+        if (limits.MaxListCallsPerTurn <= 0)
+            errors.Add($"{path}.MaxListCallsPerTurn must be positive.");
+        return errors;
+    }
 }
 
 /// <summary>Declares one serialized result property selected for offloading.</summary>
@@ -163,7 +217,8 @@ public sealed record ContentProjectionPath(
     string Pointer,
     string Name,
     ContentSensitivity Sensitivity,
-    bool StreamingCapture = false);
+    bool StreamingCapture = false,
+    string MediaType = "application/json");
 
 /// <summary>Describes generated native tool-result projection metadata.</summary>
 public sealed record ContentProjectionPlan(
@@ -210,17 +265,36 @@ public sealed class ContentCapturePart : IAsyncDisposable
         await _stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
     }
 
-    internal async ValueTask<byte[]> CompleteAsync(CancellationToken cancellationToken)
+    /// <summary>Finalizes the capture and returns its complete bytes.</summary>
+    /// <remarks>Finalization is idempotent. Tool result projection calls this before bundle publication.</remarks>
+    public byte[] Complete()
     {
         if (_completed)
             return ((MemoryStream)_stream).ToArray();
         _completed = true;
-        _stream.Position = 0;
-        await using var copy = new MemoryStream();
-        await _stream.CopyToAsync(copy, cancellationToken).ConfigureAwait(false);
-        return copy.ToArray();
+        return ((MemoryStream)_stream).ToArray();
     }
 
     /// <inheritdoc />
     public ValueTask DisposeAsync() => _stream.DisposeAsync();
+}
+
+/// <summary>Creates tool-output captures without exposing content-store internals to tool bodies.</summary>
+public sealed class FunctionContentOutputs
+{
+    /// <summary>Creates one named buffered or streamed output part.</summary>
+    /// <param name="name">The stable part name.</param>
+    /// <param name="mediaType">The media type of the captured bytes.</param>
+    /// <param name="sensitivity">The required disclosure classification.</param>
+    public ContentCapturePart CreatePart(
+        string name,
+        string mediaType,
+        ContentSensitivity sensitivity = ContentSensitivity.Internal)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(mediaType);
+        if (!Enum.IsDefined(sensitivity))
+            throw new ArgumentOutOfRangeException(nameof(sensitivity));
+        return new ContentCapturePart(name, mediaType, sensitivity);
+    }
 }

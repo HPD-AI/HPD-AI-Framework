@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentClient } from '../src/client.js';
+import { contentReferenceToStoredContent } from '../src/chat.js';
 import { EventTypes } from '../src/types/events.js';
 
 function okStream(...events: object[]): Response {
@@ -18,6 +19,25 @@ function okStream(...events: object[]): Response {
 describe('ChatSession', () => {
   beforeEach(() => vi.resetAllMocks());
   afterEach(() => vi.restoreAllMocks());
+
+  it('projects uploaded content to the typed stored-content transport', () => {
+    expect(contentReferenceToStoredContent({
+      contentId: 'content-1',
+      version: 'v1',
+      contentType: 'image/png',
+      name: 'screen.png',
+      sizeBytes: 123,
+    }, 'session-1')).toEqual({
+      $type: 'hpd:stored-content-reference',
+      address: {
+        scope: { value: 'session-1' },
+        contentId: 'content-1',
+        version: 'v1',
+      },
+      mediaType: 'image/png',
+      name: 'screen.png',
+    });
+  });
 
   it('submits a Goal objective with run overrides and returns admission only', async () => {
     const client = new AgentClient('http://localhost:5135');
