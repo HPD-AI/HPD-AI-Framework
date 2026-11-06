@@ -65,6 +65,24 @@ Use the builder's session-store helpers, such as
 created with the selected composition's codec. A manually created store must use
 that same codec.
 
+## ToolHarness construction
+
+ToolHarnesses have exactly one public constructor and one generated activation
+path. Harness settings use `IHarnessConfig<T>`; constructor dependencies are
+Agent-scoped services. Invalid constructor shapes and dependency defaults fail
+compilation with `HPDHIN009` through `HPDHIN013`.
+
+```csharp
+var agent = await new AgentBuilder(agentConfig)
+    .WithToolHarness<SearchHarness>(options =>
+        options.Configure(new SearchSettings { MaxResults = 20 })
+            .UseDependency(searchClient))
+    .BuildAsync();
+```
+
+See [ToolHarness construction](Tools/TOOL_HARNESS_CONSTRUCTION.md) for settings,
+run overrides, dependency ownership, supplied instances, and migration.
+
 ## Pre-1.0 API Evolution
 
 HPD-Agent is still pre-1.0. Until `1.0.0`, minor and patch releases may refine

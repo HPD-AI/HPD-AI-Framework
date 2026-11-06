@@ -12,6 +12,20 @@ dotnet add package HPD-Agent.ToolHarness.Coding
 
 Use this package when you need this HPD Agent capability in an agent application.
 
+## Add the coding harness
+
+```csharp
+var agent = await new AgentBuilder(agentConfig)
+    .WithToolHarness<CodingToolHarness>(options =>
+        options.Configure(new CodingHarnessConfig()))
+    .BuildAsync();
+```
+
+`CodingHarnessConfig.Commands` and `CodingHarnessConfig.Glob` are run-overridable.
+Environment and language-server settings are construction-only by default.
+See [ToolHarness construction](../../HPD-Agent/Tools/TOOL_HARNESS_CONSTRUCTION.md)
+for constructor, dependency, ownership, and run-override rules.
+
 ## Language servers
 
 The coding harness discovers language servers from a compile-time generated catalog. A server is considered for a file when its declared extension matches and one of its declared root markers exists in the file's workspace ancestry. A declaration without root markers supports loose workspace files. The server starts only when its executable can be resolved from an ecosystem-local bin directory or `PATH`.
