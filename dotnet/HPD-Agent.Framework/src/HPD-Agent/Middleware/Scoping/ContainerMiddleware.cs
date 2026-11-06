@@ -70,19 +70,11 @@ public class ContainerMiddleware : IAgentMiddleware
 
     // Smart Recovery: Maps to identify hidden tools and containers
     private Dictionary<string, string> _itemToContainerMap;
-    private Dictionary<string, string> _itemToToolHarnessMap;
     private HashSet<string> _knownContainerNames;
 
-    // ToolHarness-scoped middleware (015): factory registry for building scoped pipelines at expansion time
+    // Selected ToolHarness facts used by collapse validation and recovery.
     private readonly IReadOnlyDictionary<string, ToolHarnessFactory>? _toolharnessFactories;
-    private readonly IReadOnlyDictionary<string, int> _toolharnessRegistrationOrder;
-
-    // Exact-type activation overrides substituted into generated descriptor positions.
-    private readonly IReadOnlyDictionary<string, Dictionary<Type, ToolHarnessMiddlewareFactory>>? _middlewareOverrides;
-
-    // ToolHarness-scoped middleware (015 §5A): per-toolharness middleware config overrides from ToolHarnessReference.MiddlewareConfigs
-    // Key: toolharness name → (middleware type name → JsonElement config)
-    private readonly IReadOnlyDictionary<string, Dictionary<string, System.Text.Json.JsonElement>>? _middlewareConfigs;
+    private readonly ToolHarnessExecutionMiddleware? _execution;
 
     //═════════════════════════════════════════════════════════════════════════════════════════════════
     // CONSTRUCTOR
@@ -93,17 +85,15 @@ public class ContainerMiddleware : IAgentMiddleware
     /// </summary>
     /// <param name="initialTools">All available tools for the agent</param>
     /// <param name="explicitlyRegisteredToolHarnesses">ToolHarnesses explicitly registered via WithTools (always visible)</param>
-    /// <param name="toolharnessFactories">ToolHarness factory registry for building scoped middleware pipelines at expansion time . Pass null to disable scoped middleware.</param>
-    /// <param name="middlewareOverrides">Exact-type activation overrides keyed by ToolHarness and declared middleware type.</param>
-    /// <param name="middlewareConfigs">Per-toolharness middleware config overrides from ToolHarnessReference.MiddlewareConfigs . Used with config-constructor middleware factories.</param>
+    /// <param name="toolharnessFactories">Selected ToolHarness factual metadata used for visibility validation.</param>
+    /// <param name="execution">Neutral owner of accepted-input ToolHarness execution.</param>
     /// <param name="config">Container configuration (optional, defaults to enabled)</param>
     /// <param name="logger">Optional logger for diagnostics</param>
     public ContainerMiddleware(
         IList<AITool> initialTools,
         ImmutableHashSet<string> explicitlyRegisteredToolHarnesses,
         IReadOnlyDictionary<string, ToolHarnessFactory>? toolharnessFactories = null,
-        IReadOnlyDictionary<string, Dictionary<Type, ToolHarnessMiddlewareFactory>>? middlewareOverrides = null,
-        IReadOnlyDictionary<string, Dictionary<string, System.Text.Json.JsonElement>>? middlewareConfigs = null,
+        ToolHarnessExecutionMiddleware? execution = null,
         CollapsingConfig? config = null,
         SkillRuntimeOptions? skillOptions = null,
         Microsoft.Extensions.Logging.ILogger<ContainerMiddleware>? logger = null)
@@ -128,20 +118,10 @@ public class ContainerMiddleware : IAgentMiddleware
         _logger = logger;
         _initialTools = initialTools; // V2: Store for container detection
         _toolharnessFactories = toolharnessFactories;
-        _toolharnessRegistrationOrder = (toolharnessFactories?.Values ?? [])
-            .SelectMany(static (factory, ordinal) => new[]
-            {
-                new KeyValuePair<string, int>(factory.Name, ordinal),
-                new KeyValuePair<string, int>(factory.ActivationIdentity, ordinal)
-            })
-            .GroupBy(static pair => pair.Key, StringComparer.Ordinal)
-            .ToDictionary(static group => group.Key, static group => group.First().Value, StringComparer.Ordinal);
-        _middlewareOverrides = middlewareOverrides;
-        _middlewareConfigs = middlewareConfigs;
+        _execution = execution;
 
         // Initialize Smart Recovery maps for hidden items and qualified names
         _itemToContainerMap = BuildItemToContainerMap(initialTools);
-        _itemToToolHarnessMap = BuildItemToToolHarnessMap(initialTools);
         _knownContainerNames = new HashSet<string>(
             _itemToContainerMap.Values,
             StringComparer.OrdinalIgnoreCase);
@@ -156,116 +136,9 @@ public class ContainerMiddleware : IAgentMiddleware
         retained.AddRange(functions);
         _initialTools = retained;
         _itemToContainerMap = BuildItemToContainerMap(retained);
-        _itemToToolHarnessMap = BuildItemToToolHarnessMap(retained);
         _knownContainerNames = new HashSet<string>(
             _itemToContainerMap.Values,
             StringComparer.OrdinalIgnoreCase);
-    }
-
-    private ToolHarnessFactory? GetEffectiveHarness(string harnessName)
-    {
-        ToolHarnessFactory? factory = null;
-        if (_toolharnessFactories?.TryGetValue(harnessName, out factory) != true)
-            factory = _toolharnessFactories?.Values.FirstOrDefault(candidate =>
-                candidate.ActivationIdentity.Equals(harnessName, StringComparison.Ordinal));
-        if (factory is null) return null;
-        if (_middlewareOverrides is null ||
-            !(_middlewareOverrides.TryGetValue(factory.ActivationIdentity, out var overrides) ||
-              _middlewareOverrides.TryGetValue(factory.Name, out overrides)) || overrides.Count == 0)
-            return factory;
-
-        return factory with
-        {
-            Middleware = (factory.Middleware ?? []).Select(descriptor =>
-                overrides.TryGetValue(descriptor.MiddlewareType, out var replacement)
-                    ? descriptor with { Factory = replacement }
-                    : descriptor).ToArray()
-        };
-    }
-
-    private ToolHarnessActivationContext CreateActivationContext(
-        HookContext context,
-        ToolHarnessFactory harness,
-        AgentRunConfig runConfig)
-        => CreateActivationContext(context.Base, harness, runConfig);
-
-    private ToolHarnessActivationContext CreateActivationContext(
-        AgentContext context,
-        ToolHarnessFactory harness,
-        AgentRunConfig runConfig)
-    {
-        var configs = new Dictionary<Type, System.Text.Json.JsonElement>();
-        if (_middlewareConfigs is not null &&
-            (_middlewareConfigs.TryGetValue(harness.ActivationIdentity, out var configured) ||
-             _middlewareConfigs.TryGetValue(harness.Name, out configured)))
-        {
-            foreach (var descriptor in harness.Middleware ?? [])
-            {
-                if (descriptor.ConfigurationType is null) continue;
-                var match = configured.FirstOrDefault(pair =>
-                    descriptor.MiddlewareType.Name.Equals(pair.Key, StringComparison.OrdinalIgnoreCase) ||
-                    descriptor.MiddlewareType.FullName?.EndsWith(pair.Key, StringComparison.OrdinalIgnoreCase) == true);
-                if (!string.IsNullOrEmpty(match.Key))
-                {
-                    if (descriptor.UsesHarnessConfiguration)
-                        throw new AgentRunConfigurationException("HarnessConfigurationConflict", "middlewareConfigs." + match.Key,
-                            "Configure this middleware through its owning harness settings section.");
-                    configs[descriptor.ConfigurationType] = match.Value;
-                }
-            }
-        }
-
-        return new ToolHarnessActivationContext(
-            harness.ActivationIdentity,
-            context.ThreadExecutionId ?? context.State.RunId,
-            context.Services,
-            runConfig,
-            agentResources: context.AgentResources,
-            configuration: configs,
-            sessionId: context.Session?.Id,
-            threadId: context.Thread?.Id,
-            canonicalWorkspaceIdentity: context.CanonicalWorkspaceIdentity);
-    }
-
-    private static IEnumerable<string> ActiveHarnessesInReverseOrder(AgentContext context) =>
-        context.ToolHarnessPipelines?.GetDiagnosticsSnapshot().Entries
-            .Where(static entry => entry.State == ToolHarnessPipelineLifecycleState.Active)
-            .OrderByDescending(static entry => entry.ActivationOrdinal)
-            .Select(static entry => entry.HarnessIdentity) ?? [];
-
-    private async ValueTask<ToolHarnessPipelineLease?> AcquireAsync(
-        HookContext context,
-        string harnessName,
-        AgentRunConfig runConfig,
-        CancellationToken cancellationToken)
-    {
-        var harness = GetEffectiveHarness(harnessName);
-        if (harness?.Middleware is not { Count: > 0 }) return null;
-        var registry = context.Base.ToolHarnessPipelines ??
-            throw new InvalidOperationException($"ToolHarness '{harness.ActivationIdentity}' dispatch has no accepted-input execution registry.");
-        return await registry.AcquireAsync(
-            harness,
-            CreateActivationContext(context, harness, runConfig),
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    //═════════════════════════════════════════════════════════════════════════════════════════════════
-    // BEFORE MESSAGE TURN: Rehydrate runtime pipelines from descriptive expansion
-    //═════════════════════════════════════════════════════════════════════════════════════════════════
-
-    public async Task BeforeMessageTurnAsync(
-        BeforeMessageTurnContext context,
-        CancellationToken cancellationToken)
-    {
-        var state = context.GetMiddlewareState<ContainerMiddlewareState>();
-        if (state is null) return;
-        foreach (var harnessName in InRegistrationOrder(state.ExpandedContainers))
-        {
-            await using var lease = await AcquireAsync(context, harnessName, context.RunConfig, cancellationToken)
-                .ConfigureAwait(false);
-            if (lease is not null)
-                await lease.Pipeline.DispatchBeforeMessageTurnAsync(context, cancellationToken).ConfigureAwait(false);
-        }
     }
 
     //═════════════════════════════════════════════════════════════════════════════════════════════════
@@ -409,16 +282,6 @@ public class ContainerMiddleware : IAgentMiddleware
             }
         }
 
-        // Descriptive expansion never retains runtime middleware. Re-activate in stable
-        // registration order for this accepted input before the first applicable hook.
-        foreach (var harnessName in InRegistrationOrder(collapsingState.ExpandedContainers))
-        {
-            await using var lease = await AcquireAsync(context, harnessName, context.RunConfig, cancellationToken)
-                .ConfigureAwait(false);
-            if (lease is not null)
-                await lease.Pipeline.DispatchBeforeIterationAsync(context, cancellationToken).ConfigureAwait(false);
-        }
-
     }
 
     //═════════════════════════════════════════════════════════════════════════════════════════════════
@@ -554,17 +417,8 @@ public class ContainerMiddleware : IAgentMiddleware
         if (containersToExpand.Count == 0 && recoveredCalls.Count == 0)
             return;
 
-        // Activation is a runtime side effect and must complete before descriptive state commits.
-        var activated = new List<(string Name, ToolHarnessPipelineLease Lease)>();
-        try
+        void CommitExpansion()
         {
-            foreach (var containerName in containersToExpand.Order(StringComparer.Ordinal))
-            {
-                var lease = await AcquireAsync(context, containerName, context.RunConfig, cancellationToken)
-                    .ConfigureAwait(false);
-                if (lease is not null) activated.Add((containerName, lease));
-            }
-
             context.UpdateMiddlewareState<ContainerMiddlewareState>(state =>
             {
                 foreach (var container in containersToExpand)
@@ -577,44 +431,18 @@ public class ContainerMiddleware : IAgentMiddleware
                     state = state.WithRecoveredFunction(callId, recovery);
                 return state;
             });
-
-            foreach (var (_, lease) in activated)
-                await lease.Pipeline.DispatchBeforeToolExecutionAsync(context, cancellationToken).ConfigureAwait(false);
         }
-        finally
-        {
-            for (var index = activated.Count - 1; index >= 0; index--)
-                await activated[index].Lease.DisposeAsync().ConfigureAwait(false);
-        }
-    }
 
-    //═════════════════════════════════════════════════════════════════════════════════════════════════
-    // BEFORE PARALLEL BATCH: Dispatch to toolharness-scoped pipelines for functions in the batch
-    //═════════════════════════════════════════════════════════════════════════════════════════════════
-
-    /// <summary>
-    /// Called before a batch of parallel function calls executes.
-    /// Routes <c>BeforeParallelBatchAsync</c> to the toolharness-scoped pipeline of every toolharness
-    /// represented in the batch .
-    /// </summary>
-    public async Task BeforeParallelBatchAsync(
-        BeforeParallelBatchContext context,
-        CancellationToken cancellationToken)
-    {
-        if (_toolharnessFactories == null)
-            return;
-
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var fn in context.ParallelFunctions)
-        {
-            if (!_itemToToolHarnessMap.TryGetValue(fn.FunctionName, out var toolharnessName))
-                continue;
-            if (!seen.Add(toolharnessName)) continue;
-            await using var lease = await AcquireAsync(context, toolharnessName, context.RunConfig, cancellationToken)
-                .ConfigureAwait(false);
-            if (lease is not null)
-                await lease.Pipeline.DispatchBeforeParallelBatchAsync(context, cancellationToken).ConfigureAwait(false);
-        }
+        if (_execution is null)
+            CommitExpansion();
+        else
+            await _execution.ActivateAndCommitExpansionAsync(
+                context,
+                containersToExpand,
+                recoveredCalls,
+                activationCalls,
+                CommitExpansion,
+                cancellationToken).ConfigureAwait(false);
     }
 
     //═════════════════════════════════════════════════════════════════════════════════════════════════
@@ -628,34 +456,23 @@ public class ContainerMiddleware : IAgentMiddleware
     /// function (e.g., "Add") and provide guidance.
     /// Transparently informs user that error recovery occurred.
     /// </summary>
-    public async Task BeforeFunctionAsync(
+    public Task BeforeFunctionAsync(
         BeforeFunctionContext context,
         CancellationToken cancellationToken)
     {
         if (!_config.Enabled)
-            return;
+            return Task.CompletedTask;
 
         // Only handle cases where function is null (lookup failed)
         if (context.Function != null)
-        {
-            // ToolHarness-scoped middleware (015): dispatch to the owning toolharness's pipeline
-            var fnName = context.Function.Name;
-            if (fnName != null && _itemToToolHarnessMap.TryGetValue(fnName, out var owningToolHarness))
-            {
-                await using var lease = await AcquireAsync(context, owningToolHarness, context.RunConfig, cancellationToken)
-                    .ConfigureAwait(false);
-                if (lease is not null)
-                    await lease.Pipeline.DispatchBeforeFunctionAsync(context, cancellationToken).ConfigureAwait(false);
-            }
-            return;
-        }
+            return Task.CompletedTask;
 
         // Check if this is a recovered call
         var state = context.GetMiddlewareState<ContainerMiddlewareState>();
         if (state?.RecoveredFunctionCalls is not { } recoveredCalls ||
             !recoveredCalls.TryGetValue(context.FunctionCallId, out var recovery) ||
             recovery is null)
-            return; // Not a recovered call
+            return Task.CompletedTask; // Not a recovered call
 
         context.OverrideResult = recovery.Type switch
         {
@@ -670,6 +487,7 @@ public class ContainerMiddleware : IAgentMiddleware
                 "Retry the intended function with its arguments.",
             _ => "The requested capability was made visible. Retry the tool call with its original arguments."
         };
+        return Task.CompletedTask;
     }
 
 
@@ -682,7 +500,7 @@ public class ContainerMiddleware : IAgentMiddleware
     /// For recovered function calls (hidden items or qualified names), add explanatory message.
     /// DISABLED: Testing if informational notes affect LLM learning.
     /// </summary>
-    public async Task AfterFunctionAsync(
+    public Task AfterFunctionAsync(
         AfterFunctionContext context,
         CancellationToken cancellationToken)
     {
@@ -706,24 +524,11 @@ public class ContainerMiddleware : IAgentMiddleware
                     new ContainerInstructionSet(null, reinforcement)));
         }
 
-        // ToolHarness-scoped middleware (015): dispatch to the owning toolharness's pipeline (reverse order)
-        if (context.Function != null)
-        {
-            var fnName = context.Function.Name;
-            if (fnName != null && _itemToToolHarnessMap.TryGetValue(fnName, out var owningToolHarness))
-            {
-                await using var lease = await AcquireAsync(context, owningToolHarness, context.RunConfig, cancellationToken)
-                    .ConfigureAwait(false);
-                if (lease is not null)
-                    await lease.Pipeline.DispatchAfterFunctionAsync(context, cancellationToken).ConfigureAwait(false);
-            }
-        }
-
         // DISABLED: Testing without informational notes
         // Theory: History rewriting alone should be sufficient for teaching correct patterns
         // The "Note: X is part of Y" messages might be noise that doesn't help learning
 
-        return;
+        return Task.CompletedTask;
 
         // ORIGINAL CODE (commented out for testing):
         /*
@@ -767,35 +572,6 @@ public class ContainerMiddleware : IAgentMiddleware
     }
 
     //═════════════════════════════════════════════════════════════════════════════════════════════════
-    // AFTER ITERATION: No-op (filtering moved to BeforeIterationAsync)
-    //═════════════════════════════════════════════════════════════════════════════════════════════════
-
-    /// <summary>
-    /// Called after each iteration completes.
-    /// NOTE: Container filtering happens in BeforeIterationAsync (before messages are sent to LLM).
-    /// This hook is kept for potential future use.
-    /// </summary>
-    public async Task AfterIterationAsync(
-        AfterIterationContext context,
-        CancellationToken cancellationToken)
-    {
-        // Container filtering moved to BeforeIterationAsync for immediate transparency
-
-        // ToolHarness-scoped middleware (015): dispatch AfterIterationAsync to all active toolharness pipelines (reverse order)
-        var state = context.GetMiddlewareState<ContainerMiddlewareState>();
-        if (state is not null)
-        {
-            foreach (var harnessName in ActiveHarnessesInReverseOrder(context.Base))
-            {
-                await using var lease = await AcquireAsync(context, harnessName, context.RunConfig, cancellationToken)
-                    .ConfigureAwait(false);
-                if (lease is not null)
-                    await lease.Pipeline.DispatchAfterIterationAsync(context, cancellationToken).ConfigureAwait(false);
-            }
-        }
-    }
-
-    //═════════════════════════════════════════════════════════════════════════════════════════════════
     // AFTER MESSAGE TURN: Cleanup (instruction clearing only - no TurnHistory filtering)
     //═════════════════════════════════════════════════════════════════════════════════════════════════
 
@@ -811,12 +587,12 @@ public class ContainerMiddleware : IAgentMiddleware
     ///
     /// Filtering happens in BeforeIterationAsync for within-turn transparency only.
     /// </remarks>
-    public async Task AfterMessageTurnAsync(
+    public Task AfterMessageTurnAsync(
         AfterMessageTurnContext context,
         CancellationToken cancellationToken)
     {
         if (!_config.Enabled)
-            return;
+            return Task.CompletedTask;
 
         //─────────────────────────────────────────────────────────────────────────────────────────────
         // STEP 1: DISABLED - Container calls MUST remain in TurnHistory for cross-turn context
@@ -889,79 +665,7 @@ public class ContainerMiddleware : IAgentMiddleware
             context.UpdateMiddlewareState<ContainerMiddlewareState>(_ => updatedCollapsing);
         }
 
-        // ToolHarness-scoped middleware finalizes before turn accounting closes.
-        // Done AFTER state update so pipelines see the final state for the turn.
-        foreach (var harnessName in ActiveHarnessesInReverseOrder(context.Base))
-        {
-            await using var lease = await AcquireAsync(context, harnessName, context.RunConfig, cancellationToken)
-                .ConfigureAwait(false);
-            if (lease is not null)
-                await lease.Pipeline.DispatchAfterMessageTurnAsync(context, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    //═════════════════════════════════════════════════════════════════════════════════════════════════
-    // ON ERROR: Route to toolharness-scoped pipelines
-    //═════════════════════════════════════════════════════════════════════════════════════════════════
-
-    /// <summary>
-    /// Routes OnErrorAsync to active toolharness-scoped pipelines .
-    /// <para>
-    /// <b>Dispatch strategy:</b> <c>ErrorContext</c> does not carry a function name, so we cannot
-    /// identify which specific toolharness owns the erroring call. For <c>ErrorSource.ToolCall</c>
-    /// errors we dispatch to all active toolharness pipelines in reverse order — consistent with the
-    /// After*-style unwinding model. For non-tool errors (model call, iteration, message turn)
-    /// we still dispatch to all active pipelines so scoped middleware can do cross-cutting error
-    /// handling (e.g. circuit breakers, per-toolharness telemetry).
-    /// </para>
-    /// </summary>
-    public async Task OnErrorAsync(
-        ErrorContext context,
-        CancellationToken cancellationToken)
-    {
-        foreach (var harnessName in ActiveHarnessesInReverseOrder(context.Base))
-        {
-            await using var lease = await AcquireAsync(context, harnessName, new AgentRunConfig(), cancellationToken)
-                .ConfigureAwait(false);
-            if (lease is not null)
-                await lease.Pipeline.DispatchOnErrorAsync(context, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    //═════════════════════════════════════════════════════════════════════════════════════════════════
-    // WRAP FUNCTION CALL: Route to toolharness-scoped pipeline (innermost wrapper)
-    //═════════════════════════════════════════════════════════════════════════════════════════════════
-
-    /// <summary>
-    /// Routes WrapFunctionCallAsync to the owning toolharness's scoped pipeline .
-    /// The toolharness pipeline wraps innermost — closest to the actual function call.
-    /// ExecuteFunctionCallAsync is chain-based and does NOT call SetMiddlewareExecuting,
-    /// so delegating to it here is safe even though we are inside the global pipeline's Execute*() call.
-    /// </summary>
-    public async Task<object?> WrapFunctionCallAsync(
-        FunctionRequest request,
-        Func<FunctionRequest, Task<object?>> handler,
-        CancellationToken cancellationToken)
-    {
-        if (_toolharnessFactories == null)
-            return await handler(request).ConfigureAwait(false);
-
-        if (!_itemToToolHarnessMap.TryGetValue(request.FunctionName, out var toolharnessName))
-            return await handler(request).ConfigureAwait(false);
-
-        var execution = request.ExecutionContext ??
-            throw new InvalidOperationException($"ToolHarness '{toolharnessName}' function dispatch has no accepted-input execution authority.");
-        var harness = GetEffectiveHarness(toolharnessName);
-        if (harness?.Middleware is not { Count: > 0 })
-            return await handler(request).ConfigureAwait(false);
-        var registry = execution.ToolHarnessPipelines ??
-            throw new InvalidOperationException($"ToolHarness '{harness.ActivationIdentity}' function dispatch has no execution registry.");
-        await using var lease = await registry.AcquireAsync(
-            harness,
-            CreateActivationContext(execution, harness, request.RunConfig),
-            cancellationToken).ConfigureAwait(false);
-
-        return await lease.Pipeline.ExecuteFunctionCallAsync(request, handler, cancellationToken).ConfigureAwait(false);
+        return Task.CompletedTask;
     }
 
     //═════════════════════════════════════════════════════════════════════════════════════════════════
@@ -1397,11 +1101,6 @@ public class ContainerMiddleware : IAgentMiddleware
         return null;
     }
 
-    private IEnumerable<string> InRegistrationOrder(IEnumerable<string> harnessNames) =>
-        harnessNames
-            .OrderBy(name => _toolharnessRegistrationOrder.TryGetValue(name, out var ordinal) ? ordinal : int.MaxValue)
-            .ThenBy(static name => name, StringComparer.Ordinal);
-
     private static HPDCapabilityMetadata? GetCapabilityMetadata(AIFunction? function)
         => function?.AdditionalProperties?.TryGetValue(
             HPDCapabilityMetadata.AdditionalPropertiesKey,
@@ -1491,27 +1190,6 @@ public class ContainerMiddleware : IAgentMiddleware
             }
         }
         
-        return map;
-    }
-
-    /// <summary>
-    /// Builds the ownership lookup used only for ToolHarness-scoped middleware.
-    /// Function-local activation parents must never participate in this map.
-    /// </summary>
-    private static Dictionary<string, string> BuildItemToToolHarnessMap(IList<AITool> tools)
-    {
-        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var function in tools.OfType<AIFunction>())
-        {
-            string? owner = null;
-            if (function.AdditionalProperties?.TryGetValue("ToolHarnessName", out var harness) == true)
-                owner = harness as string;
-            if (string.IsNullOrWhiteSpace(owner) &&
-                function.AdditionalProperties?.TryGetValue("ParentToolHarness", out var parent) == true)
-                owner = parent as string;
-            if (!string.IsNullOrWhiteSpace(owner))
-                map[function.Name] = owner;
-        }
         return map;
     }
 

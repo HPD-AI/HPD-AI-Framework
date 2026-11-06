@@ -27,6 +27,7 @@ await using (var agent = await new AgentBuilder(new AgentConfig
     .WithAPIConfiguration(new ConfigurationBuilder().Build())
     .WithToolHarness<DerivedExecutionHarness>(
         options => options.Configure(new ExternalExecutionSettings { Value = 41 }))
+    .WithToolHarness<ExternalEagerHarness>()
     .BuildAsync())
 {
     await agent.RunAsync("run-cross-assembly-harness", runConfig: runConfig);
@@ -35,6 +36,9 @@ await using (var agent = await new AgentBuilder(new AgentConfig
 return ExternalExecutionMiddleware.CreatedCount == 1 &&
        ExternalExecutionMiddleware.ActivatedCount == 1 &&
        ExternalExecutionMiddleware.DisposedCount == 1 &&
+       ExternalEagerMiddleware.ActivatedCount == 1 &&
+       ExternalEagerMiddleware.TurnedCount == 1 &&
+       ExternalEagerMiddleware.DeactivatedCount == 1 &&
        ExternalExecutionHarness.LastConfiguredValue == 42
     ? 0
     : 1;

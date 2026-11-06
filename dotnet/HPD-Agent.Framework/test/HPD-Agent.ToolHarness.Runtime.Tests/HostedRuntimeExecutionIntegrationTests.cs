@@ -150,7 +150,7 @@ public sealed partial class HostedIsolationHarness
 }
 
 public sealed class HostedIsolationMiddleware
-    : IToolHarnessMiddleware, IToolHarnessMiddlewareLifecycle, IAsyncDisposable
+    : IToolHarnessMiddleware, IAsyncDisposable
 {
     private readonly string _instanceId = Guid.NewGuid().ToString("N");
     private static int _created;

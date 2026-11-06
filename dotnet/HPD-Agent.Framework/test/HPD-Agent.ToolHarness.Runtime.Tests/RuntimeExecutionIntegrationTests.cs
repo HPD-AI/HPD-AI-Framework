@@ -224,7 +224,7 @@ public sealed partial class ExecutionIsolationHarness
     public string Ping() => "pong";
 }
 
-public sealed class ExecutionIsolationMiddleware : IToolHarnessMiddleware, IToolHarnessMiddlewareLifecycle, IAsyncDisposable
+public sealed class ExecutionIsolationMiddleware : IToolHarnessMiddleware, IAsyncDisposable
 {
     private static readonly ConcurrentDictionary<string, byte> SeenExecutions = new(StringComparer.Ordinal);
     private static int _created;

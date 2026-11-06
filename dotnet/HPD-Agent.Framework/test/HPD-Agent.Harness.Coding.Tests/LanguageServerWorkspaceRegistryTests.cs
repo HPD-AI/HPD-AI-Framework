@@ -244,7 +244,7 @@ public sealed class LanguageServerWorkspaceRegistryTests
     }
 
     private sealed class ThrowingLifecycleProbe
-        : IToolHarnessMiddleware, IToolHarnessMiddlewareLifecycle
+        : IToolHarnessMiddleware
     {
         public ValueTask OnHarnessActivatedAsync(
             ToolHarnessActivationContext context,

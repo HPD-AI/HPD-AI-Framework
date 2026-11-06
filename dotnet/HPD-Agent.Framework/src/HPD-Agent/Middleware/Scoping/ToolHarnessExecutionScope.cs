@@ -125,17 +125,67 @@ internal sealed class ToolHarnessPipelineRegistry
         ToolHarnessActivationContext context,
         CancellationToken cancellationToken = default)
     {
+        var (entry, _) = await GetOrActivateAsync(
+            harness,
+            context,
+            deferredInitiallyLoaded: true,
+            cancellationToken).ConfigureAwait(false);
+        return await entry.AcquireAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    internal async ValueTask<ToolHarnessPipelineLease> AcquireEagerAsync(
+        ToolHarnessFactory harness,
+        ToolHarnessActivationContext context,
+        CancellationToken cancellationToken = default)
+    {
+        var (entry, _) = await GetOrActivateAsync(
+            harness,
+            context,
+            deferredInitiallyLoaded: false,
+            cancellationToken).ConfigureAwait(false);
+        return await entry.AcquireAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    internal async ValueTask<ToolHarnessPipelineLease> AcquireDeferredAsync(
+        ToolHarnessFactory harness,
+        ToolHarnessActivationContext context,
+        CancellationToken cancellationToken = default)
+    {
+        var (entry, created) = await GetOrActivateAsync(
+            harness,
+            context,
+            deferredInitiallyLoaded: true,
+            cancellationToken).ConfigureAwait(false);
+        if (!created)
+            await entry.AppendAsync(harness, context, cancellationToken).ConfigureAwait(false);
+        return await entry.AcquireAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<(ActivatedToolHarnessPipeline Entry, bool Created)> GetOrActivateAsync(
+        ToolHarnessFactory harness,
+        ToolHarnessActivationContext context,
+        bool deferredInitiallyLoaded,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(harness);
         ArgumentNullException.ThrowIfNull(context);
         var identity = harness.ActivationIdentity;
         Lazy<Task<ActivatedToolHarnessPipeline>> lazy;
         Task<ActivatedToolHarnessPipeline> activation;
+        var created = false;
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_closing != 0, this);
-            lazy = _entries.GetOrAdd(identity, _ => new Lazy<Task<ActivatedToolHarnessPipeline>>(
-                () => ActivateAsync(harness, context, cancellationToken),
-                LazyThreadSafetyMode.ExecutionAndPublication));
+            if (!_entries.TryGetValue(identity, out lazy!))
+            {
+                lazy = new Lazy<Task<ActivatedToolHarnessPipeline>>(
+                    () => ActivateAsync(harness, context, deferredInitiallyLoaded, cancellationToken),
+                    LazyThreadSafetyMode.ExecutionAndPublication);
+                if (_entries.TryAdd(identity, lazy))
+                    created = true;
+                else
+                    lazy = _entries[identity];
+            }
             // Start activation before releasing the close/admission gate so shutdown's
             // snapshot can never observe an inserted-but-unstarted entry.
             activation = lazy.Value;
@@ -148,7 +198,7 @@ internal sealed class ToolHarnessPipelineRegistry
             _entries.TryRemove(new KeyValuePair<string, Lazy<Task<ActivatedToolHarnessPipeline>>>(identity, lazy));
             throw;
         }
-        return await entry.AcquireAsync(cancellationToken).ConfigureAwait(false);
+        return (entry, created);
     }
 
     internal ToolHarnessRegistryDiagnostics GetDiagnosticsSnapshot() => new(
@@ -192,6 +242,7 @@ internal sealed class ToolHarnessPipelineRegistry
     private async Task<ActivatedToolHarnessPipeline> ActivateAsync(
         ToolHarnessFactory harness,
         ToolHarnessActivationContext context,
+        bool deferredInitiallyLoaded,
         CancellationToken cancellationToken)
     {
         var instances = new List<ToolHarnessMiddlewareActivation>();
@@ -216,12 +267,11 @@ internal sealed class ToolHarnessPipelineRegistry
 
             foreach (var activation in instances)
             {
-                if (activation.Middleware is IToolHarnessMiddlewareLifecycle lifecycle)
-                    await lifecycle.OnHarnessActivatedAsync(
-                        context.ForMiddleware(
-                            activation.Middleware.GetType(),
-                            nameof(IToolHarnessMiddlewareLifecycle.OnHarnessActivatedAsync)),
-                        cancellationToken).ConfigureAwait(false);
+                await activation.Middleware.OnHarnessActivatedAsync(
+                    context.ForMiddleware(
+                        activation.Middleware.GetType(),
+                        nameof(IToolHarnessMiddleware.OnHarnessActivatedAsync)),
+                    cancellationToken).ConfigureAwait(false);
                 activatedLifecycleCount++;
             }
 
@@ -230,7 +280,8 @@ internal sealed class ToolHarnessPipelineRegistry
                 context.InputExecutionId,
                 new AgentMiddlewarePipeline(instances.Select(static value => (IAgentMiddleware)value.Middleware).ToArray()),
                 instances,
-                Interlocked.Increment(ref _activationOrdinal));
+                Interlocked.Increment(ref _activationOrdinal),
+                deferredInitiallyLoaded);
         }
         catch (Exception activationFailure)
         {
@@ -247,29 +298,37 @@ internal sealed class ToolHarnessPipelineRegistry
 internal sealed class ActivatedToolHarnessPipeline
 {
     private readonly object _gate = new();
-    private readonly IReadOnlyList<ToolHarnessMiddlewareActivation> _instances;
+    private readonly List<ToolHarnessMiddlewareActivation> _instances;
     private readonly TaskCompletionSource _admissionsDrained = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private AgentMiddlewarePipeline _pipeline;
+    private Task? _deferredActivation;
+    private bool _deferredActivated;
     private ToolHarnessPipelineLifecycleState _state = ToolHarnessPipelineLifecycleState.Active;
     private int _admissions;
+    private int _activations;
+    private int _expansionNotified;
 
     internal ActivatedToolHarnessPipeline(
         string harnessIdentity,
         string inputExecutionId,
         AgentMiddlewarePipeline pipeline,
         IReadOnlyList<ToolHarnessMiddlewareActivation> instances,
-        long activationOrdinal)
+        long activationOrdinal,
+        bool deferredActivated)
     {
         HarnessIdentity = harnessIdentity;
         InputExecutionId = inputExecutionId;
-        Pipeline = pipeline;
-        _instances = instances;
+        _pipeline = pipeline;
+        _instances = [.. instances];
+        _deferredActivated = deferredActivated;
         ActivationOrdinal = activationOrdinal;
     }
 
     internal string HarnessIdentity { get; }
     internal string InputExecutionId { get; }
-    internal AgentMiddlewarePipeline Pipeline { get; }
+    internal AgentMiddlewarePipeline Pipeline => Volatile.Read(ref _pipeline);
     internal long ActivationOrdinal { get; }
+    internal int ActivationOperations => Volatile.Read(ref _activations);
 
     internal ValueTask<ToolHarnessPipelineLease> AcquireAsync(CancellationToken cancellationToken)
     {
@@ -288,13 +347,137 @@ internal sealed class ActivatedToolHarnessPipeline
         lock (_gate) return new(HarnessIdentity, ActivationOrdinal, _state, _admissions);
     }
 
+    internal async ValueTask NotifyExpandedAsync(
+        ToolHarnessExpansionContext context,
+        CancellationToken cancellationToken)
+    {
+        if (Interlocked.Exchange(ref _expansionNotified, 1) != 0) return;
+        foreach (var instance in _instances)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await instance.Middleware.OnHarnessExpandedAsync(context, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    internal async ValueTask AppendAsync(
+        ToolHarnessFactory harness,
+        ToolHarnessActivationContext context,
+        CancellationToken cancellationToken)
+    {
+        Task activation;
+        lock (_gate)
+        {
+            if (_deferredActivated) return;
+            _activations++;
+            _deferredActivation ??= AppendCoreAsync(harness, context, cancellationToken);
+            activation = _deferredActivation;
+        }
+
+        try
+        {
+            await activation.ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                _activations--;
+                if (_admissions == 0 &&
+                    _activations == 0 &&
+                    _state == ToolHarnessPipelineLifecycleState.Deactivating)
+                    _admissionsDrained.TrySetResult();
+            }
+        }
+    }
+
+    private async Task AppendCoreAsync(
+        ToolHarnessFactory harness,
+        ToolHarnessActivationContext context,
+        CancellationToken cancellationToken)
+    {
+        var instances = new List<ToolHarnessMiddlewareActivation>();
+        var activatedLifecycleCount = 0;
+        Exception? stateFailure = null;
+        try
+        {
+            foreach (var descriptor in harness.Middleware ?? [])
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var descriptorContext = context.ForMiddleware(descriptor.MiddlewareType, "factory");
+                var activation = descriptor.Factory(descriptorContext) ??
+                    throw new InvalidOperationException($"ToolHarness '{harness.ActivationIdentity}' middleware factory returned null.");
+                if (activation.Middleware.GetType() != descriptor.MiddlewareType)
+                    throw new InvalidOperationException($"ToolHarness '{harness.ActivationIdentity}' middleware factory returned '{activation.Middleware.GetType()}' instead of exact declared type '{descriptor.MiddlewareType}'.");
+                if (activation.Ownership == ToolHarnessMiddlewareOwnership.Services &&
+                    (descriptorContext.Services is null || !descriptorContext.WasResolvedFromServices(activation.Middleware)))
+                    throw new InvalidOperationException(
+                        $"ToolHarness '{harness.ActivationIdentity}' services-owned middleware '{descriptor.MiddlewareType}' " +
+                        "must be the exact instance resolved through its input child-scope activation context.");
+                instances.Add(activation);
+            }
+
+            foreach (var activation in instances)
+            {
+                await activation.Middleware.OnHarnessActivatedAsync(
+                    context.ForMiddleware(
+                        activation.Middleware.GetType(),
+                        nameof(IToolHarnessMiddleware.OnHarnessActivatedAsync)),
+                    cancellationToken).ConfigureAwait(false);
+                activatedLifecycleCount++;
+            }
+
+            lock (_gate)
+            {
+                if (_state == ToolHarnessPipelineLifecycleState.Active && !_deferredActivated)
+                {
+                    _instances.AddRange(instances);
+                    Volatile.Write(
+                        ref _pipeline,
+                        new AgentMiddlewarePipeline(
+                            _instances.Select(static value => (IAgentMiddleware)value.Middleware).ToArray()));
+                    _deferredActivated = true;
+                    return;
+                }
+                stateFailure = new InvalidOperationException(
+                    $"ToolHarness '{HarnessIdentity}' cannot attach deferred middleware while {_state}.");
+            }
+        }
+        catch (Exception activationFailure)
+        {
+            var activationCleanupFailures = await UnwindFailedActivationAsync(
+                HarnessIdentity,
+                InputExecutionId,
+                instances,
+                activatedLifecycleCount).ConfigureAwait(false);
+            if (activationCleanupFailures.Count > 0)
+                throw new AggregateException(
+                    "ToolHarness deferred activation and cleanup failed.",
+                    [activationFailure, .. activationCleanupFailures]);
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(activationFailure).Throw();
+            throw;
+        }
+
+        var cleanupFailures = await UnwindFailedActivationAsync(
+            HarnessIdentity,
+            InputExecutionId,
+            instances,
+            activatedLifecycleCount).ConfigureAwait(false);
+        if (cleanupFailures.Count > 0)
+            throw new AggregateException(
+                "ToolHarness deferred middleware could not attach and cleanup failed.",
+                new[] { stateFailure! }.Concat(cleanupFailures));
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(stateFailure!).Throw();
+    }
+
     internal ValueTask ReleaseAdmissionAsync()
     {
         lock (_gate)
         {
             if (--_admissions < 0)
                 throw new InvalidOperationException("ToolHarness invocation admission was released more than once.");
-            if (_admissions == 0 && _state == ToolHarnessPipelineLifecycleState.Deactivating)
+            if (_admissions == 0 &&
+                _activations == 0 &&
+                _state == ToolHarnessPipelineLifecycleState.Deactivating)
                 _admissionsDrained.TrySetResult();
         }
         return ValueTask.CompletedTask;
@@ -308,7 +491,7 @@ internal sealed class ActivatedToolHarnessPipeline
             if (_state is ToolHarnessPipelineLifecycleState.Deactivating or ToolHarnessPipelineLifecycleState.Disposed)
                 return;
             _state = ToolHarnessPipelineLifecycleState.Deactivating;
-            if (_admissions == 0) _admissionsDrained.TrySetResult();
+            if (_admissions == 0 && _activations == 0) _admissionsDrained.TrySetResult();
             wait = _admissionsDrained.Task;
         }
         await wait.ConfigureAwait(false);
@@ -318,11 +501,8 @@ internal sealed class ActivatedToolHarnessPipeline
         for (var index = _instances.Count - 1; index >= 0; index--)
         {
             var activation = _instances[index];
-            if (activation.Middleware is IToolHarnessMiddlewareLifecycle lifecycle)
-            {
-                try { await lifecycle.OnHarnessDeactivatingAsync(deactivation, CancellationToken.None).ConfigureAwait(false); }
-                catch (Exception ex) { (failures ??= []).Add(ex); }
-            }
+            try { await activation.Middleware.OnHarnessDeactivatingAsync(deactivation, CancellationToken.None).ConfigureAwait(false); }
+            catch (Exception ex) { (failures ??= []).Add(ex); }
         }
         await DisposeOwnedAsync(_instances, failures ??= []).ConfigureAwait(false);
         lock (_gate) _state = ToolHarnessPipelineLifecycleState.Disposed;
@@ -339,8 +519,7 @@ internal sealed class ActivatedToolHarnessPipeline
         var context = new ToolHarnessDeactivationContext(harnessIdentity, inputExecutionId, ToolHarnessDeactivationReason.Failed);
         for (var index = Math.Min(activatedLifecycleCount, instances.Count) - 1; index >= 0; index--)
         {
-            if (instances[index].Middleware is not IToolHarnessMiddlewareLifecycle lifecycle) continue;
-            try { await lifecycle.OnHarnessDeactivatingAsync(context, CancellationToken.None).ConfigureAwait(false); }
+            try { await instances[index].Middleware.OnHarnessDeactivatingAsync(context, CancellationToken.None).ConfigureAwait(false); }
             catch (Exception ex) { failures.Add(ex); }
         }
         await DisposeOwnedAsync(instances, failures).ConfigureAwait(false);
@@ -371,6 +550,11 @@ internal sealed class ToolHarnessPipelineLease(ActivatedToolHarnessPipeline entr
 {
     private ActivatedToolHarnessPipeline? _entry = entry;
     internal AgentMiddlewarePipeline Pipeline => (_entry ?? throw new ObjectDisposedException(nameof(ToolHarnessPipelineLease))).Pipeline;
+    internal ValueTask NotifyExpandedAsync(
+        ToolHarnessExpansionContext context,
+        CancellationToken cancellationToken) =>
+        (_entry ?? throw new ObjectDisposedException(nameof(ToolHarnessPipelineLease)))
+            .NotifyExpandedAsync(context, cancellationToken);
     public ValueTask DisposeAsync()
     {
         var current = Interlocked.Exchange(ref _entry, null);

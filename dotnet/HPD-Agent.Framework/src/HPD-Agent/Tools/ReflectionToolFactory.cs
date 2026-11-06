@@ -53,6 +53,7 @@ internal static class ReflectionToolFactory
         }
 
         var collapseAttribute = GetCollapseAttribute(toolharnessType);
+        var eagerMiddlewareAttribute = GetToolHarnessMiddlewareAttribute(toolharnessType);
 
         factory = new ToolHarnessFactory(
             Name: toolharnessType.Name,
@@ -68,7 +69,7 @@ internal static class ReflectionToolFactory
             SystemPrompt: GetStringProperty(collapseAttribute, "SystemPrompt"),
             FunctionNames: methods.Select(GetCapabilityName).ToArray(),
             StableIdentity: $"{toolharnessType.Assembly.GetName().Name}:{toolharnessType.FullName ?? toolharnessType.Name}",
-            Middleware: RejectReflectionMiddleware(collapseAttribute),
+            Middleware: RejectReflectionMiddleware(collapseAttribute, eagerMiddlewareAttribute),
             CreateSubAgentActions: (instance, _, _) => CreateSubAgentActionDescriptors(
                 methods, instance, toolharnessType.Name, collapseAttribute is not null));
 
@@ -130,10 +131,13 @@ internal static class ReflectionToolFactory
         return functions;
     }
 
-    private static IReadOnlyList<ToolHarnessMiddlewareDescriptor>? RejectReflectionMiddleware(object? collapseAttribute)
+    private static IReadOnlyList<ToolHarnessMiddlewareDescriptor>? RejectReflectionMiddleware(
+        object? collapseAttribute,
+        object? eagerMiddlewareAttribute)
     {
-        if (collapseAttribute?.GetType().GetProperty("Middlewares")?.GetValue(collapseAttribute) is not Type[] middlewareTypes ||
-            middlewareTypes.Length == 0)
+        var declaredMiddleware = collapseAttribute?.GetType().GetProperty("Middlewares")?.GetValue(collapseAttribute)
+            ?? eagerMiddlewareAttribute?.GetType().GetProperty("MiddlewareTypes")?.GetValue(eagerMiddlewareAttribute);
+        if (declaredMiddleware is not IEnumerable<Type> middlewareTypes || !middlewareTypes.Any())
         {
             return null;
         }
@@ -813,6 +817,17 @@ internal static class ReflectionToolFactory
     {
         return toolharnessType.GetCustomAttributes(inherit: false)
             .FirstOrDefault(attribute => attribute.GetType().Name == "CollapseAttribute");
+    }
+
+    private static object? GetToolHarnessMiddlewareAttribute(Type toolharnessType)
+    {
+        for (var type = toolharnessType; type is not null && type != typeof(object); type = type.BaseType)
+        {
+            var attribute = type.GetCustomAttributes(inherit: false)
+                .FirstOrDefault(candidate => candidate.GetType().Name == "ToolHarnessMiddlewareAttribute");
+            if (attribute is not null) return attribute;
+        }
+        return null;
     }
 
     private static bool HasAttribute(MemberInfo member, string attributeTypeName)

@@ -235,11 +235,28 @@ public sealed record ToolHarnessDeactivationContext(
     /// <summary>Gets the reason teardown began.</summary>
     ToolHarnessDeactivationReason Reason);
 
-/// <summary>Optional activation/deactivation lifecycle for ToolHarness middleware.</summary>
-public interface IToolHarnessMiddlewareLifecycle
+/// <summary>Explains why a ToolHarness became visible.</summary>
+public enum ToolHarnessExpansionReason
 {
-    /// <summary>Runs after all declared instances are constructed, in declaration order.</summary>
-    ValueTask OnHarnessActivatedAsync(ToolHarnessActivationContext context, CancellationToken cancellationToken);
-    /// <summary>Runs before disposal, in reverse declaration order.</summary>
-    ValueTask OnHarnessDeactivatingAsync(ToolHarnessDeactivationContext context, CancellationToken cancellationToken);
+    /// <summary>The model invoked the ToolHarness container.</summary>
+    ContainerCall,
+    /// <summary>A hidden member call recovered by expanding its owner.</summary>
+    HiddenFunctionRecovery,
+    /// <summary>A qualified member call recovered by expanding its owner.</summary>
+    QualifiedFunctionRecovery,
+    /// <summary>Durable expansion state was restored into this accepted-input execution.</summary>
+    RestoredExpansion
 }
+
+/// <summary>Runtime-only facts supplied after a ToolHarness expansion commits.</summary>
+public sealed record ToolHarnessExpansionContext(
+    /// <summary>Gets the stable generated ToolHarness identity.</summary>
+    string HarnessIdentity,
+    /// <summary>Gets the accepted input execution identity.</summary>
+    string InputExecutionId,
+    /// <summary>Gets the reason the ToolHarness became visible.</summary>
+    ToolHarnessExpansionReason Reason,
+    /// <summary>Gets the activating or recovering call identity when available.</summary>
+    string? ExpansionCallId,
+    /// <summary>Gets the member functions revealed by this expansion.</summary>
+    IReadOnlyList<string> RevealedFunctions);

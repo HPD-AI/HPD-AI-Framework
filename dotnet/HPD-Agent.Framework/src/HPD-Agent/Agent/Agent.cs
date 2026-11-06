@@ -123,6 +123,7 @@ public sealed partial class Agent : IAsyncDisposable
     private long _nextActiveRunId;
     private long _nextToolHarnessExecutionId;
     private readonly ContainerMiddleware? _containerMiddleware;
+    private readonly ToolHarnessExecutionMiddleware? _toolHarnessExecutionMiddleware;
     private CancellationTokenSource? _skillWatchCancellation;
     private IReadOnlyList<Task> _skillWatchTasks = [];
     private int _disposeState;
@@ -379,6 +380,7 @@ public sealed partial class Agent : IAsyncDisposable
         // Initialize unified middleware pipeline
         _middlewarePipeline = new AgentMiddlewarePipeline(middlewares ?? Array.Empty<IAgentMiddleware>());
         _containerMiddleware = middlewares?.OfType<ContainerMiddleware>().SingleOrDefault();
+        _toolHarnessExecutionMiddleware = middlewares?.OfType<ToolHarnessExecutionMiddleware>().SingleOrDefault();
         _inputDispatcher = new AgentInputDispatcher(_middlewarePipeline);
 
         // Create event coordinator for Middleware events and human-in-the-loop
@@ -591,6 +593,7 @@ public sealed partial class Agent : IAsyncDisposable
         await using var lease = _capabilityCatalog.Acquire();
         _messageProcessor.ReplaceCapabilityFunctions(lease.Snapshot.Functions);
         _containerMiddleware?.ReplaceCapabilityFunctions(lease.Snapshot.Functions);
+        _toolHarnessExecutionMiddleware?.ReplaceCapabilityFunctions(lease.Snapshot.Functions);
         var refreshPublished = EnrichOutputEvent(new AgentCapabilityRefreshPublishedEvent(
                 previousEpoch,
                 result.Epoch,

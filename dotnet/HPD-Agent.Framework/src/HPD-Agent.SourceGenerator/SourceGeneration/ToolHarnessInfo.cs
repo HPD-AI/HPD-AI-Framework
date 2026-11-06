@@ -204,8 +204,11 @@ internal class ToolHarnessInfo
     /// </summary>
     public bool SystemPromptIsStatic { get; set; } = true;
 
-    /// <summary>Ordered middleware descriptors declared by the ToolHarness.</summary>
-    public List<CollapseMiddlewareEntry>? CollapseMiddlewareEntries { get; set; }
+    /// <summary>Ordered expansion-gated middleware descriptors.</summary>
+    public List<ToolHarnessMiddlewareEntry>? MiddlewareEntries { get; set; }
+
+    /// <summary>Ordered eager middleware descriptors.</summary>
+    public List<ToolHarnessMiddlewareEntry>? EagerMiddlewareEntries { get; set; }
 
 }
 
@@ -214,7 +217,7 @@ internal class ToolHarnessInfo
 /// <summary>
 /// Metadata for a config-constructor scoped middleware type discovered by the source generator.
 /// </summary>
-internal sealed record CollapseMiddlewareEntry(
+internal sealed record ToolHarnessMiddlewareEntry(
     string SimpleName,
     string FullyQualifiedTypeName,
     string? ConfigTypeFqn,

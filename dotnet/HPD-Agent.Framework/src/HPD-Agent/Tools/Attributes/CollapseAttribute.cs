@@ -67,13 +67,13 @@ public sealed class CollapseAttribute : Attribute
     public string? SystemPrompt { get; set; }
 
     /// <summary>
-    /// Middleware types owned by this ToolHarness.
+    /// Expansion-gated middleware types owned by this ToolHarness.
     /// Each type must implement <see cref="HPD.Agent.Middleware.IToolHarnessMiddleware"/> and
     /// declare a supported source-generated constructor shape, explicit exact-type override
     /// factory, or explicitly services-owned activation contract.
-    /// Middleware is activated lazily in the execution-local ToolHarness pipeline on first
-    /// applicable use, including rehydrated executions, and is released during final execution-owner
-    /// teardown. Its lifetime is independent of descriptive system-prompt persistence.
+    /// Middleware activates with this container expansion and uses the accepted-input
+    /// execution-local ToolHarness pipeline. Use <see cref="ToolHarnessMiddlewareAttribute"/>
+    /// for middleware that must activate independently of expansion.
     /// Middleware resolved from the execution child scope must declare
     /// <c>ToolHarnessMiddlewareLifetime(Services)</c>.
     /// </summary>

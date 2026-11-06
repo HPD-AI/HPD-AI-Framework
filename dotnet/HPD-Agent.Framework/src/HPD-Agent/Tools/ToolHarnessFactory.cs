@@ -182,7 +182,7 @@ public record ToolHarnessFactory(
     /// <summary>Agent-owned resources required by generated middleware activation.</summary>
     IReadOnlyList<ToolHarnessAgentResourceDescriptor>? AgentResources = null,
 
-    /// <summary>Ordered immutable middleware declaration carried by this harness.</summary>
+    /// <summary>Ordered expansion-gated middleware carried by this harness.</summary>
     IReadOnlyList<ToolHarnessMiddlewareDescriptor>? Middleware = null,
 
     /// <summary>
@@ -227,4 +227,7 @@ public record ToolHarnessFactory(
     public string ActivationIdentity => !string.IsNullOrWhiteSpace(StableIdentity)
         ? StableIdentity
         : throw new InvalidOperationException($"ToolHarness '{Name}' has no stable generated identity.");
+
+    /// <summary>Ordered middleware activated at accepted-input admission.</summary>
+    public IReadOnlyList<ToolHarnessMiddlewareDescriptor>? EagerMiddleware { get; init; }
 }

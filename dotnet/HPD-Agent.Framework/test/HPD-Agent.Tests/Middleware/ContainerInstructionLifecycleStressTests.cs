@@ -361,7 +361,7 @@ public class ContainerInstructionLifecycleStressTests
         var tools = new List<AITool>();
         var explicitGroups = ImmutableHashSet<string>.Empty;
         var config = new CollapsingConfig { Enabled = true };
-        return new ContainerMiddleware(tools, explicitGroups, null, null, null, config, logger: null);
+        return new ContainerMiddleware(tools, explicitGroups, config: config, logger: null);
     }
 
     private static BeforeIterationContext CreateBeforeIterationContext(

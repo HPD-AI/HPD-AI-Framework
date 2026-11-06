@@ -42,7 +42,7 @@ public sealed partial class DerivedExecutionHarness(
 }
 
 public sealed class ExternalExecutionMiddleware
-    : IToolHarnessMiddleware, IToolHarnessMiddlewareLifecycle, IAsyncDisposable
+    : IToolHarnessMiddleware, IAsyncDisposable
 {
     private static int _created;
     private static int _activated;
@@ -69,6 +69,48 @@ public sealed class ExternalExecutionMiddleware
     public ValueTask DisposeAsync()
     {
         Interlocked.Increment(ref _disposed);
+        return ValueTask.CompletedTask;
+    }
+}
+
+[ToolHarnessMiddleware(typeof(ExternalEagerMiddleware))]
+public sealed class ExternalEagerHarness
+{
+    [AIFunction]
+    public string EagerPing() => "pong";
+}
+
+public sealed class ExternalEagerMiddleware : IToolHarnessMiddleware
+{
+    private static int _activated;
+    private static int _turned;
+    private static int _deactivated;
+
+    public static int ActivatedCount => Volatile.Read(ref _activated);
+    public static int TurnedCount => Volatile.Read(ref _turned);
+    public static int DeactivatedCount => Volatile.Read(ref _deactivated);
+
+    public ValueTask OnHarnessActivatedAsync(
+        ToolHarnessActivationContext context,
+        CancellationToken cancellationToken)
+    {
+        Interlocked.Increment(ref _activated);
+        return ValueTask.CompletedTask;
+    }
+
+    public Task BeforeMessageTurnAsync(
+        BeforeMessageTurnContext context,
+        CancellationToken cancellationToken)
+    {
+        Interlocked.Increment(ref _turned);
+        return Task.CompletedTask;
+    }
+
+    public ValueTask OnHarnessDeactivatingAsync(
+        ToolHarnessDeactivationContext context,
+        CancellationToken cancellationToken)
+    {
+        Interlocked.Increment(ref _deactivated);
         return ValueTask.CompletedTask;
     }
 }

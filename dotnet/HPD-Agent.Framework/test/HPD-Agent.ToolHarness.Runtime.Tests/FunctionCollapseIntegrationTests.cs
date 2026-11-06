@@ -162,12 +162,12 @@ public sealed class FunctionCollapseIntegrationTests
             function => function.Name == "CollapsedData");
         Assert.Equal(nameof(FunctionCollapseTestHarness),
             target.AdditionalProperties!["ToolHarnessName"]);
-        var containerMiddleware = Assert.Single(agent.Middlewares.OfType<ContainerMiddleware>());
+        var executionMiddleware = Assert.Single(agent.Middlewares.OfType<ToolHarnessExecutionMiddleware>());
         var ownerMap = Assert.IsType<Dictionary<string, string>>(
-            typeof(ContainerMiddleware).GetField(
+            typeof(ToolHarnessExecutionMiddleware).GetField(
                 "_itemToToolHarnessMap",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
-            .GetValue(containerMiddleware));
+            .GetValue(executionMiddleware));
         Assert.Equal(nameof(FunctionCollapseTestHarness), ownerMap["CollapsedData"]);
         FunctionCollapseProbeMiddleware.Reset();
         FunctionCollapseTestHarness.ResetDataCalls();
@@ -622,7 +622,7 @@ public partial class FunctionCollapseTestHarness
     }
 }
 
-public sealed class FunctionCollapseProbeMiddleware : IToolHarnessMiddleware, IToolHarnessMiddlewareLifecycle
+public sealed class FunctionCollapseProbeMiddleware : IToolHarnessMiddleware
 {
     private static int _activationCalls;
     private static int _wrapCalls;

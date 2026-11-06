@@ -239,6 +239,15 @@ public class AgentBuilderWithToolTests
     }
 
     [Fact]
+    public void ReflectionToolFactory_RejectsEagerToolHarnessMiddleware()
+    {
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            ReflectionToolFactory.TryCreateToolHarnessFactory(
+                typeof(ReflectionEagerMiddlewareRejectedHarness), out _, out _));
+        Assert.Contains("source-generated", error.Message);
+    }
+
+    [Fact]
     public void GeneratedFactory_CreatesSkillCapabilityWithoutDiscoveryLeakage()
     {
         var factory = GetAdvancedFactory();
@@ -410,6 +419,25 @@ public class AgentBuilderWithToolTests
         Assert.Contains(HPDCapabilityKind.MultiAgent, kinds);
     }
 
+    [Fact]
+    public async Task EagerMiddleware_InstallsExecutionRouterWithoutCollapsing()
+    {
+        var factory = Assert.Single(HPD.Agent.Generated.ToolHarnessRegistry.All,
+            candidate => candidate.ToolHarnessType == typeof(EagerRuntimeToolHarness));
+        Assert.Empty(factory.Middleware ?? []);
+        Assert.Contains(factory.EagerMiddleware ?? [], descriptor =>
+            descriptor.MiddlewareType == typeof(EagerRuntimeMiddleware));
+
+        await using var agent = await new AgentBuilder()
+            .WithEventComposition(TestEventApplication.Composition)
+            .WithToolHarness<EagerRuntimeToolHarness>()
+            .WithoutHarnessCollapsing()
+            .BuildAsync();
+
+        Assert.Contains(agent.Middlewares, middleware => middleware is ToolHarnessExecutionMiddleware);
+        Assert.Contains(agent.DefaultOptions!.Tools!, tool => tool.Name == "EagerPing");
+    }
+
     private sealed class RunningChildResolver(Agent child) : IAgentRuntimeResolver
     {
         public Task<IAgentRuntimeLease> GetOrBuildAsync(string agentId, string sessionId, string threadId,
@@ -461,8 +489,26 @@ public sealed class ReflectionScopedMiddleware : IToolHarnessMiddleware
 {
 }
 
+public sealed class EagerRuntimeMiddleware : IToolHarnessMiddleware
+{
+}
+
+[ToolHarnessMiddleware(typeof(EagerRuntimeMiddleware))]
+public sealed class EagerRuntimeToolHarness
+{
+    [AIFunction]
+    public string EagerPing() => "pong";
+}
+
 [Collapse("Rejected", Middlewares = [typeof(ReflectionScopedMiddleware)])]
 public sealed class ReflectionMiddlewareRejectedHarness
+{
+    [AIFunction]
+    public string Ping() => "pong";
+}
+
+[ToolHarnessMiddleware(typeof(ReflectionScopedMiddleware))]
+public sealed class ReflectionEagerMiddlewareRejectedHarness
 {
     [AIFunction]
     public string Ping() => "pong";

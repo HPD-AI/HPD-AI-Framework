@@ -28,7 +28,7 @@ public class ContainerMiddlewareTests
         var middleware = new ContainerMiddleware(
             allTools,
             ImmutableHashSet<string>.Empty,
-            null, null, null, new CollapsingConfig { Enabled = false });
+            config: new CollapsingConfig { Enabled = false });
 
         var context = CreateContext(options: new ChatOptions { Tools = allTools });
 
@@ -50,7 +50,7 @@ public class ContainerMiddlewareTests
         var middleware = new ContainerMiddleware(
             allTools,
             ImmutableHashSet<string>.Empty,
-            null, null, null, new CollapsingConfig { Enabled = true });
+            config: new CollapsingConfig { Enabled = true });
 
         var context = CreateContext(options: new ChatOptions { Tools = allTools });
 
@@ -75,7 +75,7 @@ public class ContainerMiddlewareTests
         var middleware = new ContainerMiddleware(
             allTools,
             ImmutableHashSet<string>.Empty,
-            null, null, null, new CollapsingConfig { Enabled = true });
+            config: new CollapsingConfig { Enabled = true });
 
         // State with expanded ToolHarness
         var state = CreateEmptyState();
@@ -154,7 +154,7 @@ public class ContainerMiddlewareTests
         var middleware = new ContainerMiddleware(
             allTools,
             ImmutableHashSet<string>.Empty,
-            null, null, null, new CollapsingConfig { Enabled = false });
+            config: new CollapsingConfig { Enabled = false });
 
         var toolCalls = new List<FunctionCallContent> { CreateToolCall("TestToolHarness") };
         var context = CreateBeforeToolExecutionContext(toolCalls: toolCalls);
@@ -578,24 +578,156 @@ public class ContainerMiddlewareTests
         var (container, members) = CreateCollapsedToolHarness("BatchHarness", "Batch", "First", "Second");
         var factory = CreateRuntimeHarness("BatchHarness", members, typeof(BatchProbe),
             _ => ToolHarnessMiddlewareActivation.ExecutionOwned(new BatchProbe(() => calls++)));
+        factory = factory with { EagerMiddleware = factory.Middleware, Middleware = [] };
         var scope = ToolHarnessExecutionScope.Create(null);
         var tools = new List<AITool> { container };
         tools.AddRange(members);
-        var middleware = new ContainerMiddleware(
+        var execution = new ToolHarnessExecutionMiddleware(
             tools,
-            ImmutableHashSet<string>.Empty,
             new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory });
+        await execution.BeforeMessageTurnAsync(
+            CreateBeforeMessageTurnContext(scope), CancellationToken.None);
         var context = CreateBeforeParallelBatchContext(scope,
         [
             new ParallelFunctionInfo(members[0], "call-1", new Dictionary<string, object?>()),
             new ParallelFunctionInfo(members[1], "call-2", new Dictionary<string, object?>())
         ]);
 
-        await middleware.BeforeParallelBatchAsync(context, CancellationToken.None);
+        await execution.BeforeParallelBatchAsync(context, CancellationToken.None);
 
         Assert.Equal(1, calls);
         await scope.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
         await scope.Completion;
+    }
+
+    [Fact]
+    public async Task EagerMiddleware_ActivatesBeforeExpansion()
+    {
+        var probe = new ElapsedHookProbe();
+        var (container, members) = CreateCollapsedToolHarness(
+            "EagerHarness", "Eager", "Run");
+        var factory = CreateRuntimeHarness(
+            "EagerHarness",
+            members,
+            typeof(ElapsedHookProbe),
+            _ => ToolHarnessMiddlewareActivation.ExecutionOwned(probe)) with
+        {
+            EagerMiddleware =
+            [
+                new ToolHarnessMiddlewareDescriptor
+                {
+                    MiddlewareType = typeof(ElapsedHookProbe),
+                    Factory = _ => ToolHarnessMiddlewareActivation.ExecutionOwned(probe)
+                }
+            ],
+            Middleware = []
+        };
+        var scope = ToolHarnessExecutionScope.Create(null);
+        var tools = new List<AITool> { container };
+        tools.AddRange(members);
+        var execution = new ToolHarnessExecutionMiddleware(
+            tools,
+            new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory });
+
+        await execution.BeforeMessageTurnAsync(
+            CreateBeforeMessageTurnContext(scope), CancellationToken.None);
+        await execution.BeforeIterationAsync(
+            CreateIterationContext(scope: scope, options: new ChatOptions { Tools = tools }),
+            CancellationToken.None);
+
+        Assert.Equal(1, probe.BeforeMessageTurnCalls);
+        Assert.Equal(1, probe.BeforeIterationCalls);
+        Assert.Single(scope.Registry.GetDiagnosticsSnapshot().Entries);
+        await scope.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
+        await scope.Completion;
+    }
+
+    [Fact]
+    public async Task DeferredMiddleware_DoesNotActivateWithoutExpansion()
+    {
+        var probe = new ElapsedHookProbe();
+        var (container, members) = CreateCollapsedToolHarness(
+            "DeferredHarness", "Deferred", "Run");
+        var factory = CreateRuntimeHarness(
+            "DeferredHarness",
+            members,
+            typeof(ElapsedHookProbe),
+            _ => ToolHarnessMiddlewareActivation.ExecutionOwned(probe));
+        var scope = ToolHarnessExecutionScope.Create(null);
+        var tools = new List<AITool> { container };
+        tools.AddRange(members);
+        var execution = new ToolHarnessExecutionMiddleware(
+            tools,
+            new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory });
+
+        await execution.BeforeMessageTurnAsync(
+            CreateBeforeMessageTurnContext(scope), CancellationToken.None);
+        await execution.BeforeIterationAsync(
+            CreateIterationContext(scope: scope, options: new ChatOptions { Tools = tools }),
+            CancellationToken.None);
+
+        Assert.Equal(0, probe.BeforeMessageTurnCalls);
+        Assert.Equal(0, probe.BeforeIterationCalls);
+        Assert.Empty(scope.Registry.GetDiagnosticsSnapshot().Entries);
+        await scope.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
+        await scope.Completion;
+    }
+
+    [Fact]
+    public async Task MixedMiddleware_StagesEagerThenDeferredActivation()
+    {
+        var eagerProbe = new MixedEagerProbe();
+        var deferredProbe = new MixedDeferredProbe();
+        var (container, members) = CreateCollapsedToolHarness(
+            "MixedHarness", "Mixed", "Run");
+        var factory = CreateRuntimeHarness(
+            "MixedHarness",
+            members,
+            typeof(MixedDeferredProbe),
+            _ => ToolHarnessMiddlewareActivation.ExecutionOwned(deferredProbe)) with
+        {
+            EagerMiddleware =
+            [
+                new ToolHarnessMiddlewareDescriptor
+                {
+                    MiddlewareType = typeof(MixedEagerProbe),
+                    Factory = _ => ToolHarnessMiddlewareActivation.ExecutionOwned(eagerProbe)
+                }
+            ]
+        };
+        var scope = ToolHarnessExecutionScope.Create(null);
+        var tools = new List<AITool> { container };
+        tools.AddRange(members);
+        var factories = new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory };
+        var execution = new ToolHarnessExecutionMiddleware(tools, factories);
+        var middleware = new ContainerMiddleware(
+            tools,
+            ImmutableHashSet<string>.Empty,
+            factories,
+            execution);
+
+        await execution.BeforeMessageTurnAsync(
+            CreateBeforeMessageTurnContext(scope), CancellationToken.None);
+
+        Assert.Equal(1, eagerProbe.Activated);
+        Assert.Equal(1, eagerProbe.BeforeMessageTurn);
+        Assert.Equal(0, deferredProbe.Activated);
+
+        var expansion = CreateBeforeToolExecutionContext(
+            toolCalls: [CreateToolCall("MixedHarness")], scope: scope);
+        await middleware.BeforeToolExecutionAsync(expansion, CancellationToken.None);
+        await execution.BeforeToolExecutionAsync(expansion, CancellationToken.None);
+
+        Assert.Equal(1, deferredProbe.Activated);
+        Assert.Equal(1, eagerProbe.BeforeToolExecution);
+        Assert.Equal(1, deferredProbe.BeforeToolExecution);
+        Assert.Equal(1, eagerProbe.Expanded);
+        Assert.Equal(1, deferredProbe.Expanded);
+        Assert.Single(scope.Registry.GetDiagnosticsSnapshot().Entries);
+        await scope.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
+        await scope.Completion;
+        Assert.Equal(1, deferredProbe.Deactivated);
+        Assert.Equal(1, eagerProbe.Deactivated);
     }
 
     [Fact]
@@ -608,13 +740,22 @@ public class ContainerMiddlewareTests
         var scope = ToolHarnessExecutionScope.Create(null);
         var tools = new List<AITool> { container };
         tools.AddRange(members);
+        var factories = new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory };
+        var execution = new ToolHarnessExecutionMiddleware(
+            tools,
+            factories);
         var containerMiddleware = new ContainerMiddleware(
             tools,
             ImmutableHashSet<string>.Empty,
-            new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory });
+            factories,
+            execution);
         var pipeline = new AgentMiddlewarePipeline(
-            [new WrappingProbe("global", calls), containerMiddleware]);
-        var state = CreateEmptyState();
+            [new WrappingProbe("global", calls), execution]);
+        var expansion = CreateBeforeToolExecutionContext(
+            toolCalls: [CreateToolCall("WrappedHarness")], scope: scope);
+        await containerMiddleware.BeforeToolExecutionAsync(expansion, CancellationToken.None);
+        await execution.BeforeToolExecutionAsync(expansion, CancellationToken.None);
+        var state = expansion.State;
 
         await pipeline.ExecuteBeforeFunctionAsync(
             CreateBeforeFunctionContext(members[0], state, scope), CancellationToken.None);
@@ -636,18 +777,29 @@ public class ContainerMiddlewareTests
         var scope = ToolHarnessExecutionScope.Create(null);
         var tools = new List<AITool> { container };
         tools.AddRange(members);
+        var factories = new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory };
+        var execution = new ToolHarnessExecutionMiddleware(tools, factories);
         var middleware = new ContainerMiddleware(
             tools,
             ImmutableHashSet<string>.Empty,
-            new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory });
+            factories,
+            execution);
 
-        await middleware.BeforeMessageTurnAsync(
+        await execution.BeforeMessageTurnAsync(
             CreateBeforeMessageTurnContext(scope), CancellationToken.None);
         await middleware.BeforeIterationAsync(
             CreateIterationContext(scope: scope, options: new ChatOptions { Tools = tools }), CancellationToken.None);
-        await middleware.BeforeToolExecutionAsync(
-            CreateBeforeToolExecutionContext(
-                toolCalls: [CreateToolCall("MidTurnHarness")], scope: scope), CancellationToken.None);
+        await execution.BeforeIterationAsync(
+            CreateIterationContext(scope: scope, options: new ChatOptions { Tools = tools }), CancellationToken.None);
+        var expansion = CreateBeforeToolExecutionContext(
+            toolCalls: [CreateToolCall("MidTurnHarness")], scope: scope);
+        await middleware.BeforeToolExecutionAsync(expansion, CancellationToken.None);
+        Assert.Contains(
+            "MidTurnHarness",
+            expansion.State.MiddlewareState.GetState<ContainerMiddlewareState>(
+                "HPD.Agent.ContainerMiddlewareState")!.ExpandedContainers);
+        Assert.Single(scope.Registry.GetDiagnosticsSnapshot().Entries);
+        await execution.BeforeToolExecutionAsync(expansion, CancellationToken.None);
 
         Assert.Equal(0, probe.BeforeMessageTurnCalls);
         Assert.Equal(0, probe.BeforeIterationCalls);
@@ -665,10 +817,13 @@ public class ContainerMiddlewareTests
         var scope = ToolHarnessExecutionScope.Create(null);
         var tools = new List<AITool> { container };
         tools.AddRange(members);
+        var factories = new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory };
+        var execution = new ToolHarnessExecutionMiddleware(tools, factories);
         var middleware = new ContainerMiddleware(
             tools,
             ImmutableHashSet<string>.Empty,
-            new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory });
+            factories,
+            execution);
         var expansion = CreateBeforeToolExecutionContext(
             toolCalls: [CreateToolCall("FailingHarness")], scope: scope);
 
@@ -685,8 +840,8 @@ public class ContainerMiddlewareTests
             expansion.State, new ChatOptions { Tools = tools }, scope);
         await middleware.BeforeIterationAsync(nextIteration, CancellationToken.None);
         Assert.DoesNotContain("Hidden", nextIteration.Options.Tools.OfType<AIFunction>().Select(tool => tool.Name));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => middleware.BeforeFunctionAsync(
-            CreateBeforeFunctionContext(members[0], expansion.State, scope), CancellationToken.None));
+        await execution.BeforeFunctionAsync(
+            CreateBeforeFunctionContext(members[0], expansion.State, scope), CancellationToken.None);
         await scope.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Failed);
     }
 
@@ -713,10 +868,13 @@ public class ContainerMiddlewareTests
         var scope = ToolHarnessExecutionScope.Create(null);
         var tools = new List<AITool> { container };
         tools.AddRange(members);
+        var factories = new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory };
+        var execution = new ToolHarnessExecutionMiddleware(tools, factories);
         var middleware = new ContainerMiddleware(
             tools,
             ImmutableHashSet<string>.Empty,
-            new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory });
+            factories,
+            execution);
         expansion = CreateBeforeToolExecutionContext(
             toolCalls: [CreateToolCall("SequencedHarness")], scope: scope);
 
@@ -726,6 +884,99 @@ public class ContainerMiddlewareTests
             "HPD.Agent.ContainerMiddlewareState");
         Assert.True(activationObservedUncommittedState);
         Assert.Contains("SequencedHarness", committed!.ExpandedContainers);
+        await scope.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
+        await scope.Completion;
+    }
+
+    [Fact]
+    public async Task RealExpansion_NotifiesMiddlewareWithCommittedTransitionFacts()
+    {
+        var notifications = new List<ToolHarnessExpansionContext>();
+        var (container, members) = CreateCollapsedToolHarness(
+            "ExpansionHookHarness", "Expansion hook", "Run");
+        var factory = CreateRuntimeHarness(
+            "ExpansionHookHarness",
+            members,
+            typeof(ExpansionCaptureProbe),
+            _ => ToolHarnessMiddlewareActivation.ExecutionOwned(
+                new ExpansionCaptureProbe(notifications)));
+        var scope = ToolHarnessExecutionScope.Create(null);
+        var tools = new List<AITool> { container };
+        tools.AddRange(members);
+        var factories = new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory };
+        var execution = new ToolHarnessExecutionMiddleware(tools, factories);
+        var middleware = new ContainerMiddleware(
+            tools,
+            ImmutableHashSet<string>.Empty,
+            factories,
+            execution);
+        var expansion = CreateBeforeToolExecutionContext(
+            toolCalls:
+            [
+                new FunctionCallContent(
+                    "expand-call",
+                    "ExpansionHookHarness",
+                    new Dictionary<string, object?>())
+            ],
+            scope: scope);
+
+        await middleware.BeforeToolExecutionAsync(expansion, CancellationToken.None);
+
+        var observed = Assert.Single(notifications);
+        Assert.Equal(factory.ActivationIdentity, observed.HarnessIdentity);
+        Assert.Equal(ToolHarnessExpansionReason.ContainerCall, observed.Reason);
+        Assert.Equal("expand-call", observed.ExpansionCallId);
+        Assert.Equal(["Run"], observed.RevealedFunctions);
+        await scope.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
+        await scope.Completion;
+    }
+
+    [Fact]
+    public async Task RestoredExpansion_NotifiesMiddlewareOnceWithoutACallIdentity()
+    {
+        var notifications = new List<ToolHarnessExpansionContext>();
+        var (container, members) = CreateCollapsedToolHarness(
+            "RestoredHarness", "Restored", "Run");
+        var factory = CreateRuntimeHarness(
+            "RestoredHarness",
+            members,
+            typeof(ExpansionCaptureProbe),
+            _ => ToolHarnessMiddlewareActivation.ExecutionOwned(
+                new ExpansionCaptureProbe(notifications)));
+        var scope = ToolHarnessExecutionScope.Create(null);
+        var tools = new List<AITool> { container };
+        tools.AddRange(members);
+        var state = CreateEmptyState();
+        state = state with
+        {
+            MiddlewareState = state.MiddlewareState.SetState(
+                "HPD.Agent.ContainerMiddlewareState",
+                new ContainerMiddlewareState().WithExpandedContainer("RestoredHarness"))
+        };
+        var middleware = new ContainerMiddleware(
+            tools,
+            ImmutableHashSet<string>.Empty,
+            new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory });
+        var execution = new ToolHarnessExecutionMiddleware(
+            tools,
+            new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory });
+
+        await middleware.BeforeIterationAsync(
+            CreateIterationContext(state, new ChatOptions { Tools = tools }, scope),
+            CancellationToken.None);
+        await execution.BeforeIterationAsync(
+            CreateIterationContext(state, new ChatOptions { Tools = tools }, scope),
+            CancellationToken.None);
+        await middleware.BeforeIterationAsync(
+            CreateIterationContext(state, new ChatOptions { Tools = tools }, scope),
+            CancellationToken.None);
+        await execution.BeforeIterationAsync(
+            CreateIterationContext(state, new ChatOptions { Tools = tools }, scope),
+            CancellationToken.None);
+
+        var observed = Assert.Single(notifications);
+        Assert.Equal(ToolHarnessExpansionReason.RestoredExpansion, observed.Reason);
+        Assert.Null(observed.ExpansionCallId);
         await scope.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
         await scope.Completion;
     }
@@ -745,9 +996,8 @@ public class ContainerMiddlewareTests
                 new FunctionInvocationProbe(() => Interlocked.Increment(ref middlewareInvoked))));
         var tools = new List<AITool> { container };
         tools.AddRange(members);
-        var middleware = new ContainerMiddleware(
+        var execution = new ToolHarnessExecutionMiddleware(
             tools,
-            ImmutableHashSet<string>.Empty,
             new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory });
         var request = new FunctionRequest
         {
@@ -759,7 +1009,7 @@ public class ContainerMiddlewareTests
         };
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            middleware.WrapFunctionCallAsync(
+            execution.WrapFunctionCallAsync(
                 request,
                 _ =>
                 {
@@ -1473,6 +1723,89 @@ public class ContainerMiddlewareTests
         {
             calls.Add($"after:{name}");
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ExpansionCaptureProbe(
+        List<ToolHarnessExpansionContext> notifications) : IToolHarnessMiddleware
+    {
+        public ValueTask OnHarnessExpandedAsync(
+            ToolHarnessExpansionContext context,
+            CancellationToken cancellationToken)
+        {
+            notifications.Add(context);
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class MixedEagerProbe : IToolHarnessMiddleware
+    {
+        internal int Activated;
+        internal int BeforeMessageTurn;
+        internal int BeforeToolExecution;
+        internal int Expanded;
+        internal int Deactivated;
+
+        public ValueTask OnHarnessActivatedAsync(ToolHarnessActivationContext context, CancellationToken cancellationToken)
+        {
+            Activated++;
+            return ValueTask.CompletedTask;
+        }
+
+        public Task BeforeMessageTurnAsync(BeforeMessageTurnContext context, CancellationToken cancellationToken)
+        {
+            BeforeMessageTurn++;
+            return Task.CompletedTask;
+        }
+
+        public Task BeforeToolExecutionAsync(BeforeToolExecutionContext context, CancellationToken cancellationToken)
+        {
+            BeforeToolExecution++;
+            return Task.CompletedTask;
+        }
+
+        public ValueTask OnHarnessExpandedAsync(ToolHarnessExpansionContext context, CancellationToken cancellationToken)
+        {
+            Expanded++;
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask OnHarnessDeactivatingAsync(ToolHarnessDeactivationContext context, CancellationToken cancellationToken)
+        {
+            Deactivated++;
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class MixedDeferredProbe : IToolHarnessMiddleware
+    {
+        internal int Activated;
+        internal int BeforeToolExecution;
+        internal int Expanded;
+        internal int Deactivated;
+
+        public ValueTask OnHarnessActivatedAsync(ToolHarnessActivationContext context, CancellationToken cancellationToken)
+        {
+            Activated++;
+            return ValueTask.CompletedTask;
+        }
+
+        public Task BeforeToolExecutionAsync(BeforeToolExecutionContext context, CancellationToken cancellationToken)
+        {
+            BeforeToolExecution++;
+            return Task.CompletedTask;
+        }
+
+        public ValueTask OnHarnessExpandedAsync(ToolHarnessExpansionContext context, CancellationToken cancellationToken)
+        {
+            Expanded++;
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask OnHarnessDeactivatingAsync(ToolHarnessDeactivationContext context, CancellationToken cancellationToken)
+        {
+            Deactivated++;
+            return ValueTask.CompletedTask;
         }
     }
 

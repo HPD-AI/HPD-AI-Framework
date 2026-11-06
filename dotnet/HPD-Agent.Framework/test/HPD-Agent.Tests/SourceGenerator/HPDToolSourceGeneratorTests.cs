@@ -773,6 +773,168 @@ namespace Ns
     }
 
     [Fact]
+    public void SourceGen_EmitsEagerMiddlewareWithoutCollapse()
+    {
+        var source = """
+            using HPD.Agent;
+            using HPD.Agent.Middleware;
+            namespace Ns
+            {
+                public sealed class Eager : IToolHarnessMiddleware { }
+                [ToolHarnessMiddleware(typeof(Eager))]
+                public partial class Harness { [AIFunction] public string Ping() => "pong"; }
+            }
+            """;
+
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("EagerMiddleware = new global::HPD.Agent.ToolHarnessMiddlewareDescriptor[]", generatedCode);
+        Assert.Contains("MiddlewareType = typeof(global::Ns.Eager)", generatedCode);
+        Assert.Contains("Middleware: null", generatedCode);
+    }
+
+    [Fact]
+    public void SourceGen_AllowsDescriptionCollapseWithEagerMiddleware()
+    {
+        var source = """
+            using HPD.Agent;
+            using HPD.Agent.Middleware;
+            namespace Ns
+            {
+                public sealed class Eager : IToolHarnessMiddleware { }
+                [Collapse("Operations")]
+                [ToolHarnessMiddleware(typeof(Eager))]
+                public partial class Harness { [AIFunction] public string Ping() => "pong"; }
+            }
+            """;
+
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("HasDescription: true", generatedCode);
+        Assert.Contains("EagerMiddleware = new global::HPD.Agent.ToolHarnessMiddlewareDescriptor[]", generatedCode);
+        Assert.Contains("Middleware: null", generatedCode);
+    }
+
+    [Fact]
+    public void SourceGen_AllowsMixedMiddlewarePolicies()
+    {
+        var source = """
+            using HPD.Agent;
+            using HPD.Agent.Middleware;
+            namespace Ns
+            {
+                public sealed class Deferred : IToolHarnessMiddleware { }
+                public sealed class Eager : IToolHarnessMiddleware { }
+                [Collapse("Operations", Middlewares = [typeof(Deferred)])]
+                [ToolHarnessMiddleware(typeof(Eager))]
+                public partial class Harness { [AIFunction] public string Ping() => "pong"; }
+            }
+            """;
+
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("Middleware: new global::HPD.Agent.ToolHarnessMiddlewareDescriptor[]", generatedCode);
+        Assert.Contains("EagerMiddleware = new global::HPD.Agent.ToolHarnessMiddlewareDescriptor[]", generatedCode);
+        Assert.Contains("typeof(global::Ns.Deferred)", generatedCode);
+        Assert.Contains("typeof(global::Ns.Eager)", generatedCode);
+    }
+
+    [Fact]
+    public void SourceGen_ComposesEagerMiddlewareBaseFirst()
+    {
+        var source = """
+            using HPD.Agent;
+            using HPD.Agent.Middleware;
+            namespace Ns
+            {
+                public sealed class BaseMiddleware : IToolHarnessMiddleware { }
+                public sealed class DerivedMiddleware : IToolHarnessMiddleware { }
+                [ToolHarnessMiddleware(typeof(BaseMiddleware))]
+                public class BaseHarness { }
+                [ToolHarnessMiddleware(typeof(DerivedMiddleware))]
+                public sealed class DerivedHarness : BaseHarness
+                {
+                    [AIFunction] public string Ping() => "pong";
+                }
+            }
+            """;
+
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        var baseIndex = generatedCode!.IndexOf("typeof(global::Ns.BaseMiddleware)", StringComparison.Ordinal);
+        var derivedIndex = generatedCode.IndexOf("typeof(global::Ns.DerivedMiddleware)", StringComparison.Ordinal);
+        Assert.True(baseIndex >= 0 && baseIndex < derivedIndex);
+    }
+
+    [Fact]
+    public void SourceGen_AllowsMiddlewarePoliciesAcrossInheritance()
+    {
+        var source = """
+            using HPD.Agent;
+            using HPD.Agent.Middleware;
+            namespace Ns
+            {
+                public sealed class Deferred : IToolHarnessMiddleware { }
+                public sealed class Eager : IToolHarnessMiddleware { }
+                [Collapse("Base", Middlewares = [typeof(Deferred)])]
+                public class BaseHarness { }
+                [ToolHarnessMiddleware(typeof(Eager))]
+                public sealed class DerivedHarness : BaseHarness
+                {
+                    [AIFunction] public string Ping() => "pong";
+                }
+            }
+            """;
+
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("typeof(global::Ns.Deferred)", generatedCode);
+        Assert.Contains("typeof(global::Ns.Eager)", generatedCode);
+    }
+
+    [Fact]
+    public void SourceGen_RejectsSameMiddlewareTypeWithTwoPolicies()
+    {
+        var source = """
+            using HPD.Agent;
+            using HPD.Agent.Middleware;
+            namespace Ns
+            {
+                public sealed class Shared : IToolHarnessMiddleware { }
+                [Collapse("Operations", Middlewares = [typeof(Shared)])]
+                [ToolHarnessMiddleware(typeof(Shared))]
+                public partial class Harness { [AIFunction] public string Ping() => "pong"; }
+            }
+            """;
+
+        var (_, diagnostics) = RunGenerator(source);
+
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "HPDAG0214");
+    }
+
+    [Fact]
+    public void SourceGen_RejectsEmptyEagerDeclaration()
+    {
+        var source = """
+            using HPD.Agent;
+            namespace Ns
+            {
+                [ToolHarnessMiddleware()]
+                public partial class Harness { [AIFunction] public string Ping() => "pong"; }
+            }
+            """;
+
+        var (_, diagnostics) = RunGenerator(source);
+
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "HPDAG0213");
+    }
+
+    [Fact]
     public void SourceGen_DoesNotInferServicesOwnershipFromDisposalOrConstructorShape()
     {
         var source = """

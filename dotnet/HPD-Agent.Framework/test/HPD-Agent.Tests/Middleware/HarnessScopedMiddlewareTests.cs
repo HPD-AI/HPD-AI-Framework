@@ -104,6 +104,32 @@ public sealed class HarnessScopedMiddlewareTests
     }
 
     [Fact]
+    public async Task ExpansionHook_IsPartOfMiddlewareContract_AndRunsOnce()
+    {
+        var expansions = new List<ToolHarnessExpansionContext>();
+        var registry = new ToolHarnessPipelineRegistry();
+        var activationContext = Context();
+        var harness = HarnessOf<ExpansionProbe>(_ =>
+            ToolHarnessMiddlewareActivation.ExecutionOwned(new ExpansionProbe(expansions)));
+        var expansion = new ToolHarnessExpansionContext(
+            "tests:Harness",
+            activationContext.InputExecutionId,
+            ToolHarnessExpansionReason.HiddenFunctionRecovery,
+            "call-1",
+            ["Run"]);
+
+        await using (var lease = await registry.AcquireAsync(harness, activationContext))
+        {
+            await lease.NotifyExpandedAsync(expansion, CancellationToken.None);
+            await lease.NotifyExpandedAsync(expansion, CancellationToken.None);
+        }
+
+        var observed = Assert.Single(expansions);
+        Assert.Equal(expansion, observed);
+        await registry.DeactivateAllAsync(ToolHarnessDeactivationReason.Completed);
+    }
+
+    [Fact]
     public void PersistentContainerState_ContainsNoRuntimeOwnershipObjects()
     {
         var forbidden = new[]
@@ -231,6 +257,40 @@ public sealed class HarnessScopedMiddlewareTests
         await lease.DisposeAsync();
         await deactivation;
         Assert.Empty(registry.GetDiagnosticsSnapshot().Entries);
+    }
+
+    [Fact]
+    public async Task ConcurrentDeferredAppend_BalancesActivationWorkBeforeTeardown()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var eager = ToolHarnessMiddlewareActivation.ExecutionOwned(new Probe());
+        var context = Context();
+        var entry = new ActivatedToolHarnessPipeline(
+            "tests:Harness",
+            context.InputExecutionId,
+            new AgentMiddlewarePipeline([eager.Middleware]),
+            [eager],
+            activationOrdinal: 1,
+            deferredActivated: false);
+        var deferredHarness = HarnessOf<BlockingActivationProbe>(_ =>
+            ToolHarnessMiddlewareActivation.ExecutionOwned(
+                new BlockingActivationProbe(entered, release, static () => { })));
+
+        var first = entry.AppendAsync(deferredHarness, context, CancellationToken.None).AsTask();
+        var second = entry.AppendAsync(deferredHarness, context, CancellationToken.None).AsTask();
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var teardown = entry.DeactivateAsync(ToolHarnessDeactivationReason.Completed).AsTask();
+        await Task.Yield();
+        Assert.False(teardown.IsCompleted);
+        Assert.Equal(2, entry.ActivationOperations);
+
+        release.TrySetResult();
+        var outcomes = await Task.WhenAll(CaptureAsync(first), CaptureAsync(second));
+        Assert.All(outcomes, error => Assert.NotNull(error));
+        await teardown.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(0, entry.ActivationOperations);
     }
 
     [Fact]
@@ -531,7 +591,7 @@ public sealed class HarnessScopedMiddlewareTests
         "tests:Harness", Guid.NewGuid().ToString("N"), services, new AgentRunConfig());
 
     private sealed class Probe(string name = "probe", List<string>? calls = null, bool failDispose = false, Action? onDispose = null)
-        : IToolHarnessMiddleware, IToolHarnessMiddlewareLifecycle, IAsyncDisposable
+        : IToolHarnessMiddleware, IAsyncDisposable
     {
         public ValueTask OnHarnessActivatedAsync(ToolHarnessActivationContext context, CancellationToken cancellationToken) => ValueTask.CompletedTask;
         public ValueTask OnHarnessDeactivatingAsync(ToolHarnessDeactivationContext context, CancellationToken cancellationToken)
@@ -543,13 +603,26 @@ public sealed class HarnessScopedMiddlewareTests
         }
     }
 
+    private static async Task<Exception?> CaptureAsync(Task task)
+    {
+        try
+        {
+            await task;
+            return null;
+        }
+        catch (Exception exception)
+        {
+            return exception;
+        }
+    }
+
     private sealed class ScopedProbe : IToolHarnessMiddleware, IAsyncDisposable
     {
         internal bool Disposed { get; private set; }
         public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
     }
 
-    private sealed class ScopeLifetimeProbe : IToolHarnessMiddleware, IToolHarnessMiddlewareLifecycle, IAsyncDisposable
+    private sealed class ScopeLifetimeProbe : IToolHarnessMiddleware, IAsyncDisposable
     {
         internal bool WasAliveDuringDeactivation { get; private set; }
         internal int DisposeCount { get; private set; }
@@ -570,7 +643,7 @@ public sealed class HarnessScopedMiddlewareTests
     private sealed class BlockingActivationProbe(
         TaskCompletionSource entered,
         TaskCompletionSource release,
-        Action onDispose) : IToolHarnessMiddleware, IToolHarnessMiddlewareLifecycle, IAsyncDisposable
+        Action onDispose) : IToolHarnessMiddleware, IAsyncDisposable
     {
         public async ValueTask OnHarnessActivatedAsync(ToolHarnessActivationContext context, CancellationToken cancellationToken)
         {
@@ -602,6 +675,17 @@ public sealed class HarnessScopedMiddlewareTests
         {
             calls.Add($"error:{name}");
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ExpansionProbe(List<ToolHarnessExpansionContext> expansions) : IToolHarnessMiddleware
+    {
+        public ValueTask OnHarnessExpandedAsync(
+            ToolHarnessExpansionContext context,
+            CancellationToken cancellationToken)
+        {
+            expansions.Add(context);
+            return ValueTask.CompletedTask;
         }
     }
 }

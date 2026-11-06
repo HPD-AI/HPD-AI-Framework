@@ -2761,7 +2761,23 @@ public class AgentBuilder
         // Even if ErrorHandling config is null, use default (secure) settings
         _middlewares.Add(new Middleware.Function.ErrorFormattingMiddleware(_config.ErrorHandling ?? new ErrorHandlingConfig(), buildData.ErrorHandler));
 
-        // Register ContainerMiddleware if enabled
+        ToolHarnessExecutionMiddleware? toolHarnessExecution = null;
+        ToolHarnessCatalog? selectedHarnessCatalog = null;
+        if (buildData.MergedOptions?.Tools != null)
+        {
+            selectedHarnessCatalog = CreateSelectedHarnessCatalog();
+            if (selectedHarnessCatalog.Count > 0)
+            {
+                toolHarnessExecution = new ToolHarnessExecutionMiddleware(
+                    buildData.MergedOptions.Tools,
+                    selectedHarnessCatalog,
+                    _toolHarnessMiddlewareOverrides,
+                    _toolharnessMiddlewareConfigs,
+                    _logger?.CreateLogger<ToolHarnessExecutionMiddleware>());
+            }
+        }
+
+        // Register ContainerMiddleware if enabled.
         // This unified middleware handles all container operations:
         // - Tool visibility filtering (collapsing)
         // -SystemPrompt injection
@@ -2773,9 +2789,8 @@ public class AgentBuilder
             var containerMiddleware = new ContainerMiddleware(
                 buildData.MergedOptions.Tools,
                 _explicitlyRegisteredToolHarnesses.ToImmutableHashSet(StringComparer.OrdinalIgnoreCase),
-                CreateSelectedHarnessCatalog(),   // only selected owners participate in scoped lookup
-                _toolHarnessMiddlewareOverrides,
-                _toolharnessMiddlewareConfigs,    // config-ctor middleware configs from ToolHarnessReference
+                selectedHarnessCatalog,
+                toolHarnessExecution,
                 _config.Collapsing,
                 _config.Skills,
                 containerLogger);
@@ -2785,6 +2800,9 @@ public class AgentBuilder
             // The Smart Recovery functionality (hidden items, qualified names) is now integrated
             // directly into ContainerMiddleware's BeforeToolExecutionAsync method.
         }
+
+        if (toolHarnessExecution is not null)
+            _middlewares.Add(toolHarnessExecution);
 
         // Register ClientToolMiddleware automatically
         // This enables Client-defined tools without explicit configuration.
@@ -4933,7 +4951,10 @@ public static class AgentBuilderToolHarnessExtensions
         {
             var toolharnessName = registeredFactory.ActivationIdentity;
             var factory = GetToolHarnessFactory(builder, typeof(T), toolharnessName);
-            var declared = (factory.Middleware ?? []).Select(static descriptor => descriptor.MiddlewareType).ToHashSet();
+            var declared = (factory.Middleware ?? [])
+                .Concat(factory.EagerMiddleware ?? [])
+                .Select(static descriptor => descriptor.MiddlewareType)
+                .ToHashSet();
             foreach (var middlewareType in options.MiddlewareOverrides.Keys)
             {
                 if (!declared.Contains(middlewareType))

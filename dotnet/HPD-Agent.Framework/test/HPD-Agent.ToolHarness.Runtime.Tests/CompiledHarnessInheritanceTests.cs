@@ -251,7 +251,9 @@ public sealed class CompiledHarnessInheritanceTests
             .WithToolHarness(owner)
             .BuildAsync();
         Assert.Equal(0, producer.GetType("FluentPackage.BaseHarness")!.GetProperty("FactoryCalls")!.GetValue(null));
-        Assert.DoesNotContain(agent.DefaultOptions!.Tools!, tool => tool.Name == "research-live");
+        Assert.DoesNotContain(
+            agent.DefaultOptions?.Tools ?? [],
+            tool => tool.Name == "research-live");
     }
 
     [Fact]
