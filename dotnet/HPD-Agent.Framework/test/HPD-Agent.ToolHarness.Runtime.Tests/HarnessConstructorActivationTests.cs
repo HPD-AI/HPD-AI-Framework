@@ -57,6 +57,50 @@ public sealed class HarnessConstructorActivationTests
     }
 
     [Fact]
+    public async Task ConfigurableExplicitInstance_WithoutFrameworkConfiguration_UsesSuppliedState()
+    {
+        var instance = new ConfigurableExplicitHarness(
+            new FixedHarnessConfig<ConfigurableExplicitSettings>(new() { Value = 7 }));
+
+        await using var agent = await Builder().WithToolHarness(instance).BuildAsync();
+
+        var tool = Assert.Single(
+            agent.DefaultOptions!.Tools!.OfType<AIFunction>(),
+            function => function.Name == "ConfiguredProbe");
+        Assert.Equal("7", (await InvokeAsync(tool))?.ToString());
+
+        var run = new AgentRunConfig();
+        run.Harnesses.For<ConfigurableExplicitHarness>().Override(
+            new ConfigurableExplicitSettingsOverrides { Value = 9 });
+        var error = Assert.Throws<AgentRunConfigurationException>(() => agent.CaptureRunConfig(run));
+        Assert.Equal("HarnessRunOverrideNotSupported", error.Code);
+    }
+
+    [Fact]
+    public async Task ConfigurableExplicitInstance_RejectsRequestedConstructionConfiguration()
+    {
+        var instance = new ConfigurableExplicitHarness(
+            new FixedHarnessConfig<ConfigurableExplicitSettings>(new() { Value = 7 }));
+        var config = new AgentConfig
+        {
+            ToolHarnesses =
+            [
+                new ToolHarnessReference
+                {
+                    Name = nameof(ConfigurableExplicitHarness),
+                    Config = JsonDocument.Parse("""{"value":9}""").RootElement.Clone()
+                }
+            ]
+        };
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Builder(config).WithToolHarness(instance).BuildAsync());
+
+        var rejection = Assert.IsType<InvalidOperationException>(error.InnerException);
+        Assert.Contains("cannot replace constructor configuration or dependencies", rejection.Message);
+    }
+
+    [Fact]
     public async Task DefaultFactory_UsesLocalResolver_AndIsDisposedAfterOwner()
     {
         var probe = new ActivationProbe("default");
@@ -81,7 +125,7 @@ public sealed class HarnessConstructorActivationTests
             .InvokeAsync(arguments, context);
     }
 
-    private static AgentBuilder Builder() => new AgentBuilder(new AgentConfig())
+    private static AgentBuilder Builder(AgentConfig? config = null) => new AgentBuilder(config ?? new AgentConfig())
         .WithChatClient(new MiddlewareTestHelpers.TestChatClient())
         .WithEventComposition(TestEventComposition.Current);
 }
@@ -124,4 +168,29 @@ public sealed class DefaultActivationHarness(IDefaultActivationService dependenc
     [AIFunction]
     public string DefaultProbe() => dependency.Value;
     public void Dispose() => probe.Order.Add("owner");
+}
+
+public sealed record ConfigurableExplicitSettings
+{
+    [HarnessRunSetting]
+    public int Value { get; init; } = 1;
+}
+
+public sealed class ConfigurableExplicitHarness(IHarnessConfig<ConfigurableExplicitSettings> configuration)
+{
+    [AIFunction]
+    public string ConfiguredProbe() =>
+        configuration.For(new NoopHarnessConfigurationContext()).Value
+            .ToString(System.Globalization.CultureInfo.InvariantCulture);
+}
+
+internal sealed class FixedHarnessConfig<T>(T value) : IHarnessConfig<T> where T : class
+{
+    public T AgentDefaults => value;
+    public T For(IHarnessConfigurationContext context) => value;
+}
+
+internal sealed class NoopHarnessConfigurationContext : IHarnessConfigurationContext
+{
+    public HarnessConfigurationBinding? HarnessConfiguration => null;
 }

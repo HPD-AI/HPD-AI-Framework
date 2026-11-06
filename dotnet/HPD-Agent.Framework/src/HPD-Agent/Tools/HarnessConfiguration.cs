@@ -268,6 +268,8 @@ internal sealed record HarnessConfigurationEntry(ToolHarnessFactory Factory, obj
 internal sealed class HarnessConfigurationCatalog(object token)
 {
     private readonly Dictionary<string, HarnessConfigurationEntry> _entries = new(StringComparer.Ordinal);
+    private readonly List<ToolHarnessFactory> _suppliedOwners = [];
+
     internal HarnessConfigurationEntry Bind(ToolHarnessFactory factory, JsonElement? document, object? configured, ToolHarnessReference? source = null)
     {
         var path = source?.SourcePath ?? "toolHarnesses[" + factory.Name + "]";
@@ -298,6 +300,13 @@ internal sealed class HarnessConfigurationCatalog(object token)
         _entries.Add(factory.ActivationIdentity, entry);
         return entry;
     }
+
+    internal void MarkSupplied(ToolHarnessFactory factory)
+    {
+        if (!_suppliedOwners.Any(owner => owner.ActivationIdentity == factory.ActivationIdentity))
+            _suppliedOwners.Add(factory);
+    }
+
     internal HarnessExecutionConfiguration Capture(
         List<HarnessRunOverride> overrides,
         IReadOnlyList<List<HarnessRunOverride>>? inheritedLayers = null,
@@ -337,9 +346,16 @@ internal sealed class HarnessConfigurationCatalog(object token)
                 var path = $"{pathRoot}[{index}]";
                 var matches = _entries.Values.Where(entry =>
                     entry.Factory.ActivationIdentity == input.Name || entry.Factory.Name == input.Name).ToArray();
-                if (matches.Length != 1)
+                var suppliedMatches = _suppliedOwners.Where(owner =>
+                    owner.ActivationIdentity == input.Name || owner.Name == input.Name).ToArray();
+                if (matches.Length + suppliedMatches.Length != 1)
                     throw HarnessConfigurationContract.Error("HarnessNotRegistered", path + ".name",
                         "Harness name is unknown or ambiguous in this agent.");
+                if (suppliedMatches.Length == 1)
+                    throw HarnessConfigurationContract.Error(
+                        "HarnessRunOverrideNotSupported",
+                        path + ".name",
+                        "A caller-supplied harness cannot receive a framework-generated run override.");
 
                 var entry = matches[0];
                 var owner = entry.Factory.ActivationIdentity;

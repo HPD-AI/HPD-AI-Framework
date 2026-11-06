@@ -148,19 +148,22 @@ public class AgentBuilder
         if (configuredSettings is not null && factory.Configuration is null)
             throw new InvalidOperationException($"Harness '{factory.ActivationIdentity}' has no typed settings contract.");
         _harnessConfigurationSources.TryGetValue(factory.ActivationIdentity, out var configurationSource);
-        var entry = factory.Configuration is null ? null
-            : (_harnessConfigurationCatalog ??= new(_builtAgentToken)).Bind(factory, config, configuredSettings, configurationSource);
         object instance;
         if (supplied.Length == 1)
         {
-            if (config is not null || configuredSettings is not null || entry is not null || dependencies?.Count > 0)
+            if (config is not null || configuredSettings is not null || dependencies?.Count > 0)
                 throw new InvalidOperationException($"Supplied harness '{factory.ActivationIdentity}' cannot replace constructor configuration or dependencies.");
             instance = supplied[0].Instance;
+            if (factory.Configuration is not null)
+                (_harnessConfigurationCatalog ??= new(_builtAgentToken)).MarkSupplied(factory);
         }
         else
         {
             if (factory.Activate is null)
                 throw new InvalidOperationException($"Harness '{factory.ActivationIdentity}' has no generated activation contract. Rebuild its library with the source generator.");
+            var entry = factory.Configuration is null ? null
+                : (_harnessConfigurationCatalog ??= new(_builtAgentToken)).Bind(
+                    factory, config, configuredSettings, configurationSource);
             var construction = new ToolHarnessConstructionContext(factory.ActivationIdentity,
                 _serviceProvider, dependencies ?? new Dictionary<Type, object>(), _secretResolver, config,
                 factory.DependencyDefaults ?? [], _harnessOwnerLifetime, entry?.Handle);
