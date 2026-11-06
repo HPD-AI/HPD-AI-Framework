@@ -18,7 +18,7 @@ namespace HPD.Agent;
 ///     .hpd-store.lock              (cross-process scope mutation lock)
 /// </code>
 /// </remarks>
-public class LocalFileContentStore : IContentStore
+public class LocalFileContentStore : IContentStore, IContentStoreLifecycle
 {
     /// <inheritdoc />
     public ContentStorePersistenceCapability PersistenceCapability => ContentStorePersistenceCapability.RestartDurable;
@@ -250,6 +250,20 @@ public class LocalFileContentStore : IContentStore
             results = results.Take(query.Limit.Value);
 
         return ValueTask.FromResult<IReadOnlyList<ContentInfo>>(results.ToList());
+    }
+
+    /// <inheritdoc />
+    public ValueTask DeleteScopeAsync(ContentScope scope, CancellationToken cancellationToken = default)
+    {
+        ValidateScope(scope);
+        cancellationToken.ThrowIfCancellationRequested();
+        var scopePath = GetScopePath(scope);
+        lock (_writeLock)
+        {
+            if (Directory.Exists(scopePath))
+                Directory.Delete(scopePath, recursive: true);
+        }
+        return ValueTask.CompletedTask;
     }
 
     // ═══════════════════════════════════════════════════════════════════

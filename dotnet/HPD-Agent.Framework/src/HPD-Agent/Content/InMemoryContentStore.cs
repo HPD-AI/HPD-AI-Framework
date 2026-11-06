@@ -21,7 +21,7 @@ namespace HPD.Agent;
 /// <item>Not suitable for production with large data sets</item>
 /// </list>
 /// </remarks>
-public class InMemoryContentStore : IContentStore
+public class InMemoryContentStore : IContentStore, IContentStoreLifecycle
 {
     // Storage structure: scope -> contentId -> StoredContent
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, StoredContent>> _scopedContent = new();
@@ -190,6 +190,19 @@ public class InMemoryContentStore : IContentStore
             results = results.Take(query.Limit.Value);
 
         return ValueTask.FromResult<IReadOnlyList<ContentInfo>>(results.ToList());
+    }
+
+    /// <inheritdoc />
+    public ValueTask DeleteScopeAsync(ContentScope scope, CancellationToken cancellationToken = default)
+    {
+        ValidateScope(scope);
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_writeLock)
+        {
+            _scopedContent.TryRemove(scope.Value, out _);
+            _nameIndex.TryRemove(scope.Value, out _);
+        }
+        return ValueTask.CompletedTask;
     }
 
     // ═══════════════════════════════════════════════════════════════════

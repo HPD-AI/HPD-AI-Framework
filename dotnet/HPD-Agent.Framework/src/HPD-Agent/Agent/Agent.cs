@@ -9013,6 +9013,8 @@ public sealed partial class Agent : IAsyncDisposable
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
         await store.DeleteSessionAsync(sessionId, cancellationToken);
+        if (_contentStore is IContentStoreLifecycle lifecycle)
+            await lifecycle.DeleteScopeAsync(ContentScope.Create(sessionId), cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
