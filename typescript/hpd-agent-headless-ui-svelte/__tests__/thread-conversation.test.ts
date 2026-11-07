@@ -39,11 +39,12 @@ function permissionRequest(): RuntimeRequest {
     expectedResponseEventType: 'PERMISSION_RESPONSE',
     request: {
       permissionId: 'perm-1',
+      permissionDomain: 'ToolExecution',
+      choices: [{ id: 'allow_once', label: 'Allow once', kind: 'Allow' }, { id: 'deny_once', label: 'Deny', kind: 'Deny' }],
       sourceName: 'PermissionMiddleware',
-      functionName: 'Bash',
-      description: 'Run the test command',
+      authority: 'Bash',
+      reason: 'Run the test command',
       callId: 'call-1',
-      arguments: { command: 'npm test' },
     },
   };
 }
@@ -156,7 +157,11 @@ function fakeThread(initialSnapshot: ThreadStateSnapshot): ThreadState & {
       ]));
     }),
     run: vi.fn(async () => undefined),
-    respond: vi.fn(async () => undefined),
+    respond: vi.fn(async (input: { type: string; permissionId?: string }) => {
+      if (input.type === 'PERMISSION_RESPONSE' && input.permissionId === 'perm-1') {
+        emit(snapshot(current.transcriptMessages));
+      }
+    }),
     interrupt: vi.fn(async () => {}),
     approve: vi.fn(async () => {
       emit(snapshot(current.transcriptMessages));
@@ -207,7 +212,13 @@ describe('Thread conversation composition', () => {
     (target.querySelector('[data-hpd-runtime-request-approve]') as HTMLButtonElement).click();
     await tick();
 
-    expect(thread.approve).toHaveBeenCalledWith('perm-1', undefined);
+    expect(thread.respond).toHaveBeenCalledWith({
+      type: 'PERMISSION_RESPONSE',
+      permissionId: 'perm-1',
+      sourceName: 'PermissionMiddleware',
+      choiceId: 'allow_once',
+      feedback: undefined,
+    });
     expect(target.querySelectorAll('[data-hpd-runtime-request]')).toHaveLength(0);
     expect(target.querySelector('[data-hpd-thread-composer]')?.getAttribute('data-empty')).toBe('');
 

@@ -121,10 +121,14 @@ function permissionRequest(): RuntimeRequest {
     expectedResponseEventType: 'PERMISSION_RESPONSE',
     request: {
       permissionId: 'perm-1',
+      permissionDomain: 'ToolExecution',
+      choices: [{ id: 'allow_once', label: 'Allow once', kind: 'Allow' }, { id: 'deny_once', label: 'Deny', kind: 'Deny' }],
       sourceName: 'PermissionMiddleware',
-      functionName: 'Bash',
-      description: 'Run a command',
+      authority: 'Bash',
+      reason: 'Run a command',
       callId: 'call-1',
+      functionName: 'run_command',
+      action: 'run',
       arguments: { command: 'npm test' },
     },
   };
@@ -197,7 +201,7 @@ async function tick(): Promise<void> {
 }
 
 describe('RuntimeRequest', () => {
-  it('renders a permission request and delegates approve and deny', async () => {
+  it('renders a permission request and sends the selected choices', async () => {
     const target = mountTarget();
     const thread = fakeThread();
     const onDeny = vi.fn();
@@ -213,17 +217,33 @@ describe('RuntimeRequest', () => {
     expect(target.querySelector('[data-hpd-runtime-request]')).not.toBeNull();
     expect(target.querySelector('[data-request-kind="permission"]')).not.toBeNull();
     expect(target.textContent).toContain('Run a command');
+    expect(target.querySelector('[data-hpd-runtime-request-function]')?.textContent)
+      .toContain('run_command');
+    expect(target.querySelector('[data-hpd-runtime-request-arguments]')?.textContent)
+      .toContain('npm test');
 
     const input = target.querySelector('input') as HTMLInputElement;
     setValue(input, 'too risky');
     (target.querySelector('[data-hpd-runtime-request-deny]') as HTMLButtonElement).click();
     await tick();
-    expect(thread.deny).toHaveBeenCalledWith('perm-1', 'too risky');
+    expect(thread.respond).toHaveBeenCalledWith({
+      type: 'PERMISSION_RESPONSE',
+      permissionId: 'perm-1',
+      sourceName: 'PermissionMiddleware',
+      choiceId: 'deny_once',
+      feedback: 'too risky',
+    });
     expect(onDeny).toHaveBeenCalledWith({ item: permissionRequest(), reason: 'too risky' });
 
     (target.querySelector('[data-hpd-runtime-request-approve]') as HTMLButtonElement).click();
     await tick();
-    expect(thread.approve).toHaveBeenCalledWith('perm-1', undefined);
+    expect(thread.respond).toHaveBeenLastCalledWith({
+      type: 'PERMISSION_RESPONSE',
+      permissionId: 'perm-1',
+      sourceName: 'PermissionMiddleware',
+      choiceId: 'allow_once',
+      feedback: undefined,
+    });
 
     await unmount(component);
     target.remove();

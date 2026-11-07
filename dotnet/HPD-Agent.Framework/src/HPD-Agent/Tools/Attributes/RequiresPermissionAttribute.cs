@@ -17,5 +17,4 @@ public sealed class RequiresPermissionAttribute : Attribute
     public Type? PermissionPolicy { get; set; }
 
     /// <summary>Gets or sets the permission interaction implementation for this function.</summary>
-    public Type? PermissionInteraction { get; set; }
 }

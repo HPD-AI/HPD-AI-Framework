@@ -33,7 +33,7 @@ public class CodingToolHarnessAgentBuilderTests
             .WithEventComposition(CodingEventTestCodec.Composition)
             .WithChatClient(chatClient)
             .WithToolHarness<CodingToolHarness>()
-            .WithAutoApprovePermissions()
+            .WithPermissions()
             .BuildAsync();
         var tools = agent.DefaultOptions!.Tools!.OfType<AIFunction>().ToList();
         var visibility = new ToolVisibilityManager(tools);
@@ -85,7 +85,7 @@ public class CodingToolHarnessAgentBuilderTests
             .WithChatClient(chatClient)
             .WithName("coding-toolharness-test-agent")
             .WithToolHarness<CodingToolHarness>()
-            .WithAutoApprovePermissions()
+            .WithPermissions()
             .BuildAsync();
 
         var toolNames = agent.DefaultOptions?.Tools?
@@ -159,7 +159,7 @@ public class CodingToolHarnessAgentBuilderTests
         var agent = await new AgentBuilder(config, new TestProviderRegistry(chatClient))
             .WithEventComposition(CodingEventTestCodec.Composition)
             .WithChatClient(chatClient)
-            .WithAutoApprovePermissions()
+            .WithPermissions()
             .BuildAsync();
 
         var toolNames = agent.DefaultOptions?.Tools?
@@ -198,7 +198,7 @@ public class CodingToolHarnessAgentBuilderTests
             .WithChatClient(chatClient)
             .WithName("automatic-collapsing-root")
             .WithToolHarness<CodingToolHarness>()
-            .WithAutoApprovePermissions()
+            .WithPermissions()
             .BuildAsync();
 
         await agent.RunAsync("What tools do you see?");
@@ -220,7 +220,7 @@ public class CodingToolHarnessAgentBuilderTests
         var reviewer = await new AgentBuilder(reviewerConfig, new TestProviderRegistry(chatClient))
             .WithEventComposition(CodingEventTestCodec.Composition)
             .WithChatClient(chatClient)
-            .WithAutoApprovePermissions()
+            .WithPermissions()
             .BuildAsync();
 
         await reviewer.RunAsync("Review this workspace.");
@@ -277,7 +277,7 @@ public class CodingToolHarnessAgentBuilderTests
                 .WithChatClient(chatClient)
                 .WithName("coding-toolharness-test-agent")
                 .WithToolHarness<CodingToolHarness>()
-                .WithAutoApprovePermissions()
+                .WithPermissions()
                 .BuildAsync();
 
             var tools = agent.DefaultOptions?.Tools?.OfType<AIFunction>()

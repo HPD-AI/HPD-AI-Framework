@@ -139,7 +139,8 @@ export const EventTypes = {
   // Observability (optional, for debugging)
   COLLAPSED_TOOLS_VISIBLE: 'COLLAPSED_TOOLS_VISIBLE',
   CONTAINER_EXPANDED: 'CONTAINER_EXPANDED',
-  PERMISSION_CHECK: 'PERMISSION_CHECK',
+  PERMISSION_EVALUATED: 'PERMISSION_EVALUATED',
+  PERMISSION_RESOLVED: 'PERMISSION_RESOLVED',
   ITERATION_START: 'ITERATION_START',
   CIRCUIT_BREAKER_TRIGGERED: 'CIRCUIT_BREAKER_TRIGGERED',
   INTERNAL_PARALLEL_TOOL_EXECUTION: 'INTERNAL_PARALLEL_TOOL_EXECUTION',
@@ -885,25 +886,87 @@ export interface ToolCallResultEvent extends BaseEvent {
 // Permission Events
 // ============================================
 
-export type PermissionChoice = 'ask' | 'allow_always' | 'deny_always';
-
+export type PermissionDecisionKind = 'Allow' | 'Deny' | 'Feedback';
+export const PermissionDomains = {
+  ToolExecution: 'ToolExecution',
+  SandboxCapability: 'SandboxCapability',
+} as const;
+export type PermissionDomain = string;
+export interface PermissionChoice {
+  id: string;
+  label: string;
+  kind: PermissionDecisionKind;
+  deniedBehavior?: 'InterruptTurn' | 'ReturnToModel';
+}
+export interface PermissionResource { value: string; displayName: string }
+export interface PermissionEvidence { kind: string; schemaVersion: string; payload: unknown }
 export interface PermissionRequestEvent extends BaseEvent {
   type: typeof EventTypes.PERMISSION_REQUEST;
   permissionId: string;
-  sourceName: string;
-  functionName: string;
-  description?: string;
   callId: string;
-  arguments?: Record<string, unknown>;
+  sourceName: string;
+  permissionDomain: PermissionDomain;
+  authority?: string;
+  action?: string;
+  permissionResource?: PermissionResource;
+  reason?: string;
+  risk?: 'Low' | 'Medium' | 'High' | 'Critical';
+  choices: PermissionChoice[];
+  evidence?: PermissionEvidence;
+  persistenceUnavailableReason?: 'NoStableAgentId' | 'NoSessionStore';
+  functionName?: string;
+  arguments?: unknown;
 }
-
 export interface PermissionResponseEvent extends BaseEvent, ResponseMetadata {
   type: typeof EventTypes.PERMISSION_RESPONSE;
   permissionId: string;
   sourceName: string;
+  choiceId: string;
+  feedback?: string;
+}
+export interface PermissionEvaluatedEvent extends BaseEvent {
+  type: typeof EventTypes.PERMISSION_EVALUATED;
+  permissionId: string;
+  callId: string;
+  agentId: string;
+  domain: PermissionDomain;
+  authority: string;
+  action?: string;
+  policyDescriptorId: string;
+  outcomeKind: 'Allow' | 'Deny' | 'Ask';
+}
+export interface PermissionResolvedEvent extends BaseEvent {
+  type: typeof EventTypes.PERMISSION_RESOLVED;
+  permissionId: string;
+  callId: string;
+  agentId: string;
+  domain: PermissionDomain;
+  authority?: string;
+  action?: string;
+  policyDescriptorId?: string;
+  permissionResource?: PermissionResource;
+  decisionKind: PermissionDecisionKind;
+  choiceId?: string;
+  decisionSource: 'PolicyDecision' | 'StoredDecision' | 'HostAutoApprove' | 'HostBypass' |
+    'UserDecision' | 'FrameworkDecision' | 'Cancelled' | 'TimedOut';
+  denialReason?: string;
+}
+
+/** Stable prompt surface for ordinary permission UI. */
+export interface PermissionPrompt {
+  permissionId: string;
+  callId: string;
+  functionName: string;
+  action?: string;
+  arguments: unknown;
+  reason?: string;
+}
+
+/** Stable binary answer for ordinary permission UI. */
+export interface PermissionAnswer {
+  permissionId: string;
   approved: boolean;
   reason?: string;
-  choice?: PermissionChoice;
 }
 
 // ============================================
@@ -1112,6 +1175,8 @@ export type KnownAgentEvent =
   | ToolCallEndEvent
   | ToolCallResultEvent
   // Permission Events
+  | PermissionEvaluatedEvent
+  | PermissionResolvedEvent
   | PermissionRequestEvent
   | PermissionResponseEvent
   // Continuation Events
@@ -1165,6 +1230,40 @@ export function isToolCallStartEvent(event: BaseEvent): event is ToolCallStartEv
 
 export function isPermissionRequestEvent(event: BaseEvent): event is PermissionRequestEvent {
   return event.type === EventTypes.PERMISSION_REQUEST;
+}
+
+export function toPermissionPrompt(event: PermissionRequestEvent): PermissionPrompt {
+  return {
+    permissionId: event.permissionId,
+    callId: event.callId,
+    functionName: event.functionName ?? event.authority ?? 'unknown',
+    action: event.action,
+    arguments: event.arguments ?? {},
+    reason: event.reason,
+  };
+}
+
+export function createPermissionResponse(
+  event: PermissionRequestEvent,
+  answer: PermissionAnswer,
+): PermissionResponseEvent {
+  if (event.permissionId !== answer.permissionId) {
+    throw new Error('PermissionAnswerUnbound: permission ID does not match.');
+  }
+  const requiredId = answer.approved ? 'allow_once' : 'deny_once';
+  const choice = event.choices.find(candidate => candidate.id === requiredId);
+  if (!choice) {
+    throw new Error(
+      `Simple permission answers require a declared '${requiredId}' choice.`,
+    );
+  }
+  return {
+    type: EventTypes.PERMISSION_RESPONSE,
+    permissionId: event.permissionId,
+    sourceName: event.sourceName,
+    choiceId: choice.id,
+    feedback: answer.reason,
+  };
 }
 
 export function isReasoningMessageStartEvent(event: BaseEvent): event is ReasoningMessageStartEvent {

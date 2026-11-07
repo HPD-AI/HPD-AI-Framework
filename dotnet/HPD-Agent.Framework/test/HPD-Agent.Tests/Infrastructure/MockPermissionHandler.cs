@@ -35,6 +35,10 @@ public sealed class MockPermissionHandler : IDisposable
         _agent = agent;
         _subscriptions.Add(agent.EventCoordinator.Subscribe<PermissionRequestEvent>(
             evt => new ValueTask(HandleEventAsync(evt))));
+        _subscriptions.Add(agent.EventCoordinator.Subscribe<InterruptionHandledEvent>(
+            evt => new ValueTask(HandleEventAsync(evt))));
+        _subscriptions.Add(agent.EventCoordinator.Subscribe<PermissionResolvedEvent>(
+            evt => new ValueTask(HandleEventAsync(evt))));
         _subscriptions.Add(agent.EventCoordinator.Subscribe<ContinuationRequestEvent>(
             evt => new ValueTask(HandleEventAsync(evt))));
         _handlerTask = Task.Run(async () => await HandleEventsAsync(eventStream));
@@ -200,7 +204,7 @@ public sealed class MockPermissionHandler : IDisposable
             await _agent.AnswerRequestAsync(new PermissionResponseEvent(
                 permissionRequest.PermissionId,
                 permissionRequest.SourceName,
-                response.ChoiceId ?? (response.Approved ? "allow_once" : "deny_once"),
+                response.ChoiceId ?? permissionRequest.Choices.First(choice => choice.Kind == (response.Approved ? HPD.Agent.Permissions.PermissionDecisionKind.Allow : HPD.Agent.Permissions.PermissionDecisionKind.Deny)).Id,
                 response.DenialReason));
         }
         else if (evt is ContinuationRequestEvent continuationRequest)

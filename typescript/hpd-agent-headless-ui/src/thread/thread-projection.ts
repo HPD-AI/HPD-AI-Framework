@@ -175,16 +175,9 @@ class ThreadProjectionImpl implements ThreadProjection {
         this.onToolCallEnd(known);
         break;
       case EventTypes.PERMISSION_REQUEST:
-        this.addPermission({
-          permissionId: known.permissionId,
-          sourceName: known.sourceName,
-          functionName: known.functionName,
-          description: known.description,
-          callId: known.callId,
-          arguments: known.arguments,
-        }, known);
+        this.addPermission(known, known);
         break;
-      case EventTypes.PERMISSION_RESPONSE:
+      case EventTypes.PERMISSION_RESOLVED:
         this.removePendingRequest(known.permissionId);
         break;
       case EventTypes.CLARIFICATION_REQUEST:
@@ -1158,9 +1151,9 @@ function addUsageDetails(
 }
 
 function aggregateMessageTurnUsage(
-  summary: MessageTurnUsageSummary,
+  summary?: MessageTurnUsageSummary,
 ): ThreadContextUsage['usage'] | undefined {
-  return summary.operations
+  return (summary?.operations ?? [])
     .map(operation => operation.usage)
     .filter((usage): usage is NonNullable<typeof usage> => usage != null)
     .reduce<ThreadContextUsage['usage'] | undefined>(
@@ -1582,8 +1575,6 @@ function mapThreadExecution(execution: ThreadExecution): ThreadExecutionView {
     finishedAt: execution.finishedAt,
     errorType: execution.error?.type,
     errorMessage: execution.error?.message,
-    modelBackgroundOperation: execution.modelBackgroundOperation,
-    backgroundTasks: execution.backgroundTasks,
-    backgroundHandles: execution.backgroundHandles,
+    operations: execution.operations,
   };
 }

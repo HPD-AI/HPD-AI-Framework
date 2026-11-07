@@ -352,40 +352,7 @@ public static class ExternalToolCollapsingWrapper
         additionalProperties["IsContainer"] = false;
         additionalProperties["SourceType"] = sourceType;
 
-        // Wrap the existing tool with metadata
-        // This delegates invocation to the original tool while adding metadata
-        return HPDAIFunctionFactory.Create(
-            async (args, functionContext, ct) => await InvokeWrappedToolAsync(tool, args, functionContext, ct).ConfigureAwait(false),
-            new HPDAIFunctionFactoryOptions
-            {
-                Name = tool.Name,
-                Description = tool.Description,
-                SchemaProvider = () => tool.JsonSchema,
-                FunctionPermission = tool is HPDAIFunctionFactory.HPDAIFunction hpdFunction
-                    ? hpdFunction.HPDOptions.FunctionPermission
-                    : new AIFunctionPermissionDeclaration
-                    {
-                        RequiresPermission = true,
-                        Authority = $"function/{Uri.EscapeDataString(tool.Name)}",
-                        Source = PermissionDeclarationSource.FrameworkDefault
-                    },
-                Validator = (_, _) => new List<ValidationError>(), // Original tool handles validation
-                AdditionalProperties = additionalProperties
-            });
-    }
-
-    private static async Task<object?> InvokeWrappedToolAsync(
-        AIFunction tool,
-        AIFunctionArguments args,
-        FunctionExecutionContext functionContext,
-        CancellationToken cancellationToken)
-    {
-        if (tool is HPDAIFunctionFactory.HPDAIFunction hpdFunction)
-        {
-            return await hpdFunction.InvokeAsync(args, functionContext, cancellationToken).ConfigureAwait(false);
-        }
-
-        return await tool.InvokeAsync(args, cancellationToken).ConfigureAwait(false);
+        return HPDAIFunctionFactory.Project(tool, additionalProperties);
     }
 
     /// <summary>

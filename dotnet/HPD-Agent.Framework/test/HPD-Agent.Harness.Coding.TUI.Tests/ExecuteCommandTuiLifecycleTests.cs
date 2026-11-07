@@ -35,9 +35,6 @@ public sealed class ExecuteCommandTuiLifecycleTests
             "hpd.coding.command.exited",
             "hpd.coding.command.result"
         ]);
-        registry.InteractionHandlers.Select(static handler => handler.Key)
-            .Should()
-            .Contain(["hpd.coding.command.permission", "hpd.coding.command.sandbox-capability"]);
         registry.Pages.Select(static page => page.Id).Should().Contain([
             "hpd.coding.commands",
             "hpd.coding.background"
@@ -46,148 +43,6 @@ public sealed class ExecuteCommandTuiLifecycleTests
         registry.TranscriptRenderers.TryFindRenderer<CodingCommandCell>(
             CodingHarnessTuiTranscriptRendererKeys.Command,
             out _).Should().BeTrue();
-        registry.TryFindInteractionHandler(
-                CreatePermissionRequest(),
-                new AgentTuiRuntimeScope("agent", "session", "main"),
-                out var interaction)
-            .Should().BeTrue();
-        interaction.Key.Should().Be("hpd.coding.command.permission");
-    }
-
-    [Fact]
-    public void AddCodingHarnessTui_AppliesConfiguredPermissionAuthorityOnlyToInteractions()
-    {
-        var registry = new HpdAgentTuiBuilder()
-            .AddCodingHarnessTui(
-                permissionScope: AgentTuiEventScope.CurrentThreadAndDescendants)
-            .Build();
-
-        registry.InteractionHandlers.Should().OnlyContain(
-            item => item.Scope == AgentTuiEventScope.CurrentThreadAndDescendants);
-        registry.EventHandlers.Should().OnlyContain(
-            item => item.Scope == AgentTuiEventScope.CurrentThread);
-    }
-
-    [Fact]
-    public async Task PermissionRequestHandler_ReturnsDialogChoice()
-    {
-        var request = CreatePermissionRequest();
-        var dialogs = new TestDialogService
-        {
-            ShowResult = new ExecuteCommandPermissionResponseEvent(
-                "permission-1",
-                "ExecuteCommandPermissionInteraction",
-                "allow_exact")
-        };
-        var handler = new ExecuteCommandPermissionRequestTuiHandler(CodingHarnessTuiTheme.Default);
-        var context = CreateInteractionContext(dialogs, request, out var shell);
-
-        var result = await handler.HandleAsync(context, CancellationToken.None);
-
-        result.Response.Should().BeOfType<ExecuteCommandPermissionResponseEvent>()
-            .Which.Should().Match<ExecuteCommandPermissionResponseEvent>(evt =>
-                evt.PermissionId == "permission-1" &&
-                evt.SourceName == "ExecuteCommandPermissionInteraction" &&
-                evt.ChoiceId == "allow_exact" &&
-                evt.FeedbackText == null);
-        dialogs.LastShowKey.Should().Be("execute-command-permission:permission-1");
-        dialogs.ShowPromptCount.Should().Be(1);
-        shell.PromptStatusText.Should().Be("state: running | press Esc twice to cancel");
-    }
-
-    [Fact]
-    public async Task PermissionRequestHandler_DeniesWhenDialogClosesWithoutResult()
-    {
-        var request = CreatePermissionRequest();
-        var dialogs = new TestDialogService { RenderDialog = false };
-        var handler = new ExecuteCommandPermissionRequestTuiHandler(CodingHarnessTuiTheme.Default);
-
-        var result = await handler.HandleAsync(
-            CreateInteractionContext(dialogs, request),
-            CancellationToken.None);
-
-        result.Response.Should().BeOfType<ExecuteCommandPermissionResponseEvent>()
-            .Which.Should().Match<ExecuteCommandPermissionResponseEvent>(evt =>
-                evt.PermissionId == "permission-1" &&
-                evt.ChoiceId == "deny" &&
-                evt.FeedbackText == null);
-        dialogs.ShowPromptCount.Should().Be(1);
-    }
-
-    [Fact]
-    public async Task PermissionDialog_RendersCommandDetailsAndBackendChoices()
-    {
-        var request = CreatePermissionRequest();
-        var dialogs = new TestDialogService();
-        var handler = new ExecuteCommandPermissionRequestTuiHandler(CodingHarnessTuiTheme.Default);
-
-        await handler.HandleAsync(
-            CreateInteractionContext(dialogs, request),
-            CancellationToken.None);
-
-        dialogs.RenderedDialog.Should().Contain("Approve command?");
-        dialogs.RenderedDialog.Should().Contain("Reason: run a shell command");
-        dialogs.RenderedDialog.Should().Contain("$ git status -sb");
-        dialogs.RenderedDialog.Should().Contain("cwd: /repo");
-        dialogs.RenderedDialog.Should().Contain("Security review");
-        dialogs.RenderedDialog.Should().Contain("sandbox:");
-        dialogs.RenderedDialog.Should().Contain("effects: no filesystem or network effects detected");
-        dialogs.RenderedDialog.Should().Contain("risk: none");
-        dialogs.RenderedDialog.Should().Contain("rule: no saved rule matched");
-        dialogs.RenderedDialog.Should().Contain("Allow once");
-        dialogs.RenderedDialog.Should().Contain("Always allow this exact command");
-        dialogs.RenderedDialog.Should().Contain("Tell agent what to do instead");
-    }
-
-    [Fact]
-    public async Task PermissionDialog_SubmitsSelectedBackendChoice()
-    {
-        var request = CreatePermissionRequest();
-        var dialogs = new TestDialogService
-        {
-            DialogKeys =
-            [
-                new KeyEvent(KeyCode.DownArrow),
-                new KeyEvent(KeyCode.Enter)
-            ]
-        };
-        var handler = new ExecuteCommandPermissionRequestTuiHandler(CodingHarnessTuiTheme.Default);
-
-        var result = await handler.HandleAsync(
-            CreateInteractionContext(dialogs, request),
-            CancellationToken.None);
-
-        result.Response.Should().BeOfType<ExecuteCommandPermissionResponseEvent>()
-            .Which.Should().Match<ExecuteCommandPermissionResponseEvent>(evt =>
-                evt.ChoiceId == "allow_exact" &&
-                evt.FeedbackText == null);
-    }
-
-    [Fact]
-    public async Task PermissionDialog_CapturesFeedbackInSameDialog()
-    {
-        var request = CreatePermissionRequest();
-        var dialogs = new TestDialogService
-        {
-            DialogKeys =
-            [
-                new KeyEvent(KeyCode.DownArrow),
-                new KeyEvent(KeyCode.DownArrow),
-                new KeyEvent(KeyCode.Enter),
-                new KeyEvent(KeyCode.Paste, Text: "Use git status without shell wrappers."),
-                new KeyEvent(KeyCode.Enter)
-            ]
-        };
-        var handler = new ExecuteCommandPermissionRequestTuiHandler(CodingHarnessTuiTheme.Default);
-
-        var result = await handler.HandleAsync(
-            CreateInteractionContext(dialogs, request),
-            CancellationToken.None);
-
-        result.Response.Should().BeOfType<ExecuteCommandPermissionResponseEvent>()
-            .Which.Should().Match<ExecuteCommandPermissionResponseEvent>(evt =>
-                evt.ChoiceId == "feedback" &&
-                evt.FeedbackText == "Use git status without shell wrappers.");
     }
 
     [Fact]
@@ -315,55 +170,6 @@ public sealed class ExecuteCommandTuiLifecycleTests
         rendered.Should().Contain("38;2;10;180;250");
         rendered.Should().Contain("38;2;70;210;150");
         rendered.Should().Contain("38;2;90;100;120");
-    }
-
-    [Fact]
-    public async Task CustomCodingTheme_StylesPermissionDialog()
-    {
-        var request = CreatePermissionRequest();
-        var dialogs = new TestDialogService();
-        var handler = new ExecuteCommandPermissionRequestTuiHandler(new CodingHarnessTuiTheme
-        {
-            PermissionTitle = new Style(new Color(100, 210, 255), Color.Default),
-            PermissionDetail = new Style(new Color(110, 120, 135), Color.Default),
-            PermissionCommand = new Style(new Color(240, 245, 250), Color.Default)
-        });
-
-        await handler.HandleAsync(
-            CreateInteractionContext(dialogs, request),
-            CancellationToken.None);
-
-        dialogs.RenderedDialogAnsi.Should().Contain("38;2;100;210;255");
-        dialogs.RenderedDialogAnsi.Should().Contain("38;2;110;120;135");
-        dialogs.RenderedDialogAnsi.Should().Contain("38;2;240;245;250");
-    }
-
-    [Fact]
-    public async Task CustomCodingTheme_StylesSandboxCapabilityDialog()
-    {
-        var request = new AgentCapabilityRequestEvent(
-            "sandbox-1",
-            "ExecuteCommand",
-            "call-1",
-            "cmd-1",
-            AgentCapabilityKind.NetworkEgress,
-            new AgentCapabilityResource { Value = "registry.npmjs.org", DisplayName = "registry.npmjs.org" },
-            "network is blocked");
-        var dialogs = new TestDialogService();
-        var handler = new AgentCapabilityRequestTuiHandler(new CodingHarnessTuiTheme
-        {
-            PermissionTitle = new Style(new Color(100, 210, 255), Color.Default),
-            PermissionDetail = new Style(new Color(110, 120, 135), Color.Default),
-            PermissionCommand = new Style(new Color(240, 245, 250), Color.Default)
-        });
-
-        await handler.HandleAsync(
-            CreateInteractionContext(dialogs, request),
-            CancellationToken.None);
-
-        dialogs.RenderedDialogAnsi.Should().Contain("38;2;100;210;255");
-        dialogs.RenderedDialogAnsi.Should().Contain("38;2;110;120;135");
-        dialogs.RenderedDialogAnsi.Should().Contain("38;2;240;245;250");
     }
 
     [Fact]
@@ -792,121 +598,6 @@ public sealed class ExecuteCommandTuiLifecycleTests
         rendered.Should().NotContain("exit 1");
     }
 
-    private static ExecuteCommandPermissionRequestEvent CreatePermissionRequest()
-    {
-        var sandbox = AgentSandboxRuntime.Default;
-        var workspace = new ExecuteCommandPermissionWorkspaceScope
-        {
-            RootId = "default",
-            RootPath = "/repo",
-            RelativeWorkingDirectory = "."
-        };
-        var shell = new ExecuteCommandShellScope
-        {
-            Executable = "/bin/zsh",
-            Family = ExecuteCommandShellFamily.Zsh
-        };
-        var exactRule = new ExecuteCommandPermissionRule
-        {
-            Id = "rule-exact",
-            RuleSchemaVersion = 1,
-            AnalyzerVersion = 1,
-            NormalizationVersion = 1,
-            Behavior = ExecuteCommandPermissionBehavior.Allow,
-            MatchKind = ExecuteCommandPermissionMatchKind.Exact,
-            Pattern = "git status -sb",
-            Shell = shell,
-            RequestedSandboxFingerprint = sandbox.Canonicalize("/repo"),
-            Workspace = workspace,
-            Risk = ExecuteCommandPermissionRisk.None,
-            MinimumTrustLevel = ExecuteCommandAnalysisTrustLevel.Simple
-        };
-        var exactProposal = new ExactAllowRuleProposal
-        {
-            Rule = exactRule,
-            UserLabel = "Always allow this exact command"
-        };
-        var plan = new SimpleCommandPermissionPlan
-        {
-            AnalyzerVersion = 1,
-            NormalizationVersion = 1,
-            Fingerprint = new PermissionFingerprint("fingerprint-1"),
-            Action = ExecuteCommandAction.Run,
-            Command = new RawCommandText("git status -sb"),
-            NormalizedCommand = new NormalizedCommandText("git status -sb"),
-            Shell = shell,
-            WorkingDirectory = "/repo",
-            Workspace = workspace,
-            RequestedSandbox = sandbox,
-            FilesystemEffects = [],
-            NetworkEffects = [],
-            StartsInBackground = false,
-            Risk = ExecuteCommandPermissionRisk.None,
-            CommandPlan = new ExecuteCommandSubcommandPlan
-            {
-                Text = "git status -sb",
-                Argv = ["git", "status", "-sb"],
-                BaseCommand = "git",
-                SafePrefix = "git status",
-                Risk = ExecuteCommandPermissionRisk.None,
-                TrustLevel = ExecuteCommandAnalysisTrustLevel.Simple,
-                Readiness = ExecuteCommandPolicyReadiness.PrefixAllowAllowed
-            },
-            ExactAllowRule = exactProposal,
-            PrefixAllowRule = null,
-            SuggestedRules = [exactProposal]
-        };
-        var choices = new ExecuteCommandPermissionChoice[]
-        {
-            new AllowOnceChoice
-            {
-                Id = "allow_once",
-                Label = "Allow once"
-            },
-            new PersistRuleChoice
-            {
-                Id = "allow_exact",
-                Label = "Always allow this exact command",
-                Proposal = exactProposal
-            },
-            new FeedbackChoice
-            {
-                Id = "feedback",
-                Label = "Tell agent what to do instead"
-            }
-        };
-
-        return new ExecuteCommandPermissionRequestEvent(
-            "permission-1",
-            "ExecuteCommandPermissionInteraction",
-            "call-1",
-            plan,
-            [],
-            new ExecuteCommandPermissionRuleDiagnostics(null, null, [], [], []),
-            choices);
-    }
-
-    private static AgentTuiInteractionContext CreateInteractionContext(
-        IAgentTuiDialogService dialogs,
-        AgentEvent request)
-        => CreateInteractionContext(dialogs, request, out _);
-
-    private static AgentTuiInteractionContext CreateInteractionContext(
-        IAgentTuiDialogService dialogs,
-        AgentEvent request,
-        out ChatShellModel shell)
-    {
-        var scope = new AgentTuiRuntimeScope("agent", "session", "main");
-        shell = new ChatShellModel(scope);
-        return new AgentTuiInteractionContext(
-            scope,
-            shell,
-            shell.Navigation,
-            new NoopRuntime(),
-            dialogs,
-            request);
-    }
-
     private static AgentTuiSessionState CreateState()
         => new(
             new AgentTuiRuntimeScope("agent", "session", "main"),
@@ -1121,7 +812,6 @@ public sealed class ExecuteCommandTuiLifecycleTests
 
     private sealed class TestDialogService : IAgentTuiDialogService
     {
-        public ExecuteCommandPermissionResponseEvent? ShowResult { get; init; }
         public IReadOnlyList<KeyEvent> DialogKeys { get; init; } = [];
         public bool RenderDialog { get; init; } = true;
         public string LastShowKey { get; private set; } = "";
@@ -1137,9 +827,6 @@ public sealed class ExecuteCommandTuiLifecycleTests
         {
             LastShowKey = key;
             ShowPromptCount++;
-            if (ShowResult is not null)
-                return Task.FromResult(AgentTuiDialogResult<TResult>.Submitted((TResult)(object)ShowResult));
-
             if (!RenderDialog && DialogKeys.Count == 0)
                 return Task.FromResult(AgentTuiDialogResult<TResult>.Dismissed());
 

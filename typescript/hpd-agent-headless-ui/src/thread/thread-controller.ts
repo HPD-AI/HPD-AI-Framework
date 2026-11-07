@@ -8,7 +8,6 @@ import {
   type AgentRunInputEvent,
   type ClientToolInvokeOutcome,
   type EventSubscription,
-  type PermissionChoice,
   type InputSubmissionResult,
   type RespondResult,
   type ToolResultContent,
@@ -247,7 +246,7 @@ class ThreadControllerImpl implements ThreadController {
     };
   }
 
-  async approve(permissionId: string, choice: PermissionChoice = 'ask'): Promise<RespondResult> {
+  async approve(permissionId: string, choiceId?: string): Promise<RespondResult> {
     this.throwIfDisposed();
     const pending = this.projection.getSnapshot().pendingRuntimeRequests
       .find((request): request is PermissionRuntimeRequest =>
@@ -258,8 +257,12 @@ class ThreadControllerImpl implements ThreadController {
       type: EventTypes.PERMISSION_RESPONSE,
       permissionId,
       sourceName: pending.request.sourceName,
-      approved: true,
-      choice,
+      choiceId: (() => {
+        const choice = pending.request.choices.find(candidate => candidate.kind === 'Allow' &&
+          (choiceId === undefined || candidate.id === choiceId));
+        if (!choice) throw new Error('No matching declared Allow choice');
+        return choice.id;
+      })(),
     });
   }
 
@@ -274,8 +277,12 @@ class ThreadControllerImpl implements ThreadController {
       type: EventTypes.PERMISSION_RESPONSE,
       permissionId,
       sourceName: pending.request.sourceName,
-      approved: false,
-      reason,
+      choiceId: (() => {
+        const choice = pending.request.choices.find(candidate => candidate.kind === 'Deny');
+        if (!choice) throw new Error('No declared Deny choice');
+        return choice.id;
+      })(),
+      feedback: reason,
     });
   }
 
@@ -315,8 +322,6 @@ class ThreadControllerImpl implements ThreadController {
       content: normalized.content,
       errorMessage: normalized.errorMessage,
       clientOperationId: normalized.clientOperationId,
-      handleKind: normalized.handleKind,
-      supportedOperations: normalized.supportedOperations,
       augmentation: normalized.augmentation ?? options.augmentation,
       responderId: options.responderId,
       responderGroup: options.responderGroup,

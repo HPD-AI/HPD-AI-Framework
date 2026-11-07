@@ -49,17 +49,15 @@ public static class TestAgentFactory
 
         // Add tools before constructing the builder. AgentBuilder owns a configuration
         // snapshot, so mutations made afterward intentionally do not affect the agent.
-        if (tools.Length > 0)
-        {
-            config.ServerConfiguredTools ??= new List<Microsoft.Extensions.AI.AITool>();
-            foreach (var tool in tools)
-                config.ServerConfiguredTools.Add(tool);
-        }
+        config.ServerConfiguredTools ??= new List<Microsoft.Extensions.AI.AITool>();
+        for (var index = 0; index < config.ServerConfiguredTools.Count; index++)
+            config.ServerConfiguredTools[index] = NormalizeTool(config.ServerConfiguredTools[index]);
+        foreach (var tool in tools)
+            config.ServerConfiguredTools.Add(NormalizeTool(tool));
 
         // Create builder with test provider registry that knows about our chat client
         var builder = new AgentBuilder(config, new TestProviderRegistry(chatClient))
-            .WithEventComposition(HPD.Agent.Tests.TestEventApplication.Composition)
-            .WithAutoApprovePermissions();
+            .WithEventComposition(HPD.Agent.Tests.TestEventApplication.Composition);
 
         // Register standard iteration middlewares for loop protection
         // These are essential for preventing infinite loops in tests
@@ -79,6 +77,15 @@ public static class TestAgentFactory
         // Use the internal BuildCoreAsync method to get the core agent directly
         return builder.BuildAsync(CancellationToken.None).GetAwaiter().GetResult();
     }
+
+    private static Microsoft.Extensions.AI.AITool NormalizeTool(Microsoft.Extensions.AI.AITool tool) =>
+        tool switch
+        {
+            HPDAIFunctionFactory.HPDAIFunction => tool,
+            Microsoft.Extensions.AI.AIFunction function =>
+                HPDAIFunctionFactory.Import(function, explicitlyUngoverned: true),
+            _ => tool
+        };
 
     /// <summary>
     /// Creates a default test configuration.

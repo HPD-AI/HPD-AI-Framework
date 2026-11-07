@@ -29,8 +29,20 @@ public class PermissionTests : AgentTestBase
             config.ServerConfiguredTools.Add(tool);
 
         var builder = new AgentBuilder(config, new TestProviderRegistry(client));
-        builder.WithPermissions(); // Enable permission filtering
+        builder.WithEventComposition(TestEventApplication.Composition)
+            .WithSessionStore(new InMemorySessionStore(TestEventApplication.Codec))
+            .WithPermissions();
         return builder.BuildAsync(CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    private static async IAsyncEnumerable<AgentEvent> RunWithJournal(
+        Agent agent, IEnumerable<ChatMessage> messages,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var sessionId = await agent.CreateSessionAsync(cancellationToken: cancellationToken);
+        var result = await agent.RunAsync(string.Join("\n", messages.Select(message => message.Text)),
+            sessionId, cancellationToken: cancellationToken);
+        foreach (var item in result.Events) yield return item;
     }
 
     /// <summary>
@@ -38,7 +50,7 @@ public class PermissionTests : AgentTestBase
     /// Verifies that when permission is denied, the tool is not executed and agent receives denial message.
     /// </summary>
     [Fact]
-    public async Task CurrentBehavior_PermissionDenied_BlocksToolExecution()
+    public async Task PermissionDenied_InterruptsBeforeToolExecution()
     {
         // Arrange
         var fakeLLM = new FakeChatClient();
@@ -68,7 +80,7 @@ public class PermissionTests : AgentTestBase
         var messages = CreateSimpleConversation("Use the sensitive tool");
 
         // Set up mock permission handler to deny permission
-        var eventStream = agent.RunAgenticLoopAsync(messages, cancellationToken: TestCancellationToken);
+        var eventStream = RunWithJournal(agent, messages, TestCancellationToken);
 
         using var permissionHandler = new MockPermissionHandler(agent, eventStream)
             .AutoDenyAll("User denied permission");
@@ -83,23 +95,12 @@ public class PermissionTests : AgentTestBase
         permissionHandler.CapturedRequests.Should().ContainSingle("permission should be requested once");
 
         var permissionRequest = permissionHandler.CapturedRequests[0];
-        permissionRequest.FunctionName.Should().Be("SensitiveTool", "correct function should request permission");
+        permissionRequest.Authority.Should().Be("function/SensitiveTool", "correct authority should request permission");
 
-        var toolResults = capturedEvents.OfType<ToolCallResultEvent>().ToList();
-        toolResults.Should().ContainSingle(
-            "a blocked function must still produce an explicit model-facing result");
-        var result = toolResults[0].Result.Text
-            ?? toolResults[0].Result.Json?.GetRawText()
-            ?? string.Empty;
-        result.Should().Contain("<tool_permission");
-        result.Should().Contain("outcome=\"denied\"");
-        result.Should().Contain("executed=\"false\"");
-        result.Should().Contain("Denied by test");
-
-        // Final response should exist
-        var textDeltas = capturedEvents.OfType<TextDeltaEvent>().ToList();
-        var finalText = string.Concat(textDeltas.Select(e => e.Text));
-        finalText.Should().NotBeEmpty("agent should respond after permission denial");
+        capturedEvents.OfType<ToolCallResultEvent>().Should().BeEmpty("denial interrupts before tool execution");
+        capturedEvents.OfType<PermissionResolvedEvent>().Should().ContainSingle(
+            resolved => resolved.DecisionKind == HPD.Agent.Permissions.PermissionDecisionKind.Deny);
+        capturedEvents.OfType<InterruptionHandledEvent>().Should().NotBeEmpty();
     }
 
     /// <summary>
@@ -137,7 +138,7 @@ public class PermissionTests : AgentTestBase
         var messages = CreateSimpleConversation("Use the sensitive tool to read data");
 
         // Set up mock permission handler to approve permission
-        var eventStream = agent.RunAgenticLoopAsync(messages, cancellationToken: TestCancellationToken);
+        var eventStream = RunWithJournal(agent, messages, TestCancellationToken);
 
         using var permissionHandler = new MockPermissionHandler(agent, eventStream)
             .AutoApproveAll();
@@ -202,7 +203,7 @@ public class PermissionTests : AgentTestBase
         var messages = CreateSimpleConversation("Use both tools");
 
         // Set up mock permission handler - approve first, deny second
-        var eventStream = agent.RunAgenticLoopAsync(messages, cancellationToken: TestCancellationToken);
+        var eventStream = RunWithJournal(agent, messages, TestCancellationToken);
 
         using var permissionHandler = new MockPermissionHandler(agent, eventStream);
         permissionHandler.EnqueueResponse(approved: true); // Approve Tool1
@@ -273,7 +274,7 @@ public class PermissionTests : AgentTestBase
         var messages = CreateSimpleConversation("Use all three tools in parallel");
 
         // Set up mock permission handler - approve all
-        var eventStream = agent.RunAgenticLoopAsync(messages, cancellationToken: TestCancellationToken);
+        var eventStream = RunWithJournal(agent, messages, TestCancellationToken);
 
         using var permissionHandler = new MockPermissionHandler(agent, eventStream)
             .AutoApproveAll();
@@ -302,7 +303,7 @@ public class PermissionTests : AgentTestBase
     /// Verifies that BeforeParallelFunctionsAsync correctly handles some approvals and some denials.
     /// </summary>
     [Fact]
-    public async Task CurrentBehavior_ParallelFunctions_MixedApprovalsDenials()
+    public async Task ParallelFunctions_InterruptingDenialStopsAdmissionAndAllBodies()
     {
         // Arrange
         var fakeLLM = new FakeChatClient();
@@ -348,7 +349,7 @@ public class PermissionTests : AgentTestBase
         var messages = CreateSimpleConversation("Use all three tools in parallel");
 
         // Set up mock permission handler - approve some, deny others
-        var eventStream = agent.RunAgenticLoopAsync(messages, cancellationToken: TestCancellationToken);
+        var eventStream = RunWithJournal(agent, messages, TestCancellationToken);
 
         using var permissionHandler = new MockPermissionHandler(agent, eventStream);
         permissionHandler.EnqueueResponse(approved: true);  // Approve Tool1
@@ -361,20 +362,11 @@ public class PermissionTests : AgentTestBase
         // Get captured events from handler
         var capturedEvents = permissionHandler.CapturedEvents;
 
-        // Assert - Three permission requests
-        permissionHandler.CapturedRequests.Should().HaveCount(3,
-            "BeforeParallelFunctionsAsync should check permission for each tool");
-
-        // Tool results should reflect mixed outcomes
-        var toolResults = capturedEvents.OfType<ToolCallResultEvent>().ToList();
-        toolResults.Should().HaveCount(3, "all three tools should have results (approved execute, denied get denial message)");
-
-        // Tool1 and Tool3 should have successful results
-        toolResults.Should().Contain(t => t.Result.Text != null && t.Result.Text.Contains("ParallelTool1 result"), "tool1 should execute");
-        toolResults.Should().Contain(t => t.Result.Text != null && t.Result.Text.Contains("ParallelTool3 result"), "tool3 should execute");
-
-        // Tool2 should have denial message
-        toolResults.Should().Contain(t => t.Result.Text != null && t.Result.Text.Contains("denied", StringComparison.OrdinalIgnoreCase),
-            "tool2 should have denial message");
+        // Admission stops at the interrupting denial; none of the batch bodies execute.
+        permissionHandler.CapturedRequests.Should().HaveCount(2);
+        capturedEvents.OfType<ToolCallResultEvent>().Should().BeEmpty();
+        capturedEvents.OfType<PermissionResolvedEvent>().Should().Contain(
+            resolved => resolved.DecisionKind == HPD.Agent.Permissions.PermissionDecisionKind.Deny);
+        capturedEvents.OfType<InterruptionHandledEvent>().Should().NotBeEmpty();
     }
 }

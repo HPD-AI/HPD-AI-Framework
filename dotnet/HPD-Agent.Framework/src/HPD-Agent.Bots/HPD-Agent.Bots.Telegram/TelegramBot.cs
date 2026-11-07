@@ -681,8 +681,8 @@ public partial class TelegramBot
                     HandlePermissionAsync = async (_, agent, req, token) =>
                         await agent.AnswerRequestAsync(new PermissionResponseEvent(
                             PermissionId: req.PermissionId,
-                            SourceName: "telegram",
-                            ChoiceId: "deny_once"), token),
+                            SourceName: req.SourceName,
+                            ChoiceId: req.Choices.First(choice => choice.Kind == HPD.Agent.Permissions.PermissionDecisionKind.Deny).Id), token),
                 },
                 ct);
         }

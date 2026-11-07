@@ -63,29 +63,15 @@ public sealed class FunctionExecutionPermission
             : throw new InvalidOperationException($"The permission grant does not authorize authority '{expectedAuthority}'.");
     }
 
-    /// <summary>Returns the grant only when it was issued by the exact expected policy and revision.</summary>
-    public FunctionPermissionGrant DemandPolicy(string expectedPolicyId, string? expectedRevision = null)
+    /// <summary>Returns the grant only for the exact versioned policy descriptor.</summary>
+    public FunctionPermissionGrant DemandPolicy(string policyDescriptorId)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(expectedPolicyId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(policyDescriptorId);
         var grant = DemandApproved();
-        if (!string.Equals(grant.Key.PolicyId, expectedPolicyId, StringComparison.Ordinal) ||
-            expectedRevision is not null && !string.Equals(grant.Key.PolicyRevision, expectedRevision, StringComparison.Ordinal))
-            throw new InvalidOperationException($"The permission grant was not issued by policy '{expectedPolicyId}'.");
-        return grant;
+        return string.Equals(grant.Key.PolicyDescriptorId, policyDescriptorId, StringComparison.Ordinal)
+            ? grant : throw new InvalidOperationException("The grant was issued by a different policy.");
     }
 
-    /// <summary>Returns the grant only when it was issued by the exact expected policy type.</summary>
-    /// <typeparam name="TPolicy">The generated permission policy type.</typeparam>
-    public FunctionPermissionGrant DemandPolicy<TPolicy>() where TPolicy : IPermissionPolicy
-    {
-        var fullName = typeof(TPolicy).FullName ?? typeof(TPolicy).Name;
-        var grant = DemandApproved();
-        var descriptorId = grant.Authority.Declaration.PolicyDescriptorId;
-        return string.Equals(descriptorId, fullName, StringComparison.Ordinal) ||
-            string.Equals(descriptorId, "global::" + fullName, StringComparison.Ordinal)
-            ? grant
-            : throw new InvalidOperationException($"The permission grant was not activated by policy type '{fullName}'.");
-    }
 }
 
 /// <summary>

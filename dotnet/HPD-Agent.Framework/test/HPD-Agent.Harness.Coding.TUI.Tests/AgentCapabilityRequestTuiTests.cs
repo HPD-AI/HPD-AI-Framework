@@ -1,101 +1,90 @@
 using System.Runtime.CompilerServices;
-using HPD.Agent;
-using HPD.Agent.Security;
+using System.Text.Json;
+using HPD.Agent.Permissions;
 using HPD.Agent.TUI;
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Interactions;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
-using HPD.Agent.ToolHarness.Coding.TUI;
-using HPD.Agent.ToolHarness.Coding.TUI.Commands.Handlers;
 using HPD.TUI.Core;
-using HPD.TUI.Rendering;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.Tests;
 
 public sealed class AgentCapabilityRequestTuiTests
 {
     [Fact]
-    public async Task FileCapabilityDialog_OffersTurnScopedApproval()
+    public async Task SandboxPermissionDialog_OffersTurnScopedApproval()
     {
         var dialogs = new TestDialogService();
-        var handler = new AgentCapabilityRequestTuiHandler(CodingHarnessTuiTheme.Default);
+        var handler = new PermissionRequestInteractionHandler();
 
         await handler.HandleAsync(
-            CreateInteractionContext(dialogs, CapabilityRequest(
+            CreateInteractionContext(dialogs, SandboxRequest(
                 "request-1",
-                AgentCapabilityKind.FilesystemRead,
+                "sandbox/filesystem-read",
                 "/repo/src/App")),
             CancellationToken.None);
 
-        dialogs.RenderedDialog.Should().Contain("Allow once");
-        dialogs.RenderedDialog.Should().Contain("Allow all files this turn");
-        dialogs.RenderedDialog.Should().Contain("Later reads and writes this turn.");
-        dialogs.RenderedDialog.Should().Contain("Turn approval remains audited.");
+        dialogs.LastOptionLabels.Should().Equal(
+            "Allow once",
+            "Allow all similar requests this turn",
+            "Deny");
     }
 
     [Fact]
-    public async Task AllowForTurn_AutoApprovesFileReadsAndWritesInSameExecution()
+    public async Task AllowForTurn_SuppressesPromptForFilesystemRequestsInSameExecution()
     {
         var dialogs = new TestDialogService
         {
-            DialogKeys =
-            [
-                new KeyEvent(KeyCode.DownArrow),
-                new KeyEvent(KeyCode.Enter)
-            ]
+            SelectionIndex = 1
         };
-        var handler = new AgentCapabilityRequestTuiHandler(CodingHarnessTuiTheme.Default);
+        var handler = new PermissionRequestInteractionHandler();
 
         var initial = await handler.HandleAsync(
-            CreateInteractionContext(dialogs, CapabilityRequest(
+            CreateInteractionContext(dialogs, SandboxRequest(
                 "request-1",
-                AgentCapabilityKind.FilesystemRead,
+                "sandbox/filesystem-read",
                 "/repo/src/App")),
             CancellationToken.None);
         var subsequentWrite = await handler.HandleAsync(
-            CreateInteractionContext(dialogs, CapabilityRequest(
+            CreateInteractionContext(dialogs, SandboxRequest(
                 "request-2",
-                AgentCapabilityKind.FilesystemWrite,
+                "sandbox/filesystem-write",
                 "/repo/src/App/obj")),
             CancellationToken.None);
 
-        initial.Response.Should().BeOfType<AgentCapabilityResponseEvent>()
-            .Which.Approved.Should().BeTrue();
-        subsequentWrite.Response.Should().BeOfType<AgentCapabilityResponseEvent>()
-            .Which.Approved.Should().BeTrue();
+        initial.Response.Should().BeOfType<PermissionResponseEvent>()
+            .Which.ChoiceId.Should().Be("allow_for_turn");
+        subsequentWrite.Response.Should().BeOfType<PermissionResponseEvent>()
+            .Which.ChoiceId.Should().Be("allow_for_turn");
         dialogs.ShowCount.Should().Be(1);
     }
 
     [Fact]
-    public async Task AllowForTurn_DoesNotCrossExecutionOrCapabilityBoundaries()
+    public async Task AllowForTurn_DoesNotCrossAuthorityOrExecutionBoundaries()
     {
         var dialogs = new TestDialogService
         {
-            DialogKeys =
-            [
-                new KeyEvent(KeyCode.DownArrow),
-                new KeyEvent(KeyCode.Enter)
-            ]
+            SelectionIndex = 1
         };
-        var handler = new AgentCapabilityRequestTuiHandler(CodingHarnessTuiTheme.Default);
+        var handler = new PermissionRequestInteractionHandler();
 
         await handler.HandleAsync(
-            CreateInteractionContext(dialogs, CapabilityRequest(
+            CreateInteractionContext(dialogs, SandboxRequest(
                 "request-1",
-                AgentCapabilityKind.FilesystemRead,
+                "sandbox/filesystem-read",
                 "/repo/src/App")),
             CancellationToken.None);
         await handler.HandleAsync(
-            CreateInteractionContext(dialogs, CapabilityRequest(
+            CreateInteractionContext(dialogs, SandboxRequest(
                 "request-2",
-                AgentCapabilityKind.NetworkEgress,
+                "sandbox/network-egress",
                 "api.example.com")),
             CancellationToken.None);
         await handler.HandleAsync(
-            CreateInteractionContext(dialogs, CapabilityRequest(
+            CreateInteractionContext(dialogs, SandboxRequest(
                 "request-3",
-                AgentCapabilityKind.FilesystemRead,
+                "sandbox/filesystem-read",
                 "/repo/src/App",
                 threadExecutionId: "next-turn")),
             CancellationToken.None);
@@ -103,32 +92,37 @@ public sealed class AgentCapabilityRequestTuiTests
         dialogs.ShowCount.Should().Be(3);
     }
 
-    private static AgentCapabilityRequestEvent CapabilityRequest(
-        string requestId,
-        AgentCapabilityKind capability,
+    private static PermissionRequestEvent SandboxRequest(
+        string permissionId,
+        string authority,
         string resource,
         string threadExecutionId = "turn-1")
         => new(
-            requestId,
-            "AgentFilesystemAccess",
+            permissionId,
             "call-1",
-            capability == AgentCapabilityKind.FilesystemWrite
-                ? "WriteFile"
-                : "ReadFile",
-            capability,
-            new AgentCapabilityResource
-            {
-                Value = resource,
-                DisplayName = Path.GetFileName(resource)
-            },
-            "The operation is outside the active sandbox grants.")
+            "SandboxCapabilityPermission",
+            PermissionDomains.SandboxCapability,
+            authority,
+            null,
+            new PermissionResource(resource, Path.GetFileName(resource)),
+            "The operation is outside the active sandbox grants.",
+            PermissionRisk.High,
+            [
+                new("allow_once", "Allow once", PermissionDecisionKind.Allow),
+                new("allow_for_turn", "Allow all similar requests this turn",
+                    PermissionDecisionKind.Allow),
+                new("deny_once", "Deny", PermissionDecisionKind.Deny)
+            ],
+            FunctionName: "file_tool",
+            Arguments: JsonDocument.Parse(
+                $$"""{"resource":"{{resource}}"}""").RootElement.Clone())
         {
             ThreadExecutionId = threadExecutionId
         };
 
     private static AgentTuiInteractionContext CreateInteractionContext(
         IAgentTuiDialogService dialogs,
-        AgentCapabilityRequestEvent request)
+        PermissionRequestEvent request)
     {
         var scope = new AgentTuiRuntimeScope("agent", "session", "main");
         var shell = new ChatShellModel(scope);
@@ -143,8 +137,8 @@ public sealed class AgentCapabilityRequestTuiTests
 
     private sealed class TestDialogService : IAgentTuiDialogService
     {
-        public IReadOnlyList<KeyEvent> DialogKeys { get; init; } = [];
-        public string RenderedDialog { get; private set; } = "";
+        public int? SelectionIndex { get; init; }
+        public IReadOnlyList<string> LastOptionLabels { get; private set; } = [];
         public int ShowCount { get; private set; }
         public bool HasOpenDialog => false;
 
@@ -152,27 +146,9 @@ public sealed class AgentCapabilityRequestTuiTests
             string key,
             Func<AgentTuiDialogContext<TResult>, IComponent> componentFactory,
             CancellationToken cancellationToken = default)
-        {
-            ShowCount++;
-            var result = AgentTuiDialogResult<TResult>.Dismissed();
-            var shell = new ChatShellModel(new AgentTuiRuntimeScope("agent", "session", "main"));
-            var dialog = new AgentTuiDialogContext<TResult>(
-                key,
-                shell.Navigation,
-                value => result = value);
-            var component = componentFactory(dialog);
-            RenderedDialog = TuiCapture.RenderToString(
-                component,
-                width: 100,
-                height: 24,
-                trimTrailingBlankLines: true);
-            foreach (var keyEvent in DialogKeys)
-                component.HandleInput(keyEvent);
-            return Task.FromResult(result);
-        }
+            => Task.FromResult(AgentTuiDialogResult<TResult>.Dismissed());
 
         public bool Close(string key) => true;
-
         public bool CloseTop() => true;
 
         public Task<AgentTuiDialogResult<bool>> ConfirmAsync(
@@ -186,7 +162,13 @@ public sealed class AgentCapabilityRequestTuiTests
             IReadOnlyList<T> options,
             Func<T, string> titleSelector,
             CancellationToken cancellationToken = default)
-            => throw new InvalidOperationException();
+        {
+            ShowCount++;
+            LastOptionLabels = options.Select(titleSelector).ToArray();
+            return Task.FromResult(SelectionIndex is { } index
+                ? AgentTuiDialogResult<T>.Submitted(options[index])
+                : AgentTuiDialogResult<T>.Dismissed());
+        }
 
         public Task<AgentTuiDialogResult<string>> InputAsync(
             string title,
@@ -231,26 +213,34 @@ public sealed class AgentCapabilityRequestTuiTests
             AgentTuiExecutionTarget target,
             AgentInputEvent input,
             CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<AgentTuiSubmitResult> CancelExecutionAsync(
-            AgentTuiRuntimeScope scope,
-            string threadExecutionId,
-            CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+            => Task.FromResult(new AgentTuiSubmitResult(
+                AgentInputDisposition.Queued,
+                "run",
+                new AgentTuiThreadExecution(
+                    "run", target.Scope.AgentId, target.Scope.SessionId,
+                    target.Scope.ThreadId, "active", DateTimeOffset.UtcNow)));
 
         public Task<AgentRespondResult> AnswerRequestAsync(
             AgentTuiRuntimeScope scope,
             AgentEvent response,
             CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+            => Task.FromResult(new AgentRespondResult(
+                AgentRespondStatus.Accepted, response.EventId));
+
+        public Task<AgentTuiSubmitResult> CancelExecutionAsync(
+            AgentTuiRuntimeScope scope,
+            string threadExecutionId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new AgentTuiSubmitResult(
+                AgentInputDisposition.Accepted, threadExecutionId, null));
 
         public Task<AgentTuiThreadState> GetThreadStateAsync(
             AgentTuiRuntimeScope scope,
             CancellationToken cancellationToken = default)
             => Task.FromResult(new AgentTuiThreadState(
-                new ThreadJournalCursor(1, 0),
-                null,
-                []));
+                ThreadJournalCursor.Start(1), null, []));
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
+
 }

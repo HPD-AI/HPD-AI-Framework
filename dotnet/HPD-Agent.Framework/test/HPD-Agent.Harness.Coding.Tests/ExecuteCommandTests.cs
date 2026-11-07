@@ -102,108 +102,6 @@ public sealed class ExecuteCommandTests : IDisposable
     }
 
     [Fact]
-    public void CodingToolHarnessJsonContext_RoundTripsExecuteCommandPermissionRequestEvent()
-    {
-        var sandbox = AgentSandboxRuntime.Capture(CreateWorkspaceRunConfig());
-        var workspace = new ExecuteCommandPermissionWorkspaceScope
-        {
-            RootId = "default",
-            RootPath = _tempRoot,
-            RelativeWorkingDirectory = "."
-        };
-        var shell = new ExecuteCommandShellScope
-        {
-            Executable = "/bin/zsh",
-            Family = ExecuteCommandShellFamily.Zsh
-        };
-        var rule = new ExecuteCommandPermissionRule
-        {
-            Id = "rule-1",
-            RuleSchemaVersion = ExecuteCommandPermissionAnalyzerVersions.RuleSchema,
-            AnalyzerVersion = ExecuteCommandPermissionAnalyzerVersions.Analyzer,
-            NormalizationVersion = ExecuteCommandPermissionAnalyzerVersions.Normalization,
-            Behavior = ExecuteCommandPermissionBehavior.Allow,
-            MatchKind = ExecuteCommandPermissionMatchKind.Prefix,
-            Pattern = "git status",
-            Shell = shell,
-            RequestedSandboxFingerprint = sandbox.Canonicalize(_tempRoot),
-            Workspace = workspace,
-            MinimumTrustLevel = ExecuteCommandAnalysisTrustLevel.Simple
-        };
-        var proposal = new PrefixAllowRuleProposal
-        {
-            Rule = rule,
-            UserLabel = "Always allow similar commands",
-            Prefix = new SafeCommandPrefix("git status")
-        };
-        var plan = new SimpleCommandPermissionPlan
-        {
-            AnalyzerVersion = ExecuteCommandPermissionAnalyzerVersions.Analyzer,
-            NormalizationVersion = ExecuteCommandPermissionAnalyzerVersions.Normalization,
-            Fingerprint = new PermissionFingerprint("fp"),
-            Action = ExecuteCommandAction.Run,
-            Command = new RawCommandText("git status -sb"),
-            NormalizedCommand = new NormalizedCommandText("git status -sb"),
-            Shell = shell,
-            WorkingDirectory = _tempRoot,
-            Workspace = workspace,
-            RequestedSandbox = sandbox,
-            FilesystemEffects = [],
-            NetworkEffects = [],
-            StartsInBackground = false,
-            Risk = ExecuteCommandPermissionRisk.None,
-            CommandPlan = new ExecuteCommandSubcommandPlan
-            {
-                Text = "git status -sb",
-                Argv = ["git", "status", "-sb"],
-                BaseCommand = "git",
-                SafePrefix = "git status",
-                Risk = ExecuteCommandPermissionRisk.None,
-                TrustLevel = ExecuteCommandAnalysisTrustLevel.Simple,
-                Readiness = ExecuteCommandPolicyReadiness.PrefixAllowAllowed
-            },
-            ExactAllowRule = new ExactAllowRuleProposal
-            {
-                Rule = rule with { MatchKind = ExecuteCommandPermissionMatchKind.Exact, Pattern = "git status -sb" },
-                UserLabel = "Always allow this exact command"
-            },
-            PrefixAllowRule = proposal,
-            SuggestedRules = [proposal]
-        };
-        var evt = new ExecuteCommandPermissionRequestEvent(
-            "perm-1",
-            "ExecuteCommandPermissionInteraction",
-            "call-1",
-            plan,
-            [],
-            new ExecuteCommandPermissionRuleDiagnostics(null, null, [], [], []),
-            [
-                new AllowOnceChoice
-                {
-                    Id = "allow_once",
-                    Label = "Allow once"
-                },
-                new PersistRuleChoice
-                {
-                    Id = "allow_similar",
-                    Label = "Always allow similar commands",
-                    Proposal = proposal
-                }
-            ]);
-
-        var json = JsonSerializer.Serialize(
-            evt,
-            CodingEventTestCodec.TypeInfo<ExecuteCommandPermissionRequestEvent>());
-        var roundTrip = JsonSerializer.Deserialize(
-            json,
-            CodingEventTestCodec.TypeInfo<ExecuteCommandPermissionRequestEvent>());
-
-        roundTrip.Should().NotBeNull();
-        roundTrip!.Plan.Should().BeOfType<SimpleCommandPermissionPlan>();
-        roundTrip.AvailableChoices.Should().Contain(choice => choice is PersistRuleChoice);
-    }
-
-    [Fact]
     public async Task ExecuteCommand_EmptyRunCommand_ReturnsValidationError()
     {
         var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
@@ -385,7 +283,7 @@ public sealed class ExecuteCommandTests : IDisposable
             "git status -sb",
             _ => "deny");
 
-        result.ToString().Should().Contain("<tool_permission outcome=\"denied\"");
+        result.ToString().Should().Be("Permission denied by user.");
         runner.StartCalls.Should().Be(0);
         runner.LastSpec.Should().BeNull();
     }
@@ -421,15 +319,23 @@ public sealed class ExecuteCommandTests : IDisposable
         };
 
         var coordinator = new EventCoordinator();
+        PermissionResolvedEvent? resolved = null;
         using var permissionSubscription = RespondToPermissionRequests(coordinator, _ => "allow_once");
-        using var sandboxSubscription = coordinator.Subscribe<AgentCapabilityRequestEvent>(request =>
+        using var resolvedSubscription = coordinator.Subscribe<PermissionResolvedEvent>(evt =>
         {
-            request.Capability.Should().Be(AgentCapabilityKind.LocalBinding);
-            request.Resource.Should().BeNull();
-            var result = coordinator.Respond(new AgentCapabilityResponseEvent(
-                request.RequestId,
+            if (evt.Domain == PermissionDomains.SandboxCapability)
+                resolved = evt;
+            return ValueTask.CompletedTask;
+        });
+        using var sandboxSubscription = coordinator.Subscribe<PermissionRequestEvent>(request =>
+        {
+            request.PermissionDomain.Should().Be(PermissionDomains.SandboxCapability);
+            request.Authority.Should().Be("sandbox/local-binding");
+            request.PermissionResource.Should().BeNull();
+            var result = coordinator.Respond(new PermissionResponseEvent(
+                request.PermissionId,
                 request.SourceName,
-                true));
+                "allow_once"));
             result.Accepted.Should().BeTrue(result.Message);
             return ValueTask.CompletedTask;
         });
@@ -463,7 +369,9 @@ public sealed class ExecuteCommandTests : IDisposable
             skillName: null,
             invocationMode: CreateResolvedInvocation(arguments));
 
-        await new PermissionMiddleware()
+        var permissionMiddleware = new PermissionMiddleware();
+        beforeContext.ResolvedFunction = permissionMiddleware.ResolveFunction(function, null, runConfig);
+        await permissionMiddleware
             .BeforeFunctionAsync(beforeContext, CancellationToken.None)
             .ConfigureAwait(false);
 
@@ -475,7 +383,8 @@ public sealed class ExecuteCommandTests : IDisposable
             State = agentContext.State,
             RunConfig = runConfig,
             ResultMetadata = new ToolResultMetadata(),
-            EventCoordinator = coordinator
+            EventCoordinator = coordinator,
+            PermissionGrant = beforeContext.PermissionGrant
         };
         var executionContext = new FunctionExecutionContext(beforeContext, request);
 
@@ -487,6 +396,12 @@ public sealed class ExecuteCommandTests : IDisposable
         runner.StartCalls.Should().Be(2);
         runner.LastSpec.Should().NotBeNull();
         runner.LastSpec!.Isolation.Interactive.AllowLocalBinding.Should().BeTrue();
+        resolved.Should().NotBeNull();
+        resolved!.Domain.Should().Be(PermissionDomains.SandboxCapability);
+        resolved.Authority.Should().Be("sandbox/local-binding");
+        resolved.DecisionKind.Should().Be(PermissionDecisionKind.Allow);
+        resolved.ChoiceId.Should().Be("allow_once");
+        resolved.DecisionSource.Should().Be(PermissionGrantSource.UserDecision);
     }
 
     [Fact]
@@ -511,15 +426,16 @@ public sealed class ExecuteCommandTests : IDisposable
             ]
         };
         var coordinator = new EventCoordinator();
-        using var subscription = coordinator.Subscribe<AgentCapabilityRequestEvent>(request =>
+        using var subscription = coordinator.Subscribe<PermissionRequestEvent>(request =>
         {
-            request.Capability.Should().Be(AgentCapabilityKind.FilesystemWrite);
-            request.Resource.Should().NotBeNull();
-            request.Resource!.Value.Should().Be(outsidePath);
-            coordinator.Respond(new AgentCapabilityResponseEvent(
-                request.RequestId,
+            request.PermissionDomain.Should().Be(PermissionDomains.SandboxCapability);
+            request.Authority.Should().Be("sandbox/filesystem-write");
+            request.PermissionResource.Should().NotBeNull();
+            request.PermissionResource!.Value.Should().Be(outsidePath);
+            coordinator.Respond(new PermissionResponseEvent(
+                request.PermissionId,
                 request.SourceName,
-                true)).Accepted.Should().BeTrue();
+                "allow_once")).Accepted.Should().BeTrue();
             return ValueTask.CompletedTask;
         });
         var context = CreateContext(
@@ -1069,13 +985,14 @@ public sealed class ExecuteCommandTests : IDisposable
         };
         var registry = new TestOperationRegistry();
         var coordinator = new EventCoordinator();
-        using var sandboxSubscription = coordinator.Subscribe<AgentCapabilityRequestEvent>(request =>
+        using var sandboxSubscription = coordinator.Subscribe<PermissionRequestEvent>(request =>
         {
-            request.Capability.Should().Be(AgentCapabilityKind.LocalBinding);
-            var result = coordinator.Respond(new AgentCapabilityResponseEvent(
-                request.RequestId,
+            request.PermissionDomain.Should().Be(PermissionDomains.SandboxCapability);
+            request.Authority.Should().Be("sandbox/local-binding");
+            var result = coordinator.Respond(new PermissionResponseEvent(
+                request.PermissionId,
                 request.SourceName,
-                true));
+                "allow_once"));
             result.Accepted.Should().BeTrue(result.Message);
             return ValueTask.CompletedTask;
         });
@@ -1195,7 +1112,7 @@ public sealed class ExecuteCommandTests : IDisposable
         var runner = new FakeProcessProvider();
         var promptCount = 0;
         var coordinator = new EventCoordinator();
-        using var subscription = coordinator.Subscribe<ExecuteCommandPermissionRequestEvent>(_ =>
+        using var subscription = coordinator.Subscribe<PermissionRequestEvent>(_ =>
         {
             promptCount++;
             return ValueTask.CompletedTask;
@@ -1203,6 +1120,8 @@ public sealed class ExecuteCommandTests : IDisposable
         var function = CreateExecuteCommandFunction();
         var runConfig = CreateWorkspaceRunConfig();
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
+        var threadEvents = new AgentEventPublisher(
+            new InMemorySessionStore(CodingEventTestCodec.Codec), coordinator);
         var agentContext = new AgentContext(
             "AgentA",
             "conversation-1",
@@ -1211,6 +1130,7 @@ public sealed class ExecuteCommandTests : IDisposable
             new Session("session-1"),
             new Thread("session-1", "test-agent") { Id = "thread-1" },
             CancellationToken.None,
+            threadEvents: threadEvents,
             services: EmptyServiceProvider.Instance,
             config: CreateTestAgentConfig());
         RegisterProcessExecution(
@@ -1239,7 +1159,10 @@ public sealed class ExecuteCommandTests : IDisposable
             toolharnessName: nameof(CodingToolHarness),
             skillName: null,
             invocationMode: CreateResolvedInvocation(arguments));
-        await new PermissionMiddleware()
+        var permissionMiddleware = new PermissionMiddleware();
+        beforeContext.ResolvedFunction = permissionMiddleware.ResolveFunction(
+            function, beforeContext.InvocationMode, runConfig);
+        await permissionMiddleware
             .BeforeFunctionAsync(beforeContext, CancellationToken.None)
             .ConfigureAwait(false);
 
@@ -1614,7 +1537,7 @@ public sealed class ExecuteCommandTests : IDisposable
     private async Task<object> InvokeExecuteCommandThroughPermissionBoundaryAsync(
         FakeProcessProvider runner,
         string command,
-        Func<ExecuteCommandPermissionRequestEvent, string> choiceSelector,
+        Func<PermissionRequestEvent, string> choiceSelector,
         AgentRunConfig? runConfig = null)
     {
         runConfig ??= CreateWorkspaceRunConfig();
@@ -1624,6 +1547,8 @@ public sealed class ExecuteCommandTests : IDisposable
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
         var session = new Session("session-1");
         var thread = new Thread("session-1", "test-agent") { Id = "thread-1" };
+        var threadEvents = new AgentEventPublisher(
+            new InMemorySessionStore(CodingEventTestCodec.Codec), coordinator);
         var agentContext = new AgentContext(
             "AgentA",
             "conversation-1",
@@ -1632,6 +1557,7 @@ public sealed class ExecuteCommandTests : IDisposable
             session,
             thread,
             CancellationToken.None,
+            threadEvents: threadEvents,
             services: EmptyServiceProvider.Instance,
             config: CreateTestAgentConfig());
         RegisterProcessExecution(
@@ -1655,7 +1581,10 @@ public sealed class ExecuteCommandTests : IDisposable
             toolharnessName: nameof(CodingToolHarness),
             skillName: null,
             invocationMode: CreateResolvedInvocation(arguments));
-        await new PermissionMiddleware()
+        var permissionMiddleware = new PermissionMiddleware();
+        beforeContext.ResolvedFunction = permissionMiddleware.ResolveFunction(
+            function, beforeContext.InvocationMode, runConfig);
+        await permissionMiddleware
             .BeforeFunctionAsync(beforeContext, CancellationToken.None)
             .ConfigureAwait(false);
 
@@ -1715,12 +1644,15 @@ public sealed class ExecuteCommandTests : IDisposable
 
     private static IDisposable RespondToPermissionRequests(
         EventCoordinator coordinator,
-        Func<ExecuteCommandPermissionRequestEvent, string> choiceSelector)
-        => coordinator.Subscribe<ExecuteCommandPermissionRequestEvent>(request =>
+        Func<PermissionRequestEvent, string> choiceSelector)
+        => coordinator.Subscribe<PermissionRequestEvent>(request =>
         {
+            if (!string.Equals(request.PermissionDomain, PermissionDomains.ToolExecution,
+                    StringComparison.Ordinal))
+                return ValueTask.CompletedTask;
             var choiceId = choiceSelector(request);
-            request.AvailableChoices.Should().Contain(choice => choice.Id == choiceId);
-            var result = coordinator.Respond(new ExecuteCommandPermissionResponseEvent(
+            request.Choices.Should().Contain(choice => choice.Id == choiceId);
+            var result = coordinator.Respond(new PermissionResponseEvent(
                 request.PermissionId,
                 request.SourceName,
                 choiceId));

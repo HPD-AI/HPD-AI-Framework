@@ -148,9 +148,9 @@ public class MermaidVisualizationObserver
                     _currentNode = cbNode;
                     break;
 
-                case PermissionCheckEvent e when !e.IsApproved:
+                case PermissionResolvedEvent e when e.DecisionKind != HPD.Agent.Permissions.PermissionDecisionKind.Allow:
                     var deniedNode = AddNode($"PERM_{_nodeCounter++}",
-                        $"🚫 Permission Denied\\n{e.FunctionName}",
+                        $"🚫 Permission Denied\\n{e.Authority}",
                         style: "warning");
 
                     if (_currentNode != null)
@@ -272,8 +272,8 @@ public class MermaidVisualizationObserver
             (e.IsParallel ? " [PARALLEL]" : ""),
         CircuitBreakerTriggeredEvent e =>
             $"  └─ ⚠ Circuit Breaker: {e.FunctionName} ({e.ConsecutiveCount} consecutive errors)",
-        PermissionCheckEvent e when !e.IsApproved =>
-            $"  └─ 🚫 Permission Denied: {e.FunctionName} - {e.DenialReason}",
+        PermissionResolvedEvent e when e.DecisionKind != HPD.Agent.Permissions.PermissionDecisionKind.Allow =>
+            $"  └─ 🚫 Permission Denied: {e.Authority} - {e.DenialReason}",
         AgentCompletionEvent e =>
             $"✓ Completed: {e.TotalIterations} iterations in {e.Duration.TotalSeconds:F1}s",
         MessageTurnFinishedEvent e =>
@@ -317,7 +317,7 @@ public class MermaidVisualizationObserver
         IterationContextSnapshotEvent e => e.Timestamp,
         InternalParallelToolExecutionEvent e => e.Timestamp,
         CircuitBreakerTriggeredEvent e => e.Timestamp,
-        PermissionCheckEvent e => e.Timestamp,
+        PermissionResolvedEvent e => DateTimeOffset.UtcNow,
         AgentCompletionEvent e => e.Timestamp,
         ContainerExpandedEvent e => e.Timestamp,
         _ => DateTimeOffset.UtcNow

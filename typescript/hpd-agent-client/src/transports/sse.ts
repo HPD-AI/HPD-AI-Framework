@@ -338,23 +338,10 @@ function serializeResponseInput(input: AgentResponseInput): string {
 
   for (const [key, value] of Object.entries(input)) {
     if (value === undefined || key === 'version' || key === 'type') continue;
-    body[key] = key === 'choice' ? serializePermissionChoice(value) : value;
+    body[key] = value;
   }
 
   return JSON.stringify(body);
-}
-
-function serializePermissionChoice(value: unknown): unknown {
-  switch (value) {
-    case 'ask':
-      return 0;
-    case 'allow_always':
-      return 1;
-    case 'deny_always':
-      return 2;
-    default:
-      return value;
-  }
 }
 
 function requestIdForResponse(input: AgentResponseInput): string {

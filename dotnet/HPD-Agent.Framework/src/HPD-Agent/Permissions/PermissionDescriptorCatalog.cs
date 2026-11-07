@@ -19,23 +19,6 @@ public sealed class PermissionPolicyDefinitionAttribute(string id) : Attribute
     }
 }
 
-/// <summary>Declares the stable portable identity of a permission interaction implementation.</summary>
-[AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
-public sealed class PermissionInteractionDefinitionAttribute(string id) : Attribute
-{
-    /// <summary>Gets the stable interaction descriptor ID.</summary>
-    public string Id { get; } = ValidateId(id);
-
-    private static string ValidateId(string value)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(value);
-        if (!string.Equals(value, value.Trim(), StringComparison.Ordinal) ||
-            value.Any(char.IsControl))
-            throw new ArgumentException("Permission definition IDs must be canonical and control-free.", nameof(id));
-        return value;
-    }
-}
-
 /// <summary>Identifies a generated package of permission descriptors in an assembly.</summary>
 [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
 public sealed class PermissionDescriptorPackageAttribute(Type packageType) : Attribute

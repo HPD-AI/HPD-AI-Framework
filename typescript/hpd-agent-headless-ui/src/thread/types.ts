@@ -18,7 +18,6 @@ import type {
   ThreadRuntimeChild,
   ThreadExecution,
   ThreadJournalCursor,
-  PermissionChoice,
   RequestVisibility,
   ResponderTarget,
   ResponseMetadata,
@@ -242,14 +241,7 @@ export interface ThreadTimelineWarningItem {
   event?: AgentEvent;
 }
 
-export interface PermissionRequest {
-  permissionId: string;
-  sourceName: string;
-  functionName: string;
-  description?: string;
-  callId: string;
-  arguments?: Record<string, unknown>;
-}
+export type PermissionRequest = Omit<import('@hpd-research/hpd-agent-client').PermissionRequestEvent, 'type'>;
 
 export interface ClarificationRequest {
   requestId: string;
@@ -333,9 +325,7 @@ export interface ThreadExecutionView {
   finishedAt?: string | null;
   errorType?: string | null;
   errorMessage?: string | null;
-  modelBackgroundOperation?: ThreadExecution['modelBackgroundOperation'];
-  backgroundTasks?: ThreadExecution['backgroundTasks'];
-  backgroundHandles?: ThreadExecution['backgroundHandles'];
+  operations?: ThreadExecution['operations'];
 }
 
 export interface ThreadActivity {
@@ -463,7 +453,7 @@ export interface ThreadController {
   respond(input: AgentResponseInput): Promise<RespondResult>;
   interrupt(options?: InterruptOptions): Promise<InputSubmissionResult>;
 
-  approve(permissionId: string, choice?: PermissionChoice): Promise<RespondResult>;
+  approve(permissionId: string, choiceId?: string): Promise<RespondResult>;
   deny(permissionId: string, reason?: string): Promise<RespondResult>;
   clarify(requestId: string, answer: string): Promise<RespondResult>;
   answerClientToolRequest(

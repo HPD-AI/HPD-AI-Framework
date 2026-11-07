@@ -2389,8 +2389,7 @@ public class AgentBuilder
                 ValidatePermissionAuthorityText(declaration.Authority, declaration.Source);
                 if (!declaration.RequiresPermission)
                 {
-                    if (declaration.PolicyDescriptorId is not null ||
-                        declaration.InteractionDescriptorId is not null)
+                    if (declaration.PolicyDescriptorId is not null)
                         throw new AgentRunConfigurationException(
                             "PermissionDescriptorInvalid",
                             declaration.Authority,
@@ -2428,32 +2427,7 @@ public class AgentBuilder
                             $"Permission policy descriptor '{policyId}' is not installed.");
                 }
 
-                if (declaration.InteractionDescriptorId is not { } interactionId ||
-                    !validated.Add(interactionId))
-                    continue;
-                if (!_permissionDescriptorCatalog.TryGet(interactionId, out var descriptor) ||
-                    descriptor.InteractionFactory is null)
-                    throw new AgentRunConfigurationException(
-                        IsMcpSource(declaration.Source)
-                            ? "McpPermissionInteractionUnknown"
-                            : "PermissionCatalogUnavailable",
-                        declaration.Authority,
-                        $"Permission interaction descriptor '{interactionId}' is not installed.");
-                if (descriptor.RequestEventType is null || descriptor.ResponseEventType is null)
-                    throw new AgentRunConfigurationException(
-                        "PermissionInteractionEventsMissing",
-                        declaration.Authority,
-                        $"Permission interaction descriptor '{descriptor.DescriptorId}' does not declare its durable event pair.");
-                if (!codec.TryGetByType(descriptor.RequestEventType, out var request) ||
-                    request.Durability != AgentEventDurability.Durable ||
-                    !codec.TryGetByType(descriptor.ResponseEventType, out var response) ||
-                    response.Durability != AgentEventDurability.Durable)
-                    throw new AgentRunConfigurationException(
-                        "PermissionInteractionEventsMissing",
-                        declaration.Authority,
-                        $"Permission interaction descriptor '{descriptor.DescriptorId}' requires durable events " +
-                        $"'{descriptor.RequestEventType.FullName}' and '{descriptor.ResponseEventType.FullName}' " +
-                        "in the selected application composition.");
+
             }
         }
     }
@@ -2481,17 +2455,41 @@ public class AgentBuilder
 
     private void ValidatePermissionMiddlewareAvailability(IEnumerable<AITool> tools)
     {
+        var functions = tools.OfType<AIFunction>().ToArray();
+        foreach (var function in functions)
+        {
+            if (function is DelegatingAIFunction or ApprovalRequiredAIFunction)
+                throw new InvalidOperationException("UnsupportedFunctionWrapper: normalize the underlying function.");
+            if (function is not HPDAIFunctionFactory.HPDAIFunction)
+                throw new InvalidOperationException("UnsupportedFunctionPermissionStatus: import the function with explicit host permission status.");
+        }
+        // A function activation intentionally shares its name with the hidden function it reveals.
+        // Visibility filtering ensures only one form reaches the model in a given turn.
+        var duplicateNames = functions
+            .Where(function =>
+                !TryGetCapabilityMetadata(function, out var metadata) ||
+                metadata.Kind != HPDCapabilityKind.FunctionActivation)
+            .GroupBy(function => function.Name, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToArray();
+        if (duplicateNames.Length > 0)
+            throw new InvalidOperationException(
+                $"Function names must uniquely identify registered capabilities: {string.Join(", ", duplicateNames)}.");
+        if (_middlewares.OfType<PermissionMiddleware>().Count() > 1)
+            throw new InvalidOperationException("Duplicate permission enforcement middleware.");
+        _permissionOverrides.ValidateFunctions(functions);
         var governed = tools
             .OfType<HPDAIFunctionFactory.HPDAIFunction>()
             .Any(static function =>
                 function.HPDOptions.FunctionPermission?.RequiresPermission == true ||
                 function.HPDOptions.OperationContract?.Actions.Values.Any(
                     static action => action.Permission.RequiresPermission) == true);
-        if (governed && !_middlewares.OfType<IAgentPermissionMiddleware>().Any())
+        if (governed && !_middlewares.OfType<PermissionMiddleware>().Any())
             throw new AgentRunConfigurationException(
                 "PermissionMiddlewareMissing",
                 "permissions",
-                "The agent contains permission-governed capabilities but no IAgentPermissionMiddleware.");
+                "The agent contains permission-governed capabilities but no framework PermissionMiddleware.");
     }
 
     private IProviderExternalIdentityRegistry ResolveExternalIdentityRegistry(IServiceProvider? services)
@@ -2871,7 +2869,8 @@ public class AgentBuilder
             buildData.MergedOptions,
             _functionToToolHarnessMap,
             _functionToSkillMap,
-            _middlewares,
+            _middlewares.Select(middleware => middleware is PermissionMiddleware permission
+                ? permission.ForAgent(_config) : middleware).ToList(),
             _serviceProvider,
             _eventSubscriptionFactories,
             _providerRegistry,

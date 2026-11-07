@@ -222,6 +222,8 @@ describe('thread lifecycle scenario', () => {
     });
     await client.emit({
       type: EventTypes.PERMISSION_REQUEST,
+      permissionDomain: 'ToolExecution',
+      choices: [{ id: 'allow_once', label: 'Allow once', kind: 'Allow' }, { id: 'deny_once', label: 'Deny', kind: 'Deny' }],
       permissionId: 'p1',
       sourceName: 'permission',
       functionName: 'Bash',
@@ -249,17 +251,15 @@ describe('thread lifecycle scenario', () => {
       type: EventTypes.PERMISSION_RESPONSE,
       permissionId: 'p1',
       sourceName: 'permission',
-      approved: true,
-      choice: 'ask',
+      choiceId: 'allow_once',
       sessionId: 's1',
       threadId: 'main',
     });
 
     await client.emit({
-      type: EventTypes.PERMISSION_RESPONSE,
+      type: EventTypes.PERMISSION_RESOLVED,
       permissionId: 'p1',
-      sourceName: 'permission',
-      approved: true,
+      agentId: 'agent', domain: 'ToolExecution', decisionKind: 'Allow', decisionSource: 'UserDecision',
       sessionId: 's1',
       threadId: 'main',
     });

@@ -692,10 +692,10 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
     {
         int AlwaysFails(int attempt) => throw new InvalidOperationException($"failure {attempt}");
 
-        var errorTool = AIFunctionFactory.Create(
+        var errorTool = HPDAIFunctionFactory.Import(AIFunctionFactory.Create(
             (Func<int, int>)AlwaysFails,
             name: "ErrorTool",
-            description: "Always fails.");
+            description: "Always fails."), explicitlyUngoverned: true);
         var session = new ScriptedRealtimeSession(
             [
                 [ToolCallDone("resp-error-1", "call-error-1", "ErrorTool", new Dictionary<string, object?> { ["attempt"] = 1 })],
@@ -836,7 +836,9 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             return 99;
         }
 
-        var slowTool = AIFunctionFactory.Create((Func<Task<int>>)Slow, name: "Slow", description: "Slow tool.");
+        var slowTool = HPDAIFunctionFactory.Import(
+            AIFunctionFactory.Create((Func<Task<int>>)Slow, name: "Slow", description: "Slow tool."),
+            explicitlyUngoverned: true);
         var session = new ScriptedRealtimeSession(
             [
                 [ToolCallDone("resp-slow", "call-slow", "Slow", new Dictionary<string, object?>())],
@@ -902,9 +904,12 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
 
     private static IReadOnlyList<AIFunction> CreateMathTools() =>
     [
-        AIFunctionFactory.Create((Func<int, int, int>)Add, name: "Add", description: "Adds two integers."),
-        AIFunctionFactory.Create((Func<int, int, int>)Multiply, name: "Multiply", description: "Multiplies two integers."),
-        AIFunctionFactory.Create((Func<int, int, int>)Subtract, name: "Subtract", description: "Subtracts right from left.")
+        HPDAIFunctionFactory.Import(AIFunctionFactory.Create(
+            (Func<int, int, int>)Add, name: "Add", description: "Adds two integers."), explicitlyUngoverned: true),
+        HPDAIFunctionFactory.Import(AIFunctionFactory.Create(
+            (Func<int, int, int>)Multiply, name: "Multiply", description: "Multiplies two integers."), explicitlyUngoverned: true),
+        HPDAIFunctionFactory.Import(AIFunctionFactory.Create(
+            (Func<int, int, int>)Subtract, name: "Subtract", description: "Subtracts right from left."), explicitlyUngoverned: true)
     ];
 
     private static ResponseOutputItemRealtimeServerMessage ToolCallDone(

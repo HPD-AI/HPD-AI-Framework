@@ -1,6 +1,7 @@
 using System.Text.Json;
 using HPD.Agent.Middleware;
 using HPD.Agent.Permissions;
+using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding.Tests;
 
@@ -17,10 +18,11 @@ public sealed class ExecuteCommandPermissionPolicyTests
             context,
             CancellationToken.None);
 
-        evaluation.RequestFingerprint.Should().NotBeNullOrWhiteSpace();
-        evaluation.Presentation.Should().BeOfType<ExecuteCommandPermissionPresentation>();
-        evaluation.Choices.Items.Select(choice => choice.Id).Should().Contain("allow_exact");
-        evaluation.Choices.Items.Single(choice => choice.Id == "allow_exact").Persistence.Should()
+        var ask = evaluation.Outcome.Should().BeOfType<PermissionAsk>().Subject;
+        evaluation.Evidence.Should().NotBeNull();
+        evaluation.Evidence!.Kind.Should().Be("hpd.coding.execute-command");
+        ask.Choices.Select(choice => choice.Id).Should().Contain("allow_exact");
+        evaluation.PersistenceByChoice!["allow_exact"].Should()
             .Match<PermissionPersistenceProposal>(proposal =>
                 proposal.Kind == PermissionPersistenceKind.ValidatedRule &&
                 proposal.RuleTypeId == ExecuteCommandPermissionPolicy.RuleTypeId &&
@@ -36,22 +38,54 @@ public sealed class ExecuteCommandPermissionPolicyTests
             approvedInput,
             approvedContext,
             CancellationToken.None);
-        var proposal = evaluation.Choices.Items.Single(choice => choice.Id == "allow_exact").Persistence!;
+        var proposal = evaluation.PersistenceByChoice!["allow_exact"];
+        var record = new PermissionDecisionRecord
+        {
+            RecordId = "record-1",
+            PermissionId = "permission-1",
+            Key = new PermissionDecisionKey(
+                "coding", approvedContext.Authority, "run", "hpd.coding.execute-command.v2"),
+            Persistence = PermissionPersistenceKind.ValidatedRule,
+            RuleTypeId = proposal.RuleTypeId,
+            CanonicalRule = proposal.CanonicalRule,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
 
-        policy.MatchesValidatedRule(
+        policy.MatchesStoredDecision(
             approvedInput,
             approvedContext,
-            proposal.RuleTypeId!,
-            proposal.CanonicalRule!.Value,
-            PermissionDecisionKind.Allow).Should().BeTrue();
+            record).Should().BeTrue();
 
         var (differentInput, differentContext) = CreateInput("git reset --hard");
-        policy.MatchesValidatedRule(
+        policy.MatchesStoredDecision(
             differentInput,
             differentContext,
-            proposal.RuleTypeId!,
-            proposal.CanonicalRule.Value,
-            PermissionDecisionKind.Allow).Should().BeFalse();
+            record).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("git status --short 2>&1 | head -40")]
+    [InlineData("git diff --stat; echo '---'; git diff Program.cs | head -120; echo '---'; git diff ../../global.json")]
+    public async Task Safe_compound_read_commands_offer_a_session_rule(string command)
+    {
+        var (input, context) = CreateInput(command);
+
+        var evaluation = await new ExecuteCommandPermissionPolicy().EvaluateAsync(
+            input,
+            context,
+            CancellationToken.None);
+
+        var ask = evaluation.Outcome.Should().BeOfType<PermissionAsk>().Subject;
+        ask.Choices.Should().Contain(choice =>
+            choice.Id == "allow_similar" &&
+            choice.Label == "Allow similar commands this session");
+        evaluation.PersistenceByChoice.Should().ContainKey("allow_similar");
+        evaluation.Evidence!.Payload.GetProperty("plan").GetProperty("planKind").GetString()
+            .Should().Be("segmented");
+        evaluation.Evidence.Payload.GetProperty("plan").GetProperty("unsupportedShellFeatures")
+            .EnumerateArray()
+            .Select(static value => value.GetInt32())
+            .Should().NotContain((int)ExecuteCommandUnsupportedShellFeature.OutputRedirection);
     }
 
     private static (ValidatedPermissionInput Input, PermissionEvaluationContext Context) CreateInput(

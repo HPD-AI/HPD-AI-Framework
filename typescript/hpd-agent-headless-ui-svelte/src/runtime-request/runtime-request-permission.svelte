@@ -38,20 +38,37 @@
   }));
   const kindProps = $derived(createRuntimeRequestKindElementProps({ item, restProps }));
   const request = $derived(('request' in item ? item.request : {}) as {
-    arguments?: unknown;
-    description?: string;
+    permissionId?: string;
+    sourceName?: string;
+    reason?: string;
+    risk?: string;
+    permissionResource?: { displayName: string };
+    evidence?: { payload: unknown };
+    persistenceUnavailableReason?: string;
+    choices?: { id: string; label: string; kind: string }[];
     functionName?: string;
+    action?: string;
+    arguments?: unknown;
   });
 
-  async function approve() {
-    await actions.approve();
-    await onApprove?.({ item });
+  async function answer(choice: { id: string; kind: string }) {
+    if (!request.permissionId || !request.sourceName) return;
+    await actions.respond({
+      type: 'PERMISSION_RESPONSE', permissionId: request.permissionId,
+      sourceName: request.sourceName, choiceId: choice.id,
+      feedback: choice.kind === 'Allow' ? undefined : denyReason || undefined,
+    });
+    if (choice.kind === 'Allow') await onApprove?.({ item });
+    else await onDeny?.({ item, reason: denyReason || undefined });
   }
 
+  async function approve() {
+    const choice = request.choices?.find(choice => choice.kind === 'Allow');
+    if (choice) await answer(choice);
+  }
   async function deny() {
-    const reason = denyReason || undefined;
-    await actions.deny(reason);
-    await onDeny?.({ item, reason });
+    const choice = request.choices?.find(choice => choice.kind === 'Deny');
+    if (choice) await answer(choice);
   }
 
   function formatUnknown(value: unknown): string {
@@ -70,9 +87,19 @@
     {@render children({ item, actions, actionProps, props: kindProps })}
   {:else}
     <div data-hpd-runtime-request-body>
-      <p>{request.description ?? request.functionName}</p>
-      {#if request.arguments}
+      <p>{request.reason ?? request.permissionResource?.displayName ?? 'Approval required'}</p>
+      {#if request.functionName}
+        <p data-hpd-runtime-request-function>
+          Function: {request.functionName}{request.action ? ` / ${request.action}` : ''}
+        </p>
+      {/if}
+      <p>Risk: {request.risk ?? 'Unspecified'}</p>
+      {#if request.persistenceUnavailableReason}<p>Reusable approval unavailable: {request.persistenceUnavailableReason}</p>{/if}
+      {#if request.arguments !== undefined}
         <pre data-hpd-runtime-request-arguments>{formatUnknown(request.arguments)}</pre>
+      {/if}
+      {#if request.evidence}
+        <pre data-hpd-runtime-request-evidence>{formatUnknown(request.evidence.payload)}</pre>
       {/if}
     </div>
 
@@ -87,8 +114,16 @@
     </label>
 
     <div data-hpd-runtime-request-actions>
-      <button {...actionProps.deny}>Deny</button>
-      <button {...actionProps.approve}>Allow</button>
+      {#each request.choices ?? [] as choice (choice.id)}
+        <button
+          type="button"
+          aria-disabled={!canUseActions}
+          data-hpd-runtime-request-approve={choice.kind === 'Allow' ? '' : undefined}
+          data-hpd-runtime-request-deny={choice.kind === 'Deny' ? '' : undefined}
+          disabled={!canUseActions}
+          onclick={() => void answer(choice)}
+        >{choice.label}</button>
+      {/each}
     </div>
   {/if}
 </div>

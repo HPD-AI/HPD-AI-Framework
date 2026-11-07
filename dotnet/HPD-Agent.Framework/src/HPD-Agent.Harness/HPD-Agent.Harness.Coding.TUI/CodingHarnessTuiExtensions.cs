@@ -25,8 +25,7 @@ public static class CodingHarnessTuiExtensions
     /// </summary>
     public static HpdAgentTuiBuilder AddCodingHarnessTui(
         this HpdAgentTuiBuilder tui,
-        CodingHarnessTuiTheme? theme = null,
-        AgentTuiEventScope permissionScope = AgentTuiEventScope.CurrentThread)
+        CodingHarnessTuiTheme? theme = null)
     {
         ArgumentNullException.ThrowIfNull(tui);
         theme ??= CodingHarnessTuiTheme.Default;
@@ -34,7 +33,7 @@ public static class CodingHarnessTuiExtensions
             .AddCodingHarnessExpansionTui(theme)
             .AddCodingExplorationTui(theme)
             .AddCodingSubAgentTui(theme)
-            .AddCodingCommandTui(theme, permissionScope)
+            .AddCodingCommandTui(theme)
             .AddCodingFileMutationTui(theme)
             .AddCodingDebuggerTui(theme)
             .AddCodingLanguageServerTui(theme);
@@ -119,8 +118,7 @@ public static class CodingHarnessTuiExtensions
 
     public static HpdAgentTuiBuilder AddCodingCommandTui(
         this HpdAgentTuiBuilder tui,
-        CodingHarnessTuiTheme? theme = null,
-        AgentTuiEventScope permissionScope = AgentTuiEventScope.CurrentThread)
+        CodingHarnessTuiTheme? theme = null)
     {
         ArgumentNullException.ThrowIfNull(tui);
         theme ??= CodingHarnessTuiTheme.Default;
@@ -138,14 +136,6 @@ public static class CodingHarnessTuiExtensions
                 "hpd.coding.command.exited")
             .TryAddEventHandler<ToolCallResultEvent, ExecuteCommandResultTuiHandler>(
                 "hpd.coding.command.result")
-            .TryAddInteractionHandler<ExecuteCommandPermissionRequestEvent>(
-                "hpd.coding.command.permission",
-                new ExecuteCommandPermissionRequestTuiHandler(theme),
-                permissionScope)
-            .TryAddInteractionHandler<HPD.Agent.Security.AgentCapabilityRequestEvent>(
-                "hpd.coding.command.sandbox-capability",
-                new AgentCapabilityRequestTuiHandler(theme),
-                permissionScope)
             .TryAddTranscriptRenderer<CodingCommandCell>(
                 CodingHarnessTuiTranscriptRendererKeys.Command,
                 new CodingCommandCellRenderer(theme))

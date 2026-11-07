@@ -37,7 +37,6 @@ public sealed class McpAgentConfigurationTests
                         {
                             Authority = "mcp.inline",
                             Policy = "inline.default",
-                            Interaction = "host.confirmation",
                             Tools = new Dictionary<string, McpToolPermissionOverride>(StringComparer.Ordinal)
                             {
                                 ["search"] = new() { Policy = "inline.read-only" }
@@ -66,7 +65,6 @@ public sealed class McpAgentConfigurationTests
         Assert.Equal("mcp.inline", server.Permission!.Authority);
         Assert.True(server.Permission.RequiresPermission);
         Assert.Equal("inline.default", server.Permission.Policy);
-        Assert.Equal("host.confirmation", server.Permission.Interaction);
         Assert.Equal("inline.read-only", server.Permission.Tools["search"].Policy);
         var manifest = Assert.Single(output.Mcp.Manifests);
         Assert.Equal("./mcp.json", manifest.Path);
@@ -644,7 +642,7 @@ public sealed class McpAgentConfigurationTests
 
         await using var agent = await new AgentBuilder(config)
             .WithChatClient(new FakeChatClient())
-            .WithAutoApprovePermissions()
+            .WithHostAutoApproval()
             .WithMcpOptions(options => options.HttpClientFactory = _ => http)
             .BuildAsync();
 
@@ -691,42 +689,7 @@ public sealed class McpAgentConfigurationTests
         Assert.Equal("McpPermissionPolicyUnknown", error.Code);
     }
 
-    [Fact]
-    public async Task UnknownMcpInteraction_FailsBeforePublication()
-    {
-        var handler = new DeclarativeMcpHandler();
-        using var http = new HttpClient(handler, disposeHandler: false);
-        var config = new AgentConfig
-        {
-            EventComposition = TestEventComposition.Current,
-            Mcp = new AgentMcpConfig
-            {
-                Servers =
-                [
-                    new McpServerConfig
-                    {
-                        Name = "inline",
-                        Transport = "http",
-                        Endpoint = new Uri("https://inline.test/mcp"),
-                        Permission = new McpPermissionConfig
-                        {
-                            Policy = HPD.Agent.Tests.Middleware.PermissionMiddlewareRunConfigTests.ImmediatePermissionPolicy.Id,
-                            Interaction = "test.missing-interaction"
-                        }
-                    }
-                ]
-            }
-        };
 
-        var error = await Assert.ThrowsAsync<AgentRunConfigurationException>(() =>
-            new AgentBuilder(config)
-                .WithChatClient(new FakeChatClient())
-                .WithPermissions()
-                .WithMcpOptions(options => options.HttpClientFactory = _ => http)
-                .BuildAsync());
-
-        Assert.Equal("McpPermissionInteractionUnknown", error.Code);
-    }
 
     [Fact]
     public async Task KnownMcpPolicy_ResolvesThroughSharedGeneratedCatalog()
@@ -764,42 +727,7 @@ public sealed class McpAgentConfigurationTests
         Assert.Equal("DeclarativeMcpAgent", agent.Config.Name);
     }
 
-    [Fact]
-    public async Task McpInteractionWithoutDurableCompositionEvents_FailsBeforePublication()
-    {
-        var handler = new DeclarativeMcpHandler();
-        using var http = new HttpClient(handler, disposeHandler: false);
-        var config = new AgentConfig
-        {
-            EventComposition = TestEventComposition.Current,
-            Mcp = new AgentMcpConfig
-            {
-                Servers =
-                [
-                    new McpServerConfig
-                    {
-                        Name = "inline",
-                        Transport = "http",
-                        Endpoint = new Uri("https://inline.test/mcp"),
-                        Permission = new McpPermissionConfig
-                        {
-                            Policy = HPD.Agent.Tests.Middleware.PermissionMiddlewareRunConfigTests.ImmediatePermissionPolicy.Id,
-                            Interaction = "test.mcp-missing-events"
-                        }
-                    }
-                ]
-            }
-        };
 
-        var error = await Assert.ThrowsAsync<AgentRunConfigurationException>(() =>
-            new AgentBuilder(config)
-                .WithChatClient(new FakeChatClient())
-                .WithPermissions()
-                .WithMcpOptions(options => options.HttpClientFactory = _ => http)
-                .BuildAsync());
-
-        Assert.Equal("PermissionInteractionEventsMissing", error.Code);
-    }
 
     private sealed class DeclarativeMcpHandler(bool sameToolName = false) : HttpMessageHandler
     {
@@ -888,41 +816,3 @@ public sealed class McpAgentConfigurationTests
         }
     }
 }
-
-[PermissionInteractionDefinition("test.mcp-missing-events")]
-public sealed class MissingEventsPermissionInteraction :
-    IPermissionInteractionEventContract<MissingEventsPermissionRequest, MissingEventsPermissionResponse>
-{
-    public ValueTask<PermissionDecision> RequestAsync(
-        PermissionInteractionContext context,
-        PermissionEvaluation evaluation,
-        CancellationToken cancellationToken) =>
-        throw new NotSupportedException();
-}
-
-[DurableEvent]
-[EventType("HPD_TEST_MISSING_EVENTS_PERMISSION_REQUEST")]
-public sealed record MissingEventsPermissionRequest(string PermissionId, string SourceName) :
-    AgentEvent,
-    IAgentRequestEvent<MissingEventsPermissionResponse>
-{
-    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
-    public override EventKind Kind { get; init; } = EventKind.Control;
-    public string RequestId => PermissionId;
-}
-
-[DurableEvent]
-[EventType("HPD_TEST_MISSING_EVENTS_PERMISSION_RESPONSE")]
-public sealed record MissingEventsPermissionResponse(string PermissionId, string SourceName) :
-    AgentEvent,
-    IAgentResponseEvent
-{
-    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
-    public override EventKind Kind { get; init; } = EventKind.Control;
-    public override EventDirection Direction { get; init; } = EventDirection.Upstream;
-    public string RequestId => PermissionId;
-}
-
-[JsonSerializable(typeof(MissingEventsPermissionRequest))]
-[JsonSerializable(typeof(MissingEventsPermissionResponse))]
-internal partial class MissingEventsPermissionJsonContext : JsonSerializerContext;

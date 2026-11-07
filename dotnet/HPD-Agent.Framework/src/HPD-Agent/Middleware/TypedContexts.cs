@@ -419,6 +419,9 @@ public sealed class BeforeParallelBatchContext : HookContext
 /// </summary>
 public sealed class BeforeFunctionContext : HookContext
 {
+    /// <summary>Gets the canonical function and binding resolved before middleware.</summary>
+    internal ResolvedFunction? ResolvedFunction { get; set; }
+
     /// <summary>Gets the invocation-bound grant issued during permission admission.</summary>
     public FunctionPermissionGrant? PermissionGrant { get; internal set; }
     /// <summary>Gets whether the fully resolved builder/run/action/function policy requires permission.</summary>
@@ -785,5 +788,7 @@ public sealed record ParallelFunctionInfo(
     /// <summary>
     /// Name of the function being called.
     /// </summary>
+    internal ResolvedFunction? ResolvedFunction { get; init; }
+
     public string FunctionName => Function.Name;
 }

@@ -513,10 +513,12 @@ public sealed class DebugModelFacingTests
         var scope = GetActionAttribute(action).PermissionAuthority!;
         var grant = new FunctionPermissionGrant
         {
+            PermissionId = "permission-1",
             FunctionCallId = decisionCallId ?? callId,
             FunctionName = "Debug",
             Action = action,
-            Key = new PermissionKey("Debug", action, scope, "hpd.permission.default", "1"),
+            Key = new PermissionDecisionKey(
+                "Debug", scope, action, "hpd.permission.default.v1"),
             ChoiceId = "allow_once",
             GrantedAt = DateTimeOffset.UtcNow,
             Source = PermissionGrantSource.UserDecision,
@@ -527,10 +529,10 @@ public sealed class DebugModelFacingTests
                 {
                     RequiresPermission = true,
                     Authority = scope,
+                    PolicyDescriptorId = "hpd.permission.default.v1",
                     Source = PermissionDeclarationSource.ActionOverride
                 },
-                PolicyId = "hpd.permission.default",
-                PolicyRevision = "1"
+                PolicyDescriptorId = "hpd.permission.default.v1"
             }
         };
         return new FunctionExecutionContext(before, new FunctionRequest

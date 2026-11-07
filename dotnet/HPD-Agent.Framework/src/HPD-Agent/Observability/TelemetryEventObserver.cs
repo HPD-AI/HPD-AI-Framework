@@ -248,25 +248,13 @@ public class TelemetryEventObserver : IDisposable
                     new KeyValuePair<string, object?>("consecutive.count", e.ConsecutiveCount));
                 break;
 
-            // Permission checks
-            case PermissionCheckEvent e:
+            case PermissionResolvedEvent e:
                 _permissionChecks.Add(1,
-                    new KeyValuePair<string, object?>("agent.name", e.AgentName),
-                    new KeyValuePair<string, object?>("function.name", e.FunctionName),
-                    new KeyValuePair<string, object?>("approved", e.IsApproved));
-
-                _permissionCheckDuration.Record(e.Duration.TotalMilliseconds,
-                    new KeyValuePair<string, object?>("agent.name", e.AgentName),
-                    new KeyValuePair<string, object?>("function.name", e.FunctionName),
-                    new KeyValuePair<string, object?>("approved", e.IsApproved));
-
-                if (!e.IsApproved)
-                {
-                    _permissionDenials.Add(1,
-                        new KeyValuePair<string, object?>("agent.name", e.AgentName),
-                        new KeyValuePair<string, object?>("function.name", e.FunctionName),
-                        new KeyValuePair<string, object?>("reason", e.DenialReason ?? "unknown"));
-                }
+                    new KeyValuePair<string, object?>("agent.id", e.AgentId),
+                    new KeyValuePair<string, object?>("authority", e.Authority),
+                    new KeyValuePair<string, object?>("approved", e.DecisionKind == HPD.Agent.Permissions.PermissionDecisionKind.Allow));
+                if (e.DecisionKind != HPD.Agent.Permissions.PermissionDecisionKind.Allow)
+                    _permissionDenials.Add(1, new KeyValuePair<string, object?>("agent.id", e.AgentId));
                 break;
 
             // Container expansions

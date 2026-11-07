@@ -391,9 +391,23 @@ public sealed partial class MiddlewareState
     public void SaveToSession(
         Session session,
         IReadOnlyDictionary<string, MiddlewareStateFactory> factories)
+        => SaveToSession(session, factories, requiredKey: null);
+
+    // A required entry must never be silently skipped; all other entries retain
+    // the normal best-effort behavior. No store capability is involved.
+    internal void SaveToSession(
+        Session session,
+        IReadOnlyDictionary<string, MiddlewareStateFactory> factories,
+        string? requiredKey)
     {
         if (session == null)
             throw new ArgumentNullException(nameof(session));
+
+        if (requiredKey is not null &&
+            (!factories.TryGetValue(requiredKey, out var requiredFactory) ||
+             !requiredFactory.Persistent || requiredFactory.Scope != StateScope.Session ||
+             !States.TryGetValue(requiredKey, out var requiredValue) || requiredValue is null))
+            throw new InvalidOperationException($"Required middleware state '{requiredKey}' is unavailable.");
 
         // Save all registered session-scoped persistent states
         foreach (var (key, factory) in factories)
@@ -406,7 +420,7 @@ public sealed partial class MiddlewareState
                     var json = factory.Serialize(value);
                     session.SetMiddlewareState(key, json);
                 }
-                catch
+                catch when (!string.Equals(key, requiredKey, StringComparison.Ordinal))
                 {
                     // Ignore serialization errors - state will not be persisted
                     // This handles schema evolution gracefully

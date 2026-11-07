@@ -581,16 +581,13 @@ using HPD.Agent.Permissions;
 [PermissionPolicyDefinition(""test.mcp.policy"")]
 public sealed class TestMcpPolicy : IPermissionPolicy
 {
-    public ValueTask<PermissionEvaluation> EvaluateAsync(
+    public ValueTask<PermissionPolicyResult> EvaluateAsync(
+        ValidatedPermissionInput input,
         PermissionEvaluationContext context,
         CancellationToken cancellationToken) =>
-        ValueTask.FromResult(new PermissionEvaluation
+        ValueTask.FromResult(new PermissionPolicyResult
         {
-            PolicyId = ""test.mcp.policy"",
-            PolicyRevision = ""1"",
-            Authority = context.Authority,
-            Title = ""Allow?"",
-            Choices = new PermissionChoiceSet()
+            Outcome = new PermissionAllow()
         });
 }
 

@@ -859,8 +859,7 @@ internal static class CapabilityAnalyzer
             ? null
             : new(
                 GetNamedString(permissionAttribute, "PermissionAuthority"),
-                GetNamedTypeId(permissionAttribute, "PermissionPolicy"),
-                GetNamedTypeId(permissionAttribute, "PermissionInteraction"));
+                GetNamedTypeId(permissionAttribute, "PermissionPolicy"));
 
         System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer] Analyzed MCPServer: {methodName}, Name={effectiveName}, FromManifest={fromManifest}, CollapseWithinToolHarness={collapseWithinToolHarness}");
 
@@ -1008,7 +1007,6 @@ internal static class CapabilityAnalyzer
         var requiresPermission = permissionAttribute is not null;
         var permissionAuthority = GetNamedString(permissionAttribute, "PermissionAuthority");
         var permissionPolicyDescriptorId = GetNamedTypeId(permissionAttribute, "PermissionPolicy");
-        var permissionInteractionDescriptorId = GetNamedTypeId(permissionAttribute, "PermissionInteraction");
         if (!ValidatePermissionAttribute(
                 permissionAttribute,
                 semanticModel.Compilation,
@@ -1052,7 +1050,6 @@ internal static class CapabilityAnalyzer
             RequiresPermission = requiresPermission,
             PermissionAuthority = permissionAuthority,
             PermissionPolicyDescriptorId = permissionPolicyDescriptorId,
-            PermissionInteractionDescriptorId = permissionInteractionDescriptorId,
             RequiredPermissions = requiredPermissions.ToList(),
             Kind = kind,
             InvocationModePolicy = invocationModePolicy,
@@ -1139,7 +1136,6 @@ internal static class CapabilityAnalyzer
             RequiresPermission = permission is not null,
             PermissionAuthority = GetNamedString(permission, "PermissionAuthority"),
             PermissionPolicyDescriptorId = GetNamedTypeId(permission, "PermissionPolicy"),
-            PermissionInteractionDescriptorId = GetNamedTypeId(permission, "PermissionInteraction"),
             Kind = kind,
             InvocationModePolicy = EnumSetting("InvocationModePolicy", "SynchronousOnly"),
             InvocationModeHandling = EnumSetting("InvocationModeHandling", "Runtime"),
@@ -1313,17 +1309,16 @@ internal static class CapabilityAnalyzer
         var permission = attributes.FirstOrDefault(IsFrameworkRequiresPermissionAttribute);
         if (kind != CapabilityType.MCPServer &&
             permission?.NamedArguments.Any(pair =>
-                pair.Key is "PermissionAuthority" or "PermissionPolicy" or "PermissionInteraction") == true)
+                pair.Key is "PermissionAuthority" or "PermissionPolicy") == true)
             diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
-                "custom permission authority, policy, and interaction properties are supported only on AIFunction capabilities"));
+                "custom permission authority, policy properties are supported only on AIFunction capabilities"));
         if (kind == CapabilityType.MCPServer &&
             !ValidatePermissionAttribute(permission, compilation, diagnostics, location))
             return null;
         var mcpPermission = kind == CapabilityType.MCPServer && permission is not null
             ? new McpPermissionInfo(
                 GetNamedString(permission, "PermissionAuthority"),
-                GetNamedTypeId(permission, "PermissionPolicy"),
-                GetNamedTypeId(permission, "PermissionInteraction"))
+                GetNamedTypeId(permission, "PermissionPolicy"))
             : null;
         var returns = method.ReturnType;
         var asyncWorkflow = returns is INamedTypeSymbol task && task.Name == "Task" && task.TypeArguments.Length == 1;
@@ -1426,9 +1421,7 @@ internal static class CapabilityAnalyzer
     {
         if (type is null)
             return null;
-        var attributeName = property == "PermissionPolicy"
-            ? "PermissionPolicyDefinitionAttribute"
-            : "PermissionInteractionDefinitionAttribute";
+        var attributeName = "PermissionPolicyDefinitionAttribute";
         return type.GetAttributes()
             .FirstOrDefault(attribute => attribute.AttributeClass?.Name == attributeName)
             ?.ConstructorArguments.FirstOrDefault().Value as string;
@@ -1451,9 +1444,7 @@ internal static class CapabilityAnalyzer
             valid = false;
         }
         valid &= ValidateServiceType(attribute, "PermissionPolicy", "HPD.Agent.Permissions.IPermissionPolicy");
-        valid &= ValidateServiceType(attribute, "PermissionInteraction", "HPD.Agent.Permissions.IPermissionInteraction");
         valid &= ValidateDefinition("PermissionPolicy");
-        valid &= ValidateDefinition("PermissionInteraction");
         return valid;
 
         bool ValidateDefinition(string property)
@@ -1474,61 +1465,12 @@ internal static class CapabilityAnalyzer
             if (type is null) return true;
             var contract = compilation.GetTypeByMetadataName(contractName);
             if (contract is not null && type.AllInterfaces.Any(candidate =>
-                    SymbolEqualityComparer.Default.Equals(candidate, contract)))
-            {
-                if (property == "PermissionPolicy" && type is INamedTypeSymbol policyType)
-                {
-                    for (var current = policyType; current is not null; current = current.BaseType)
-                    {
-                        if (!current.IsGenericType || current.Name != "PermissionPolicy" ||
-                            current.TypeArguments.Length != 1) continue;
-                        var presentation = current.TypeArguments[0];
-                        var presentationAttribute = presentation.GetAttributes().FirstOrDefault(data =>
-                            data.AttributeClass?.Name == "PermissionPresentationAttribute");
-                        var presentationId = presentationAttribute?.ConstructorArguments.FirstOrDefault().Value as string;
-                        if (string.IsNullOrWhiteSpace(presentationId))
-                        {
-                            diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
-                                $"presentation type '{presentation.ToDisplayString()}' must declare a non-empty PermissionPresentationAttribute"));
-                            return false;
-                        }
-                        var serializerContextType = presentationAttribute!.ConstructorArguments.Length < 2
-                            ? null
-                            : presentationAttribute.ConstructorArguments[1].Value as INamedTypeSymbol;
-                        var jsonSerializerContext = compilation.GetTypeByMetadataName(
-                            "System.Text.Json.Serialization.JsonSerializerContext");
-                        if (serializerContextType is null || jsonSerializerContext is null ||
-                            !InheritsFrom(serializerContextType, jsonSerializerContext))
-                        {
-                            diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
-                                $"presentation type '{presentation.ToDisplayString()}' must declare a source-generated JsonSerializerContext"));
-                            return false;
-                        }
-                        break;
-                    }
-                }
-                if (property == "PermissionInteraction" &&
-                    !type.AllInterfaces.Any(static candidate => candidate.IsGenericType &&
-                        candidate.Name == "IPermissionInteractionEventContract" &&
-                        candidate.TypeArguments.Length == 2))
-                {
-                    diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
-                        $"interaction type '{type.ToDisplayString()}' must implement IPermissionInteractionEventContract<TRequest,TResponse> so durable event composition can be verified"));
-                    return false;
-                }
-                return true;
-            }
+                    SymbolEqualityComparer.Default.Equals(candidate, contract))) return true;
             diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
                 $"{property} type '{type.ToDisplayString()}' must implement {contractName}"));
             return false;
         }
 
-        static bool InheritsFrom(INamedTypeSymbol type, INamedTypeSymbol expectedBase)
-        {
-            for (var current = type.BaseType; current is not null; current = current.BaseType)
-                if (SymbolEqualityComparer.Default.Equals(current, expectedBase)) return true;
-            return false;
-        }
     }
 
     private static bool ValidateActionContract(
@@ -1623,7 +1565,7 @@ internal static class CapabilityAnalyzer
                 ? 0
                 : Convert.ToInt32(requirement.Value.Value, System.Globalization.CultureInfo.InvariantCulture);
             var hasPermissionDetails = actionAttribute.NamedArguments.Any(static pair =>
-                pair.Key is "PermissionAuthority" or "PermissionPolicy" or "PermissionInteraction");
+                pair.Key is "PermissionAuthority" or "PermissionPolicy");
             if (requirementValue == 2 && hasPermissionDetails)
             {
                 diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
@@ -1731,10 +1673,10 @@ internal static class CapabilityAnalyzer
         var attribute = semanticModel.GetDeclaredSymbol(method)?.GetAttributes().FirstOrDefault(candidate =>
             IsFrameworkRequiresPermissionAttribute(candidate));
         if (attribute?.NamedArguments.Any(pair =>
-                pair.Key is "PermissionAuthority" or "PermissionPolicy" or "PermissionInteraction") == true)
+                pair.Key is "PermissionAuthority" or "PermissionPolicy") == true)
             diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration,
                 attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? method.GetLocation(),
-                "custom permission authority, policy, and interaction properties are supported only on AIFunction capabilities"));
+                "custom permission authority, policy properties are supported only on AIFunction capabilities"));
     }
 
     private static bool IsFrameworkRequiresPermissionAttribute(AttributeData attribute) =>

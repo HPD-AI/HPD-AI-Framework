@@ -309,11 +309,8 @@ public partial class SlackBot(
                 var agent = agentManager.GetAgent(_config.ResolveAgentId());
                 if (agent is not null)
                 {
-                    var approved = action.Value == "approve";
-                    await agent.AnswerRequestAsync(new PermissionResponseEvent(
-                        PermissionId: action.ActionId,
-                        SourceName:   "slack",
-                        ChoiceId:     approved ? "allow_once" : "deny_once"));
+                    await AnswerPermissionAsync(agent, action.ActionId, action.Value);
+
                 }
                 continue;
             }
@@ -557,33 +554,46 @@ public partial class SlackBot(
         {
             new SlackSectionBlock(
                 Text: new SlackMrkdwn(
-                    $"*{req.SourceName}* wants to call `{req.FunctionName}`"))
+                    $"*{req.SourceName}* wants to call `{req.FunctionName ?? req.Authority}`"
+                    + (string.IsNullOrWhiteSpace(req.Action) ? "" : $" action `{req.Action}`")))
         };
 
-        if (!string.IsNullOrWhiteSpace(req.Evaluation.Summary))
-            blocks.Add(new SlackSectionBlock(Text: new SlackMrkdwn(req.Evaluation.Summary)));
+        if (!string.IsNullOrWhiteSpace(req.Reason))
+            blocks.Add(new SlackSectionBlock(Text: new SlackMrkdwn(req.Reason)));
+        if (req.Arguments is { ValueKind: not System.Text.Json.JsonValueKind.Undefined } arguments)
+            blocks.Add(new SlackSectionBlock(Text: new SlackMrkdwn(
+                $"Arguments: `{Truncate(arguments.GetRawText(), 500)}`")));
 
+        if (req.PersistenceUnavailableReason is { } unavailable)
+            blocks.Add(new SlackSectionBlock(Text: new SlackMrkdwn($"Reusable approval unavailable: {unavailable}")));
         blocks.Add(new SlackActionsBlock(
-            Elements: new[]
-            {
-                new SlackButton(
-                    ActionId: req.PermissionId,
-                    Text:     new SlackPlainText("Approve"),
-                    Value:    "approve",
-                    Style:    "primary"),
-                new SlackButton(
-                    ActionId: req.PermissionId,
-                    Text:     new SlackPlainText("Deny"),
-                    Value:    "deny",
-                    Style:    "danger")
-            },
+            Elements: req.Choices.Select(choice => new SlackButton(
+                ActionId: req.PermissionId, Text: new SlackPlainText(choice.Label),
+                Value: System.Text.Json.JsonSerializer.Serialize(new PermissionResponseEvent(
+                    req.PermissionId, req.SourceName, choice.Id),
+                    SlackBotJsonContext.Default.PermissionResponseEvent),
+                Style: choice.Kind == HPD.Agent.Permissions.PermissionDecisionKind.Allow ? "primary" : "danger")).ToArray(),
             BlockId: blockId));
 
         return blocks;
     }
 
+    private static async Task AnswerPermissionAsync(Agent agent, string permissionId, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return;
+        PermissionResponseEvent? response;
+        try { response = System.Text.Json.JsonSerializer.Deserialize(value,
+            SlackBotJsonContext.Default.PermissionResponseEvent); }
+        catch (System.Text.Json.JsonException) { return; }
+        if (response?.PermissionId == permissionId)
+            await agent.AnswerRequestAsync(response);
+    }
+
     private static bool IsPermissionAction(string actionId) =>
         Guid.TryParse(actionId, out _);
+
+    private static string Truncate(string value, int maximumLength) =>
+        value.Length <= maximumLength ? value : value[..Math.Max(0, maximumLength - 3)] + "...";
 
     private static TEvent? DeserializeEvent<TEvent>(JsonElement? element) where TEvent : class
     {
@@ -699,11 +709,8 @@ public partial class SlackBot(
                             var agent = agentManager.GetAgent(_config.ResolveAgentId());
                             if (agent is not null)
                             {
-                                var approved = action.Value == "approve";
-                                await agent.AnswerRequestAsync(new PermissionResponseEvent(
-                                    PermissionId: action.ActionId,
-                                    SourceName:   "slack",
-                                    ChoiceId:     approved ? "allow_once" : "deny_once"));
+                                await AnswerPermissionAsync(agent, action.ActionId, action.Value);
+
                             }
                         }
                         else
@@ -795,4 +802,5 @@ public partial class SlackBot(
 [System.Text.Json.Serialization.JsonSerializable(typeof(SlackPlainTextInput))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(SlackStaticSelect))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(SlackRadioButtons))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(PermissionResponseEvent))]
 internal partial class SlackBotJsonContext : System.Text.Json.Serialization.JsonSerializerContext { }

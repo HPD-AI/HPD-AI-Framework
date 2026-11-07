@@ -85,36 +85,17 @@ internal static class AgentFilesystemAccess
         if (security.CapabilityCeiling is not null || security.Sandbox.Escape == AgentSandboxEscapePolicy.Deny)
             throw new AgentCapabilityDeniedException(capability, canonical);
 
-        var requestId = Guid.NewGuid().ToString("N");
-        AgentCapabilityResponseEvent response;
-        try
-        {
-            response = await context
-                .RequestAsync<AgentCapabilityRequestEvent, AgentCapabilityResponseEvent>(
-                    new AgentCapabilityRequestEvent(
-                        requestId,
-                        nameof(AgentFilesystemAccess),
-                        context.FunctionCallId,
-                        operationId,
-                        capability,
-                        new AgentCapabilityResource
-                        {
-                            Value = canonical,
-                            DisplayName = Path.GetFileName(canonical)
-                        },
-                        capability == AgentCapabilityKind.FilesystemRead
-                            ? "The operation needs to read outside the active sandbox grants."
-                            : "The operation needs to write outside the active sandbox grants."),
-                    cancellationToken,
-                    timeout: null)
-                .ConfigureAwait(false);
-        }
-        catch (TimeoutException)
-        {
-            throw new AgentCapabilityDeniedException(capability, canonical);
-        }
-
-        if (!response.Approved)
+        var approved = await SandboxCapabilityPermission.RequestAsync(
+            capability,
+            new HPD.Agent.Permissions.PermissionResource(
+                canonical, Path.GetFileName(canonical)),
+            capability == AgentCapabilityKind.FilesystemRead
+                ? "The operation needs to read outside the active sandbox grants."
+                : "The operation needs to write outside the active sandbox grants.",
+            context,
+            new Dictionary<string, string?> { ["operationId"] = operationId },
+            cancellationToken).ConfigureAwait(false);
+        if (!approved)
             throw new AgentCapabilityDeniedException(capability, canonical);
 
         return new AgentFilesystemAuthorization(canonical, Escalated: true);

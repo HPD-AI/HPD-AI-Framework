@@ -285,10 +285,12 @@ function createRuntimeRequest(): RuntimeRequest {
     expectedResponseEventType: 'PERMISSION_RESPONSE',
     request: {
       permissionId: 'req-1',
+      permissionDomain: 'ToolExecution',
+      choices: [{ id: 'allow_once', label: 'Allow once', kind: 'Allow' }, { id: 'deny_once', label: 'Deny', kind: 'Deny' }],
       sourceName: 'toolharness',
-      functionName: 'write_file',
+      authority: 'write_file',
       callId: 'call-1',
-      description: 'Write file?',
+      reason: 'Write file?',
     },
   };
 }

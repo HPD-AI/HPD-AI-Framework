@@ -23,7 +23,6 @@ public sealed class HpdAgentTuiBuilder
     private readonly Dictionary<string, AgentTuiEventHandlerRegistration> _eventHandlers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, AgentTuiInteractionHandlerRegistration> _interactionHandlers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IAgentTuiTranscriptRendererAdapter> _transcriptRenderers = new(StringComparer.Ordinal);
-    private readonly PermissionPresentationRendererRegistry _permissionPresentationRenderers = new();
     private readonly HashSet<KeyGesture> _shortcutGestures = [];
     private IAgentTuiShellComponent? _header;
     private IAgentTuiShellComponent? _promptStatus;
@@ -79,7 +78,7 @@ public sealed class HpdAgentTuiBuilder
     {
         TryAddInteractionHandler<PermissionRequestEvent>(
             "hpd.permission",
-            new PermissionRequestInteractionHandler(_permissionPresentationRenderers));
+            new PermissionRequestInteractionHandler());
         return this;
     }
 
@@ -94,15 +93,6 @@ public sealed class HpdAgentTuiBuilder
             var reopened = context.Shell.ReopenQuestionsAsync is { } reopen ? await reopen(CancellationToken.None) : 0;
             if (reopened == 0) AgentTuiModelSelectionFlow.AppendNotice(context, "Questions", "No minimized questions are waiting.", TranscriptSeverity.Info);
         }) { Title = "/questions", Description = "Reopen minimized questions without losing draft answers." });
-        return this;
-    }
-
-    /// <summary>Adds one exact typed permission-presentation renderer.</summary>
-    public HpdAgentTuiBuilder AddPermissionPresentationRenderer<TPresentation>(
-        string presentationId,
-        IPermissionPresentationRenderer<TPresentation> renderer)
-    {
-        _permissionPresentationRenderers.Add(presentationId, renderer);
         return this;
     }
 
@@ -1077,7 +1067,6 @@ public sealed class HpdAgentTuiBuilder
 
     public HpdAgentTuiRegistry Build()
     {
-        _permissionPresentationRenderers.Freeze();
         return new(
             _commands.Values,
             _pages.Values,

@@ -73,7 +73,7 @@ type MockClient = {
   createSession: ReturnType<typeof vi.fn>;
   createThread:  ReturnType<typeof vi.fn>;
   listThreads:  ReturnType<typeof vi.fn>;
-  getThreadMessages: ReturnType<typeof vi.fn>;
+  getThread: ReturnType<typeof vi.fn>;
   stream?:       ReturnType<typeof vi.fn>;
   run:           ReturnType<typeof vi.fn>;
   respond:       ReturnType<typeof vi.fn>;
@@ -136,7 +136,7 @@ function makeMockClient(overrides: Partial<MockClient> = {}): MockClient {
     createSession:    overrides.createSession    ?? vi.fn().mockResolvedValue({ id: 'hpd-sess-1', createdAt: '', lastActivity: '', metadata: {} }),
     createThread:     overrides.createThread     ?? vi.fn().mockResolvedValue({ id: 'hpd-thread-1', sessionId: 'hpd-sess-1' }),
     listThreads:     overrides.listThreads     ?? vi.fn().mockResolvedValue([{ id: 'hpd-thread-1', sessionId: 'hpd-sess-1' }]),
-    getThreadMessages: overrides.getThreadMessages ?? vi.fn().mockResolvedValue([]),
+    getThread:        overrides.getThread        ?? vi.fn().mockResolvedValue({ messages: [] }),
     stream:           overrides.stream,
     run,
     respond: overrides.respond ?? vi.fn(async (response: any) => ({
@@ -265,10 +265,12 @@ describe('createBridge — session/load', () => {
 
   it('replays history as session/update notifications before responding', async () => {
     const client = makeMockClient({
-      getThreadMessages: vi.fn().mockResolvedValue([
-        { id: 'm1', role: 'user',      contents: [{ $type: 'text', text: 'hi' }],    timestamp: '' },
-        { id: 'm2', role: 'assistant', contents: [{ $type: 'text', text: 'hello' }], timestamp: '' },
-      ]),
+      getThread: vi.fn().mockResolvedValue({
+        messages: [
+          { id: 'm1', role: 'user',      contents: [{ $type: 'text', text: 'hi' }],    timestamp: '' },
+          { id: 'm2', role: 'assistant', contents: [{ $type: 'text', text: 'hello' }], timestamp: '' },
+        ],
+      }),
     });
     const { send, waitFor } = makeBridge(client);
     send(sessionNewMsg(2));

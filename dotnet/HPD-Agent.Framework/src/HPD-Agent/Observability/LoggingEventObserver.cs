@@ -43,20 +43,9 @@ public class LoggingEventObserver
                 }
                 break;
 
-            // Permission checks
-            case PermissionCheckEvent e:
-                if (!e.IsApproved)
-                {
-                    _logger.LogWarning(
-                        "Agent '{AgentName}' iteration {Iteration}: Permission DENIED for function '{Function}': {Reason}",
-                        e.AgentName, e.Iteration, e.FunctionName, e.DenialReason);
-                }
-                else if (_logger.IsEnabled(LogLevel.Trace))
-                {
-                    _logger.LogTrace(
-                        "Agent '{AgentName}' iteration {Iteration}: Permission APPROVED for function '{Function}'",
-                        e.AgentName, e.Iteration, e.FunctionName);
-                }
+            case PermissionResolvedEvent e:
+                _logger.LogInformation("Agent '{AgentId}' permission {Decision} for '{Authority}': {Reason}",
+                    e.AgentId, e.DecisionKind, e.Authority, e.DenialReason);
                 break;
 
             // Circuit breaker

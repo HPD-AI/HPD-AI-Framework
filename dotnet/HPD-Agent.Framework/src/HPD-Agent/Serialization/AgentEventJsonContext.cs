@@ -32,6 +32,7 @@ namespace HPD.Agent.Serialization;
     WriteIndented = false
 )]
 // Base types
+[JsonSerializable(typeof(PermissionResolvedEvent))]
 [JsonSerializable(typeof(AgentMetadata))]
 [JsonSerializable(typeof(AgentEventCatalog))]
 [JsonSerializable(typeof(AgentEventCatalogEntry))]
@@ -72,8 +73,6 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(AgentApprovalPolicy))]
 [JsonSerializable(typeof(AgentSandboxPolicy))]
 [JsonSerializable(typeof(AgentSandboxEscapePolicy))]
-[JsonSerializable(typeof(Security.AgentCapabilityKind))]
-[JsonSerializable(typeof(Security.AgentCapabilityResource))]
 [JsonSerializable(typeof(CompactionRunPolicy))]
 [JsonSerializable(typeof(CollapsingRunPolicy))]
 [JsonSerializable(typeof(ContainerRecoveryHistoryMode))]

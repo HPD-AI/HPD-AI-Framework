@@ -85,10 +85,30 @@ public class PermissionOverrideRegistry
     {
         ArgumentNullException.ThrowIfNull(selector);
         selector.Validate();
-        if (_overrides.TryGetValue(selector, out var exact)) return exact;
-        return _overrides.TryGetValue(new PermissionOverrideSelector(selector.FunctionName), out var fallback)
-            ? fallback
-            : null;
+        return Resolve(_overrides.Select(pair => new PermissionOverride(pair.Key, pair.Value)), selector);
+
+    }
+
+    internal static bool? Resolve(IEnumerable<PermissionOverride>? overrides, PermissionOverrideSelector call)
+    {
+        var match = overrides?.Where(value => value.Selector.Matches(call))
+            .OrderBy(value => value.Selector.Specificity).LastOrDefault();
+        return match?.RequiresPermission;
+    }
+
+    internal void ValidateFunctions(IEnumerable<Microsoft.Extensions.AI.AIFunction> functions)
+    {
+        var declared = functions.OfType<HPDAIFunctionFactory.HPDAIFunction>().SelectMany(function =>
+        {
+            var selectors = new List<PermissionOverrideSelector>
+            { new(function.Name, null, function.PermissionDeclaration?.Authority ?? $"function/{Uri.EscapeDataString(function.Name)}") };
+            if (function.OperationContract is { } contract)
+                selectors.AddRange(contract.Actions.Select(pair => new PermissionOverrideSelector(function.Name, pair.Key, pair.Value.Permission.Authority)));
+            return selectors;
+        }).ToArray();
+        foreach (var selector in _overrides.Keys)
+            if (!declared.Any(selector.Matches))
+                throw new InvalidOperationException($"PermissionSelectorUnknown: {selector}");
     }
 
     /// <summary>
@@ -101,11 +121,19 @@ public class PermissionOverrideRegistry
 }
 
 /// <summary>Identifies one generated permission declaration without concatenated security keys.</summary>
-public sealed record PermissionOverrideSelector(string FunctionName, string? Action = null, string? Authority = null)
+public sealed record PermissionOverrideSelector(string? FunctionName = null, string? Action = null, string? Authority = null)
 {
+    internal int Specificity => Authority is not null ? Action is not null ? 3 : 2 : Action is not null ? 1 : 0;
+    internal bool Matches(PermissionOverrideSelector call) =>
+        (FunctionName is null || FunctionName == call.FunctionName) &&
+        (Authority is null || Authority == call.Authority) &&
+        (Action is null || Action == call.Action);
+
     internal void Validate()
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(FunctionName);
+        if (FunctionName is null && Authority is null)
+            throw new ArgumentException("A permission override needs an authority or function selector.");
+        if (FunctionName is not null) ArgumentException.ThrowIfNullOrWhiteSpace(FunctionName);
         if (Action is not null) ArgumentException.ThrowIfNullOrWhiteSpace(Action);
         if (Authority is not null) ArgumentException.ThrowIfNullOrWhiteSpace(Authority);
     }

@@ -169,20 +169,11 @@ internal static class ExecuteCommandPermissionAnalyzer
             if (analysis.Segments.Count > 1)
             {
                 var segmentRules = analysis.Segments
-                    .Where(segment => segment.Readiness >= ExecuteCommandPolicyReadiness.PrefixAllowAllowed && segment.SafePrefix is not null)
-                    .Select(segment => CreateRule(
-                        ExecuteCommandPermissionBehavior.Allow,
-                        ExecuteCommandPermissionMatchKind.Prefix,
-                        segment.SafePrefix!,
-                        shell,
-                        sandbox,
-                        request.WorkingDirectory,
-                        workspace,
-                        ExecuteCommandAnalysisTrustLevel.Simple,
-                        risk))
+                    .Select(segment => CreateSegmentRule(
+                        segment, shell, sandbox, request.WorkingDirectory, workspace, risk))
                     .ToArray();
 
-                if (segmentRules.Length == analysis.Segments.Count)
+                if (segmentRules.All(static rule => rule is not null))
                 {
                     return basePlan.ToSegmented(
                         analysis.Segments,
@@ -198,8 +189,8 @@ internal static class ExecuteCommandPermissionAnalyzer
                                 workspace,
                                 ExecuteCommandAnalysisTrustLevel.Segmented,
                                 risk),
-                            UserLabel = "Always allow similar commands",
-                            SegmentRules = segmentRules
+                            UserLabel = "Allow similar commands this session",
+                            SegmentRules = segmentRules.Select(static rule => rule!).ToArray()
                         });
                 }
 
@@ -221,7 +212,7 @@ internal static class ExecuteCommandPermissionAnalyzer
                         workspace,
                         ExecuteCommandAnalysisTrustLevel.Simple,
                         risk),
-                    UserLabel = "Always allow this exact command"
+                    UserLabel = "Allow this exact command this session"
                 }
                 : null;
             var prefix = readiness >= ExecuteCommandPolicyReadiness.PrefixAllowAllowed && commandPlan.SafePrefix is not null
@@ -237,7 +228,7 @@ internal static class ExecuteCommandPermissionAnalyzer
                         workspace,
                         ExecuteCommandAnalysisTrustLevel.Simple,
                         risk),
-                    UserLabel = "Always allow similar commands",
+                    UserLabel = "Allow similar commands this session",
                     Prefix = new SafeCommandPrefix(commandPlan.SafePrefix)
                 }
                 : null;
@@ -246,6 +237,46 @@ internal static class ExecuteCommandPermissionAnalyzer
                 return basePlan.ToReviewOnly(analysis.Segments);
 
             return basePlan.ToSimple(commandPlan, exact, prefix);
+        }
+
+        private static ExecuteCommandPermissionRule? CreateSegmentRule(
+            ExecuteCommandSubcommandPlan segment,
+            ExecuteCommandShellScope shell,
+            AgentSandboxRuntime sandbox,
+            string workingDirectory,
+            ExecuteCommandPermissionWorkspaceScope workspace,
+            ExecuteCommandPermissionRisk risk)
+        {
+            if (segment.Readiness >= ExecuteCommandPolicyReadiness.PrefixAllowAllowed &&
+                segment.SafePrefix is not null)
+            {
+                return CreateRule(
+                    ExecuteCommandPermissionBehavior.Allow,
+                    ExecuteCommandPermissionMatchKind.Prefix,
+                    segment.SafePrefix,
+                    shell,
+                    sandbox,
+                    workingDirectory,
+                    workspace,
+                    ExecuteCommandAnalysisTrustLevel.Simple,
+                    risk);
+            }
+
+            if (segment.Readiness >= ExecuteCommandPolicyReadiness.ExactAllowOnly)
+            {
+                return CreateRule(
+                    ExecuteCommandPermissionBehavior.Allow,
+                    ExecuteCommandPermissionMatchKind.Exact,
+                    segment.Text,
+                    shell,
+                    sandbox,
+                    workingDirectory,
+                    workspace,
+                    ExecuteCommandAnalysisTrustLevel.Simple,
+                    risk);
+            }
+
+            return null;
         }
 
         private static ExecuteCommandPermissionRule CreateRule(
@@ -1099,35 +1130,7 @@ public sealed record PersistRuleChoice : ExecuteCommandPermissionChoice
 public sealed record DenyChoice : ExecuteCommandPermissionChoice;
 public sealed record FeedbackChoice : ExecuteCommandPermissionChoice;
 
-[DurableEvent]
-[EventType("EXECUTE_COMMAND_PERMISSION_REQUEST")]
-public sealed record ExecuteCommandPermissionRequestEvent(
-    string PermissionId,
-    string SourceName,
-    string CallId,
-    ExecuteCommandPermissionPlan Plan,
-    IReadOnlyList<ExecuteCommandPermissionRule> MatchingRules,
-    ExecuteCommandPermissionRuleDiagnostics RuleDiagnostics,
-    IReadOnlyList<ExecuteCommandPermissionChoice> AvailableChoices) : AgentEvent, IAgentRequestEvent<ExecuteCommandPermissionResponseEvent>
-{
-    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
-    public override EventKind Kind { get; init; } = EventKind.Control;
-    public string RequestId => PermissionId;
-}
 
-[DurableEvent]
-[EventType("EXECUTE_COMMAND_PERMISSION_RESPONSE")]
-public sealed record ExecuteCommandPermissionResponseEvent(
-    string PermissionId,
-    string SourceName,
-    string ChoiceId,
-    string? FeedbackText = null) : AgentEvent, IAgentResponseEvent
-{
-    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
-    public override EventKind Kind { get; init; } = EventKind.Control;
-    public override EventDirection Direction { get; init; } = EventDirection.Upstream;
-    public string RequestId => PermissionId;
-}
 
 internal static class ExecuteCommandPermissionAnalyzerVersions
 {
@@ -1196,7 +1199,7 @@ internal static class ExecuteCommandPermissionChoiceBuilder
             choices.Add(new PersistRuleChoice
             {
                 Id = "allow_exact",
-                Label = "Always allow this exact command",
+                Label = "Allow this exact command this session",
                 Proposal = simple.ExactAllowRule
             });
             if (simple.PrefixAllowRule is not null)
@@ -1204,7 +1207,7 @@ internal static class ExecuteCommandPermissionChoiceBuilder
                 choices.Add(new PersistRuleChoice
                 {
                     Id = "allow_similar",
-                    Label = "Always allow similar commands",
+                    Label = "Allow similar commands this session",
                     Proposal = simple.PrefixAllowRule
                 });
             }
@@ -1214,7 +1217,7 @@ internal static class ExecuteCommandPermissionChoiceBuilder
             choices.Add(new PersistRuleChoice
             {
                 Id = "allow_similar",
-                Label = "Always allow similar commands",
+                Label = "Allow similar commands this session",
                 Proposal = segmented.SegmentRuleBundle
             });
         }
@@ -1537,6 +1540,8 @@ internal sealed class ExecuteCommandSemanticPolicy
             PrefixFamily("rg", [1], filesystemEffectExtractor: SearchEffects),
             PrefixFamily("grep", [1], filesystemEffectExtractor: SearchEffects),
             ExactFamily("cat", [1], filesystemEffectExtractor: ReadAllPathArgs),
+            ExactFamily("ls", [1], filesystemEffectExtractor: ReadAllPathArgs),
+            ExactFamily("echo", [1]),
             ExactFamily("head", [1], filesystemEffectExtractor: ReadAllPathArgs),
             ExactFamily("tail", [1], filesystemEffectExtractor: ReadAllPathArgs),
             OneTimeFamily("sudo", ExecuteCommandPermissionRisk.PrivilegeEscalation),
@@ -3044,7 +3049,6 @@ internal static class ExecuteCommandShellAnalyzer
             var split = TrySplitAttachedRedirection(token);
             if (TryParseRedirectionOperator(split.Operator, out var kind, out var operation))
             {
-                risk |= ExecuteCommandPermissionRisk.OutputRedirection;
                 var target = split.Target;
                 if (target is null)
                 {
@@ -3056,6 +3060,11 @@ internal static class ExecuteCommandShellAnalyzer
                     target = argv[++i];
                 }
 
+                // "2>&1" duplicates an existing stream and creates no filesystem effect.
+                if (IsFileDescriptorDuplicationTarget(target))
+                    continue;
+
+                risk |= ExecuteCommandPermissionRisk.OutputRedirection;
                 var safe = IsSafeStaticRedirectionTarget(target);
                 if (!safe)
                     risk |= ExecuteCommandPermissionRisk.UnsafeRedirectionTarget;
@@ -3084,6 +3093,10 @@ internal static class ExecuteCommandShellAnalyzer
         }
         return (token, null);
     }
+
+    private static bool IsFileDescriptorDuplicationTarget(string target) =>
+        target.Length >= 2 && target[0] == '&' &&
+        target.AsSpan(1).ToString().All(char.IsAsciiDigit);
 
     private static bool TryParseRedirectionOperator(
         string token,

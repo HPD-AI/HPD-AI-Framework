@@ -221,7 +221,6 @@ internal static class ReflectionToolFactory
         var requiresPermission = permissionAttribute is not null;
         ValidatePermissionAuthority(permissionAttribute?.PermissionAuthority);
         var policyDescriptorId = ResolveDefinitionId(permissionAttribute?.PermissionPolicy, policy: true);
-        var interactionDescriptorId = ResolveDefinitionId(permissionAttribute?.PermissionInteraction, policy: false);
         var operationContract = CreateOperationContract(
             parameters, invocationModePolicy, invocationModeHandling, replayPolicy, requiresPermission);
         var actionSchema = operationContract is null
@@ -250,7 +249,6 @@ internal static class ReflectionToolFactory
                         Authority = permissionAttribute!.PermissionAuthority ??
                             $"function/{Uri.EscapeDataString(GetFunctionName(method))}",
                         PolicyDescriptorId = policyDescriptorId,
-                        InteractionDescriptorId = interactionDescriptorId,
                         Source = PermissionDeclarationSource.FunctionAttribute
                     }
                     : null,
@@ -932,7 +930,6 @@ internal static class ReflectionToolFactory
                 ?? throw new InvalidOperationException($"Action type '{unionCase.DerivedType.FullName}' requires AIFunctionActionAttribute.");
             ValidatePermissionAuthority(declaration.PermissionAuthority);
             var policyDescriptorId = ResolveDefinitionId(declaration.PermissionPolicy, policy: true);
-            var interactionDescriptorId = ResolveDefinitionId(declaration.PermissionInteraction, policy: false);
             if (!string.Equals(declaration.Action, serialized, StringComparison.Ordinal))
                 throw new InvalidOperationException($"Action declaration '{declaration.Action}' does not match serializer discriminator '{serialized}'.");
             var policy = declaration.InvocationModePolicy switch
@@ -975,7 +972,6 @@ internal static class ReflectionToolFactory
                         Authority = declaration.PermissionAuthority ??
                             $"function/{Uri.EscapeDataString(GetFunctionName(candidate.Parameter.Member as MethodInfo ?? throw new InvalidOperationException()))}/action/{Uri.EscapeDataString(serialized)}",
                         PolicyDescriptorId = policyDescriptorId,
-                        InteractionDescriptorId = interactionDescriptorId,
                         Source = declaration.Permission == PermissionRequirement.Inherit
                             ? PermissionDeclarationSource.FunctionAttribute
                             : PermissionDeclarationSource.ActionOverride
@@ -994,17 +990,11 @@ internal static class ReflectionToolFactory
     private static string? ResolveDefinitionId(Type? declaredType, bool policy)
     {
         if (declaredType is null) return null;
-        var expected = policy
-            ? typeof(HPD.Agent.Permissions.IPermissionPolicy)
-            : typeof(HPD.Agent.Permissions.IPermissionInteraction);
+        var expected = typeof(HPD.Agent.Permissions.IPermissionPolicy);
         if (!expected.IsAssignableFrom(declaredType))
             throw new InvalidOperationException(
                 $"Reflection-created permission type '{declaredType.FullName}' must implement {expected.Name}.");
-        var id = policy
-            ? declaredType.GetCustomAttribute<HPD.Agent.Permissions.PermissionPolicyDefinitionAttribute>()
-                ?.Id
-            : declaredType.GetCustomAttribute<HPD.Agent.Permissions.PermissionInteractionDefinitionAttribute>()
-                ?.Id;
+        var id = declaredType.GetCustomAttribute<HPD.Agent.Permissions.PermissionPolicyDefinitionAttribute>()?.Id;
         return id ?? throw new InvalidOperationException(
             $"Reflection-created permission type '{declaredType.FullName}' requires its stable definition attribute.");
     }

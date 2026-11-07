@@ -10,6 +10,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using HPD.Agent.Middleware;
+using HPD.Agent.Permissions;
 
 namespace HPD.Agent;
 
@@ -30,6 +31,43 @@ public class HPDAIFunctionFactory
         return new HPDAIFunction(
             invocation,
             options ?? _defaultOptions);
+    }
+
+    /// <summary>Imports one plain function with an explicit host-owned permission status.</summary>
+    public static AIFunction Import(AIFunction function, AIFunctionPermissionBinding? permission = null,
+        bool explicitlyUngoverned = false)
+    {
+        ArgumentNullException.ThrowIfNull(function);
+        if (function is DelegatingAIFunction or ApprovalRequiredAIFunction)
+            throw new InvalidOperationException("UnsupportedFunctionWrapper: register the underlying function.");
+        if (function is HPDAIFunction) throw new InvalidOperationException("Function is already normalized.");
+        if ((permission is null) == !explicitlyUngoverned)
+            throw new InvalidOperationException("UnsupportedFunctionPermissionStatus: choose a binding or explicitly ungoverned.");
+        var properties = function.AdditionalProperties.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+        if (properties.Keys.Any(key => key is "RequiresPermission" or "PermissionPolicy" or "PermissionAuthority" or
+                "ClientToolDefinition" or "OperationContract"))
+            throw new InvalidOperationException("UnsupportedFunctionMetadata: imported security metadata is not trusted.");
+        var importedSchema = function.JsonSchema.Clone();
+        var returnSchema = function.ReturnJsonSchema?.Clone();
+        return Create(async (arguments, _, token) => await function.InvokeAsync(arguments, token).ConfigureAwait(false), new()
+        {
+            Name = function.Name, Description = function.Description, SchemaProvider = () => importedSchema,
+            ReturnJsonSchema = returnSchema, UnderlyingMethod = function.UnderlyingMethod,
+            PreserveImportedMetadata = true, SerializerOptions = function.JsonSerializerOptions,
+            AdditionalProperties = properties,
+            FunctionPermission = permission is null ? null : new()
+            {
+                RequiresPermission = true, Authority = permission.Authority,
+                PolicyDescriptorId = permission.PolicyDescriptorId, Source = PermissionDeclarationSource.FrameworkDefault
+            }
+        });
+    }
+
+    internal static AIFunction Project(AIFunction function, Dictionary<string, object?> metadata)
+    {
+        if (function is not HPDAIFunction hpd)
+            throw new InvalidOperationException("UnsupportedFunctionPermissionStatus: normalize external tools before projection.");
+        return hpd.ProjectMetadata(metadata);
     }
 
     /// <summary>Creates a reflection-backed function whose permission definitions are generated into the application catalog.</summary>
@@ -68,7 +106,7 @@ public class HPDAIFunctionFactory
     /// <summary>
     /// Modern AIFunction implementation using delegate-based invocation with validation.
     /// </summary>
-    public class HPDAIFunction : AIFunction
+    public sealed class HPDAIFunction : AIFunction
     {
         private readonly Func<AIFunctionArguments, FunctionExecutionContext, CancellationToken, Task<object?>> _invocationHandler;
         private readonly MethodInfo? _method;
@@ -79,7 +117,7 @@ public class HPDAIFunctionFactory
             HPDAIFunctionFactoryOptions options)
         {
             _invocationHandler = invocationHandler ?? throw new ArgumentNullException(nameof(invocationHandler));
-            _method = invocationHandler.Method; // For metadata
+            _method = options.PreserveImportedMetadata ? options.UnderlyingMethod : options.UnderlyingMethod ?? invocationHandler.Method;
             options = SnapshotOptions(options);
             if (!Enum.IsDefined(options.Replay))
             {
@@ -108,7 +146,8 @@ public class HPDAIFunctionFactory
                 : options.OperationContract is { } operationContract
                     ? AgentInvocationModes.CreateActionSchema(methodSchema, operationContract)
                     : AgentInvocationModes.CreateSchema(methodSchema, options.InvocationModePolicy);
-            JsonSchema = EnsureStrictObjectSchemas(JsonSchema);
+            if (options.PreserveImportedMetadata) JsonSchema = methodSchema;
+            else JsonSchema = EnsureStrictObjectSchemas(JsonSchema);
             Name = options.Name ?? _method?.Name ?? "Unknown";
             Description = options.Description ?? "";
             ContractDescriptor = JsonSchema.ValueKind == JsonValueKind.Undefined
@@ -122,7 +161,8 @@ public class HPDAIFunctionFactory
             CanonicalInputContract = options.VerifiedActionComposition?.InputContract ??
                 (JsonSchema.ValueKind == JsonValueKind.Undefined
                     ? null
-                    : CanonicalJsonInputContract.Create(JsonSchema));
+                    : CanonicalJsonInputContract.Create(options.PreserveImportedMetadata
+                        ? EnsureStrictObjectSchemas(JsonSchema) : JsonSchema));
         }
 
         private static JsonElement EnsureStrictObjectSchemas(JsonElement schema)
@@ -160,6 +200,9 @@ public class HPDAIFunctionFactory
         private static HPDAIFunctionFactoryOptions SnapshotOptions(HPDAIFunctionFactoryOptions source) => new()
         {
             Name = source.Name,
+            ReturnJsonSchema = source.ReturnJsonSchema?.Clone(),
+            UnderlyingMethod = source.UnderlyingMethod,
+            PreserveImportedMetadata = source.PreserveImportedMetadata,
             Description = source.Description,
             ParameterDescriptions = source.ParameterDescriptions is null
                 ? null
@@ -205,6 +248,14 @@ public class HPDAIFunctionFactory
             };
         }
 
+        internal AIFunction ProjectMetadata(Dictionary<string, object?> metadata)
+        {
+            var options = SnapshotOptions(HPDOptions);
+            options.AdditionalProperties = metadata;
+            options.UnderlyingMethod = _method;
+            return new HPDAIFunction(_invocationHandler, options);
+        }
+
         internal HPDAIFunctionFactoryOptions HPDOptions { get; }
 
         /// <summary>Gets the immutable function-level permission declaration snapshot.</summary>
@@ -222,6 +273,7 @@ public class HPDAIFunctionFactory
         public override string Description { get; }
         public override JsonElement JsonSchema { get; }
         public override MethodInfo? UnderlyingMethod => _method;
+        public override JsonElement? ReturnJsonSchema => HPDOptions.ReturnJsonSchema;
         public override JsonSerializerOptions JsonSerializerOptions => HPDOptions.SerializerOptions ?? _defaultSerializerOptions;
 
         /// <summary>Gets the immutable composed contract published by this generated function.</summary>
@@ -450,7 +502,6 @@ public sealed record AIFunctionContractDescriptor
             builder.Append("|permission:").Append(permission.RequiresPermission ? '1' : '0')
                 .Append(':').Append(permission.Authority)
                 .Append(':').Append(permission.PolicyDescriptorId)
-                .Append(':').Append(permission.InteractionDescriptorId)
                 .Append(':').Append((int)permission.Source);
         }
     }
@@ -753,6 +804,9 @@ public sealed class HPDToolArgumentException : JsonException
 
 public class HPDAIFunctionFactoryOptions
 {
+    public JsonElement? ReturnJsonSchema { get; set; }
+    public MethodInfo? UnderlyingMethod { get; set; }
+    internal bool PreserveImportedMetadata { get; set; }
     public string? Name { get; set; }
     public string? Description { get; set; }
     public Dictionary<string, string>? ParameterDescriptions { get; set; }

@@ -1,4 +1,5 @@
 using HPD.Agent.Middleware;
+using HPD.Agent.Permissions;
 using HPD.Agent.ClientTools;
 using Microsoft.Extensions.AI;
 using System.Text.Json;
@@ -100,7 +101,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             {
                 if (serverTools[i] is AIFunction af)
                 {
-                    map[af.Name] = af;
+                    Add(af);
                 }
             }
         }
@@ -111,12 +112,23 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             {
                 if (requestTools[i] is AIFunction af)
                 {
-                    map[af.Name] = af;
+                    Add(af);
                 }
             }
         }
 
         return map.Count > 0 ? map : null;
+
+        void Add(AIFunction function)
+        {
+            if (function is DelegatingAIFunction or ApprovalRequiredAIFunction)
+                throw new InvalidOperationException("UnsupportedFunctionWrapper: register the underlying function.");
+            if (function is not HPDAIFunctionFactory.HPDAIFunction)
+                throw new InvalidOperationException("UnsupportedFunctionPermissionStatus: import with explicit host permission status.");
+            if (map.TryGetValue(function.Name, out var existing) && !ReferenceEquals(existing, function))
+                throw new InvalidOperationException("Function names must uniquely identify registered capabilities.");
+            map[function.Name] = function;
+        }
     }
 
     public static AIFunction? FindFunction(
@@ -448,8 +460,21 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                             ErrorMessage = exception.Message
                         });
                 }
+                ClientToolResolvedOperation? clientOperation = null;
+                try
+                {
+                    if (hpdFunction.AdditionalProperties?.TryGetValue("ClientToolDefinition", out var metadata) == true &&
+                        metadata is ClientToolDefinition clientTool)
+                        clientOperation = clientTool.ResolveOperation(sanitized);
+                }
+                catch (ArgumentException exception)
+                {
+                    return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
+                        new ValidationError { ErrorCode = "invalid_client_tool_action", ErrorMessage = exception.Message });
+                }
                 resolvedInvocation = new ResolvedFunctionInvocation
                 {
+                    Action = clientOperation?.Action,
                     RequestedMode = requested,
                     Mode = mode,
                     Policy = hpdFunction.HPDOptions.InvocationModePolicy,
@@ -476,6 +501,13 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             skillName: null,
             invocation: invocation,
             clientToolOperations: clientToolOperations);
+
+        var permissionMiddleware = _middlewarePipeline.Middlewares.OfType<PermissionMiddleware>().SingleOrDefault();
+        var resolvedFunction = permissionMiddleware?.ResolveFunction(function!, resolvedInvocation, runConfig);
+        if (resolvedFunction?.Permission is not null && permissionMiddleware is null)
+            throw new InvalidOperationException("PermissionMiddlewareMissing: governed call has no framework gate.");
+        if (resolvedFunction is not null)
+            beforeFunctionContext.ResolvedFunction = resolvedFunction;
 
         var authorityPreparation = new FunctionExecutionPreparation(
             functionCall,
@@ -521,7 +553,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 WasBlocked: true,
                 WasUnknown: preparation.Function == null,
                 WasOutputTool: false,
-                ShouldTerminate: false,
+                ShouldTerminate: beforeFunctionContext.State.IsTerminated,
                 ToolHarnessName: preparation.ToolHarnessName,
                 CallType: preparation.CallType,
                 ResultMetadata: new ToolResultMetadata(),
@@ -558,6 +590,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         AgentContext agentContext,
         CancellationToken cancellationToken)
     {
+        PermissionStateCheckpoint.EnsureSaved(agentContext);
         if (preparation.ImmediateOutcome is { } immediateOutcome)
         {
             return new FunctionBodyExecutionResult(
@@ -713,9 +746,12 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         FunctionExecutionPreparation preparation,
         Middleware.FunctionRequest request)
     {
+        if (request.PermissionRequired && request.PermissionGrant is null)
+            throw new InvalidOperationException("Permission grant is missing for a governed invocation.");
         if (preparation.BeforeFunctionContext?.PermissionGrant is { } grant)
         {
-            if (request.PermissionGrant != grant ||
+            if (!ReferenceEquals(preparation.Function, request.Function) ||
+                request.PermissionGrant != grant ||
                 !string.Equals(grant.FunctionCallId, preparation.FunctionCall.CallId, StringComparison.Ordinal) ||
                 !string.Equals(grant.FunctionName, request.Function.Name, StringComparison.Ordinal))
                 throw new InvalidOperationException("permission_authority_drift: wrapping middleware replaced the invocation grant.");
@@ -756,9 +792,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
     private static AIFunctionPermissionDeclaration? ResolvePermissionDeclaration(
         HPDAIFunctionFactory.HPDAIFunction function,
         string? action) =>
-        action is not null && function.HPDOptions.OperationContract?.Actions.TryGetValue(action, out var policy) == true
-            ? policy.Permission
-            : function.HPDOptions.FunctionPermission;
+        PermissionBindingResolver.ResolveDeclaration(function, action);
 
     private static JsonElement ToCanonicalElement(object? value) => value switch
     {

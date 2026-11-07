@@ -2775,6 +2775,14 @@ public sealed partial class Agent : IAsyncDisposable
         }
         if (pending?.Request is ParentQuestionRequestEvent parentQuestion && parentQuestion.Controller != respondingController)
             return new AgentRespondResult(AgentRespondStatus.TargetMismatch, response.RequestId, "This request requires its execution controller.");
+        if (pending?.Request is PermissionRequestEvent permissionRequest && responseEvent is PermissionResponseEvent permissionResponse)
+        {
+            try { HPD.Agent.Permissions.PermissionValidation.ValidateResponse(permissionRequest, permissionResponse); }
+            catch (InvalidOperationException exception)
+            {
+                return new AgentRespondResult(AgentRespondStatus.InvalidResponse, response.RequestId, exception.Message);
+            }
+        }
         var questions = pending?.Request switch
         {
             UserQuestionRequestEvent human => human.Questions,
@@ -10356,6 +10364,8 @@ internal class FunctionCallProcessor
             var outcome = preparation.ImmediateOutcome;
             if (outcome is null)
             {
+                await HPD.Agent.Permissions.PermissionStateCheckpoint.SaveAsync(
+                    agentContext, _stateFactories, cancellationToken).ConfigureAwait(false);
                 var bodyResult = await _functionExecutionCore.ExecuteFunctionBodyAsync(
                     preparation,
                     agentContext,
@@ -10446,7 +10456,8 @@ internal class FunctionCallProcessor
                 preparation.FunctionCall.CallId,
                 preparation.Arguments,
                 preparation.Invocation,
-                preparation.ResolvedInvocation))
+                preparation.ResolvedInvocation)
+            { ResolvedFunction = preparation.BeforeFunctionContext?.ResolvedFunction })
             .ToArray();
 
         var batchContext = agentContext.AsBeforeParallelBatch(
@@ -10489,9 +10500,32 @@ internal class FunctionCallProcessor
         {
             preparations[index] = await _functionExecutionCore.AdmitPreparedFunctionAsync(
                 preparations[index], cancellationToken).ConfigureAwait(false);
-            if (preparations[index].ImmediateOutcome?.ShouldTerminate == true)
+            if (preparations[index].ImmediateOutcome is { ShouldTerminate: true } interruption)
+            {
+                // No body may run after an admission interrupts the turn, including
+                // preparations that have not yet reached BeforeFunction admission.
+                for (var skipped = 0; skipped < preparations.Count; skipped++)
+                {
+                    var pending = preparations[skipped];
+                    if (pending.ImmediateOutcome is not null) continue;
+                    const string reason = "Execution skipped because permission admission interrupted the turn.";
+                    preparations[skipped] = pending with
+                    {
+                        ImmediateOutcome = interruption with
+                        {
+                            CallId = pending.FunctionCall.CallId, FunctionName = pending.FunctionCall.Name,
+                            Function = pending.Function, Invocation = pending.Invocation,
+                            Result = reason, ResultPayload = ToolResultPayload.FromResult(reason)
+                        }
+                    };
+                }
                 break;
+            }
         }
+
+        if (preparations.Any(static preparation => preparation.ImmediateOutcome is null))
+            await HPD.Agent.Permissions.PermissionStateCheckpoint.SaveAsync(
+                agentContext, _stateFactories, cancellationToken).ConfigureAwait(false);
 
         // Function bodies and WrapFunctionCall middleware may run in parallel because they only receive
         // FunctionRequest and the narrow FunctionExecutionContext, not a live mutable HookContext.

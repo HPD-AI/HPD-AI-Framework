@@ -151,7 +151,11 @@ export function createBridge(
       }
     }
 
-    const messages = await client.getThreadMessages(session.hpdSessionId, session.hpdThreadId);
+    const thread = await client.getThread(session.hpdSessionId, session.hpdThreadId);
+    const messages = (thread as unknown as { messages?: Array<{
+      role: string;
+      contents: Array<{ $type: string; text?: string }>;
+    }> } | null)?.messages ?? [];
     for (const msg of messages) {
       for (const part of msg.contents) {
         if (part.$type === 'text') {
@@ -229,8 +233,7 @@ export function createBridge(
               type: EventTypes.PERMISSION_RESPONSE,
               permissionId: event.permissionId,
               sourceName: event.sourceName,
-              approved: response.approved,
-              choice: response.choice,
+              choiceId: response.choiceId,
             }))
             .catch(fail);
         }),
@@ -243,8 +246,6 @@ export function createBridge(
               content: response.content,
               errorMessage: response.errorMessage,
               clientOperationId: response.clientOperationId,
-              handleKind: response.handleKind,
-              supportedOperations: response.supportedOperations,
               augmentation: response.augmentation,
             }))
             .catch(fail);

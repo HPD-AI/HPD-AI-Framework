@@ -14,7 +14,7 @@ public sealed class SkillHotReloadTests
         var source = new InMemorySkillSource([RuntimeSkill("runtime_one")]);
         var agent = await new AgentBuilder(new AgentConfig { Name = "reload-test" })
             .WithToolHarness<CombinedCapabilitiesTools>(options => options.AddSkillSource(source))
-            .WithAutoApprovePermissions()
+            .WithHostAutoApproval()
             .BuildAsync();
         var events = new System.Collections.Concurrent.ConcurrentQueue<AgentEvent>();
         var rejectedObserved = new TaskCompletionSource(
@@ -62,7 +62,7 @@ public sealed class SkillHotReloadTests
         var source = new DirectorySkillSource(path, SkillDirectoryImportMode.Compatibility);
         var agent = await new AgentBuilder(new AgentConfig { Name = "directory-reload-test" })
             .WithToolHarness<CombinedCapabilitiesTools>(options => options.AddSkillSource(source))
-            .WithAutoApprovePermissions()
+            .WithHostAutoApproval()
             .BuildAsync();
         try
         {
@@ -118,7 +118,7 @@ public sealed class SkillHotReloadTests
         var agent = await new AgentBuilder(new AgentConfig { Name = "sidecar-reload-test" })
             .WithServiceProvider(services)
             .WithToolHarness<CombinedCapabilitiesTools>(options => options.AddSkillSource(source))
-            .WithAutoApprovePermissions()
+            .WithHostAutoApproval()
             .BuildAsync();
         try
         {
@@ -156,7 +156,7 @@ public sealed class SkillHotReloadTests
         var source = new InMemorySkillSource([RuntimeSkill("runtime_one")]);
         var agent = await new AgentBuilder(new AgentConfig { Name = "watch-test" })
             .WithToolHarness<CombinedCapabilitiesTools>(options => options.AddSkillSource(source))
-            .WithAutoApprovePermissions()
+            .WithHostAutoApproval()
             .BuildAsync();
         try
         {
@@ -176,11 +176,11 @@ public sealed class SkillHotReloadTests
         var source = new InMemorySkillSource([RuntimeSkill("runtime_one")]);
         var first = await new AgentBuilder(new AgentConfig { Name = "first-watch-agent" })
             .WithToolHarness<CombinedCapabilitiesTools>(options => options.AddSkillSource(source))
-            .WithAutoApprovePermissions()
+            .WithHostAutoApproval()
             .BuildAsync();
         var second = await new AgentBuilder(new AgentConfig { Name = "second-watch-agent" })
             .WithToolHarness<CombinedCapabilitiesTools>(options => options.AddSkillSource(source))
-            .WithAutoApprovePermissions()
+            .WithHostAutoApproval()
             .BuildAsync();
         try
         {
@@ -211,7 +211,7 @@ public sealed class SkillHotReloadTests
                 options.AddSkillSource(first);
                 options.AddSkillSource(second);
             })
-            .WithAutoApprovePermissions();
+            .WithHostAutoApproval();
 
         var exception = await Assert.ThrowsAsync<CapabilityGraphValidationException>(() => builder.BuildAsync());
 
@@ -224,7 +224,7 @@ public sealed class SkillHotReloadTests
         var source = new InMemorySkillSource([RuntimeSkill("runtime_one")]);
         var agent = await new AgentBuilder(new AgentConfig { Name = "watch-debounce-test" })
             .WithToolHarness<CombinedCapabilitiesTools>(options => options.AddSkillSource(source))
-            .WithAutoApprovePermissions()
+            .WithHostAutoApproval()
             .BuildAsync();
         try
         {
@@ -260,7 +260,7 @@ public sealed class SkillHotReloadTests
         var source = new InMemorySkillSource([scriptSkill]);
         var builder = new AgentBuilder(new AgentConfig { Name = "runner-test" })
             .WithToolHarness<CombinedCapabilitiesTools>(options => options.AddSkillSource(source))
-            .WithAutoApprovePermissions();
+            .WithHostAutoApproval();
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => builder.BuildAsync());
 
@@ -279,7 +279,7 @@ public sealed class SkillHotReloadTests
 
         var agent = await new AgentBuilder(new AgentConfig { Name = "cross-harness-runtime-skill" })
             .WithToolHarness<CombinedCapabilitiesTools>(options => options.AddSkillSource(source))
-            .WithAutoApprovePermissions()
+            .WithHostAutoApproval()
             .BuildAsync();
         try
         {
@@ -308,7 +308,7 @@ public sealed class SkillHotReloadTests
         config.Clients.Chat!.Override = HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(client, "test", "local", "test.chat");
         var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
             .WithToolHarness<CombinedCapabilitiesTools>()
-            .WithAutoApprovePermissions()
+            .WithHostAutoApproval()
             .BuildAsync();
         var events = new System.Collections.Concurrent.ConcurrentQueue<AgentEvent>();
         using var subscription = agent.SubscribeAny(@event =>
@@ -367,7 +367,7 @@ public sealed class SkillHotReloadTests
         var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
             .WithServiceProvider(services)
             .WithToolHarness<CombinedCapabilitiesTools>(options => options.AddSkillSource(source))
-            .WithAutoApprovePermissions()
+            .WithHostAutoApproval()
             .BuildAsync();
         var events = new System.Collections.Concurrent.ConcurrentQueue<AgentEvent>();
         using var subscription = agent.SubscribeAny(@event =>
@@ -412,7 +412,7 @@ public sealed class SkillHotReloadTests
         config.Clients.Chat!.Override = HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(client, "test", "local", "test.chat");
         var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
             .WithToolHarness<CombinedCapabilitiesTools>(options => options.AddSkillSource(source))
-            .WithAutoApprovePermissions()
+            .WithHostAutoApproval()
             .BuildAsync();
         try
         {

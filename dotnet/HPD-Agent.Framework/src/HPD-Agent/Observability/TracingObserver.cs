@@ -112,7 +112,7 @@ public sealed class TracingObserver : IDisposable
 
             case PermissionRequestEvent e:
                 AddEventToIteration(e.TraceId!, "permission.request",
-                    ["permission_id", e.PermissionId, "function", e.FunctionName]);
+                    ["permission_id", e.PermissionId, "authority", e.Authority ?? ""]);
                 break;
 
             case PermissionResponseEvent e:

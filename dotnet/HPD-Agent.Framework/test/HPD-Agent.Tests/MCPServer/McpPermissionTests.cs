@@ -27,7 +27,6 @@ public sealed class McpPermissionTests
         {
             Authority = "mcp.github",
             Policy = "github.default",
-            Interaction = "host.default-confirmation",
             Tools = new Dictionary<string, McpToolPermissionOverride>(StringComparer.Ordinal)
             {
                 ["search"] = new()
@@ -38,7 +37,6 @@ public sealed class McpPermissionTests
                 {
                     Authority = "mcp.github/delete",
                     Policy = "github.destructive",
-                    Interaction = "host.destructive-confirmation"
                 }
             }
         });
@@ -50,7 +48,6 @@ public sealed class McpPermissionTests
                 PermissionDeclarationSource.AgentConfig));
         Assert.Equal("mcp.github/tool/search", search.Authority);
         Assert.Equal("github.read-only", search.PolicyDescriptorId);
-        Assert.Equal("host.default-confirmation", search.InteractionDescriptorId);
         Assert.Equal(PermissionDeclarationSource.ToolOverride, search.Source);
 
         var unknown = Assert.IsType<AIFunctionPermissionDeclaration>(
@@ -69,7 +66,6 @@ public sealed class McpPermissionTests
                 PermissionDeclarationSource.AgentConfig));
         Assert.Equal("mcp.github/delete", delete.Authority);
         Assert.Equal("github.destructive", delete.PolicyDescriptorId);
-        Assert.Equal("host.destructive-confirmation", delete.InteractionDescriptorId);
     }
 
     [Fact]
@@ -115,7 +111,6 @@ public sealed class McpPermissionTests
         {
             Authority = "mcp/github/",
             Policy = "github.default",
-            Interaction = "host.confirmation",
             Tools = new Dictionary<string, McpToolPermissionOverride>(StringComparer.Ordinal)
             {
                 ["read_resource"] = new() { Authority = "must/not/apply" }
@@ -160,7 +155,7 @@ public sealed class McpPermissionTests
                     ["search"] = new()
                     {
                         RequiresPermission = false,
-                        Interaction = "inactive"
+                        Policy = "inactive"
                     }
                 }
             }).Validate());

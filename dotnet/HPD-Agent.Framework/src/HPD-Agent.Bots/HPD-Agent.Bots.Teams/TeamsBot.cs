@@ -24,8 +24,7 @@ public sealed class TeamsBot(
     TeamsCardRenderer? cardRenderer = null,
     TeamsFormatConverter? formatter = null)
 {
-    private const string PermissionApproveActionId = "hpd.permission.approve";
-    private const string PermissionDenyActionId = "hpd.permission.deny";
+    private const string PermissionChoiceActionId = "hpd.permission.select";
 
     private readonly TeamsBotConfig _config = options.Value;
     private readonly SessionManager _sessionManager = sessionManager;
@@ -133,14 +132,15 @@ public sealed class TeamsBot(
         if (!TryGetPermissionId(values, out var permissionId))
             return;
 
-        var approved = string.Equals(actionId, PermissionApproveActionId, StringComparison.Ordinal);
+        var choiceId = ReadValue("choiceId");
+        var sourceName = ReadValue("sourceName");
+        if (string.IsNullOrWhiteSpace(choiceId) || string.IsNullOrWhiteSpace(sourceName)) return;
         var agent = await _agentManager.GetOrBuildAgentAsync(_config.ResolveAgentId(), ct);
+        await agent.TryAnswerRequestAsync(new PermissionResponseEvent(permissionId, sourceName, choiceId), ct);
 
-        await agent.TryAnswerRequestAsync(new PermissionResponseEvent(
-            PermissionId: permissionId,
-            SourceName: "teams",
-            ChoiceId: approved ? "allow_once" : "deny_once",
-            Feedback: approved ? null : "Denied from Teams"), ct);
+        string? ReadValue(string name) => values.GetValueOrDefault(name)
+            ?? values.GetValueOrDefault("action.data." + name) ?? values.GetValueOrDefault("data." + name);
+
     }
 
     public Task<string> OpenDmAsync(string userId, CancellationToken ct = default)
@@ -270,9 +270,7 @@ public sealed class TeamsBot(
         return null;
     }
 
-    private static bool IsPermissionAction(string actionId)
-        => string.Equals(actionId, PermissionApproveActionId, StringComparison.Ordinal)
-            || string.Equals(actionId, PermissionDenyActionId, StringComparison.Ordinal);
+    private static bool IsPermissionAction(string actionId) => actionId == PermissionChoiceActionId;
 
     private static bool TryGetPermissionId(IReadOnlyDictionary<string, string> values, out string permissionId)
     {
@@ -291,41 +289,27 @@ public sealed class TeamsBot(
     {
         var body = new List<object>
         {
-            new TeamsTextBlock("Permission requested", Weight: "Bolder", Size: "Medium"),
-            new TeamsTextBlock(permission.Evaluation.Summary ?? permission.Evaluation.Title, Wrap: true),
-            new TeamsFactSet(
-            [
-                new TeamsFact("Function", permission.FunctionName),
-                new TeamsFact("Risk", permission.Evaluation.Risk.ToString()),
-                new TeamsFact("Source", permission.SourceName),
-            ]),
+            new TeamsTextBlock(permission.Reason ?? "Approval required", Weight: "Bolder", Size: "Medium"),
+            new TeamsFactSet([new TeamsFact("Function", permission.FunctionName ?? permission.Authority ?? ""),
+                new TeamsFact("Action", permission.Action ?? ""),
+                new TeamsFact("Risk", permission.Risk?.ToString() ?? "Unspecified"),
+                new TeamsFact("Source", permission.SourceName)])
         };
-
-        return new TeamsAdaptiveCard(
-            Body: body,
-            Actions:
-            [
-                new TeamsSubmitAction(
-                    Title: "Approve",
-                    Data: new Dictionary<string, string>
-                    {
-                        ["actionId"] = PermissionApproveActionId,
-                        ["permissionId"] = permission.PermissionId,
-                    },
-                    Style: "positive"),
-                new TeamsSubmitAction(
-                    Title: "Deny",
-                    Data: new Dictionary<string, string>
-                    {
-                        ["actionId"] = PermissionDenyActionId,
-                        ["permissionId"] = permission.PermissionId,
-                    },
-                    Style: "destructive"),
-            ]);
+        if (permission.Arguments is { ValueKind: not System.Text.Json.JsonValueKind.Undefined } arguments)
+            body.Add(new TeamsTextBlock(
+                $"Arguments: {Truncate(arguments.GetRawText(), 500)}", Wrap: true));
+        if (permission.PersistenceUnavailableReason is { } unavailable)
+            body.Add(new TeamsTextBlock($"Reusable approval unavailable: {unavailable}", Wrap: true));
+        return new TeamsAdaptiveCard(Body: body, Actions: permission.Choices.Select(choice => new TeamsSubmitAction(
+            Title: choice.Label, Data: new Dictionary<string, string>
+            {
+                ["actionId"] = PermissionChoiceActionId, ["permissionId"] = permission.PermissionId,
+                ["sourceName"] = permission.SourceName, ["choiceId"] = choice.Id
+            }, Style: choice.Kind == HPD.Agent.Permissions.PermissionDecisionKind.Allow ? "positive" : "destructive")).ToArray());
     }
 
-    private static string FormatPermissionArguments(IDictionary<string, object?> arguments)
-        => string.Join("\n", arguments.Select(argument => $"{argument.Key}: {argument.Value}"));
+    private static string Truncate(string value, int maximumLength) =>
+        value.Length <= maximumLength ? value : value[..Math.Max(0, maximumLength - 3)] + "...";
 
     private static IReadOnlyList<DataContent> MapInputFiles(IReadOnlyList<InputFile> inputFiles)
     {

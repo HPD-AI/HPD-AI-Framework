@@ -20,28 +20,26 @@ public static class AgentBuilderPermissionExtensions
     /// // Then handle events in your event loop (see Middleware_EVENTS_USAGE.md)
     /// </example>
     /// <remarks>
-    /// Permission choices persist through the session store's versioned
-    /// <see cref="IPermissionPreferenceStore"/> contract when available.
+    /// Reusable approvals persist as session-scoped middleware state.
     /// </remarks>
-    public static AgentBuilder WithPermissions(this AgentBuilder builder)
+    public static AgentBuilder WithPermissions(this AgentBuilder builder, HPD.Agent.Permissions.AuthorizationMode authorizationMode = HPD.Agent.Permissions.AuthorizationMode.Enforce)
     {
+        var existing = builder._middlewares.OfType<HPD.Agent.Permissions.PermissionMiddleware>().SingleOrDefault();
+        if (existing is not null)
+        {
+            if (existing.Mode != authorizationMode) throw new InvalidOperationException("Conflicting construction-time authorization modes.");
+            return builder;
+        }
         var middleware = new HPD.Agent.Permissions.PermissionMiddleware(
             config: builder.Config,
             overrideRegistry: builder._permissionOverrides,
-            descriptorCatalog: builder.PermissionDescriptorCatalog);
+            descriptorCatalog: builder.PermissionDescriptorCatalog,
+            authorizationMode: authorizationMode);
         builder._middlewares.Add(middleware);
         return builder;
     }
 
-    /// <summary>
-    /// Adds an auto-approve permission Middleware for testing and automation scenarios.
-    /// </summary>
-    public static AgentBuilder WithAutoApprovePermissions(this AgentBuilder builder)
-    {
-        var middleware = new HPD.Agent.Permissions.AutoApprovePermissionMiddleware();
-        builder._middlewares.Add(middleware);
-        return builder;
-    }
+
 
     /// <summary>
     /// Forces a specific function to require permission, overriding the [RequiresPermission] attribute.

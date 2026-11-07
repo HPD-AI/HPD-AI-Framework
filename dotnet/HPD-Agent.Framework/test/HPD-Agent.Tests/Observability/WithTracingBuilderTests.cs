@@ -152,7 +152,8 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
         fakeLLM.EnqueueStreamingResponse("Done.");
 
         var bigResult = new string('x', 1000);
-        var bigTool = AIFunctionFactory.Create(() => bigResult, "big_tool");
+        var bigTool = HPDAIFunctionFactory.Import(
+            AIFunctionFactory.Create(() => bigResult, "big_tool"), explicitlyUngoverned: true);
 
         var config = DefaultConfig();
         config.Clients.Chat!.Override = HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(fakeLLM, "test", "local", "test.chat");
@@ -224,7 +225,9 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
         config.EnsureChatClientConfig().ModelName = "test-model";
             config.ServerConfiguredTools ??= new List<AITool>();
             foreach (var tool in tools)
-                config.ServerConfiguredTools.Add(tool);
+                config.ServerConfiguredTools.Add(tool is HPDAIFunctionFactory.HPDAIFunction
+                    ? tool
+                    : HPDAIFunctionFactory.Import(tool, explicitlyUngoverned: true));
         }
 
         var builder = new AgentBuilder(config, new TestProviderRegistry(fakeLLM));

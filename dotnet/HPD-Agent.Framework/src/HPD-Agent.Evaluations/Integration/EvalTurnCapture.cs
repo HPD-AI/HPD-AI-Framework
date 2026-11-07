@@ -101,8 +101,8 @@ internal sealed class EvalTurnCapture
                 buffer.RecordPermissionResponse();
                 break;
 
-            case PermissionDeniedEvent e:
-                buffer.RecordPermissionDenied(e.FunctionCallId);
+            case PermissionResolvedEvent e when e.DecisionKind != HPD.Agent.Permissions.PermissionDecisionKind.Allow:
+                buffer.RecordPermissionDenied(e.CallId);
                 break;
 
             case AgentTurnCapabilitiesPinnedEvent e:

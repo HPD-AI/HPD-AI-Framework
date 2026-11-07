@@ -1,4 +1,4 @@
-import type { AgentRunInputEvent } from '@hpd-research/hpd-agent-client';
+import type { AgentResponseInput } from '@hpd-research/hpd-agent-client';
 import type { RuntimeRequest } from '@hpd-research/hpd-agent-headless-ui';
 import type { ThreadState } from '../thread-state.js';
 import { mergeProps } from '../thread-composer/index.js';
@@ -105,11 +105,11 @@ export function createRuntimeRequestActions(
 export function createCustomResponseInput(
   item: RuntimeRequest,
   value: string,
-): AgentRunInputEvent {
+): AgentResponseInput {
   return {
     type: item.expectedResponseEventType ?? `${item.requestEventType}_RESPONSE`,
     requestId: item.id,
     sourceName: item.sourceName,
     value,
-  } as unknown as AgentRunInputEvent;
+  } as unknown as AgentResponseInput;
 }

@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentClient } from '../src/client.js';
-import { EventTypes } from '../src/types/events.js';
+import {
+  createPermissionResponse,
+  EventTypes,
+  PermissionDomains,
+  toPermissionPrompt,
+  type PermissionRequestEvent,
+} from '../src/types/events.js';
 
 function sseStream(...events: object[]): ReadableStream<Uint8Array> {
   return new ReadableStream({
@@ -37,6 +43,66 @@ function okSubmission(): Response {
     }),
   } as Response;
 }
+
+describe('simple permission surface', () => {
+  const request: PermissionRequestEvent = {
+    type: EventTypes.PERMISSION_REQUEST,
+    permissionId: 'permission-1',
+    callId: 'call-1',
+    sourceName: 'PermissionMiddleware',
+    permissionDomain: PermissionDomains.ToolExecution,
+    authority: 'acme.docs/write',
+    action: 'write',
+    functionName: 'write_file',
+    arguments: { path: '/tmp/report.md' },
+    reason: 'Write the report?',
+    choices: [
+      { id: 'allow_once', label: 'Allow once', kind: 'Allow' },
+      { id: 'allow_session', label: 'Allow for session', kind: 'Allow' },
+      { id: 'deny_once', label: 'Deny', kind: 'Deny' },
+    ],
+  };
+
+  it('projects the stable prompt fields', () => {
+    expect(toPermissionPrompt(request)).toEqual({
+      permissionId: 'permission-1',
+      callId: 'call-1',
+      functionName: 'write_file',
+      action: 'write',
+      arguments: { path: '/tmp/report.md' },
+      reason: 'Write the report?',
+    });
+  });
+
+  it('accepts an application-owned permission domain', () => {
+    expect({
+      ...request,
+      permissionDomain: 'acme.database-admin',
+    }).toMatchObject({
+      permissionDomain: 'acme.database-admin',
+    });
+  });
+
+  it('maps binary answers to the built-in exact choices', () => {
+    expect(createPermissionResponse(request, {
+      permissionId: 'permission-1',
+      approved: true,
+    })).toMatchObject({
+      type: EventTypes.PERMISSION_RESPONSE,
+      permissionId: 'permission-1',
+      sourceName: 'PermissionMiddleware',
+      choiceId: 'allow_once',
+    });
+    expect(createPermissionResponse(request, {
+      permissionId: 'permission-1',
+      approved: false,
+      reason: 'Keep the current file.',
+    })).toMatchObject({
+      choiceId: 'deny_once',
+      feedback: 'Keep the current file.',
+    });
+  });
+});
 
 describe('AgentClient', () => {
   beforeEach(() => {
@@ -302,8 +368,7 @@ describe('AgentClient', () => {
       type: EventTypes.PERMISSION_RESPONSE,
       permissionId: 'perm-1',
       sourceName: 'PermissionMiddleware',
-      approved: true,
-      choice: 'allow_always',
+      choiceId: 'allow_session',
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
@@ -315,8 +380,7 @@ describe('AgentClient', () => {
           type: EventTypes.PERMISSION_RESPONSE,
           permissionId: 'perm-1',
           sourceName: 'PermissionMiddleware',
-          approved: true,
-          choice: 1,
+          choiceId: 'allow_session',
         }),
       })
     );

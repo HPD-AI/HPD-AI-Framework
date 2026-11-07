@@ -38,9 +38,6 @@ public sealed class McpPermissionConfig
     [JsonPropertyName("policy")]
     public string? Policy { get; set; }
 
-    /// <summary>Gets or sets the stable default interaction descriptor ID.</summary>
-    [JsonPropertyName("interaction")]
-    public string? Interaction { get; set; }
 
     /// <summary>Gets or sets exact original MCP tool permission overrides.</summary>
     [JsonPropertyName("tools")]
@@ -56,12 +53,11 @@ public sealed class McpPermissionConfig
     {
         ValidateOptionalId(Authority, nameof(Authority));
         ValidateOptionalId(Policy, nameof(Policy));
-        ValidateOptionalId(Interaction, nameof(Interaction));
-        if (!RequiresPermission && (Policy is not null || Interaction is not null))
+        if (!RequiresPermission && Policy is not null)
             throw new McpPermissionConfigurationException(
                 "McpToolPermissionOverrideInvalid",
                 "permission",
-                "MCP permission cannot disable permission and declare a policy or interaction.");
+                "MCP permission cannot disable permission and declare a policy.");
         if (Tools is null)
             throw new McpPermissionConfigurationException(
                 "McpToolPermissionOverrideInvalid",
@@ -119,20 +115,16 @@ public sealed record McpToolPermissionOverride
     [JsonPropertyName("policy")]
     public string? Policy { get; init; }
 
-    /// <summary>Gets or sets the stable tool interaction descriptor ID.</summary>
-    [JsonPropertyName("interaction")]
-    public string? Interaction { get; init; }
 
     internal void Validate(string toolName)
     {
         ValidateOptionalId(Authority, "authority", $"permission.tools.{toolName}");
         ValidateOptionalId(Policy, "policy", $"permission.tools.{toolName}");
-        ValidateOptionalId(Interaction, "interaction", $"permission.tools.{toolName}");
-        if (RequiresPermission == false && (Policy is not null || Interaction is not null))
+        if (RequiresPermission == false && Policy is not null)
             throw new McpPermissionConfigurationException(
                 "McpToolPermissionOverrideInvalid",
                 $"permission.tools.{toolName}",
-                $"MCP tool '{toolName}' cannot disable permission and declare a policy or interaction.");
+                $"MCP tool '{toolName}' cannot disable permission and declare a policy.");
     }
 
     private static void ValidateOptionalId(string? value, string name, string path)

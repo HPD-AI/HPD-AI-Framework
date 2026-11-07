@@ -1120,10 +1120,12 @@ public sealed class DebugPublicHostedRealAdapterTests
                 .Cast<AIFunctionActionAttribute>().Single().PermissionAuthority!;
             var grant = new FunctionPermissionGrant
             {
+                PermissionId = "permission-1",
                 FunctionCallId = callId,
                 FunctionName = "Debug",
                 Action = action,
-                Key = new PermissionKey("Debug", action, authority, "hpd.permission.default", "1"),
+                Key = new PermissionDecisionKey(
+                    "Debug", authority, action, "hpd.permission.default.v1"),
                 ChoiceId = "allow_once",
                 GrantedAt = DateTimeOffset.UtcNow,
                 Source = PermissionGrantSource.UserDecision,
@@ -1134,10 +1136,10 @@ public sealed class DebugPublicHostedRealAdapterTests
                     {
                         RequiresPermission = true,
                         Authority = authority,
+                        PolicyDescriptorId = "hpd.permission.default.v1",
                         Source = PermissionDeclarationSource.ActionOverride
                     },
-                    PolicyId = "hpd.permission.default",
-                    PolicyRevision = "1"
+                    PolicyDescriptorId = "hpd.permission.default.v1"
                 }
             };
             return new FunctionExecutionContext(before, new FunctionRequest

@@ -24,6 +24,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="../HPD-Agent.Authority.Tests/UnifiedPermissionModelTests.cs" Link="Permissions/UnifiedPermissionModelTests.cs" />
+    <Compile Include="../HPD-Agent.Authority.Tests/PermissionAdmissionLifecycleTests.cs" Link="Permissions/PermissionAdmissionLifecycleTests.cs" />
+    <Compile Include="../HPD-Agent.Authority.Tests/PermissionCheckpointOwnershipTests.cs" Link="Permissions/PermissionCheckpointOwnershipTests.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
 

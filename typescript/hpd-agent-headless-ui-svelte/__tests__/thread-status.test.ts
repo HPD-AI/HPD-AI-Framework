@@ -42,11 +42,12 @@ function runtimeRequest(): RuntimeRequest {
     expectedResponseEventType: 'PERMISSION_RESPONSE',
     request: {
       permissionId: 'perm-1',
+      permissionDomain: 'ToolExecution',
+      choices: [{ id: 'allow_once', label: 'Allow once', kind: 'Allow' }, { id: 'deny_once', label: 'Deny', kind: 'Deny' }],
       sourceName: 'PermissionMiddleware',
-      functionName: 'Bash',
-      description: 'Run tests',
+      authority: 'Bash',
+      reason: 'Run tests',
       callId: 'call-1',
-      arguments: { command: 'npm test' },
     },
   };
 }

@@ -118,9 +118,6 @@ public sealed record AIFunctionPermissionDeclaration
     /// <summary>Gets the stable permission-policy descriptor ID, when custom policy is selected.</summary>
     public string? PolicyDescriptorId { get; init; }
 
-    /// <summary>Gets the stable permission-interaction descriptor ID, when custom interaction is selected.</summary>
-    public string? InteractionDescriptorId { get; init; }
-
     /// <summary>Gets the declaration source.</summary>
     public required PermissionDeclarationSource Source { get; init; }
 }

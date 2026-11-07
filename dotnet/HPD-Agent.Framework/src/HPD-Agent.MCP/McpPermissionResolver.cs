@@ -32,7 +32,6 @@ internal static class McpPermissionResolver
             RequiresPermission = true,
             Authority = authority,
             PolicyDescriptorId = toolOverride?.Policy ?? serverPermission.Policy,
-            InteractionDescriptorId = toolOverride?.Interaction ?? serverPermission.Interaction,
             Source = toolOverride is null
                 ? serverSource
                 : PermissionDeclarationSource.ToolOverride
@@ -55,7 +54,6 @@ internal static class McpPermissionResolver
             RequiresPermission = true,
             Authority = authority,
             PolicyDescriptorId = permission.Policy,
-            InteractionDescriptorId = permission.Interaction,
             Source = serverSource
         };
     }

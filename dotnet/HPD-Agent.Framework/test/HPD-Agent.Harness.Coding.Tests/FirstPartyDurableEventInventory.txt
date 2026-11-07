@@ -21,12 +21,7 @@ HPD.Agent.Goals.GoalStartedEvent
 HPD.Agent.Goals.GoalUpdatedEvent
 HPD.Agent.Goals.GoalUsageLimitedEvent
 HPD.Agent.OperationExecutionOwnerCleanupFailedEvent
-HPD.Agent.PermissionDecidedEvent
-HPD.Agent.PermissionDeniedEvent
 HPD.Agent.PermissionEvaluatedEvent
-HPD.Agent.PermissionGrantIssuedEvent
-HPD.Agent.PermissionPreferenceChangedEvent
-HPD.Agent.PermissionRequestedAuditEvent
 HPD.Agent.SubAgentChildControllerAuthorityEvent
 HPD.Agent.SubAgentChildDetachedEvent
 HPD.Agent.SubAgentChildRegisteredEvent
@@ -118,8 +113,8 @@ HPD.Agent.ModelCallRetryEvent
 HPD.Agent.NestedAgentInvokedEvent
 HPD.Agent.PIIDetectedEvent
 HPD.Agent.ParentQuestionRequestEvent
-HPD.Agent.PermissionCheckEvent
 HPD.Agent.PermissionRequestEvent
+HPD.Agent.PermissionResolvedEvent
 HPD.Agent.PermissionResponseEvent
 HPD.Agent.PlanUpdatedEvent
 HPD.Agent.ProviderOperationUsageEvent
@@ -129,8 +124,6 @@ HPD.Agent.ReasoningDeltaEvent
 HPD.Agent.ReasoningMessageEndEvent
 HPD.Agent.ReasoningMessageStartEvent
 HPD.Agent.RequestEventProcessedEvent
-HPD.Agent.Security.AgentCapabilityRequestEvent
-HPD.Agent.Security.AgentCapabilityResponseEvent
 HPD.Agent.SkillActivatedEvent
 HPD.Agent.SkillActivationFailedEvent
 HPD.Agent.SkillActivationStartedEvent
@@ -212,8 +205,6 @@ HPDOS.ToolHarnesses.Middleware.DebugTreeCompletedEvent
 HPDOS.ToolHarnesses.Middleware.DebugTreeFaultedEvent
 HPDOS.ToolHarnesses.Middleware.DebugTreeStartedEvent
 HPDOS.ToolHarnesses.Middleware.DebugTreeTerminatedEvent
-HPDOS.ToolHarnesses.Middleware.ExecuteCommandPermissionRequestEvent
-HPDOS.ToolHarnesses.Middleware.ExecuteCommandPermissionResponseEvent
 HPDOS.ToolHarnesses.Middleware.FileEditAppliedEvent
 HPDOS.ToolHarnesses.Middleware.FileWriteAppliedEvent
 HPDOS.ToolHarnesses.Middleware.LanguageServerDiagnosticsReceivedEvent

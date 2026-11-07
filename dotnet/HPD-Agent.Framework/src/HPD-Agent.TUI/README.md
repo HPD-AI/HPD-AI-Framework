@@ -147,8 +147,9 @@ shows the available edit and steer actions.
 
 An enabled sandbox can block a tool operation that needs file access, network
 egress, a local port, an interactive terminal, or unsandboxed execution outside
-its current grants. The coding TUI presents an `AgentCapabilityRequestEvent` with
-the request ID, capability, resource, and reason.
+its current grants. The coding TUI receives the shared `PermissionRequestEvent`
+with `PermissionDomain = SandboxCapability`, including the originating function,
+public arguments, resource, reason, and policy-supplied choices.
 
 For a request tied to an active agent turn, the dialog offers both:
 

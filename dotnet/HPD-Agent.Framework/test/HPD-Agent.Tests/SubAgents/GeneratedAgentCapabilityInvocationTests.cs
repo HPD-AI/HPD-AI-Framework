@@ -28,7 +28,7 @@ public sealed class GeneratedAgentCapabilityInvocationTests
         config.ServerConfiguredTools = [subAgentFunction, multiAgentFunction];
 
         var agent = await new AgentBuilder(config, new TestProviderRegistry(parentClient))
-            .WithAutoApprovePermissions()
+            .WithHostAutoApproval()
             .BuildAsync(CancellationToken.None);
         var events = new System.Collections.Concurrent.ConcurrentQueue<AgentEvent>();
 
@@ -38,7 +38,12 @@ public sealed class GeneratedAgentCapabilityInvocationTests
             return ValueTask.CompletedTask;
         });
 
-        await agent.RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "Use the generated capabilities.")] }, CancellationToken.None);
+        var sessionId = await agent.CreateSessionAsync(cancellationToken: CancellationToken.None);
+        await agent.RunAsync(new UserMessagesInputEvent
+        {
+            Messages = [new ChatMessage(ChatRole.User, "Use the generated capabilities.")],
+            SessionId = sessionId
+        }, CancellationToken.None);
 
         await WaitUntilAsync(() =>
             events.OfType<ToolCallResultEvent>().Count() >= 2 &&

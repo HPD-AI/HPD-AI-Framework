@@ -5,21 +5,17 @@ using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding;
 
-/// <summary>Safe typed presentation for an analyzed ExecuteCommand permission request.</summary>
-/// <param name="Plan">The constructor-free semantic command plan.</param>
-/// <param name="RuleDiagnostics">Diagnostics produced while matching reusable command rules.</param>
-[PermissionPresentation("hpd.coding.execute-command", typeof(global::CodingToolHarnessJsonContext))]
-public sealed record ExecuteCommandPermissionPresentation(
+/// <summary>Client-safe command security evidence without a policy-owned UI contract.</summary>
+public sealed record ExecuteCommandPermissionEvidence(
     ExecuteCommandPermissionPlan Plan,
-    ExecuteCommandPermissionRuleDiagnostics RuleDiagnostics,
-    IReadOnlyList<ExecuteCommandPermissionChoice> Choices);
+    ExecuteCommandPermissionRuleDiagnostics RuleDiagnostics);
 
 /// <summary>
 /// Evaluates ExecuteCommand's semantic command plan while the framework owns mediation and grants.
 /// </summary>
-[PermissionPolicyDefinition("hpd.coding.execute-command")]
+[PermissionPolicyDefinition("hpd.coding.execute-command.v2")]
 public sealed class ExecuteCommandPermissionPolicy :
-    PermissionPolicy<ExecuteCommandPermissionPresentation>,
+    IPermissionPolicy,
     IValidatedPermissionRulePolicy
 {
     /// <summary>The stable canonical rule payload type.</summary>
@@ -28,7 +24,7 @@ public sealed class ExecuteCommandPermissionPolicy :
     private static readonly ExecuteCommandOptions DefaultOptions = new();
 
     /// <inheritdoc />
-    public override ValueTask<PermissionEvaluation> EvaluateAsync(
+    public ValueTask<PermissionPolicyResult> EvaluateAsync(
         ValidatedPermissionInput input,
         PermissionEvaluationContext context,
         CancellationToken cancellationToken)
@@ -36,61 +32,38 @@ public sealed class ExecuteCommandPermissionPolicy :
         cancellationToken.ThrowIfCancellationRequested();
         var plan = Analyze(input, context.RunConfig);
         var match = ExecuteCommandPermissionRuleMatcher.Match(plan, []);
-        var choices = ExecuteCommandPermissionChoiceBuilder.Build(plan, match.MatchingRules)
-            .Select(ToFrameworkChoice)
-            .ToArray();
-
-        return ValueTask.FromResult(new PermissionEvaluation
+        var legal = ExecuteCommandPermissionChoiceBuilder.Build(plan, match.MatchingRules);
+        var choices = legal.Select(choice => new PermissionChoice(choice.Id, choice.Label,
+            choice is FeedbackChoice ? PermissionDecisionKind.Feedback : choice is DenyChoice ? PermissionDecisionKind.Deny : PermissionDecisionKind.Allow,
+            choice is FeedbackChoice ? PermissionDeniedBehavior.ReturnToModel : null)).ToArray();
+        var mappings = legal.OfType<PersistRuleChoice>().ToDictionary(choice => choice.Id,
+            choice => new PermissionPersistenceProposal
+            {
+                Kind = PermissionPersistenceKind.ValidatedRule, RuleTypeId = RuleTypeId,
+                CanonicalRule = CreateCanonicalRule(choice)
+            }, StringComparer.Ordinal);
+        return ValueTask.FromResult(new PermissionPolicyResult
         {
-            PolicyId = "hpd.coding.execute-command",
-            PolicyRevision = "2",
-            Authority = context.Authority,
-            Title = plan.Action == ExecuteCommandAction.Run
-                ? "Allow this command?"
-                : $"Allow ExecuteCommand {plan.Action}?",
-            Summary = plan.Command.Value,
-            Risk = ToFrameworkRisk(plan.Risk),
-            Choices = new PermissionChoiceSet { Items = choices },
-            RequestFingerprint = plan.Fingerprint.Value,
-            Presentation = new ExecuteCommandPermissionPresentation(
-                plan,
-                match.Diagnostics,
-                ExecuteCommandPermissionChoiceBuilder.Build(plan, match.MatchingRules))
+            Outcome = new PermissionAsk("Review the command and its security effects.", ToFrameworkRisk(plan.Risk),
+                new PermissionResource(plan.Command.Value, plan.Command.Value), choices),
+            Evidence = new PermissionEvidence("hpd.coding.execute-command", "1",
+                JsonSerializer.SerializeToElement(new ExecuteCommandPermissionEvidence(plan, match.Diagnostics),
+                    CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionEvidence)),
+            PersistenceByChoice = mappings
         });
     }
 
-    /// <inheritdoc />
-    public bool MatchesValidatedRule(
-        ValidatedPermissionInput input,
-        PermissionEvaluationContext context,
-        string ruleTypeId,
-        JsonElement canonicalRule,
-        PermissionDecisionKind storedDecision)
+    public bool MatchesStoredDecision(ValidatedPermissionInput input,
+        PermissionEvaluationContext context, PermissionDecisionRecord record)
     {
-        if (storedDecision != PermissionDecisionKind.Allow ||
-            !string.Equals(ruleTypeId, RuleTypeId, StringComparison.Ordinal))
-            return false;
-
+        if (record.RuleTypeId != RuleTypeId || record.CanonicalRule is not { } rule) return false;
         ExecuteCommandPermissionRule[]? rules;
-        try
-        {
-            rules = JsonSerializer.Deserialize(
-                canonicalRule,
-                CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionRuleArray);
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-
-        if (rules is null || rules.Length == 0 ||
-            rules.Any(rule => !ExecuteCommandPermissionRuleValidator.ValidatePersistedRuleForCurrentWorkspace(
-                rule,
-                context.RunConfig).Valid))
-            return false;
-
-        var match = ExecuteCommandPermissionRuleMatcher.Match(Analyze(input, context.RunConfig), rules);
-        return match.Decision is { Behavior: ExecuteCommandPermissionBehavior.Allow };
+        try { rules = JsonSerializer.Deserialize(rule, CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionRuleArray); }
+        catch (JsonException) { return false; }
+        if (rules is null || rules.Length == 0 || rules.Any(candidate =>
+            !ExecuteCommandPermissionRuleValidator.ValidatePersistedRuleForCurrentWorkspace(candidate, context.RunConfig).Valid)) return false;
+        return ExecuteCommandPermissionRuleMatcher.Match(Analyze(input, context.RunConfig), rules).Decision is
+            { Behavior: ExecuteCommandPermissionBehavior.Allow };
     }
 
     private static ExecuteCommandPermissionPlan Analyze(
@@ -103,42 +76,6 @@ public sealed class ExecuteCommandPermissionPolicy :
             },
             runConfig,
             DefaultOptions);
-
-    private static PermissionChoiceDescriptor ToFrameworkChoice(ExecuteCommandPermissionChoice choice) =>
-        choice switch
-        {
-            PersistRuleChoice persisted => new PermissionChoiceDescriptor
-            {
-                Id = persisted.Id,
-                Label = persisted.Label,
-                Decision = PermissionDecisionKind.Allow,
-                Persistence = new PermissionPersistenceProposal
-                {
-                    Kind = PermissionPersistenceKind.ValidatedRule,
-                    RuleTypeId = RuleTypeId,
-                    CanonicalRule = CreateCanonicalRule(persisted)
-                }
-            },
-            FeedbackChoice => new PermissionChoiceDescriptor
-            {
-                Id = choice.Id,
-                Label = choice.Label,
-                Decision = PermissionDecisionKind.Feedback,
-                DeniedBehavior = PermissionDeniedBehavior.ReturnToModel
-            },
-            DenyChoice => new PermissionChoiceDescriptor
-            {
-                Id = choice.Id,
-                Label = choice.Label,
-                Decision = PermissionDecisionKind.Deny
-            },
-            _ => new PermissionChoiceDescriptor
-            {
-                Id = choice.Id,
-                Label = choice.Label,
-                Decision = PermissionDecisionKind.Allow
-            }
-        };
 
     private static JsonElement CreateCanonicalRule(PersistRuleChoice choice)
     {
@@ -162,44 +99,5 @@ public sealed class ExecuteCommandPermissionPolicy :
                      ExecuteCommandPermissionRisk.OutsideWorkspaceReference)) != 0)
             return PermissionRisk.High;
         return risk == ExecuteCommandPermissionRisk.None ? PermissionRisk.Low : PermissionRisk.Medium;
-    }
-}
-
-/// <summary>Maps ExecuteCommand's rich typed request protocol to one normalized framework decision.</summary>
-[PermissionInteractionDefinition("hpd.coding.execute-command.interaction")]
-public sealed class ExecuteCommandPermissionInteraction :
-    IPermissionInteractionEventContract<ExecuteCommandPermissionRequestEvent, ExecuteCommandPermissionResponseEvent>
-{
-    /// <inheritdoc />
-    public async ValueTask<PermissionDecision> RequestAsync(
-        PermissionInteractionContext context,
-        PermissionEvaluation evaluation,
-        CancellationToken cancellationToken)
-    {
-        var presentation = evaluation.Presentation as ExecuteCommandPermissionPresentation ??
-            throw new InvalidOperationException("ExecuteCommand permission presentation is unavailable.");
-        var response = await context.RequestAsync<
-            ExecuteCommandPermissionRequestEvent,
-            ExecuteCommandPermissionResponseEvent>(
-            new ExecuteCommandPermissionRequestEvent(
-                context.PermissionId,
-                nameof(ExecuteCommandPermissionInteraction),
-                context.FunctionCallId,
-                presentation.Plan,
-                [],
-                presentation.RuleDiagnostics,
-                presentation.Choices),
-            cancellationToken).ConfigureAwait(false);
-        var choice = evaluation.Choices.Items.FirstOrDefault(candidate =>
-            string.Equals(candidate.Id, response.ChoiceId, StringComparison.Ordinal)) ??
-            throw new InvalidOperationException(
-                $"ExecuteCommand permission response selected unknown choice '{response.ChoiceId}'.");
-        return new PermissionDecision
-        {
-            Kind = choice.Decision,
-            ChoiceId = choice.Id,
-            Feedback = response.FeedbackText,
-            Reason = response.FeedbackText
-        };
     }
 }

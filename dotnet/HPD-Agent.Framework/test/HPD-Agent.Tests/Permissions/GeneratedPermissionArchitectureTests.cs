@@ -59,7 +59,6 @@ public sealed class GeneratedPermissionArchitectureTests
                             RequiresPermission = true,
                             Authority = authority,
                             PolicyDescriptorId = "policy",
-                            InteractionDescriptorId = "interaction",
                             Source = PermissionDeclarationSource.ActionOverride
                         }
                     }
@@ -188,43 +187,11 @@ public sealed class GeneratedPermissionArchitectureTests
     }
 
     [Fact]
-    public async Task Preference_commit_is_versioned_idempotent_and_carries_exact_committed_event()
+    public void Session_decisions_have_stable_agent_and_policy_scoped_identity()
     {
-        var store = new InMemorySessionStore(TestEventApplication.Codec);
-        var key = new PermissionKey("Documents", "delete", "function/Documents/action/delete", "policy", "1");
-        var record = new PermissionPreferenceRecord
-        {
-            PreferenceId = "preference-1",
-            Key = key,
-            Decision = PermissionDecisionKind.Allow,
-            Kind = PermissionPersistenceKind.SessionKey,
-            CreatedAt = DateTimeOffset.UtcNow
-        };
-        var commit = new PermissionPreferenceCommit
-        {
-            SessionId = "session-1",
-            AuditThread = new ThreadKey("session-1", "main"),
-            ExpectedVersion = 0,
-            Replacement = new PermissionPreferenceSnapshot
-            {
-                Version = 1,
-                SchemaVersion = PermissionPreferenceSchema.CurrentVersion,
-                Records = [record]
-            },
-            Event = new PermissionPreferenceChangedEvent(
-                record.PreferenceId, key, record.Decision, record.Kind),
-            IdempotencyKey = "permission-1:always_allow:preference-1",
-            PublisherClaimantId = "publisher-1"
-        };
-
-        var first = await store.CommitAsync(commit, CancellationToken.None);
-        var replay = await store.CommitAsync(commit, CancellationToken.None);
-
-        Assert.Equal(PermissionPreferenceCommitStatus.Committed, first.Status);
-        Assert.Equal(PermissionPreferenceCommitStatus.AlreadyCommitted, replay.Status);
-        Assert.Equal(first.Outbox!.SettlementId, replay.Outbox!.SettlementId);
-        Assert.Equal(1, first.Outbox.CommittedEvent.ThreadSequenceNumber);
-        Assert.Equal("publisher-1", first.Outbox.ClaimantId);
-        Assert.Equal(1, (await store.ReadAsync("session-1", CancellationToken.None)).Version);
+        var first = new PermissionDecisionKey("agent-1", "files/write", null, "write.v1");
+        var second = first with { AgentId = "agent-2" };
+        Assert.NotEqual(PermissionRecordIdentity.Create(first, PermissionPersistenceKind.Session),
+            PermissionRecordIdentity.Create(second, PermissionPersistenceKind.Session));
     }
 }

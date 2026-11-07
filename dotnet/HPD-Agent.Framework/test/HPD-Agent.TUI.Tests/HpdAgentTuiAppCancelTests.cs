@@ -357,7 +357,10 @@ public sealed class HpdAgentTuiAppCancelTests
         InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
         InvokePrivate(app, "StartObserver", new DirectAgentTuiExecutionTarget(scope), CancellationToken.None);
         var request = new PermissionRequestEvent(
-            "permission-1", "test", "function", null, "call-1", null)
+            "permission-1", "call-1", "test", HPD.Agent.Permissions.PermissionDomains.ToolExecution,
+            "function", null, null, null, null,
+            [new HPD.Agent.Permissions.PermissionChoice("allow_once", "Allow", HPD.Agent.Permissions.PermissionDecisionKind.Allow),
+             new HPD.Agent.Permissions.PermissionChoice("deny_once", "Deny", HPD.Agent.Permissions.PermissionDecisionKind.Deny)])
         {
             SessionId = scope.SessionId,
             ThreadId = scope.ThreadId,

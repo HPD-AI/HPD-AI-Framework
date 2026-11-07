@@ -348,7 +348,7 @@ public class TracingObserverTests : IDisposable
     [Fact]
     public async Task PermissionRequestEvent_DoesNotThrow()
     {
-        var permReq = new PermissionRequestEvent("perm-1", "PermMiddleware", "SomeTool", null, "call-1", null)
+        var permReq = new PermissionRequestEvent("perm-1", "call-1", "PermMiddleware", HPD.Agent.Permissions.PermissionDomains.ToolExecution, "SomeTool", null, null, null, null, [])
         {
             TraceId = TraceId,
             SpanId = IterSpanId

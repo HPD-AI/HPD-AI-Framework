@@ -23,6 +23,9 @@ using Microsoft.Extensions.AI;
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
 )]
 // --- Framework-specific types ---
+[JsonSerializable(typeof(PermissionDecisionStateData))]
+[JsonSerializable(typeof(PermissionDecisionRecord))]
+[JsonSerializable(typeof(PermissionDecisionKey))]
 [JsonSerializable(typeof(ValidationErrorResponse))]
 [JsonSerializable(typeof(ValidationError))]
 [JsonSerializable(typeof(List<ValidationError>))]

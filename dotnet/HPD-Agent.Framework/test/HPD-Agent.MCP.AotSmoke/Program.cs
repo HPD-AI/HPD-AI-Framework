@@ -54,7 +54,7 @@ File.WriteAllText(
           allowedTools:
             - inline_echo
           permission:
-            policy: hpd.smoke.inline-policy
+            policy: hpd.smoke.inline-policy.v1
       manifests:
         - path: ./config/mcp.json
           sourceName: external
@@ -70,8 +70,7 @@ File.WriteAllText(
           "endpoint": "https://external.test/mcp",
           "allowedTools": ["external_echo"],
           "permission": {
-            "policy": "hpd.smoke.confirm-policy",
-            "interaction": "hpd.smoke.confirmation"
+            "policy": "hpd.smoke.confirm-policy.v1"
           }
         }
       ]
@@ -98,16 +97,16 @@ try
             : externalHttp)
         .BuildAsync())
     {
-        using var interaction = agent.EventCoordinator.Subscribe<SmokePermissionRequestEvent>(request =>
+        using var interaction = agent.EventCoordinator.Subscribe<PermissionRequestEvent>(async request =>
         {
             handler.RecordInteraction();
-            agent.EventCoordinator.Respond(new SmokePermissionResponseEvent(
+            await agent.AnswerRequestAsync(new PermissionResponseEvent(
                 request.PermissionId,
                 request.SourceName,
                 "allow_once"));
-            return ValueTask.CompletedTask;
         });
-        var result = await agent.RunAsync("Invoke both MCP declarations.");
+        var sessionId = await agent.CreateSessionAsync();
+        var result = await agent.RunAsync("Invoke both MCP declarations.", sessionId);
         if (result.Text != "Both MCP tools completed." ||
             !handler.InvokedTools.Contains("inline_echo", StringComparer.Ordinal) ||
             !handler.InvokedTools.Contains("external_echo", StringComparer.Ordinal) ||
@@ -286,140 +285,31 @@ sealed class SmokeMcpChatClient : IChatClient
     }
 }
 
-[PermissionPresentation("hpd.smoke.permission-presentation", typeof(SmokePermissionJsonContext))]
-public sealed record SmokePermissionPresentation(string Message);
+public sealed record SmokePermissionEvidence(string Message);
 
-[PermissionPolicyDefinition("hpd.smoke.inline-policy")]
-public sealed class SmokeInlinePermissionPolicy :
-    PermissionPolicy<SmokePermissionPresentation>
+[PermissionPolicyDefinition("hpd.smoke.inline-policy.v1")]
+public sealed class SmokeInlinePermissionPolicy : IPermissionPolicy
 {
-    public override ValueTask<PermissionEvaluation> EvaluateAsync(
-        ValidatedPermissionInput input,
-        PermissionEvaluationContext context,
-        CancellationToken cancellationToken) =>
-        ValueTask.FromResult(SmokePermissionEvaluationFactory.Create(
-            context,
-            immediateAllow: true,
-            "MCP read policy"));
+    public ValueTask<PermissionPolicyResult> EvaluateAsync(ValidatedPermissionInput input,
+        PermissionEvaluationContext context, CancellationToken cancellationToken) =>
+        ValueTask.FromResult(new PermissionPolicyResult { Outcome = new PermissionAllow() });
 }
 
-[PermissionPolicyDefinition("hpd.smoke.confirm-policy")]
-public sealed class SmokeConfirmPermissionPolicy :
-    PermissionPolicy<SmokePermissionPresentation>
+[PermissionPolicyDefinition("hpd.smoke.confirm-policy.v1")]
+public sealed class SmokeConfirmPermissionPolicy : IPermissionPolicy
 {
-    public override ValueTask<PermissionEvaluation> EvaluateAsync(
-        ValidatedPermissionInput input,
-        PermissionEvaluationContext context,
-        CancellationToken cancellationToken) =>
-        ValueTask.FromResult(SmokePermissionEvaluationFactory.Create(
-            context,
-            immediateAllow: false,
-            "MCP confirmation policy"));
-}
-
-[PermissionInteractionDefinition("hpd.smoke.confirmation")]
-public sealed class SmokePermissionInteraction :
-    IPermissionInteractionEventContract<SmokePermissionRequestEvent, SmokePermissionResponseEvent>
-{
-    public async ValueTask<PermissionDecision> RequestAsync(
-        PermissionInteractionContext context,
-        PermissionEvaluation evaluation,
-        CancellationToken cancellationToken)
-    {
-        var response = await context.RequestAsync<SmokePermissionRequestEvent, SmokePermissionResponseEvent>(
-            new SmokePermissionRequestEvent(
-                context.PermissionId,
-                nameof(SmokePermissionInteraction),
-                context.FunctionName,
-                context.FunctionCallId),
-            cancellationToken).ConfigureAwait(false);
-        var selected = evaluation.Choices.Items.SingleOrDefault(choice =>
-            string.Equals(choice.Id, response.ChoiceId, StringComparison.Ordinal))
-            ?? throw new InvalidOperationException(
-                $"MCP smoke permission response selected unknown choice '{response.ChoiceId}'.");
-        return new PermissionDecision
+    public ValueTask<PermissionPolicyResult> EvaluateAsync(ValidatedPermissionInput input,
+        PermissionEvaluationContext context, CancellationToken cancellationToken) =>
+        ValueTask.FromResult(new PermissionPolicyResult
         {
-            Kind = selected.Decision,
-            ChoiceId = selected.Id
-        };
-    }
+            Outcome = new PermissionAsk("MCP confirmation policy", PermissionRisk.Medium, null,
+                [new("allow_once", "Allow once", PermissionDecisionKind.Allow),
+                 new("deny_once", "Deny", PermissionDecisionKind.Deny)]),
+            Evidence = new PermissionEvidence("hpd.smoke.permission-evidence", "1",
+                JsonSerializer.SerializeToElement(new SmokePermissionEvidence("MCP confirmation policy"),
+                    SmokePermissionJsonContext.Default.SmokePermissionEvidence))
+        });
 }
 
-[DurableEvent]
-[EventType("HPD_SMOKE_PERMISSION_REQUEST")]
-public sealed record SmokePermissionRequestEvent(
-    string PermissionId,
-    string SourceName,
-    string FunctionName,
-    string CallId) :
-    AgentEvent,
-    IAgentRequestEvent<SmokePermissionResponseEvent>
-{
-    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
-    public override EventKind Kind { get; init; } = EventKind.Control;
-    public string RequestId => PermissionId;
-}
-
-[DurableEvent]
-[EventType("HPD_SMOKE_PERMISSION_RESPONSE")]
-public sealed record SmokePermissionResponseEvent(
-    string PermissionId,
-    string SourceName,
-    string ChoiceId,
-    string? FeedbackText = null) :
-    AgentEvent,
-    IAgentResponseEvent
-{
-    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
-    public override EventKind Kind { get; init; } = EventKind.Control;
-    public override EventDirection Direction { get; init; } = EventDirection.Upstream;
-    public string RequestId => PermissionId;
-}
-
-[JsonSerializable(typeof(SmokePermissionPresentation))]
-[JsonSerializable(typeof(SmokePermissionRequestEvent))]
-[JsonSerializable(typeof(SmokePermissionResponseEvent))]
+[JsonSerializable(typeof(SmokePermissionEvidence))]
 internal partial class SmokePermissionJsonContext : JsonSerializerContext;
-
-internal static class SmokePermissionEvaluationFactory
-{
-    internal static PermissionEvaluation Create(
-        PermissionEvaluationContext context,
-        bool immediateAllow,
-        string message) => new()
-    {
-        PolicyId = immediateAllow
-            ? "hpd.smoke.inline-policy"
-            : "hpd.smoke.confirm-policy",
-        PolicyRevision = "1",
-        Authority = context.Authority,
-        Title = "MCP permission",
-        Risk = PermissionRisk.Medium,
-        Choices = new PermissionChoiceSet
-        {
-            Items =
-            [
-                new PermissionChoiceDescriptor
-                {
-                    Id = "allow_once",
-                    Label = "Allow once",
-                    Decision = PermissionDecisionKind.Allow
-                },
-                new PermissionChoiceDescriptor
-                {
-                    Id = "deny_once",
-                    Label = "Deny",
-                    Decision = PermissionDecisionKind.Deny
-                }
-            ]
-        },
-        Presentation = new SmokePermissionPresentation(message),
-        ImmediateDecision = immediateAllow
-            ? new PermissionDecision
-            {
-                Kind = PermissionDecisionKind.Allow,
-                ChoiceId = "allow_once"
-            }
-            : null
-    };
-}

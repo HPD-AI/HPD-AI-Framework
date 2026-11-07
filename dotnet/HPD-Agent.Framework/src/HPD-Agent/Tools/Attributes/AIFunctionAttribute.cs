@@ -89,7 +89,6 @@ public sealed class AIFunctionActionAttribute : Attribute
     public Type? PermissionPolicy { get; set; }
 
     /// <summary>Gets or sets the permission interaction implementation for this action.</summary>
-    public Type? PermissionInteraction { get; set; }
 
     /// <summary>Gets or sets this action's replay-eligibility override.</summary>
     public ActionReplayPolicy Replay { get; set; }
@@ -198,4 +197,3 @@ public sealed class AIFunctionAttribute : Attribute
     public ReplayPolicy Replay { get; set; } = ReplayPolicy.Never;
 
 }
-

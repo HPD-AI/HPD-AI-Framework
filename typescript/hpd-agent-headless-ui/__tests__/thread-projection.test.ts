@@ -59,11 +59,15 @@ describe('createThreadProjection', () => {
       duration: 'PT1S',
       timestamp: '2026-01-01T00:00:01.000Z',
       usage: {
-        inputTokenCount: 900,
-        outputTokenCount: 100,
-        totalTokenCount: 1000,
-        cachedInputTokenCount: 250,
-        reasoningTokenCount: 40,
+        operations: [{
+          usage: {
+            inputTokenCount: 900,
+            outputTokenCount: 100,
+            totalTokenCount: 1000,
+            cachedInputTokenCount: 250,
+            reasoningTokenCount: 40,
+          },
+        }],
       },
     });
 
@@ -129,11 +133,15 @@ describe('createThreadProjection', () => {
       agentName: 'Agent',
       duration: 'PT1S',
       usage: {
-        inputTokenCount: 300,
-        outputTokenCount: 50,
-        totalTokenCount: 350,
-        cachedInputTokenCount: 120,
-        reasoningTokenCount: 15,
+        operations: [{
+          usage: {
+            inputTokenCount: 300,
+            outputTokenCount: 50,
+            totalTokenCount: 350,
+            cachedInputTokenCount: 120,
+            reasoningTokenCount: 15,
+          },
+        }],
       },
       timestamp: '2026-01-01T00:00:01.000Z',
     });
@@ -795,6 +803,8 @@ describe('createThreadProjection', () => {
 
     projection.project({
       type: EventTypes.PERMISSION_REQUEST,
+      permissionDomain: 'ToolExecution',
+      choices: [{ id: 'allow_once', label: 'Allow once', kind: 'Allow' }, { id: 'deny_once', label: 'Deny', kind: 'Deny' }],
       permissionId: 'p1',
       sourceName: 'permission',
       functionName: 'Bash',
@@ -808,10 +818,9 @@ describe('createThreadProjection', () => {
     });
 
     projection.project({
-      type: EventTypes.PERMISSION_RESPONSE,
+      type: EventTypes.PERMISSION_RESOLVED,
       permissionId: 'p1',
-      sourceName: 'permission',
-      approved: true,
+      agentId: 'agent', domain: 'ToolExecution', decisionKind: 'Allow', decisionSource: 'UserDecision',
     });
     expect(projection.getSnapshot().pendingRuntimeRequests).toHaveLength(0);
   });
@@ -825,6 +834,8 @@ describe('createThreadProjection', () => {
       pendingRequests: [{
         request: {
           type: EventTypes.PERMISSION_REQUEST,
+      permissionDomain: 'ToolExecution',
+      choices: [{ id: 'allow_once', label: 'Allow once', kind: 'Allow' }, { id: 'deny_once', label: 'Deny', kind: 'Deny' }],
           permissionId: 'p1',
           sourceName: 'permission',
           functionName: 'Bash',
@@ -950,9 +961,7 @@ describe('createThreadProjection', () => {
         startedAt: '2026-01-01T00:00:00.000Z',
         finishedAt: null,
         error: null,
-        modelBackgroundOperation: null,
-        backgroundTasks: [],
-        backgroundHandles: [],
+        operations: [],
       }],
     });
 
@@ -976,35 +985,28 @@ describe('createThreadProjection', () => {
         startedAt: '2026-01-01T00:00:00.000Z',
         finishedAt: null,
         error: null,
-        modelBackgroundOperation: {
-          status: 'InProgress',
+        operations: [{
           operationId: 'op1',
-          statusMessage: 'Queued by provider',
-          continuationToken: 'token',
-        },
-        backgroundTasks: [{
-          taskId: 'task1',
           name: 'Long task',
-          status: 'started',
+          sourceKind: 'Provider',
+          providerStatus: 'InProgress',
+          observationStatus: 'Observed',
+          controlKind: 'Background',
+          controlCapabilities: 'Status, Read, Stop',
+          controlHandleId: 'handle1',
+          version: 1,
+          registeredAt: '2026-01-01T00:00:00.000Z',
           startedAt: '2026-01-01T00:00:01.000Z',
-        }],
-        backgroundHandles: [{
-          handleId: 'handle1',
-          name: 'Long process',
-          handleKind: 'Process',
-          sourceKind: 'Command',
-          status: 'running',
-          supportedOperations: 'Status, Read, Stop',
-          registeredAt: '2026-01-01T00:00:01.000Z',
+          updatedAt: '2026-01-01T00:00:02.000Z',
         }],
       },
     });
 
     const snapshot = projection.getSnapshot();
     expect(snapshot.threadExecution?.status).toBe('active');
-    expect(snapshot.threadExecution?.modelBackgroundOperation?.continuationToken).toBe('token');
-    expect(snapshot.threadExecution?.backgroundTasks).toHaveLength(1);
-    expect(snapshot.threadExecution?.backgroundHandles?.[0]?.handleId).toBe('handle1');
+    expect(snapshot.threadExecution?.operations).toHaveLength(1);
+    expect(snapshot.threadExecution?.operations?.[0]?.controlHandleId).toBe('handle1');
+    expect(snapshot.threadExecution?.operations?.[0]?.providerStatus).toBe('InProgress');
     expect(snapshot.activity.streaming).toBe(true);
   });
 });

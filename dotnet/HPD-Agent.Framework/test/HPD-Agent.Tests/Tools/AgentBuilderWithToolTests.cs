@@ -349,7 +349,7 @@ public class AgentBuilderWithToolTests
             .WithSessionStore(store)
             .WithServiceProvider(services)
             .WithToolHarness<ReflectionAdvancedToolHarness>()
-            .WithAutoApprovePermissions()
+            .WithHostAutoApproval()
             .BuildAsync(CancellationToken.None);
         await agent.CreateSessionAsync("generated-lifecycle");
         await agent.StartAsync();

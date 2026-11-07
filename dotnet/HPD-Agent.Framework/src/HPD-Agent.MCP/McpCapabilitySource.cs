@@ -145,7 +145,6 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
         RequiresPermission = attributePermission.RequiresPermission,
         Authority = attributePermission.Authority ?? serverPermission?.Authority,
         Policy = attributePermission.Policy ?? serverPermission?.Policy,
-        Interaction = attributePermission.Interaction ?? serverPermission?.Interaction,
         Tools = serverPermission?.Tools ??
             attributePermission.Tools
     };
@@ -299,7 +298,6 @@ internal sealed class McpCapabilitySource : IAgentCapabilitySource
         RequiresPermission = overridePermission.RequiresPermission,
         Authority = overridePermission.Authority ?? serverPermission?.Authority,
         Policy = overridePermission.Policy ?? serverPermission?.Policy,
-        Interaction = overridePermission.Interaction ?? serverPermission?.Interaction,
         Tools = serverPermission?.Tools ?? overridePermission.Tools
     };
 

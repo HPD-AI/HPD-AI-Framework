@@ -118,7 +118,7 @@ describe('handleClientToolInvoke — unknown tool', () => {
       {},
     );
 
-    expect(result.success).toBe(false);
+    expect(result.outcome).toBe('Failed');
     expect(result.errorMessage).toContain('mystery_tool');
   });
 });
@@ -139,7 +139,7 @@ describe('handleClientToolInvoke — editor_read_file', () => {
       {},
     );
 
-    expect(result.success).toBe(false);
+    expect(result.outcome).toBe('Failed');
     expect(result.errorMessage).toContain('fs/read_text_file');
   });
 
@@ -160,7 +160,7 @@ describe('handleClientToolInvoke — editor_read_file', () => {
     resolveLastOutbound(session, { success: true, content: 'file data' });
 
     const result = await promise;
-    expect(result.success).toBe(true);
+    expect(result.outcome).toBe('Completed');
   });
 
   it('resolves relative path against session.cwd', async () => {
@@ -218,7 +218,7 @@ describe('handleClientToolInvoke — editor_write_file', () => {
       {},
     );
 
-    expect(result.success).toBe(false);
+    expect(result.outcome).toBe('Failed');
     expect(result.errorMessage).toContain('fs/write_text_file');
   });
 
@@ -240,7 +240,7 @@ describe('handleClientToolInvoke — editor_write_file', () => {
     resolveLastOutbound(session, { success: true, content: '' });
 
     const result = await promise;
-    expect(result.success).toBe(true);
+    expect(result.outcome).toBe('Completed');
   });
 });
 
@@ -260,7 +260,7 @@ describe('handleClientToolInvoke — editor_run_command', () => {
       {},
     );
 
-    expect(result.success).toBe(false);
+    expect(result.outcome).toBe('Failed');
     expect(result.errorMessage).toContain('terminal');
   });
 
@@ -298,7 +298,7 @@ describe('handleClientToolInvoke — editor_run_command', () => {
 
     const result = await promise;
 
-    expect(result.success).toBe(true);
+    expect(result.outcome).toBe('Completed');
     // Step 4: release (fire-and-forget, just verify it was called)
     expect(releaseSpy).toHaveBeenCalledOnce();
   });

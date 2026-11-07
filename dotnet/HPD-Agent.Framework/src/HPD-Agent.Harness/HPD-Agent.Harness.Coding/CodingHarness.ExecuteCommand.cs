@@ -8,6 +8,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Xml;
 using HPD.Agent;
+using HPD.Agent.Permissions;
 using HPD.Agent.Sandbox;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
@@ -589,7 +590,7 @@ public partial class CodingToolHarness
         ExecuteCommandRequest request,
         ProcessInvocationResult result,
         out AgentCapabilityKind capability,
-        out AgentCapabilityResource? resource,
+        out PermissionResource? resource,
         out string failureSummary)
     {
         capability = default;
@@ -623,11 +624,8 @@ public partial class CodingToolHarness
                 if (!string.IsNullOrWhiteSpace(violation.Path))
                 {
                     var canonical = Path.GetFullPath(violation.Path);
-                    resource = new AgentCapabilityResource
-                    {
-                        Value = canonical,
-                        DisplayName = Path.GetFileName(canonical)
-                    };
+                    resource = new PermissionResource(
+                        canonical, Path.GetFileName(canonical));
                 }
                 failureSummary = string.IsNullOrWhiteSpace(violation.Message)
                     ? "The operation exceeded its sandbox capabilities."
@@ -676,44 +674,31 @@ public partial class CodingToolHarness
         ExecuteCommandRequest request,
         FunctionExecutionContext context,
         AgentCapabilityKind capability,
-        AgentCapabilityResource? resource,
+        PermissionResource? resource,
         string failureSummary,
         CancellationToken cancellationToken)
     {
         if (context.RunConfig.Security.Sandbox.Escape == AgentSandboxEscapePolicy.Deny)
             return false;
 
-        var requestId = Guid.NewGuid().ToString("N");
-        try
-        {
-            var response = await context.RequestAsync<AgentCapabilityRequestEvent, AgentCapabilityResponseEvent>(
-                    new AgentCapabilityRequestEvent(
-                        requestId,
-                        nameof(ExecuteCommand),
-                        context.FunctionCallId,
-                        request.CommandId,
-                        capability,
-                        resource,
-                        failureSummary),
-                    cancellationToken,
-                    timeout: null)
-                .ConfigureAwait(false);
-            return response.Approved;
-        }
-        catch (TimeoutException)
-        {
-            return false;
-        }
-        catch (OperationCanceledException)
-        {
-            return false;
-        }
+        return await SandboxCapabilityPermission.RequestAsync(
+            capability,
+            resource,
+            failureSummary,
+            context,
+            new Dictionary<string, string?>
+            {
+                ["command"] = request.Command,
+                ["workingDirectory"] = request.WorkingDirectory,
+                ["operationId"] = request.CommandId
+            },
+            cancellationToken).ConfigureAwait(false);
     }
 
     private static ProcessIsolationPolicy ApplySandboxAmendment(
         ProcessIsolationPolicy policy,
         AgentCapabilityKind capability,
-        AgentCapabilityResource? resource)
+        PermissionResource? resource)
         => capability switch
         {
             AgentCapabilityKind.LocalBinding => policy with
@@ -1881,8 +1866,7 @@ public abstract record ExecuteCommandOperation;
     "run",
     Permission = PermissionRequirement.Required,
     PermissionAuthority = "coding/execute-command/run",
-    PermissionPolicy = typeof(ExecuteCommandPermissionPolicy),
-    PermissionInteraction = typeof(ExecuteCommandPermissionInteraction))]
+    PermissionPolicy = typeof(ExecuteCommandPermissionPolicy))]
 public sealed record RunCommandOperation(
     [property: Description("The shell command to execute.")]
     string Command,

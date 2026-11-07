@@ -271,12 +271,9 @@ public static partial class NativeExports
     internal static HpdSubscriptionDisposeStatus DisposeSubscriptionForTesting(ref IntPtr subscription) =>
         DisposeSubscriptionCore(ref subscription);
 
-    internal static int RespondToPermissionForTesting(
-        IntPtr agentHandle,
-        string permissionId,
-        int approved,
-        int permissionChoice) =>
-        RespondToPermissionCore(agentHandle, permissionId, approved, permissionChoice);
+    internal static int RespondToPermissionForTesting(IntPtr agentHandle,
+        string permissionId, string sourceName, string choiceId, string? feedback = null) =>
+        RespondToPermissionCore(agentHandle, permissionId, sourceName, choiceId, feedback);
 
     /// <summary>
     /// Test function to verify FFI communication between C# and Rust.
@@ -1229,65 +1226,32 @@ public static partial class NativeExports
     // PERMISSION SYSTEM APIs (Human-in-the-Loop)
     //
 
-    /// <summary>
-    /// Responds to a permission request from the agent.
-    /// Call this after receiving PermissionRequestEvent via streaming callback.
-    /// </summary>
-    /// <param name="agentHandle">Handle to the agent</param>
-    /// <param name="permissionIdPtr">Pointer to UTF-8 encoded permission ID</param>
-    /// <param name="approved">1 if approved, 0 if denied</param>
-    /// <param name="permissionChoice">0 = Ask, 1 = AlwaysAllow, 2 = AlwaysDeny</param>
-    /// <returns>1 on success, 0 on failure</returns>
+    /// <summary>Answers the exact server-authored choice from a permission request.</summary>
     [UnmanagedCallersOnly(EntryPoint = "respond_to_permission")]
-    public static int RespondToPermission(
-        IntPtr agentHandle,
-        IntPtr permissionIdPtr,
-        int approved,
-        int permissionChoice)
+    public static int RespondToPermission(IntPtr agentHandle, IntPtr permissionIdPtr,
+        IntPtr sourceNamePtr, IntPtr choiceIdPtr, IntPtr feedbackPtr)
     {
-        string? permissionId = Marshal.PtrToStringUTF8(permissionIdPtr);
-        if (string.IsNullOrEmpty(permissionId)) return 0;
-        return RespondToPermissionCore(agentHandle, permissionId, approved, permissionChoice);
+        var permissionId = Marshal.PtrToStringUTF8(permissionIdPtr);
+        var sourceName = Marshal.PtrToStringUTF8(sourceNamePtr);
+        var choiceId = Marshal.PtrToStringUTF8(choiceIdPtr);
+        var feedback = Marshal.PtrToStringUTF8(feedbackPtr);
+        if (string.IsNullOrWhiteSpace(permissionId) || string.IsNullOrWhiteSpace(sourceName) ||
+            string.IsNullOrWhiteSpace(choiceId)) return 0;
+        return RespondToPermissionCore(agentHandle, permissionId, sourceName, choiceId, feedback);
     }
 
-    private static int RespondToPermissionCore(
-        IntPtr agentHandle,
-        string permissionId,
-        int approved,
-        int permissionChoice)
+    private static int RespondToPermissionCore(IntPtr agentHandle, string permissionId,
+        string sourceName, string choiceId, string? feedback)
     {
         try
         {
             var agent = ObjectManager.Get<HPD.Agent.Agent>(agentHandle);
-            if (agent == null) return 0;
-
-            if (string.IsNullOrEmpty(permissionId)) return 0;
-
-            // Map integer to PermissionChoice enum
-            var choiceId = permissionChoice switch
-            {
-                1 => "always_allow",
-                2 => "always_deny",
-                _ => approved == 1 ? "allow_once" : "deny_once"
-            };
-
-            // Send response back to the agent
-            agent.AnswerRequestAsync(
-                new PermissionResponseEvent(
-                    permissionId,
-                    "FFI",  // Source name
-                    choiceId,
-                    approved == 1 ? null : "User denied permission via FFI"
-                )
-            ).GetAwaiter().GetResult();
-
+            if (agent is null) return 0;
+            agent.AnswerRequestAsync(new PermissionResponseEvent(permissionId, sourceName, choiceId, feedback))
+                .GetAwaiter().GetResult();
             return 1;
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Failed to respond to permission: {ex.Message}");
-            return 0;
-        }
+        catch { return 0; }
     }
 
     //

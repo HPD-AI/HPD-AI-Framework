@@ -332,6 +332,8 @@ describe('createThreadController', () => {
     });
     controller.projection.project({
       type: EventTypes.PERMISSION_REQUEST,
+      permissionDomain: 'ToolExecution',
+      choices: [{ id: 'allow_once', label: 'Allow once', kind: 'Allow' }, { id: 'deny_once', label: 'Deny', kind: 'Deny' }],
       permissionId: 'p1',
       sourceName: 'permission',
       functionName: 'Bash',
@@ -346,8 +348,7 @@ describe('createThreadController', () => {
       threadId: 'main',
       permissionId: 'p1',
       sourceName: 'permission',
-      approved: true,
-      choice: 'ask',
+      choiceId: 'allow_once',
     });
   });
 

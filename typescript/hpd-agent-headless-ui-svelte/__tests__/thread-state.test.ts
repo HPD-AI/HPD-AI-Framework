@@ -131,8 +131,10 @@ describe('createThreadState', () => {
     await client.emit({
       type: EventTypes.PERMISSION_REQUEST,
       permissionId: 'p1',
+      permissionDomain: 'ToolExecution',
+      choices: [{ id: 'allow_once', label: 'Allow once', kind: 'Allow' }, { id: 'deny_once', label: 'Deny', kind: 'Deny' }],
       sourceName: 'permission',
-      functionName: 'Bash',
+      authority: 'Bash',
       callId: 'call1',
       agentId: 'agent',
       sessionId: 's1',
@@ -195,8 +197,10 @@ describe('createThreadState', () => {
     await client.emit({
       type: EventTypes.PERMISSION_REQUEST,
       permissionId: 'p1',
+      permissionDomain: 'ToolExecution',
+      choices: [{ id: 'allow_once', label: 'Allow once', kind: 'Allow' }, { id: 'deny_once', label: 'Deny', kind: 'Deny' }],
       sourceName: 'permission',
-      functionName: 'Bash',
+      authority: 'Bash',
       callId: 'call1',
       agentId: 'agent',
       sessionId: 's1',

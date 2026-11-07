@@ -1302,102 +1302,49 @@ public sealed record OperationExecutionOwnerCleanupFailedEvent : AgentEvent
 
 #region Middleware Events
 
-/// <summary>
-/// Middleware requests permission to execute a function.
-/// Handler should prompt user and send PermissionResponseEvent.
-/// </summary>
+/// <summary>One durable, domain-neutral approval request with server-authored choices.</summary>
 [HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("PERMISSION_REQUEST")]
-public record PermissionRequestEvent(
-    string PermissionId,
-    string SourceName,
-    string FunctionName,
-    string? Action,
-    string CallId,
-    PermissionEvaluationEnvelope Evaluation) : AgentEvent, IAgentRequestEvent<PermissionResponseEvent>
+public sealed record PermissionRequestEvent(
+    string PermissionId, string CallId, string SourceName, string PermissionDomain,
+    string? Authority, string? Action, PermissionResource? PermissionResource,
+    string? Reason, PermissionRisk? Risk, IReadOnlyList<PermissionChoice> Choices,
+    PermissionEvidence? Evidence = null,
+    PersistenceUnavailableReason? PersistenceUnavailableReason = null,
+    string? FunctionName = null,
+    JsonElement? Arguments = null)
+    : AgentEvent, IAgentRequestEvent<PermissionResponseEvent>
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
-
-    /// <summary>Explicit interface implementation - maps PermissionId to RequestId</summary>
     public string RequestId => PermissionId;
 }
-
-/// <summary>
-/// Response to permission request.
-/// Sent by external handler back to waiting Middleware.
-/// </summary>
 [HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("PERMISSION_RESPONSE")]
-public record PermissionResponseEvent(
-    string PermissionId,
-    string SourceName,
-    string ChoiceId,
-    string? Feedback = null) : AgentEvent, IAgentResponseEvent
+public sealed record PermissionResponseEvent(string PermissionId, string SourceName,
+    string ChoiceId, string? Feedback = null) : AgentEvent, IAgentResponseEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
     public override EventDirection Direction { get; init; } = EventDirection.Upstream;
-
-    /// <summary>Explicit interface implementation - maps PermissionId to RequestId</summary>
     public string RequestId => PermissionId;
 }
-
-/// <summary>Records an atomically committed session permission-preference change.</summary>
-[HPD.Agent.Serialization.DurableEvent]
-[HPD.Agent.Serialization.EventType("PERMISSION_PREFERENCE_CHANGED")]
-public sealed record PermissionPreferenceChangedEvent(
-    string PreferenceId,
-    PermissionKey Key,
-    PermissionDecisionKind Decision,
-    PermissionPersistenceKind Persistence) : AgentEvent
-{
-    /// <inheritdoc />
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
-}
-
-/// <summary>Records the bounded result of evaluating one protected invocation.</summary>
 [HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("PERMISSION_EVALUATED")]
-public sealed record PermissionEvaluatedEvent(string FunctionCallId, PermissionKey Key, PermissionRisk Risk, string? RequestFingerprint) : AgentEvent
+public sealed record PermissionEvaluatedEvent(string PermissionId, string CallId,
+    string AgentId, string Domain, string Authority, string? Action,
+    string PolicyDescriptorId, string OutcomeKind) : AgentEvent
 {
-    /// <inheritdoc />
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
-
-/// <summary>Records that an interaction was opened for one evaluated invocation.</summary>
 [HPD.Agent.Serialization.DurableEvent]
-[HPD.Agent.Serialization.EventType("PERMISSION_REQUESTED")]
-public sealed record PermissionRequestedAuditEvent(string PermissionId, string FunctionCallId, PermissionKey Key) : AgentEvent
+[HPD.Agent.Serialization.EventType("PERMISSION_RESOLVED")]
+public sealed record PermissionResolvedEvent(string PermissionId, string CallId,
+    string AgentId, string Domain, string? Authority, string? Action,
+    string? PolicyDescriptorId, PermissionResource? PermissionResource,
+    PermissionDecisionKind DecisionKind, string? ChoiceId, PermissionGrantSource DecisionSource,
+    string? DenialReason = null) : AgentEvent
 {
-    /// <inheritdoc />
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
-}
-
-/// <summary>Records the normalized server-validated permission decision.</summary>
-[HPD.Agent.Serialization.DurableEvent]
-[HPD.Agent.Serialization.EventType("PERMISSION_DECIDED")]
-public sealed record PermissionDecidedEvent(string? PermissionId, string FunctionCallId, PermissionKey Key, PermissionDecisionKind Decision, string ChoiceId) : AgentEvent
-{
-    /// <inheritdoc />
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
-}
-
-/// <summary>Records issuance of an invocation-bound permission grant.</summary>
-[HPD.Agent.Serialization.DurableEvent]
-[HPD.Agent.Serialization.EventType("PERMISSION_GRANT_ISSUED")]
-public sealed record PermissionGrantIssuedEvent(string FunctionCallId, PermissionKey Key, PermissionGrantSource Source, string ChoiceId) : AgentEvent
-{
-    /// <inheritdoc />
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
-}
-
-/// <summary>Records rejection of one protected invocation.</summary>
-[HPD.Agent.Serialization.DurableEvent]
-[HPD.Agent.Serialization.EventType("PERMISSION_DENIED")]
-public sealed record PermissionDeniedEvent(string FunctionCallId, PermissionKey Key, string ChoiceId, string ReasonCode) : AgentEvent
-{
-    /// <inheritdoc />
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
 
@@ -1535,23 +1482,7 @@ public record ContainerExpandedEvent(
 public enum ContainerType { ToolHarness, Skill }
 
 
-/// <summary>
-/// Emitted when a permission check occurs.
-/// </summary>
-[HPD.Agent.Serialization.DurableEvent]
-[HPD.Agent.Serialization.EventType("PERMISSION_CHECK")]
-public record PermissionCheckEvent(
-    string FunctionName,
-    bool IsApproved,
-    string? DenialReason,
-    string AgentName,
-    int Iteration,
-    TimeSpan Duration,
-    DateTimeOffset Timestamp
-) : AgentEvent(Timestamp), IObservabilityEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
-}
+
 
 /// <summary>
 /// Emitted when an iteration starts with full state snapshot.

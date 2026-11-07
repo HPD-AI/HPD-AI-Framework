@@ -85,8 +85,8 @@ public sealed class NativeAgentExecutionFFITests
                     var responded = NativeExports.RespondToPermissionForTesting(
                         agentHandle,
                         approvedPermissionId,
-                        approved: 1,
-                        permissionChoice: 0);
+                        sourceName: root.GetProperty("sourceName").GetString()!,
+                        choiceId: root.GetProperty("choices").EnumerateArray().First(choice => choice.GetProperty("kind").GetString() == "Allow").GetProperty("id").GetString()!);
 
                     Assert.Equal(1, responded);
                 }

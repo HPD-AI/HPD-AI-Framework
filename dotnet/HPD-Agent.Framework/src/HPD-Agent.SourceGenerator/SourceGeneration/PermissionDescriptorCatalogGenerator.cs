@@ -3,24 +3,16 @@ using Microsoft.CodeAnalysis;
 
 namespace HPD.Agent.SourceGenerator.SourceGeneration;
 
-/// <summary>Generates stable permission policy and interaction descriptor packages.</summary>
+/// <summary>Generates stable permission policy descriptor packages.</summary>
 [Generator]
 public sealed class PermissionDescriptorCatalogGenerator : IIncrementalGenerator
 {
     private const string PolicyDefinitionAttribute =
         "HPD.Agent.Permissions.PermissionPolicyDefinitionAttribute";
-    private const string InteractionDefinitionAttribute =
-        "HPD.Agent.Permissions.PermissionInteractionDefinitionAttribute";
     private const string PackageAttribute =
         "HPD.Agent.Permissions.PermissionDescriptorPackageAttribute";
     private const string PolicyInterface =
         "HPD.Agent.Permissions.IPermissionPolicy";
-    private const string InteractionInterface =
-        "HPD.Agent.Permissions.IPermissionInteraction";
-    private const string InteractionEventInterface =
-        "HPD.Agent.Permissions.IPermissionInteractionEventContract`2";
-    private const string PresentationAttribute =
-        "HPD.Agent.Permissions.PermissionPresentationAttribute";
 
     /// <inheritdoc />
     public void Initialize(IncrementalGeneratorInitializationContext context)
@@ -158,18 +150,9 @@ public sealed class PermissionDescriptorCatalogGenerator : IIncrementalGenerator
         void AnalyzeType(INamedTypeSymbol type)
         {
             var policyAttribute = FindAttribute(type, PolicyDefinitionAttribute, compilation);
-            var interactionAttribute = FindAttribute(type, InteractionDefinitionAttribute, compilation);
-            if (policyAttribute is null && interactionAttribute is null)
+            if (policyAttribute is null)
                 return;
             var location = type.Locations.FirstOrDefault() ?? Location.None;
-            if (policyAttribute is not null && interactionAttribute is not null)
-            {
-                diagnostics.Add(Diagnostic.Create(
-                    PermissionCatalogDiagnostics.MultipleDefinitions,
-                    location,
-                    type.ToDisplayString()));
-                return;
-            }
             if (type.IsAbstract || type.IsGenericType)
             {
                 diagnostics.Add(Diagnostic.Create(
@@ -180,7 +163,7 @@ public sealed class PermissionDescriptorCatalogGenerator : IIncrementalGenerator
                 return;
             }
 
-            var attribute = policyAttribute ?? interactionAttribute!;
+            var attribute = policyAttribute;
             var id = attribute.ConstructorArguments.FirstOrDefault().Value as string;
             var reservedFrameworkId = id?.StartsWith("hpd.", StringComparison.OrdinalIgnoreCase) == true &&
                 compilation.AssemblyName?.StartsWith("HPD-Agent", StringComparison.Ordinal) != true;
@@ -208,70 +191,23 @@ public sealed class PermissionDescriptorCatalogGenerator : IIncrementalGenerator
                     return;
                 }
                 var initializer = CreatePolicyDescriptor(id!, type);
-                if (initializer is null)
-                {
-                    diagnostics.Add(Diagnostic.Create(
-                        PermissionCatalogDiagnostics.InvalidPresentation,
-                        location,
-                        type.ToDisplayString()));
-                    return;
-                }
                 descriptors.Add(new(id!, type, location, initializer));
                 return;
             }
 
-            var interactionContract = compilation.GetTypeByMetadataName(InteractionInterface);
-            if (interactionContract is null || !Implements(type, interactionContract))
-            {
-                diagnostics.Add(Diagnostic.Create(
-                    PermissionCatalogDiagnostics.InvalidDefinitionType,
-                    location,
-                    type.ToDisplayString(),
-                    "IPermissionInteraction"));
-                return;
-            }
-            var expectedEventContract = compilation.GetTypeByMetadataName(InteractionEventInterface);
-            var eventContract = type.AllInterfaces.FirstOrDefault(candidate =>
-                candidate.IsGenericType &&
-                expectedEventContract is not null &&
-                SymbolEqualityComparer.Default.Equals(
-                    candidate.OriginalDefinition, expectedEventContract));
-            if (eventContract is null || eventContract.TypeArguments.Length != 2)
-            {
-                diagnostics.Add(Diagnostic.Create(
-                    PermissionCatalogDiagnostics.InvalidInteraction,
-                    location,
-                    type.ToDisplayString()));
-                return;
-            }
 
-            descriptors.Add(new(
-                id!,
-                type,
-                location,
-                CreateInteractionDescriptor(id!, type, eventContract)));
         }
     }
 
-    private static string? CreatePolicyDescriptor(string id, INamedTypeSymbol type)
+    private static string CreatePolicyDescriptor(string id, INamedTypeSymbol type)
     {
         var factory = CreateFactory("PolicyFactory", type);
-        var presentation = CreatePresentationDescriptor(type);
+
         return
             "new global::HPD.Agent.Permissions.AIFunctionPermissionDescriptor { " +
-            $"DescriptorId = {Literal(id)}, {factory} {presentation}" +
+            $"DescriptorId = {Literal(id)}, {factory}" +
             " }";
     }
-
-    private static string CreateInteractionDescriptor(
-        string id,
-        INamedTypeSymbol type,
-        INamedTypeSymbol contract) =>
-        "new global::HPD.Agent.Permissions.AIFunctionPermissionDescriptor { " +
-        $"DescriptorId = {Literal(id)}, {CreateFactory("InteractionFactory", type)} " +
-        $"RequestEventType = typeof({contract.TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}), " +
-        $"ResponseEventType = typeof({contract.TypeArguments[1].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}) " +
-        "}";
 
     private static string CreateFactory(string property, INamedTypeSymbol type)
     {
@@ -280,43 +216,12 @@ public sealed class PermissionDescriptorCatalogGenerator : IIncrementalGenerator
                 constructor.Parameters.Length == 0 &&
                 constructor.DeclaredAccessibility is Accessibility.Public or Accessibility.Internal))
             return $"{property} = static _ => new {typeName}(),";
-        var serviceType = property == "PolicyFactory"
-            ? "HPD.Agent.Permissions.IPermissionPolicy"
-            : "HPD.Agent.Permissions.IPermissionInteraction";
+        var serviceType = "HPD.Agent.Permissions.IPermissionPolicy";
         return
             $"{property} = static services => (global::{serviceType})(services.GetService(typeof({typeName})) ?? " +
             $"throw new global::System.InvalidOperationException(\"Permission service '{typeName}' is not registered.\")),";
     }
 
-    private static string CreatePresentationDescriptor(INamedTypeSymbol policyType)
-    {
-        for (var current = policyType; current is not null; current = current.BaseType)
-        {
-            if (!current.IsGenericType || current.Name != "PermissionPolicy" ||
-                current.TypeArguments.Length != 1)
-                continue;
-            var presentation = current.TypeArguments[0];
-            var attribute = presentation.GetAttributes().FirstOrDefault(attribute =>
-                attribute.AttributeClass?.ToDisplayString() == PresentationAttribute);
-            if (attribute is null)
-                return string.Empty;
-            var id = attribute.ConstructorArguments.FirstOrDefault().Value as string;
-            if (string.IsNullOrWhiteSpace(id) ||
-                attribute.ConstructorArguments.Length < 2 ||
-                attribute.ConstructorArguments[1].Value is not INamedTypeSymbol context)
-                return string.Empty;
-            var typeName = presentation.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            var contextName = context.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            var typeInfo =
-                $"global::HPD.Agent.Permissions.PermissionPresentationDescriptor.RequireGeneratedJsonTypeInfo(" +
-                $"{contextName}.Default.Options, typeof({typeName}), {Literal(id!)})";
-            return
-                "Presentation = new global::HPD.Agent.Permissions.PermissionPresentationDescriptor { " +
-                $"PresentationId = {Literal(id!)}, PresentationType = typeof({typeName}), TypeInfo = {typeInfo}, " +
-                $"Serialize = static value => global::System.Text.Json.JsonSerializer.SerializeToElement(value, {typeInfo}) }},";
-        }
-        return string.Empty;
-    }
 
     private static AttributeData? FindAttribute(
         INamedTypeSymbol type,
@@ -385,27 +290,6 @@ internal static class PermissionCatalogDiagnostics
         DiagnosticSeverity.Error,
         true);
 
-    internal static readonly DiagnosticDescriptor MultipleDefinitions = new(
-        "HPDAG1004",
-        "Multiple permission definition kinds",
-        "Type '{0}' cannot declare both a policy and an interaction definition",
-        "HPD.Permissions",
-        DiagnosticSeverity.Error,
-        true);
 
-    internal static readonly DiagnosticDescriptor InvalidPresentation = new(
-        "HPDAG1005",
-        "Invalid permission presentation",
-        "Permission policy '{0}' has invalid or missing source-generated presentation metadata",
-        "HPD.Permissions",
-        DiagnosticSeverity.Error,
-        true);
 
-    internal static readonly DiagnosticDescriptor InvalidInteraction = new(
-        "HPDAG1006",
-        "Invalid permission interaction",
-        "Permission interaction '{0}' must implement a closed IPermissionInteractionEventContract<TRequest, TResponse>",
-        "HPD.Permissions",
-        DiagnosticSeverity.Error,
-        true);
 }

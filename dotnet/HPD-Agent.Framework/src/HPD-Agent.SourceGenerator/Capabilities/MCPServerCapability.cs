@@ -136,15 +136,13 @@ internal class MCPServerCapability : BaseCapability
 
 internal sealed record McpPermissionInfo(
     string? Authority,
-    string? Policy,
-    string? Interaction)
+    string? Policy)
 {
     internal string ToCode() =>
         "new global::HPD.Agent.MCP.McpPermissionConfig { " +
         "RequiresPermission = true" +
         $", Authority = {Literal(Authority)}" +
-        $", Policy = {Literal(Policy)}" +
-        $", Interaction = {Literal(Interaction)} }}";
+        $", Policy = {Literal(Policy)} }}";
 
     private static string Literal(string? value) =>
         value is null

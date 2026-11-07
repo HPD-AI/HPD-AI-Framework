@@ -1,4 +1,5 @@
 using FluentAssertions;
+using System.Text.Json;
 using HPD.Agent.TUI.Application;
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Interactions;
@@ -25,7 +26,7 @@ public sealed class RequestInteractionTests
             .Should()
             .Contain(["hpd.permission", "hpd.continuation", "hpd.questions"]);
         registry.TryFindInteractionHandler(
-            new PermissionRequestEvent("permission-1", "permissions", "shell.exec", null, "call-1", null),
+            PermissionRequest("permission-1", "permissions", "shell.exec", null, "call-1", null),
             new AgentTuiRuntimeScope("agent", "session", "main"),
             out var handler).Should().BeTrue();
         handler.Key.Should().Be("hpd.permission");
@@ -102,7 +103,7 @@ public sealed class RequestInteractionTests
         handler.Key.Should().Be("sample.questions");
 
         registry.TryFindInteractionHandler(
-                new PermissionRequestEvent("permission-1", "sample", "tool", null, "call-1", null),
+                PermissionRequest("permission-1", "sample", "tool", null, "call-1", null),
                 new AgentTuiRuntimeScope("agent", "session", "main"),
                 out _)
             .Should().BeFalse();
@@ -121,13 +122,13 @@ public sealed class RequestInteractionTests
                 new UserQuestionInteractionHandler())
             .Build();
         var scope = new AgentTuiRuntimeScope("agent", "session", "main");
-        var childPermission = new PermissionRequestEvent(
+        var childPermission = PermissionRequest(
             "permission-child",
             "permissions",
             "shell.exec",
             null,
             "call-child",
-            null)
+            null) with
         {
             SessionId = "session",
             ThreadId = "subagent/explore/invocation-1"
@@ -157,21 +158,57 @@ public sealed class RequestInteractionTests
         var result = await handler.HandleAsync(
             CreateContext(
                 dialogs,
-                new PermissionRequestEvent(
+                PermissionRequest(
                     "permission-1",
                     "permissions",
                     "shell.exec",
                     "Run command",
                     "call-1",
-                    CreatePermissionEvaluation())),
+                    CreatePermissionChoices())),
             CancellationToken.None);
 
         result.Kind.Should().Be(AgentTuiInteractionResultKind.AnswerRequest);
         result.Response.Should().BeOfType<PermissionResponseEvent>()
             .Which.Should().Match<PermissionResponseEvent>(evt =>
                 evt.PermissionId == "permission-1" &&
-                evt.ChoiceId == "always_allow" &&
+                evt.ChoiceId == "allow_session" &&
                 evt.Feedback == null);
+    }
+
+    [Fact]
+    public async Task PermissionHandler_RendersCommandWithoutInternalEvidence()
+    {
+        var dialogs = new TestDialogService { SelectIndex = 0 };
+        var handler = new PermissionRequestInteractionHandler();
+        var request = PermissionRequest(
+            "permission-command",
+            "permissions",
+            "coding/execute-command/run",
+            "Review the command and its security effects.",
+            "call-command",
+            CreatePermissionChoices()) with
+        {
+            FunctionName = "ExecuteCommand",
+            Action = "run",
+            Arguments = JsonDocument.Parse(
+                """{"request":{"action":"run","command":"git status --short 2>&1 | head -40"}}""")
+                .RootElement.Clone(),
+            Evidence = new PermissionEvidence(
+                "hpd.coding.execute-command",
+                "1",
+                JsonDocument.Parse(
+                    """{"plan":{"filesystemEffects":[{"path":"internal-only"}]}}""")
+                    .RootElement.Clone())
+        };
+
+        await handler.HandleAsync(
+            CreateContext(dialogs, request),
+            CancellationToken.None);
+
+        dialogs.LastTitle.Should().Contain("git status --short 2>&1 | head -40");
+        dialogs.LastTitle.Should().Contain("ExecuteCommand");
+        dialogs.LastTitle.Should().NotContain("internal-only");
+        dialogs.LastTitle.Should().NotContain("hpd.coding.execute-command");
     }
 
     [Fact]
@@ -187,13 +224,13 @@ public sealed class RequestInteractionTests
         var result = await handler.HandleAsync(
             CreateContext(
                 dialogs,
-                new PermissionRequestEvent(
+                PermissionRequest(
                     "permission-1",
                     "permissions",
                     "shell.exec",
                     "Run command",
                     "call-1",
-                    CreatePermissionEvaluation())),
+                    CreatePermissionChoices())),
             CancellationToken.None);
 
         result.Kind.Should().Be(AgentTuiInteractionResultKind.AnswerRequest);
@@ -217,13 +254,13 @@ public sealed class RequestInteractionTests
         var result = await handler.HandleAsync(
             CreateContext(
                 dialogs,
-                new PermissionRequestEvent(
+                PermissionRequest(
                     "permission-1",
                     "permissions",
                     "shell.exec",
                     "Run command",
                     "call-1",
-                    CreatePermissionEvaluation())),
+                    CreatePermissionChoices())),
             CancellationToken.None);
 
         result.Kind.Should().Be(AgentTuiInteractionResultKind.AnswerRequest);
@@ -394,6 +431,7 @@ public sealed class RequestInteractionTests
         public int SelectIndex { get; init; }
 
         public string? Input { get; init; }
+        public string LastTitle { get; private set; } = "";
 
         public bool HasOpenDialog => false;
 
@@ -418,7 +456,10 @@ public sealed class RequestInteractionTests
             IReadOnlyList<T> options,
             Func<T, string> titleSelector,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(AgentTuiDialogResult<T>.Submitted(options[SelectIndex]));
+        {
+            LastTitle = title;
+            return Task.FromResult(AgentTuiDialogResult<T>.Submitted(options[SelectIndex]));
+        }
 
         public Task<AgentTuiDialogResult<string>> InputAsync(
             string title,
@@ -441,25 +482,18 @@ public sealed class RequestInteractionTests
                 : AgentTuiDialogResult<string>.Submitted(Input));
     }
 
-    private static PermissionEvaluationEnvelope CreatePermissionEvaluation() => new()
-    {
-        PolicyId = "test",
-        PolicyRevision = "1",
-        Key = new PermissionKey("shell.exec", "Run command", "test", "test", "1"),
-        Title = "Run command",
-        Risk = PermissionRisk.Medium,
-        Choices = new PermissionChoiceSet
-        {
-            Items =
-            [
-                new PermissionChoiceDescriptor { Id = "allow_once", Label = "Allow once", Decision = PermissionDecisionKind.Allow },
-                new PermissionChoiceDescriptor { Id = "always_allow", Label = "Always allow", Decision = PermissionDecisionKind.Allow },
-                new PermissionChoiceDescriptor { Id = "deny_once", Label = "Deny", Decision = PermissionDecisionKind.Deny },
-                new PermissionChoiceDescriptor { Id = "feedback", Label = "Tell agent", Decision = PermissionDecisionKind.Feedback,
-                    DeniedBehavior = PermissionDeniedBehavior.ReturnToModel }
-            ]
-        }
-    };
+    private static PermissionRequestEvent PermissionRequest(string id, string source, string authority,
+        string? reason, string callId, IReadOnlyList<PermissionChoice>? choices) => new(
+            id, callId, source, PermissionDomains.ToolExecution, authority, null, null, reason,
+            PermissionRisk.Medium, choices ?? CreatePermissionChoices());
+
+    private static IReadOnlyList<PermissionChoice> CreatePermissionChoices() =>
+    [
+        new("allow_once", "Allow once", PermissionDecisionKind.Allow),
+        new("allow_session", "Allow for session", PermissionDecisionKind.Allow),
+        new("deny_once", "Deny", PermissionDecisionKind.Deny),
+        new("feedback", "Tell agent", PermissionDecisionKind.Feedback, PermissionDeniedBehavior.ReturnToModel)
+    ];
 
     private sealed class NoopRuntime : IHpdAgentTuiRuntime
     {
