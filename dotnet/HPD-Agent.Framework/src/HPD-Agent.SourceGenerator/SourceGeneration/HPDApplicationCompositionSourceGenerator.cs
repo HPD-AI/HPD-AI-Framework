@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
@@ -13,6 +14,20 @@ public sealed class HPDApplicationCompositionSourceGenerator : IIncrementalGener
 {
     private const string ProviderManifestAttributeName = "HPD.Agent.Providers.HpdProviderManifestAttribute";
     private const string ApplicationCompositionHostName = "HPD.Agent.HPDApplicationCompositionHost";
+    private static readonly DiagnosticDescriptor UnusedProviderExclusion = new(
+        "HPDP016",
+        "Unused provider exclusion",
+        "Excluded provider key '{0}' has no discovered provider manifest",
+        "HPD.Provider",
+        DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+    private static readonly DiagnosticDescriptor UnsupportedProviderManifest = new(
+        "HPDP017",
+        "Unsupported provider manifest",
+        "Provider manifest type '{0}' must be public and expose a public static Fragment property",
+        "HPD.Provider",
+        DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 
     /// <inheritdoc />
     public void Initialize(IncrementalGeneratorInitializationContext context)
@@ -23,40 +38,69 @@ public sealed class HPDApplicationCompositionSourceGenerator : IIncrementalGener
 
         context.RegisterSourceOutput(model, static (productionContext, model) =>
         {
-            if (model is not null)
-                productionContext.AddSource("HPDGeneratedApplicationComposition.g.cs", model);
+            foreach (var diagnostic in model.Diagnostics)
+                productionContext.ReportDiagnostic(diagnostic);
+            if (model.Source is not null)
+                productionContext.AddSource("HPDGeneratedApplicationComposition.g.cs", model.Source);
         });
     }
 
-    private static string? Analyze(Compilation compilation, AnalyzerConfigOptionsProvider options)
+    private static GenerationResult Analyze(Compilation compilation, AnalyzerConfigOptionsProvider options)
     {
         if (!TryGetBoolean(options, "build_property.HpdAgentApplication", defaultValue: false) ||
             compilation.GetTypeByMetadataName(ApplicationCompositionHostName) is null)
-            return null;
+            return GenerationResult.Empty;
 
         var excludedProviders = new HashSet<string>(
             SplitList(GetOption(options, "build_property.HpdAgentExcludeProviders")),
             StringComparer.OrdinalIgnoreCase);
         var providers = new HashSet<string>(StringComparer.Ordinal);
+        var suppressedProviderAssemblies = new HashSet<string>(StringComparer.Ordinal);
+        var discoveredProviderKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var diagnostics = ImmutableArray.CreateBuilder<Diagnostic>();
 
         AddAssembly(compilation.Assembly);
         foreach (var assembly in compilation.SourceModule.ReferencedAssemblySymbols)
             AddAssembly(assembly);
 
-        return Emit(
-            providers.OrderBy(static value => value, StringComparer.Ordinal),
-            compilation.AssemblyName ?? "HPD.Agent.Application");
+        foreach (var excluded in excludedProviders.Where(key => !discoveredProviderKeys.Contains(key)))
+            diagnostics.Add(Diagnostic.Create(UnusedProviderExclusion, Location.None, excluded));
+
+        return new GenerationResult(
+            Emit(
+                providers.OrderBy(static value => value, StringComparer.Ordinal),
+                suppressedProviderAssemblies.OrderBy(static value => value, StringComparer.Ordinal),
+                compilation.AssemblyName ?? "HPD.Agent.Application"),
+            diagnostics.ToImmutable());
 
         void AddAssembly(IAssemblySymbol assembly)
         {
             foreach (var attribute in assembly.GetAttributes())
             {
                 var attributeName = attribute.AttributeClass?.ToDisplayString();
-                if (attributeName == ProviderManifestAttributeName &&
-                    attribute.ConstructorArguments.Length >= 2 &&
-                    attribute.ConstructorArguments[0].Value is INamedTypeSymbol providerType &&
-                    attribute.ConstructorArguments[1].Value is string providerKey &&
-                    !excludedProviders.Contains(providerKey))
+                if (attributeName != ProviderManifestAttributeName ||
+                    attribute.ConstructorArguments.Length < 2 ||
+                    attribute.ConstructorArguments[0].Value is not INamedTypeSymbol providerType ||
+                    attribute.ConstructorArguments[1].Value is not string providerKey)
+                    continue;
+
+                discoveredProviderKeys.Add(providerKey);
+                if (excludedProviders.Contains(providerKey))
+                {
+                    suppressedProviderAssemblies.Add(providerType.ContainingAssembly.Name);
+                }
+                else if (providerType.DeclaredAccessibility != Accessibility.Public ||
+                         !providerType.GetMembers("Fragment").OfType<IPropertySymbol>().Any(static property =>
+                             property.IsStatic &&
+                             property.DeclaredAccessibility == Accessibility.Public &&
+                             property.Type.Name == "ProviderManifestFragment"))
+                {
+                    diagnostics.Add(Diagnostic.Create(
+                        UnsupportedProviderManifest,
+                        Location.None,
+                        providerType.ToDisplayString()));
+                }
+                else
                 {
                     providers.Add(providerType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
                 }
@@ -66,6 +110,7 @@ public sealed class HPDApplicationCompositionSourceGenerator : IIncrementalGener
 
     private static string Emit(
         IEnumerable<string> providers,
+        IEnumerable<string> suppressedProviderAssemblies,
         string assemblyIdentity)
     {
         var normalizedAssembly = new string(assemblyIdentity
@@ -94,7 +139,12 @@ public sealed class HPDApplicationCompositionSourceGenerator : IIncrementalGener
         source.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
         source.AppendLine("    internal static void Register()");
         source.AppendLine("        => global::HPD.Agent.HPDApplicationCompositionHost.Register(");
-        source.AppendLine("            GeneratedHPDApplicationComposition.Application);");
+        source.AppendLine("            GeneratedHPDApplicationComposition.Application,");
+        source.AppendLine("            new string[]");
+        source.AppendLine("            {");
+        foreach (var assembly in suppressedProviderAssemblies)
+            source.AppendLine($"                {Literal(assembly)},");
+        source.AppendLine("            });");
         source.AppendLine("}");
         return source.ToString();
     }
@@ -124,4 +174,15 @@ public sealed class HPDApplicationCompositionSourceGenerator : IIncrementalGener
             : value!.Split([';', ','], StringSplitOptions.RemoveEmptyEntries)
                 .Select(static item => item.Trim())
                 .Where(static item => item.Length > 0);
+
+    private static string Literal(string value) =>
+        "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+
+    private sealed record GenerationResult(
+        string? Source,
+        ImmutableArray<Diagnostic> Diagnostics)
+    {
+        public static GenerationResult Empty { get; } =
+            new(null, ImmutableArray<Diagnostic>.Empty);
+    }
 }

@@ -13,6 +13,8 @@ HPDINP003 | HPD.Agent.Serialization | Warning | Generic agent input registration
 HPDINP004 | HPD.Agent.Serialization | Info | Abstract agent input registration
 HPDINP005 | HPD.Agent.Serialization | Error | [AgentInput] target validation
 HPDINP006 | HPD.Agent.Serialization | Error | Agent input manifest closure validation
+HPDP016 | HPD.Provider | Warning | Application provider exclusion validation
+HPDP017 | HPD.Provider | Error | Application provider manifest validation
 
 ### Removed Rules
 

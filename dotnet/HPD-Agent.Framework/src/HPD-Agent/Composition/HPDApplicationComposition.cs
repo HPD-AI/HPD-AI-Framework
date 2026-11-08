@@ -41,6 +41,8 @@ public static class HPDApplicationCompositionHost
     private static readonly object Gate = new();
     private static HPDApplicationComposition? _current;
     private static HPDApplicationComposition? _resolved;
+    private static IReadOnlySet<string> _suppressedProviderAssemblies =
+        new HashSet<string>(StringComparer.Ordinal);
 
     /// <summary>Registers the generated application composition once per process.</summary>
     /// <remarks>
@@ -48,11 +50,29 @@ public static class HPDApplicationCompositionHost
     /// assembly closes provider, event, and input capabilities before its entry point runs.
     /// </remarks>
     public static void Register(HPDApplicationComposition composition)
+        => Register(composition, Array.Empty<string>());
+
+    /// <summary>Registers the generated composition and its provider exclusion set.</summary>
+    /// <param name="composition">The finalized application composition.</param>
+    /// <param name="suppressedProviderAssemblies">
+    /// Provider assemblies excluded from automatic contribution merging.
+    /// </param>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static void Register(
+        HPDApplicationComposition composition,
+        IEnumerable<string> suppressedProviderAssemblies)
     {
         ArgumentNullException.ThrowIfNull(composition);
+        ArgumentNullException.ThrowIfNull(suppressedProviderAssemblies);
         lock (Gate)
         {
-            _current ??= composition;
+            if (_current is null)
+            {
+                _current = composition;
+                _suppressedProviderAssemblies = suppressedProviderAssemblies
+                    .Where(static value => !string.IsNullOrWhiteSpace(value))
+                    .ToHashSet(StringComparer.Ordinal);
+            }
             _resolved = null;
         }
     }
@@ -84,8 +104,11 @@ public static class HPDApplicationCompositionHost
                 .Where(static owner => !string.IsNullOrWhiteSpace(owner))
                 .ToHashSet(StringComparer.Ordinal);
             var additionalProviders = registeredProviders.Fragments
-                .Where(fragment => string.IsNullOrWhiteSpace(fragment.OwnerAssembly) ||
-                    !generatedOwners.Contains(fragment.OwnerAssembly))
+                .Where(fragment =>
+                    (string.IsNullOrWhiteSpace(fragment.OwnerAssembly) ||
+                     !generatedOwners.Contains(fragment.OwnerAssembly)) &&
+                    (string.IsNullOrWhiteSpace(fragment.OwnerAssembly) ||
+                     !_suppressedProviderAssemblies.Contains(fragment.OwnerAssembly)))
                 .ToArray();
             if (additionalProviders.Length > 0)
             {
