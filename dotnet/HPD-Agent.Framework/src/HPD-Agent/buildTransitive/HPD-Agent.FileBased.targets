@@ -1,0 +1,16 @@
+<Project>
+  <!--
+    File-based apps consume project references as ordinary assemblies. This target applies the
+    analyzer and compiler properties normally supplied by the NuGet buildTransitive target.
+  -->
+  <PropertyGroup>
+    <HpdAgentApplication Condition="'$(HpdAgentApplication)' == ''">true</HpdAgentApplication>
+    <HpdAgentSourceGeneratorPath Condition="'$(HpdAgentSourceGeneratorPath)' == ''">$(MSBuildThisFileDirectory)..\..\HPD-Agent.SourceGenerator\bin\$(Configuration)\netstandard2.0\HPD-Agent.SourceGenerator.dll</HpdAgentSourceGeneratorPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <CompilerVisibleProperty Include="HpdAgentApplication" />
+    <CompilerVisibleProperty Include="HpdAgentExcludeProviders" />
+    <Analyzer Include="$(HpdAgentSourceGeneratorPath)" />
+  </ItemGroup>
+</Project>

@@ -4,8 +4,10 @@ using System.Diagnostics;
 
 var frameworkRoot = FindFrameworkRoot();
 var temporaryRoot = Path.Combine(
-    Path.GetTempPath(),
-    $"hpd-automatic-composition-{Guid.NewGuid():N}");
+    frameworkRoot,
+    "obj",
+    "automatic-composition-smoke",
+    Guid.NewGuid().ToString("N"));
 var feed = Path.Combine(temporaryRoot, "feed");
 var packages = Path.Combine(temporaryRoot, "packages");
 var consumer = Path.Combine(temporaryRoot, "consumer");
@@ -14,42 +16,22 @@ Directory.CreateDirectory(feed);
 Directory.CreateDirectory(packages);
 Directory.CreateDirectory(consumer);
 
-await RunAsync(
+await PackAsync(
     frameworkRoot,
-    "dotnet",
-    [
-        "pack", "src/HPD-Agent/HPD-Agent.csproj",
-        "-c", "Release",
-        "--nologo",
-        "-o", feed
-    ]);
-await RunAsync(
+    "src/HPD-Agent/HPD-Agent.csproj",
+    feed);
+await PackAsync(
     frameworkRoot,
-    "dotnet",
-    [
-        "pack", "src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj",
-        "-c", "Release",
-        "--nologo",
-        "-o", feed
-    ]);
-await RunAsync(
+    "src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj",
+    feed);
+await PackAsync(
     frameworkRoot,
-    "dotnet",
-    [
-        "pack", "src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj",
-        "-c", "Release",
-        "--nologo",
-        "-o", feed
-    ]);
-await RunAsync(
+    "src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj",
+    feed);
+await PackAsync(
     frameworkRoot,
-    "dotnet",
-    [
-        "pack", "src/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj",
-        "-c", "Release",
-        "--nologo",
-        "-o", feed
-    ]);
+    "src/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj",
+    feed);
 
 await CopyPublishedDependenciesAsync(feed);
 
@@ -143,6 +125,29 @@ if (diagnostics.ExitCode != 0 || !diagnostics.Output.Contains("HPDP016", StringC
         diagnostics.Output);
 }
 
+var fileBasedPath = Path.Combine(temporaryRoot, "FileBasedComposition.cs");
+await File.WriteAllTextAsync(
+    fileBasedPath,
+    $$"""
+    #:sdk Microsoft.NET.Sdk.Web
+    #:property TargetFramework=net10.0
+    #:property CustomAfterMicrosoftCommonTargets={{Path.Combine(frameworkRoot, "src/HPD-Agent/buildTransitive/HPD-Agent.FileBased.targets")}}
+    #:project {{Path.Combine(frameworkRoot, "src/HPD-Agent/HPD-Agent.csproj")}}
+    #:project {{Path.Combine(frameworkRoot, "src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj")}}
+    #:project {{Path.Combine(frameworkRoot, "src/HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj")}}
+    #:project {{Path.Combine(frameworkRoot, "src/HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj")}}
+
+    using HPD.Agent;
+    using Microsoft.Extensions.DependencyInjection;
+
+    var services = new ServiceCollection();
+    services.AddHPD();
+    using var provider = services.BuildServiceProvider();
+    var composition = provider.GetRequiredService<HPDApplicationComposition>();
+    return composition.Providers.Descriptors.TryGet("openai", out _) ? 0 : 1;
+    """);
+await RunAsync(temporaryRoot, "dotnet", ["run", fileBasedPath]);
+
 Console.WriteLine($"automatic composition package smoke passed: {temporaryRoot}");
 return;
 
@@ -158,6 +163,33 @@ static string FindFrameworkRoot()
 
     throw new InvalidOperationException(
         "Run this smoke test from the HPD-Agent.Framework source tree.");
+}
+
+static async Task PackAsync(
+    string workingDirectory,
+    string project,
+    string feed)
+{
+    // Restore every target framework explicitly. A preceding "-f net10.0"
+    // test/build can leave the shared assets file with only that framework.
+    await RunAsync(
+        workingDirectory,
+        "dotnet",
+        [
+            "restore", project,
+            "--force-evaluate",
+            "--nologo"
+        ]);
+    await RunAsync(
+        workingDirectory,
+        "dotnet",
+        [
+            "pack", project,
+            "-c", "Release",
+            "--no-restore",
+            "--nologo",
+            "-o", feed
+        ]);
 }
 
 static async Task CopyPublishedDependenciesAsync(string feed)
