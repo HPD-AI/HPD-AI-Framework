@@ -87,6 +87,11 @@ namespace HPD.Agent.AspNetCore.Serialization;
 [JsonSerializable(typeof(UsageDetails))]
 [JsonSerializable(typeof(AgentEventCatalog))]
 [JsonSerializable(typeof(AgentEventCatalogEntry))]
+[JsonSerializable(typeof(AgentInputCatalog))]
+[JsonSerializable(typeof(AgentInputCatalogEntry))]
+[JsonSerializable(typeof(RuntimeAgentExtensionCatalog))]
+[JsonSerializable(typeof(RuntimeAgentExtensionDescriptor))]
+[JsonSerializable(typeof(RuntimeAgentExtensionSchema))]
 [JsonSerializable(typeof(AgentEventRoute))]
 internal partial class HPDAgentAspNetCoreJsonSerializerContext : JsonSerializerContext
 {

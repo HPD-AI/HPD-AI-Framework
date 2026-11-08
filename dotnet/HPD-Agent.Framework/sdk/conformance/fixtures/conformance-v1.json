@@ -1,0 +1,114 @@
+{
+  "version": "1.0",
+  "fixtures": [
+    {
+      "name": "sse-classifies-live-duplicate-and-committed-events",
+      "kind": "sse-state",
+      "initialCursor": { "generation": 2, "sequence": 4 },
+      "messages": [
+        {
+          "event": "live-agent-event",
+          "id": null,
+          "sequence": null,
+          "data": { "value": "live" }
+        },
+        {
+          "event": "agent-event",
+          "id": "2:4",
+          "sequence": 4,
+          "data": { "value": "duplicate" }
+        },
+        {
+          "event": "agent-event",
+          "id": "2:5",
+          "sequence": 5,
+          "data": { "value": "next" }
+        }
+      ],
+      "expectedDecisions": ["live", "duplicate", "committed"],
+      "expectedCursor": { "generation": 2, "sequence": 5 }
+    },
+    {
+      "name": "sse-rejects-cursor-sequence-mismatch",
+      "kind": "sse-state",
+      "initialCursor": { "generation": 1, "sequence": 0 },
+      "messages": [
+        {
+          "event": "agent-event",
+          "id": "1:2",
+          "sequence": 3,
+          "data": { "value": "wrong" }
+        }
+      ],
+      "expectedError": "cursor-sequence-mismatch"
+    },
+    {
+      "name": "sse-rebase-resets-generation",
+      "kind": "sse-state",
+      "initialCursor": { "generation": 1, "sequence": 9 },
+      "messages": [
+        {
+          "event": "thread-journal-rebased",
+          "id": null,
+          "sequence": null,
+          "data": { "previousGeneration": 1, "currentGeneration": 2 }
+        }
+      ],
+      "expectedError": "journal-rebased",
+      "expectedCursor": { "generation": 2, "sequence": 0 }
+    },
+    {
+      "name": "run-config-omits-unset-fields",
+      "kind": "json-shape",
+      "operation": "run-config-empty",
+      "expected": {}
+    },
+    {
+      "name": "chat-user-message-has-explicit-text-content",
+      "kind": "json-shape",
+      "operation": "chat-user-message",
+      "input": "hello",
+      "expected": {
+        "role": "user",
+        "contents": [
+          {
+            "$type": "text",
+            "text": "hello"
+          }
+        ]
+      }
+    },
+    {
+      "name": "client-tool-normalizes-short-name-and-text-result",
+      "kind": "client-tool",
+      "registration": "host.sample.echo",
+      "handler": "echo",
+      "invocation": {
+        "requestId": "request-one",
+        "toolName": "sample.echo",
+        "callId": "call-one",
+        "arguments": {}
+      },
+      "expectedOutcome": "Completed",
+      "expectedCapability": "client-tool:echo",
+      "expectedContent": {
+        "type": "text",
+        "text": "echo"
+      }
+    },
+    {
+      "name": "client-tool-missing-handler-returns-failed-result",
+      "kind": "client-tool",
+      "registration": null,
+      "handler": null,
+      "invocation": {
+        "requestId": "request-two",
+        "toolName": "unknown",
+        "callId": "call-two",
+        "arguments": {}
+      },
+      "expectedOutcome": "Failed",
+      "expectedErrorMessageContains": "Unknown client tool"
+    }
+  ]
+}

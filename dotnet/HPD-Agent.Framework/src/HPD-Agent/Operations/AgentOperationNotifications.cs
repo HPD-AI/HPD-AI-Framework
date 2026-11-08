@@ -26,6 +26,7 @@ public sealed record AgentOperationNotification
 /// delivers the notifications at the next safe boundary of a matching active agentic
 /// turn when possible; otherwise it durably queues them as subsequent work.
 /// </summary>
+[HPD.Agent.Serialization.AgentInput]
 public sealed record AgentOperationNotificationInputEvent(
     IReadOnlyList<AgentOperationNotification> Notifications) : AgentInputEvent;
 

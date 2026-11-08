@@ -174,6 +174,7 @@ public enum ClientToolOperationOutcomeState
 /// <summary>
 /// Input sent by a client when accepted background client-tool work reaches a terminal state.
 /// </summary>
+[HPD.Agent.Serialization.AgentInput]
 public sealed record ClientToolOperationOutcomeEvent : AgentInputEvent
 {
     /// <summary>

@@ -448,6 +448,7 @@ public sealed record SubAgentInvocationCancelledEvent(string InvocationId, strin
 /// User message input sent into an agent turn. When <see cref="Messages"/> is empty,
 /// the agent resumes the scoped thread using existing history and the supplied run config.
 /// </summary>
+[HPD.Agent.Serialization.AgentInput]
 public sealed record UserMessagesInputEvent : AgentInputEvent
 {
     /// <summary>Messages to add for this turn. Empty means resume the scoped thread.</summary>
@@ -470,6 +471,7 @@ public sealed record UserMessagesInputEvent : AgentInputEvent
 }
 
 /// <summary>Explicitly compacts the scoped thread without creating a user message or model turn.</summary>
+[HPD.Agent.Serialization.AgentInput]
 public sealed record CompactThreadInputEvent : AgentInputEvent
 {
     public required ThreadCompactionRequest Request { get; init; }

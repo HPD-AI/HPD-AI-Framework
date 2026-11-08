@@ -42,6 +42,14 @@ internal sealed class HPDAgentRegistry
                 : null)
             ?? throw new InvalidOperationException(
                 "HPD Agent Hosting requires an explicit, generated application, or generated module AgentEventComposition before activation.");
+        var inputComposition = options.InputComposition
+            ?? _serviceProvider.GetService<AgentInputComposition>()
+            ?? (AgentInputCompositionHost.TryGetDefaultApplication(out var defaultInputs)
+                ? defaultInputs
+                : AgentInputCompositionHost.TryComposeRegisteredModules(out var moduleInputs)
+                    ? moduleInputs
+                    : throw new InvalidOperationException(
+                        "HPD Agent Hosting requires a generated AgentInputComposition."));
 
         ISessionStore sessionStore = options.SessionStore
             ?? (options.SessionStorePath != null
@@ -73,13 +81,14 @@ internal sealed class HPDAgentRegistry
             new AgentContentService(sessionManager, contentStore),
             new AgentDefinitionService(agentManager),
             new AgentMiddlewareResponseService(sessionManager, agentManager),
-            new AgentStreamingService(sessionManager, agentManager));
+            new AgentStreamingService(sessionManager, agentManager, inputComposition: inputComposition));
 
         return new HPDAgentPair(
             agentManager,
             sessionManager,
             hostingServices,
-            eventComposition);
+            eventComposition,
+            inputComposition);
     }
 }
 
@@ -88,4 +97,5 @@ internal record HPDAgentPair(
     AspNetCoreAgentManager AgentManager,
     AspNetCoreSessionManager SessionManager,
     HPDAgentHostingServices HostingServices,
-    AgentEventComposition EventComposition);
+    AgentEventComposition EventComposition,
+    AgentInputComposition InputComposition);

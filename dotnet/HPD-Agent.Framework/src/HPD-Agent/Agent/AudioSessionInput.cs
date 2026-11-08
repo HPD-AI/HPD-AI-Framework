@@ -4,6 +4,7 @@ using Microsoft.Extensions.AI;
 
 namespace HPD.Agent;
 
+[HPD.Agent.Serialization.AgentInput]
 public sealed record AudioSessionInputEvent : AgentInputEvent
 {
     public required AudioSessionCommand Command { get; init; }

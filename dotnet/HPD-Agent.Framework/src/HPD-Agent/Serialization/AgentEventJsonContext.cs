@@ -193,6 +193,11 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(Goals.CreateGoalInputEvent))]
 [JsonSerializable(typeof(AgentOperationNotificationInputEvent))]
 [JsonSerializable(typeof(ClientTools.ClientToolOperationOutcomeEvent))]
+[JsonSerializable(typeof(RuntimeAgentInputEvent))]
+[JsonSerializable(typeof(RuntimeAgentLiveEvent))]
+[JsonSerializable(typeof(RuntimeAgentDurableEvent))]
+[JsonSerializable(typeof(RuntimeAgentExtensionCatalog))]
+[JsonSerializable(typeof(RuntimeAgentExtensionDescriptor))]
 
 // Content Events
 [JsonSerializable(typeof(ToolOutputProjectedEvent))]

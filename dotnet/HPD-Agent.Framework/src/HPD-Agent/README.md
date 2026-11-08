@@ -65,6 +65,14 @@ Use the builder's session-store helpers, such as
 created with the selected composition's codec. A manually created store must use
 that same codec.
 
+See [Custom agent events](CUSTOM_EVENTS.md) for defining event contracts,
+choosing `[DurableEvent]`, publishing live versus journaled events, and handling
+unknown or stale event contracts.
+
+See [Runtime agent extensions](RUNTIME_EXTENSIONS.md) for tenant-owned JSON
+schemas, validated live/durable output events, and trusted runtime input
+handlers that do not require runtime C# compilation.
+
 ## ToolHarness construction
 
 ToolHarnesses have exactly one public constructor and one generated activation

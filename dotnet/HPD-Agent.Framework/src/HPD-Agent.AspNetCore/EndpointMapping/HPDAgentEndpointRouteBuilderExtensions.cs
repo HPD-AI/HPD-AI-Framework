@@ -3,6 +3,7 @@ using HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
 using HPD.Agent.ClientTools;
 using HPD.Agent.Hosting.Lifecycle;
 using HPD.Agent.AspNetCore.Serialization;
+using HPD.Agent.AspNetCore.RuntimeExtensions;
 using HPD.Agent.Serialization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -75,10 +76,31 @@ public static class HPDAgentEndpointRouteBuilderExtensions
             .GetRequiredService<IHPDAgentHostingServicesProvider>()
             .Get(name);
         var eventComposition = pair.EventComposition;
+        var inputComposition = pair.InputComposition;
 
         routeGroup.MapGet("/event-catalog", () => Results.Json(
             eventComposition.Catalog,
-            HPDAgentAspNetCoreJsonSerializerContext.Default.AgentEventCatalog));
+            HPDAgentAspNetCoreJsonSerializerContext.Default.AgentEventCatalog))
+            .WithName("GetAgentEventCatalog")
+            .WithSummary("Get the immutable agent event compatibility catalog");
+        routeGroup.MapGet("/input-catalog", () => Results.Json(
+            inputComposition.Catalog,
+            HPDAgentAspNetCoreJsonSerializerContext.Default.AgentInputCatalog))
+            .WithName("GetAgentInputCatalog")
+            .WithSummary("Get the immutable public and internal agent input compatibility catalog");
+        if (options.MapRuntimeExtensions)
+        {
+            routeGroup.MapGet(
+                    "/runtime-extension-catalog",
+                    () => Results.Json(
+                        endpoints.ServiceProvider.GetService<RuntimeAgentExtensionRegistry>()?.GetCatalog()
+                        ?? RuntimeAgentExtensionRegistry.EmptyCatalog,
+                        HPDAgentAspNetCoreJsonSerializerContext.Default.RuntimeAgentExtensionCatalog))
+                .WithName("GetRuntimeAgentExtensionCatalog")
+                .WithSummary("Get the current tenant-scoped runtime extension schema catalog");
+        }
+        if (options.MapRuntimeExtensionManagement)
+            routeGroup.MapRuntimeAgentExtensionManagement();
 
         // Map all endpoint groups
         if (options.MapSessions)
@@ -95,7 +117,8 @@ public static class HPDAgentEndpointRouteBuilderExtensions
                 routeGroup,
                 hostingServices.Streaming,
                 new HPD.Agent.Serialization.AgentInputCodec(
-                    endpoints.ServiceProvider.GetRequiredService<HPD.Agent.Providers.ProviderComposition>()));
+                    endpoints.ServiceProvider.GetRequiredService<HPD.Agent.Providers.ProviderComposition>(),
+                    inputComposition));
         if (options.MapMiddlewareResponses)
             MiddlewareResponseEndpoints.Map(routeGroup, hostingServices.MiddlewareResponses, eventComposition.Codec);
         if (options.MapClientToolProviders)

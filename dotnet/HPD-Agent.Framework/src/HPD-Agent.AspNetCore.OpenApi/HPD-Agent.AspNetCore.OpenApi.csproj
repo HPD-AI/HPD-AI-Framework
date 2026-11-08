@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>HPD.Agent.AspNetCore.OpenApi</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <PackageId>HPD-Agent.AspNetCore.OpenApi</PackageId>
+    <Description>OpenAPI document generation for the HPD-Agent HTTP and committed SSE API.</Description>
+    <PackageTags>hpd;agent;aspnetcore;openapi;sse</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      This package only wraps the runtime document API. Its own AddOpenApi call
+      must not instantiate the XML-comment source generator across every HPD
+      project reference. The consuming application owns that generator.
+    -->
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.14"
+                      ExcludeAssets="analyzers" />
+    <ProjectReference Include="../HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>

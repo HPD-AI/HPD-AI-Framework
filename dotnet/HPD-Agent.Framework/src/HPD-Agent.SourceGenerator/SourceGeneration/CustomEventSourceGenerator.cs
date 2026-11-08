@@ -205,7 +205,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         var diagnostics = new List<Diagnostic>();
 
         // Skip framework contracts themselves.
-        if (typeSymbol.Name == "AgentEvent" || typeSymbol.Name == "AgentStructEvent")
+        if (typeSymbol.Name is "AgentEvent" or "AgentInputEvent" or "AgentStructEvent")
             return null;
         if (!IsModuleVisible(typeSymbol))
             return null;
@@ -419,6 +419,9 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         var baseType = typeSymbol.BaseType;
         while (baseType != null)
         {
+            if (baseType.Name == "AgentInputEvent" &&
+                baseType.ContainingNamespace.ToDisplayString() == "HPD.Agent")
+                return EventRegistrationKind.AgentInput;
             if (baseType.Name == "AgentEvent")
                 return EventRegistrationKind.AgentEvent;
             baseType = baseType.BaseType;
@@ -1068,6 +1071,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
     private enum EventRegistrationKind
     {
         AgentEvent,
+        AgentInput,
         AgentStructEvent
     }
 

@@ -12,6 +12,12 @@
   </Folder>
   <Folder Name="/Engineering/">
     <Project Path="eng/HPD-Agent.DebugProtocol.CodeGen/HPD-Agent.DebugProtocol.CodeGen.csproj" />
+    <Project Path="src/HPD-Agent.ClientGenerator/HPD-Agent.ClientGenerator.csproj" />
+    <Project Path="src/HPD-Agent.GoGenerator/HPD-Agent.GoGenerator.csproj" />
+    <Project Path="src/HPD-Agent.PythonGenerator/HPD-Agent.PythonGenerator.csproj" />
+    <Project Path="src/HPD-Agent.SDK.Generator/HPD-Agent.SDK.Generator.csproj" />
+    <Project Path="src/HPD-Agent.SDK.Contract/HPD-Agent.SDK.Contract.csproj" />
+    <Project Path="src/HPD-Agent.TypeScriptGenerator/HPD-Agent.TypeScriptGenerator.csproj" />
   </Folder>
   <Folder Name="/AOT Smoke Tests/">
     <Project Path="test/HPD-Agent.AIFunctionContracts.AotSmoke/HPD-Agent.AIFunctionContracts.AotSmoke.csproj" />
@@ -25,6 +31,8 @@
   </Folder>
   <Folder Name="/Web/">
     <Project Path="src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj" />
+    <Project Path="src/HPD-Agent.AspNetCore.OpenApi/HPD-Agent.AspNetCore.OpenApi.csproj" />
+    <Project Path="src/HPD-Agent.Client/HPD-Agent.Client.csproj" />
     <Project Path="src/HPD-Agent.MultiAgent.AspNetCore/HPD-Agent.MultiAgent.AspNetCore.csproj" />
     <Project Path="src/HPD-Agent.Studio/HPD-Agent.Studio.csproj" />
     <Project Path="src/HPD-Agent.OpenApi/HPD-Agent.OpenApi.csproj" />
@@ -147,6 +155,10 @@
     <Project Path="test/HPD-Agent.MultiAgent.Tests/HPD-Agent.MultiAgent.Tests.csproj" />
     <Project Path="test/HPD-Agent.MultiAgent.AspNetCore.Tests/HPD-Agent.MultiAgent.AspNetCore.Tests.csproj" />
     <Project Path="test/HPD-Agent.OpenApi.Tests/HPD-Agent.OpenApi.Tests.csproj" />
+    <Project Path="test/HPD-Agent.AspNetCore.OpenApi.Tests/HPD-Agent.AspNetCore.OpenApi.Tests.csproj" />
+    <Project Path="test/HPD-Agent.ClientGenerator.Tests/HPD-Agent.ClientGenerator.Tests.csproj" />
+    <Project Path="test/HPD-Agent.Client.Tests/HPD-Agent.Client.Tests.csproj" />
+    <Project Path="test/HPD-Agent.RuntimeExtensions.AspNetCore.Tests/HPD-Agent.RuntimeExtensions.AspNetCore.Tests.csproj" />
     <Project Path="test/HPD-Agent.AspNetCore.Tests/HPD-Agent.AspNetCore.Tests.csproj" />
     <Project Path="test/HPD-Agent.Evaluations.Tests/HPD-Agent.Evaluations.Tests.csproj" />
     <Project Path="test/HPD-Agent.Providers.Tests/HPD-Agent.Providers.Tests.csproj" />

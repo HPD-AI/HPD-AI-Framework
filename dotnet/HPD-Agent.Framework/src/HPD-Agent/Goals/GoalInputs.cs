@@ -3,6 +3,7 @@ using Microsoft.Extensions.AI;
 namespace HPD.Agent.Goals;
 
 /// <summary>Creates a user-authorized persistent Goal and runs its initial input.</summary>
+[HPD.Agent.Serialization.AgentInput]
 public sealed record CreateGoalInputEvent : AgentInputEvent
 {
     /// <summary>The complete user-authored outcome, including constraints and verification.</summary>

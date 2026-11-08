@@ -14,6 +14,8 @@ public sealed class HPDAgentEndpointOptions
     public bool MapClientToolProviders { get; set; } = true;
     public bool MapAgents { get; set; } = true;
     public bool MapEvals { get; set; } = true;
+    public bool MapRuntimeExtensions { get; set; } = true;
+    public bool MapRuntimeExtensionManagement { get; set; }
 
     public Action<RouteGroupBuilder>? ConfigureRoutes { get; set; }
 }

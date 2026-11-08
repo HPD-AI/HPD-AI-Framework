@@ -8,45 +8,62 @@ namespace HPD.Agent.Serialization;
 /// <summary>Explicit provider-aware serialization authority for semantic agent inputs.</summary>
 public sealed class AgentInputCodec
 {
-    private readonly IReadOnlyDictionary<Type, (string Discriminator, JsonTypeInfo TypeInfo)> _byType;
-    private readonly IReadOnlyDictionary<string, (Type Type, JsonTypeInfo TypeInfo)> _byDiscriminator;
+    private readonly IReadOnlyDictionary<Type, AgentInputDescriptor> _byType;
+    private readonly IReadOnlyDictionary<string, AgentInputDescriptor> _byDiscriminator;
+    private readonly AgentInputComposition _composition;
 
     /// <summary>Creates an input codec bound to the provider composition used by the target agent.</summary>
     public AgentInputCodec(ProviderComposition providerComposition)
+        : this(providerComposition, AgentInputCompositionHost.ResolveDefault())
+    {
+    }
+
+    /// <summary>Creates an input codec for one exact input composition.</summary>
+    public AgentInputCodec(
+        ProviderComposition providerComposition,
+        AgentInputComposition inputComposition)
     {
         ProviderComposition = providerComposition ?? throw new ArgumentNullException(nameof(providerComposition));
-        var entries = new (Type Type, string Discriminator)[]
-        {
-            (typeof(UserMessagesInputEvent), EventTypes.Input.USER_MESSAGES_INPUT),
-            (typeof(AudioSessionInputEvent), EventTypes.Input.AUDIO_SESSION_INPUT),
-            (typeof(CompactThreadInputEvent), EventTypes.Input.COMPACT_THREAD_INPUT),
-            (typeof(Goals.CreateGoalInputEvent), "CREATE_GOAL_INPUT"),
-            (typeof(Goals.GoalContinuationInputEvent), "GOAL_CONTINUATION_INPUT"),
-            (typeof(AgentOperationNotificationInputEvent), EventTypes.Input.AGENT_OPERATION_NOTIFICATION_INPUT),
-            (typeof(ClientTools.ClientToolOperationOutcomeEvent), EventTypes.ClientTool.CLIENT_TOOL_BACKGROUND_OPERATION_OUTCOME)
-        };
-        _byType = entries.ToDictionary(
-            static entry => entry.Type,
-            static entry => (entry.Discriminator, RequireTypeInfo(entry.Type)));
-        _byDiscriminator = entries.ToDictionary(
+        _composition = inputComposition ?? throw new ArgumentNullException(nameof(inputComposition));
+        _byType = _composition.Inputs.ToDictionary(static entry => entry.InputType);
+        _byDiscriminator = _composition.Inputs.ToDictionary(
             static entry => entry.Discriminator,
-            static entry => (entry.Type, RequireTypeInfo(entry.Type)),
-            StringComparer.OrdinalIgnoreCase);
+            StringComparer.Ordinal);
     }
 
     /// <summary>Gets the immutable provider composition used for run-config encoding.</summary>
     public ProviderComposition ProviderComposition { get; }
 
+    /// <summary>Gets the immutable semantic input composition.</summary>
+    public AgentInputComposition Composition => _composition;
+
+    /// <summary>Gets the immutable input compatibility digest.</summary>
+    public string Digest => _composition.Digest;
+
     /// <summary>Determines whether an input belongs to the explicit public submission surface.</summary>
-    public static bool IsPublicInput(AgentInputEvent input) => input is
-        UserMessagesInputEvent or AudioSessionInputEvent or CompactThreadInputEvent or
-        AgentOperationNotificationInputEvent or ClientTools.ClientToolOperationOutcomeEvent or Goals.CreateGoalInputEvent;
+    public static bool IsPublicInput(AgentInputEvent input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        if (AgentInputCompositionHost.TryGetDefaultApplication(out var application))
+            return application.IsPublic(input.GetType());
+        if (AgentInputCompositionHost.TryComposeRegisteredModules(out var modules))
+            return modules.IsPublic(input.GetType());
+        throw new InvalidOperationException(
+            "No generated agent input composition is registered.");
+    }
+
+    /// <summary>Determines whether this codec's composition exposes the input publicly.</summary>
+    public bool IsPublic(AgentInputEvent input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        return _composition.IsPublic(input.GetType());
+    }
 
     /// <summary>Hydrates an untrusted public input, rejecting runtime-owned continuation contracts.</summary>
     public AgentInputEvent DeserializePublic(string json)
     {
         var input = Deserialize(json);
-        return IsPublicInput(input) ? input : throw new JsonException("Input is reserved for the internal runtime.");
+        return IsPublic(input) ? input : throw new JsonException("Input is reserved for the internal runtime.");
     }
 
     /// <summary>Serializes one semantic input and its typed provider run configuration.</summary>
@@ -56,7 +73,7 @@ public sealed class AgentInputCodec
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
         if (!_byType.TryGetValue(input.GetType(), out var entry))
             throw new JsonException($"Agent input type '{input.GetType().FullName}' is not supported by this input codec.");
-        var payload = JsonSerializer.Serialize(input, entry.TypeInfo);
+        var payload = JsonSerializer.Serialize(input, entry.JsonTypeInfo);
         var prefix = $"\"version\":{JsonSerializer.Serialize(version, AgentEventJsonContext.Default.String)}," +
             $"\"type\":{JsonSerializer.Serialize(entry.Discriminator, AgentEventJsonContext.Default.String)}";
         var envelope = payload == "{}" ? $"{{{prefix}}}" : payload.Insert(1, prefix + ",");
@@ -98,9 +115,9 @@ public sealed class AgentInputCodec
             throw new JsonException("Agent input envelope requires a string 'type' property.");
         var discriminator = typeProperty.GetString()!;
         if (!_byDiscriminator.TryGetValue(discriminator, out var entry))
-            throw new JsonException($"Unknown agent input discriminator '{discriminator}'.");
-        using var payload = StripEnvelope(document.RootElement, entry.TypeInfo);
-        var input = payload.RootElement.Deserialize(entry.TypeInfo) as AgentInputEvent
+            throw new UnknownAgentInputDiscriminatorException(discriminator, Digest);
+        using var payload = StripEnvelope(document.RootElement, entry.JsonTypeInfo);
+        var input = payload.RootElement.Deserialize(entry.JsonTypeInfo) as AgentInputEvent
             ?? throw new JsonException($"Agent input '{discriminator}' hydrated to an invalid value.");
         AgentRunConfig? decodedRunConfig = null;
         if (document.RootElement.TryGetProperty("runConfig", out var runConfig) &&
@@ -160,12 +177,6 @@ public sealed class AgentInputCodec
            layers is not null
             ? layers.Deserialize(AgentEventJsonContext.Default.ListListHarnessRunOverride)
             : null;
-
-    private static JsonTypeInfo RequireTypeInfo(Type type) =>
-        (type == typeof(Goals.GoalContinuationInputEvent)
-            ? Goals.GoalJsonContext.Default.GetTypeInfo(type)
-            : AgentEventJsonContext.Default.GetTypeInfo(type))
-        ?? throw new InvalidOperationException($"Agent input '{type.FullName}' has no source-generated JSON metadata.");
 
     private static JsonDocument StripEnvelope(JsonElement root, JsonTypeInfo typeInfo)
     {

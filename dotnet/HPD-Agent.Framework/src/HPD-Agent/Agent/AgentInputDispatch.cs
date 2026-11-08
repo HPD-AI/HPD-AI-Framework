@@ -190,6 +190,7 @@ internal sealed class AgentInputDispatcher
         yield return Register(AgentInputRoutingClass.Work, new Goals.CreateGoalInputHandler());
         yield return Register(AgentInputRoutingClass.Work, new Goals.GoalContinuationInputHandler());
         yield return Register(AgentInputRoutingClass.Work, new AgentOperationNotificationInputHandler());
+        yield return Register(AgentInputRoutingClass.Work, new RuntimeAgentInputHandler());
         yield return Register(AgentInputRoutingClass.SessionControl, new AudioSessionInputHandler());
         yield return Register(AgentInputRoutingClass.ActiveControl, new ClientToolOperationOutcomeInputHandler());
     }

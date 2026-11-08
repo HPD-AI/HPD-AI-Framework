@@ -1,5 +1,6 @@
 using HPD.Agent;
 using HPD.Agent.Hosting.Data;
+using HPD.Agent.Serialization;
 using Microsoft.Extensions.Logging;
 using HPD.Events.Struct;
 
@@ -11,17 +12,20 @@ public sealed class AgentStreamingService : IAgentStreamingService
     private readonly AgentManager _agentManager;
     private readonly ILogger<AgentStreamingService>? _logger;
     private readonly IAgentEventContentArchiver _eventContentArchiver;
+    private readonly AgentInputComposition _inputComposition;
 
     public AgentStreamingService(
         SessionManager sessionManager,
         AgentManager agentManager,
         ILogger<AgentStreamingService>? logger = null,
         IContentStore? contentStore = null,
-        IStructEventHub? structEvents = null)
+        IStructEventHub? structEvents = null,
+        AgentInputComposition? inputComposition = null)
     {
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _agentManager = agentManager ?? throw new ArgumentNullException(nameof(agentManager));
         _logger = logger;
+        _inputComposition = inputComposition ?? AgentInputCompositionHost.ResolveDefault();
         _eventContentArchiver = new AgentEventContentArchiver(contentStore, diagnostic =>
         {
             if (structEvents is not null)
@@ -73,7 +77,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
         AgentInputEvent input,
         CancellationToken cancellationToken = default)
     {
-        if (!HPD.Agent.Serialization.AgentInputCodec.IsPublicInput(input))
+        if (!_inputComposition.IsPublic(input.GetType()))
             return AgentServiceResult<InputSubmissionDto>.Validation("InternalInput", "This input is reserved for the internal runtime.");
 
         if (input is UserMessagesInputEvent { Delivery: AgentInputDelivery.Steer })
@@ -162,7 +166,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
         AgentInputEvent input,
         CancellationToken cancellationToken = default)
     {
-        if (!HPD.Agent.Serialization.AgentInputCodec.IsPublicInput(input))
+        if (!_inputComposition.IsPublic(input.GetType()))
             return AgentServiceResult<InputSubmissionDto>.Validation("InternalInput", "This input is reserved for the trusted runtime.");
 
         if (string.IsNullOrWhiteSpace(controllerAgentId) ||

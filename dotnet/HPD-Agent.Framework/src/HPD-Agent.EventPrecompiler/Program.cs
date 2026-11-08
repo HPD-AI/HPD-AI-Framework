@@ -54,7 +54,8 @@ var compilation = CSharpCompilation.Create(
         platform: ParsePlatform(arguments.Platform),
         nullableContextOptions: ParseNullable(arguments.Nullable)));
 var agentEvent = compilation.GetTypeByMetadataName("HPD.Agent.AgentEvent");
-if (agentEvent is null)
+var agentInputEvent = compilation.GetTypeByMetadataName("HPD.Agent.AgentInputEvent");
+if (agentEvent is null && agentInputEvent is null)
 {
     DeleteOutput(arguments.Output);
     return 0;
@@ -64,7 +65,12 @@ var eventTypes = trees
     .SelectMany(static tree => tree.GetRoot().DescendantNodes().OfType<TypeDeclarationSyntax>())
     .Select(declaration => compilation.GetSemanticModel(declaration.SyntaxTree).GetDeclaredSymbol(declaration))
     .OfType<INamedTypeSymbol>()
-    .Where(type => !type.IsAbstract && !type.IsGenericType && IsModuleVisible(type) && InheritsFrom(type, agentEvent))
+    .Where(type =>
+        !type.IsAbstract &&
+        !type.IsGenericType &&
+        IsModuleVisible(type) &&
+        (agentEvent is not null && InheritsFrom(type, agentEvent) ||
+         agentInputEvent is not null && InheritsFrom(type, agentInputEvent)))
     .Distinct(SymbolEqualityComparer.Default)
     .Where(static type => type is not null)
     .Select(static type => type!)
@@ -105,7 +111,7 @@ static string ComputeFingerprint(
     IReadOnlyList<string> analyzerConfigs)
 {
     using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-    Append("hpd-agent-event-precompile-v2");
+    Append("hpd-agent-event-precompile-v3");
     Append(arguments.AssemblyName);
     Append(arguments.LanguageVersion);
     Append(arguments.Defines);

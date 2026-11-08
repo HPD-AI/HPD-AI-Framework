@@ -1,7 +1,7 @@
 {
   "name": "@hpd-research/hpd-agent-client",
   "version": "0.1.0",
-  "description": "TypeScript chat/runtime SDK for HPD-Agent",
+  "description": "Generated HPD Agent TypeScript SDK",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -10,40 +10,21 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./transports": {
-      "types": "./dist/transports/index.d.ts",
-      "import": "./dist/transports/index.js"
     }
   },
-  "files": [
-    "dist",
-    "README.md"
-  ],
+  "files": ["dist", "README.md", "sdk-ir.json", "hpd-client.generated.json"],
   "scripts": {
-    "build": "npm run clean && tsc",
-    "test": "vitest run",
-    "test:watch": "vitest watch",
     "clean": "rm -rf dist",
+    "build": "npm run clean && tsc",
+    "check": "npm run build",
+    "conformance": "node conformance.mjs",
     "prepublishOnly": "npm run build"
   },
-  "keywords": [
-    "hpd-agent",
-    "agent",
-    "ai",
-    "streaming",
-    "sse",
-    "typescript"
-  ],
-  "author": "HPD-AI",
-  "license": "FSL-1.1-ALv2",
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "typescript": "^5.0.0",
-    "typescript-language-server": "^5.2.0",
-    "vitest": "^1.0.0"
+    "typescript": "^5.0.0"
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "license": "FSL-1.1-ALv2"
 }

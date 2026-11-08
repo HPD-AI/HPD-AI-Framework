@@ -12,6 +12,9 @@ public class HPDAgentConfig
     /// <summary>Optional explicit output-event composition; otherwise Hosting requires one from DI.</summary>
     public AgentEventComposition? EventComposition { get; set; }
 
+    /// <summary>Optional explicit semantic-input composition; otherwise generated modules are composed.</summary>
+    public AgentInputComposition? InputComposition { get; set; }
+
     /// <summary>
     /// The session store to use for this agent.
     /// Owns session lifecycle (list, create, delete) and is shared with the agent for thread persistence.

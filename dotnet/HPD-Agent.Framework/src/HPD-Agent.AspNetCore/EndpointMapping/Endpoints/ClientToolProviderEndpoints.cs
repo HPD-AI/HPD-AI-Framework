@@ -30,7 +30,7 @@ internal static class ClientToolProviderEndpoints
         endpoints.MapGet("/client-tool-providers", (
                 string? appProviderName,
                 string? appKind,
-                bool includeDisconnected) =>
+                bool? includeDisconnected) =>
                 ListProviders(registry, appProviderName, appKind, includeDisconnected))
             .WithName("ListClientToolProviders")
             .WithSummary("List connected client tool providers");
@@ -74,12 +74,12 @@ internal static class ClientToolProviderEndpoints
         IClientToolProviderRegistry registry,
         string? appProviderName,
         string? appKind,
-        bool includeDisconnected)
+        bool? includeDisconnected)
         => TypedResults.Ok(registry.List(new ClientToolProviderQuery
         {
             AppProviderName = appProviderName,
             AppKind = appKind,
-            IncludeDisconnected = includeDisconnected
+            IncludeDisconnected = includeDisconnected ?? false
         }));
 
     private static Results<Ok<ClientToolProviderSnapshot>, NotFound> GetProvider(

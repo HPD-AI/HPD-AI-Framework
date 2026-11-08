@@ -10,4 +10,11 @@ internal static class TestEventApplication
             : throw new InvalidOperationException("The generated test event composition was not initialized.");
 
     internal static AgentEventCodec Codec => Composition.Codec;
+
+    internal static AgentInputComposition InputComposition =>
+        AgentInputCompositionHost.TryGetDefaultApplication(out var composition)
+            ? composition
+            : AgentInputCompositionHost.TryComposeRegisteredModules(out composition)
+                ? composition
+            : throw new InvalidOperationException("The generated test input composition was not initialized.");
 }
