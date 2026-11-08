@@ -277,6 +277,7 @@ public sealed class PermissionAdmissionLifecycleTests
         public Task<HPD.Agent.Session?> LoadSessionAsync(string id, CancellationToken ct = default) => inner.LoadSessionAsync(id, ct);
         public Task SaveSessionAsync(HPD.Agent.Session session, CancellationToken ct = default)
         { if (FailSave) throw new IOException("injected save failure"); SaveCount++; return inner.SaveSessionAsync(session, ct); }
+        public ValueTask<bool> TryCreateSessionAsync(HPD.Agent.Session session, CancellationToken ct = default) => inner.TryCreateSessionAsync(session, ct);
         public ValueTask<SessionPreparationResult> TryPrepareSessionAsync(HPD.Agent.Session session, CancellationToken ct = default) => inner.TryPrepareSessionAsync(session, ct);
         public Task<List<string>> ListSessionIdsAsync(CancellationToken ct = default) => inner.ListSessionIdsAsync(ct);
         public Task DeleteSessionAsync(string id, CancellationToken ct = default) => inner.DeleteSessionAsync(id, ct);

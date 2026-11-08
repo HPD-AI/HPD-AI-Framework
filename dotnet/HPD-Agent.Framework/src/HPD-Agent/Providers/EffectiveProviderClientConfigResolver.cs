@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace HPD.Agent.Providers;
 
 /// <summary>Resolves profile, agent, and run layers into one immutable provider-client snapshot.</summary>
-public sealed class EffectiveProviderClientConfigResolver
+internal sealed class EffectiveProviderClientConfigResolver
 {
     private readonly ProviderComposition _composition;
 

@@ -254,7 +254,7 @@ public enum PlanStepStatus
 /// </para>
 /// </remarks>
 [MiddlewareState(Persistent = true)]
-public sealed record PlanModePersistentStateData
+internal sealed record PlanModePersistentStateData
 {
     /// <summary>
     /// Plans keyed by conversation ID.

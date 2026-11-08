@@ -9,11 +9,12 @@ namespace HPD.Agent.Tests.Middleware;
 public sealed class ContainerHistoryRewriteTests
 {
     [Theory]
-    [InlineData(RecoveryType.HiddenItem)]
-    [InlineData(RecoveryType.QualifiedName)]
-    [InlineData(RecoveryType.ContainerWithArguments)]
-    public async Task RewritePreservesMessageEnvelopeAndUnrelatedParallelContents(RecoveryType recovery)
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task RewritePreservesMessageEnvelopeAndUnrelatedParallelContents(int recoveryValue)
     {
+        var recovery = (RecoveryType)recoveryValue;
         var call = new FunctionCallContent("recover", "Hidden", new Dictionary<string, object?> { ["value"] = 3 });
         var other = new FunctionCallContent("other", "Visible");
         var result = new FunctionResultContent("recover", "recovery feedback");

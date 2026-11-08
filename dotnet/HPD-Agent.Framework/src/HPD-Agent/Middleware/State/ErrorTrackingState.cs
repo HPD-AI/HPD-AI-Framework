@@ -32,7 +32,7 @@ namespace HPD.Agent;
 /// </code>
 /// </remarks>
 [MiddlewareState]
-public sealed record ErrorTrackingStateData
+internal sealed record ErrorTrackingStateData
 {
 
     /// <summary>

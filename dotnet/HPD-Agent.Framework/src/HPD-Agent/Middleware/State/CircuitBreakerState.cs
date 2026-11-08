@@ -27,7 +27,7 @@ namespace HPD.Agent;
 /// </code>
 /// </remarks>
 [MiddlewareState]
-public sealed record CircuitBreakerStateData
+internal sealed record CircuitBreakerStateData
 {
 
     /// <summary>

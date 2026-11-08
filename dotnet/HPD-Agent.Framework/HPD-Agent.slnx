@@ -144,6 +144,7 @@
     <Project Path="test/HPD-Agent.Goals.Tests/HPD-Agent.Goals.Tests.csproj" />
     <Project Path="test/HPD-Agent.Planning.Tests/HPD-Agent.Planning.Tests.csproj" />
     <Project Path="test/HPD-Agent.Tests/HPD-Agent.Tests.csproj" />
+    <Project Path="test/HPD-Agent.DxAudit/HPD-Agent.DxAudit.csproj" />
     <Project Path="test/HPD-Agent.ToolHarness.Runtime.Tests/HPD-Agent.ToolHarness.Runtime.Tests.csproj" />
     <Project Path="test/HPD-Agent.Authority.Tests/HPD-Agent.Authority.Tests.csproj" />
     <Project Path="test/HPD-Agent.ProviderCatalog.Tests/HPD-Agent.ProviderCatalog.Tests.csproj" />

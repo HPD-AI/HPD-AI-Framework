@@ -273,7 +273,7 @@ public sealed partial class AgentEventCodecTests
     }
 
     [Fact]
-    public void CoreConcreteOutputEvents_HaveCheckedInDurableClassifications()
+    public void CoreConcreteOutputEvents_HaveCheckedInDurabilityClassifications()
     {
         var classified = CoreAgentEventModule.Fragment.Events
             .Select(descriptor => descriptor.EventType)
@@ -287,7 +287,10 @@ public sealed partial class AgentEventCodecTests
         string.Join(", ", concreteOutputs.Except(classified).Select(type => type.FullName)).Should().BeEmpty();
         string.Join(", ", classified.Except(concreteOutputs).Select(type => type.FullName)).Should().BeEmpty();
         CoreAgentEventModule.Fragment.Events.Should().OnlyContain(descriptor =>
-            descriptor.Durability == AgentEventDurability.Durable);
+            descriptor.Durability == (descriptor.EventType == typeof(RuntimeAgentLiveEvent)
+                ? AgentEventDurability.LiveOnly
+                : AgentEventDurability.Durable),
+            "runtime extension live events are observable but cannot enter the canonical journal");
     }
 
     private static AgentEventModuleFragment CreateTestFragment() => new()

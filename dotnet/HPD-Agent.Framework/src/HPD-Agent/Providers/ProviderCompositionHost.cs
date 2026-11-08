@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.ComponentModel;
 
 namespace HPD.Agent.Providers;
 
@@ -15,6 +17,8 @@ namespace HPD.Agent.Providers;
 public static class ProviderCompositionHost
 {
     private static ProviderComposition? _current;
+    private static ProviderComposition? _fragmentComposition;
+    private static readonly List<ProviderManifestFragment> _fragments = [];
     private static readonly object _gate = new();
 
     /// <summary>Gets the composition registered by the first loaded provider module, or <c>null</c> when none.</summary>
@@ -22,7 +26,14 @@ public static class ProviderCompositionHost
     {
         get
         {
-            lock (_gate) { return _current; }
+            lock (_gate)
+            {
+                if (_current is not null)
+                    return _current;
+                if (_fragments.Count == 0)
+                    return null;
+                return _fragmentComposition ??= ProviderComposition.Create(_fragments);
+            }
         }
     }
 
@@ -36,6 +47,29 @@ public static class ProviderCompositionHost
         lock (_gate)
         {
             _current ??= composition;
+        }
+    }
+
+    /// <summary>
+    /// Registers manifest fragments emitted by provider packages.
+    /// </summary>
+    /// <remarks>
+    /// This fallback supports project-reference and file-based consumers where the application
+    /// provider-composition generator cannot inspect referenced assembly attributes. A complete
+    /// application composition registered through <see cref="Register"/> takes precedence.
+    /// </remarks>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static void RegisterFragments(IEnumerable<ProviderManifestFragment> fragments)
+    {
+        ArgumentNullException.ThrowIfNull(fragments);
+        lock (_gate)
+        {
+            foreach (var fragment in fragments)
+            {
+                ArgumentNullException.ThrowIfNull(fragment);
+                _fragments.Add(fragment);
+            }
+            _fragmentComposition = null;
         }
     }
 }

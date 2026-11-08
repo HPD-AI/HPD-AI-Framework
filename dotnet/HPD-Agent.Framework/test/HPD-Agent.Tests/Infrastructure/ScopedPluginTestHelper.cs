@@ -12,10 +12,10 @@ public static class CollapsedToolHarnessTestHelper
     /// Creates a container function for a Collapsed ToolHarness.
     /// This simulates what the source generator creates for [Collapse] attributes.
     /// </summary>
-    public static AIFunction CreateContainerFunction(
+    public static HPDAIFunctionFactory.HPDAIFunction CreateContainerFunction(
         string toolName,
         string description,
-        IReadOnlyList<AIFunction> containedFunctions,
+        IReadOnlyList<HPDAIFunctionFactory.HPDAIFunction> containedFunctions,
         string? postExpansionInstructions = null)
     {
         var functionNames = containedFunctions.Select(f => f.Name ?? "").ToArray();
@@ -49,7 +49,7 @@ public static class CollapsedToolHarnessTestHelper
     /// Creates a function that belongs to a Collapsed ToolHarness.
     /// Adds the necessary metadata to mark it as a ToolHarness member.
     /// </summary>
-    public static AIFunction CreateToolHarnessMemberFunction(
+    public static HPDAIFunctionFactory.HPDAIFunction CreateToolHarnessMemberFunction(
         string name,
         string description,
         Func<AIFunctionArguments, CancellationToken, Task<object?>> invocation,
@@ -75,7 +75,9 @@ public static class CollapsedToolHarnessTestHelper
     /// Creates a complete Collapsed ToolHarness with container and member functions.
     /// Returns (containerFunction, memberFunctions[]).
     /// </summary>
-    public static (AIFunction Container, AIFunction[] Members) CreateCollapsedToolHarness(
+    public static (
+        HPDAIFunctionFactory.HPDAIFunction Container,
+        HPDAIFunctionFactory.HPDAIFunction[] Members) CreateCollapsedToolHarness(
         string toolName,
         string description,
         params (string name, string desc, Func<AIFunctionArguments, CancellationToken, Task<object?>> func)[] functions)

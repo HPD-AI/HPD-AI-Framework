@@ -6,7 +6,8 @@ namespace HPD.Agent;
 /// has been cleared since the session was created.
 /// </summary>
 /// <remarks>
-/// Use <c>agent.CreateSessionAsync(sessionId)</c> to explicitly create a session
+/// Use <c>agent.CreateSessionAsync(sessionId)</c> or
+/// <c>store.CreateSessionAsync(sessionId)</c> to explicitly create a session
 /// before calling <c>RunAsync</c>.
 /// </remarks>
 public class SessionNotFoundException : InvalidOperationException
@@ -19,7 +20,8 @@ public class SessionNotFoundException : InvalidOperationException
 
     public SessionNotFoundException(string sessionId)
         : base($"Session '{sessionId}' was not found in the store. " +
-               $"Call agent.CreateSessionAsync(\"{sessionId}\") before running.")
+               $"Call agent.CreateSessionAsync(\"{sessionId}\") or " +
+               $"store.CreateSessionAsync(\"{sessionId}\") before running.")
     {
         SessionId = sessionId;
     }

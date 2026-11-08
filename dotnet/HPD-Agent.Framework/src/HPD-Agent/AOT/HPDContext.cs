@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.ComponentModel;
 using HPD.Agent;
 using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
@@ -23,7 +24,6 @@ using Microsoft.Extensions.AI;
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
 )]
 // --- Framework-specific types ---
-[JsonSerializable(typeof(PermissionDecisionStateData))]
 [JsonSerializable(typeof(PermissionDecisionRecord))]
 [JsonSerializable(typeof(PermissionDecisionKey))]
 [JsonSerializable(typeof(ValidationErrorResponse))]
@@ -201,9 +201,6 @@ using Microsoft.Extensions.AI;
 [JsonSerializable(typeof(LocalContentMetadata))]
 
 // --- Conversation storage and serialization types ---
-[JsonSerializable(typeof(CircuitBreakerStateData))]
-[JsonSerializable(typeof(ContinuationPermissionStateData))]
-[JsonSerializable(typeof(ErrorTrackingStateData))]
 [JsonSerializable(typeof(ChatMessage), TypeInfoPropertyName = "MicrosoftExtensionsAIChatMessage")]
 [JsonSerializable(typeof(IReadOnlyList<ChatMessage>), TypeInfoPropertyName = "IReadOnlyListMicrosoftExtensionsAIChatMessage")]
 [JsonSerializable(typeof(CompactionTrigger))]
@@ -240,20 +237,12 @@ using Microsoft.Extensions.AI;
 [JsonSerializable(typeof(SubAgentWaitResult))]
 [JsonSerializable(typeof(ThreadJournalCursor))]
 [JsonSerializable(typeof(ThreadJournalReplaceResult))]
-[JsonSerializable(typeof(TotalErrorThresholdStateData))]
-[JsonSerializable(typeof(PlanModePersistentStateData))]
 [JsonSerializable(typeof(AgentPlanData))]
 [JsonSerializable(typeof(PlanStepData))]
-[JsonSerializable(typeof(ClientToolStateData))]
-[JsonSerializable(typeof(ContainerMiddlewareState))]
-[JsonSerializable(typeof(ContainerInstructionSet))]
-[JsonSerializable(typeof(RecoveryInfo))]
 [JsonSerializable(typeof(ImmutableHashSet<string>))]
 [JsonSerializable(typeof(ImmutableDictionary<string, clientToolHarnessDefinition>), TypeInfoPropertyName = "ImmutableDictionaryStringClientToolHarnessDefinition")]
 [JsonSerializable(typeof(ImmutableDictionary<string, ClientToolProviderToolBinding>), TypeInfoPropertyName = "ImmutableDictionaryStringClientToolProviderToolBinding")]
 [JsonSerializable(typeof(ImmutableDictionary<string, ContextItem>), TypeInfoPropertyName = "ImmutableDictionaryStringContextItem")]
-[JsonSerializable(typeof(ImmutableDictionary<string, ContainerInstructionSet>), TypeInfoPropertyName = "ImmutableDictionaryStringContainerInstructionSet")]
-[JsonSerializable(typeof(ImmutableDictionary<string, RecoveryInfo>), TypeInfoPropertyName = "ImmutableDictionaryStringRecoveryInfo")]
 
 // --- Client Tools types ---
 [JsonSerializable(typeof(HPD.Agent.ClientTools.clientToolHarnessDefinition))]
@@ -358,6 +347,7 @@ using Microsoft.Extensions.AI;
 [JsonSerializable(typeof(object[]))]  // For dynamic object arrays in logging
 [JsonSerializable(typeof(string[]))]  // For toolharness parameters that accept string arrays (e.g. glob patterns)
 
+[EditorBrowsable(EditorBrowsableState.Never)]
 public partial class HPDJsonContext : JsonSerializerContext
 {
 }

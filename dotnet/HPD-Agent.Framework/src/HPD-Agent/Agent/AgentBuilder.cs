@@ -2059,6 +2059,16 @@ public class AgentBuilder
             _config.SessionStore = _sessionStoreFactory(_config.EventComposition!);
             _ownsSessionStore = true;
         }
+        if (_config.SessionStore == null)
+        {
+            _config.SessionStore = new InMemorySessionStore(_config.EventComposition!.Codec);
+            _ownsSessionStore = true;
+            _logger?.CreateLogger<AgentBuilder>().LogInformation(
+                "Using default InMemorySessionStore (in-memory, ephemeral). " +
+                "Use .WithSessionStore() for persistence.");
+        }
+        _config.SessionStoreOptions ??= new SessionStoreOptions();
+
         if (!_hasExplicitContentStore && _contentStore is null && _implicitContentStoreFactory is not null)
         {
             _contentStore = _implicitContentStoreFactory();
@@ -2163,18 +2173,6 @@ public class AgentBuilder
 
         var buildData = await BuildDependenciesAsync(cancellationToken).ConfigureAwait(false);
         await MaterializeSubAgentDefinitionsAsync(buildData, cancellationToken).ConfigureAwait(false);
-
-        // Default session store: InMemorySessionStore for zero-config out-of-the-box experience (V3)
-        // Users can override with WithSessionStore() for persistent storage (FileSessionStore, etc.)
-        if (_config.SessionStore == null)
-        {
-            _config.SessionStore = new InMemorySessionStore(_config.EventComposition!.Codec);
-            _ownsSessionStore = true;
-            _logger?.CreateLogger<AgentBuilder>().LogInformation(
-                "Using default InMemorySessionStore (in-memory, ephemeral). " +
-                "Use .WithSessionStore() for persistence.");
-        }
-        _config.SessionStoreOptions ??= new SessionStoreOptions();
 
         // Default content store: InMemoryContentStore for zero-config out-of-the-box experience (V3)
         // Users can override with WithContentStore() for persistent storage (LocalFileContentStore, etc.)
@@ -3610,8 +3608,10 @@ public class AgentBuilder
             // Use generic error handler for testing
             var testErrorHandler = new HPD.Agent.ErrorHandling.GenericErrorHandler();
             var toolBuild = await BuildToolOptionsAsync(cancellationToken).ConfigureAwait(false);
+            var chatConfig = _config.ResolveClientConfig(ProviderClientFamily.Chat);
+            var executionIdentity = CreateHostOwnedChatClientIdentity(_baseClient, chatConfig);
             return new AgentBuildDependencies(
-                AgentClientSet.ForChat(_baseClient),
+                AgentClientSet.ForChat(_baseClient, chatConfig, executionIdentity),
                 toolBuild.MergedOptions,
                 testErrorHandler,
                 OwnedHttpClients: toolBuild.OwnedHttpClients);
@@ -3626,6 +3626,40 @@ public class AgentBuilder
             runtimeToolBuild.MergedOptions,
             new HPD.Agent.ErrorHandling.GenericErrorHandler(),
             OwnedHttpClients: runtimeToolBuild.OwnedHttpClients);
+    }
+
+    private static ProviderClientExecutionIdentity CreateHostOwnedChatClientIdentity(
+        IChatClient client,
+        ProviderClientConfig? config)
+    {
+        if (client.GetService(typeof(ProviderClientExecutionIdentity))
+            is ProviderClientExecutionIdentity declared)
+        {
+            return ProviderClientExecutionIdentity.CreateSafe(
+                declared.ProviderKey,
+                declared.BackendKey,
+                ProviderClientFamily.Chat,
+                declared.ModelName,
+                declared.OperationAdapterKey,
+                declared.UsageSemanticsKey);
+        }
+
+        var providerKey =
+            !string.IsNullOrWhiteSpace(config?.Provider?.Key) &&
+            !string.IsNullOrWhiteSpace(config.Provider.Backend)
+                ? config.Provider.Key
+                : "host";
+        var backendKey =
+            providerKey == "host"
+                ? "custom"
+                : config!.Provider!.Backend!;
+        return ProviderClientExecutionIdentity.CreateSafe(
+            providerKey,
+            backendKey,
+            ProviderClientFamily.Chat,
+            config?.ModelName,
+            "host/custom/chat",
+            "host/custom");
     }
 
     private void EnsureAutoConfiguration()
@@ -3853,7 +3887,7 @@ public class AgentBuilder
     /// Adds a native function to the agent (used by FFI layer for Rust, C++, etc.)
     /// This method is intended primarily for FFI integration with native ToolHarnesses.
     /// </summary>
-    public AgentBuilder WithNativeFunction(AIFunction function)
+    public AgentBuilder WithNativeFunction(HPDAIFunctionFactory.HPDAIFunction function)
     {
         ArgumentNullException.ThrowIfNull(function);
         _config.ServerConfiguredTools ??= new List<AITool>();

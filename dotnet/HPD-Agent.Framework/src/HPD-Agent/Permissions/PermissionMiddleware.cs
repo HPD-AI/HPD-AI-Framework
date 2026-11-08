@@ -18,7 +18,7 @@ public sealed class PermissionMiddleware : IAgentMiddleware
     private readonly AuthorizationMode _mode;
     private readonly ConditionalWeakTable<AgentContext, ConcurrentDictionary<string, PreparedAdmission>> _batches = new();
 
-    public PermissionMiddleware(AgentConfig? config = null, string? middlewareName = null,
+    internal PermissionMiddleware(AgentConfig? config = null, string? middlewareName = null,
         PermissionOverrideRegistry? overrideRegistry = null, IPermissionDescriptorCatalog? descriptorCatalog = null,
         AuthorizationMode authorizationMode = AuthorizationMode.Enforce)
     {

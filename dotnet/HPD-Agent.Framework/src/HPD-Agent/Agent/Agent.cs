@@ -6071,9 +6071,10 @@ public sealed partial class Agent : IAsyncDisposable
             session, thread, options, cancellationToken);
 
     /// <summary>
-    /// Runs structured output from a text input and dispatches results through Agent subscribers.
+    /// Runs structured output from a text input and returns the completed typed value.
     /// </summary>
-    public Task RunStructuredAsync<T>(
+    /// <returns>The final deserialized value.</returns>
+    public Task<T> RunStructuredAsync<T>(
         string userMessage,
         string? sessionId = null,
         string? threadId = "main",
@@ -6090,13 +6091,16 @@ public sealed partial class Agent : IAsyncDisposable
     }
 
     /// <summary>
-    /// Runs structured output from an input event and dispatches results through Agent subscribers.
+    /// Runs structured output from an input event and returns the completed typed value.
     /// </summary>
-    public async Task RunStructuredAsync<T>(
+    /// <returns>The final deserialized value.</returns>
+    public async Task<T> RunStructuredAsync<T>(
         AgentInputEvent input,
         CancellationToken cancellationToken = default) where T : class
     {
         ArgumentNullException.ThrowIfNull(input);
+        StructuredResultEvent<T>? finalResult = null;
+        StructuredOutputErrorEvent? outputError = null;
 
         var (messages, session, thread, options) = await ResolveStructuredInputAsync(input, cancellationToken)
             .ConfigureAwait(false);
@@ -6108,15 +6112,52 @@ public sealed partial class Agent : IAsyncDisposable
             options,
             cancellationToken).ConfigureAwait(false))
         {
+            if (evt is StructuredResultEvent<T> { IsPartial: false } completed)
+                finalResult = completed;
+            else if (evt is StructuredOutputErrorEvent error)
+                outputError = error;
+
             if (IsStructuredOutputEvent<T>(evt))
             {
-                await CommitAndPublishThreadEventAsync(
+                await PublishLiveThreadEventAsync(
                     thread,
                     evt,
                     GetActiveEventCoordinator(),
                     cancellationToken).ConfigureAwait(false);
             }
         }
+
+        if (finalResult is not null)
+            return finalResult.Value;
+        if (outputError is not null)
+            throw new AgentRunConfigurationException(
+                "structured_output_failed",
+                "structuredOutput",
+                outputError.ErrorMessage);
+        throw new InvalidOperationException(
+            "Structured-output execution completed without a final typed result.");
+    }
+
+    private async ValueTask PublishLiveThreadEventAsync(
+        Thread? thread,
+        AgentEvent evt,
+        HPD.Events.IEventCoordinator eventCoordinator,
+        CancellationToken cancellationToken)
+    {
+        evt = EnrichOutputEvent(evt);
+        if (thread is not null)
+        {
+            evt = evt with
+            {
+                SessionId = thread.SessionId,
+                ThreadId = thread.Id
+            };
+        }
+
+        await eventCoordinator.EmitAsync(
+            evt,
+            AgentEventRoutes.Create(eventCoordinator, evt),
+            cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<(IEnumerable<ChatMessage> Messages, Session? Session, Thread? Thread, AgentRunConfig Options)> ResolveStructuredInputAsync(
@@ -7141,23 +7182,14 @@ public sealed partial class Agent : IAsyncDisposable
 
         var id = string.IsNullOrWhiteSpace(sessionId) ? Guid.NewGuid().ToString() : sessionId;
 
-        var existing = await store.LoadSessionAsync(id, cancellationToken);
-        if (existing != null)
-            throw new InvalidOperationException(
-                $"Session '{id}' already exists. Session IDs must be unique — use a different ID or load the existing session.");
-
-        var session = new Session(id);
-        var thread = session.CreateThread(AgentId, "main");
-        session.Store = store;
-
-        if (metadata != null)
-        {
-            foreach (var kvp in metadata)
-                session.AddMetadata(kvp.Key, kvp.Value);
-        }
-
-        await store.SaveSessionAsync(session, cancellationToken);
-        await store.SaveInitialThreadAsync(id, thread, cancellationToken);
+        var session = await store.CreateSessionAsync(id, metadata, cancellationToken)
+            .ConfigureAwait(false);
+        await store.CreateThreadAsync(
+                session.Id,
+                AgentId,
+                "main",
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
 
         return id;
     }
@@ -7182,30 +7214,15 @@ public sealed partial class Agent : IAsyncDisposable
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
-        var session = await store.LoadSessionAsync(sessionId, cancellationToken)
-            ?? throw new InvalidOperationException($"Session '{sessionId}' not found.");
-        session.Store = store;
-
-        var id = string.IsNullOrWhiteSpace(threadId) ? Guid.NewGuid().ToString() : threadId;
-        if (await store.GetThreadAsync(new ThreadKey(sessionId, id), cancellationToken).ConfigureAwait(false) is not null)
-        {
-            throw new InvalidOperationException(
-                $"Thread '{id}' already exists in session '{sessionId}'.");
-        }
-
-        var thread = session.CreateThread(AgentId, id);
-        if (!string.IsNullOrWhiteSpace(name))
-        {
-            thread.Name = name;
-        }
-
-        session.LastActivity = DateTime.UtcNow;
-        await store.SaveInitialThreadAsync(sessionId, thread, cancellationToken)
-            .ConfigureAwait(false);
-        await store.SaveSessionAsync(session, cancellationToken)
+        var thread = await store.CreateThreadAsync(
+                sessionId,
+                AgentId,
+                threadId,
+                name,
+                cancellationToken)
             .ConfigureAwait(false);
 
-        return id;
+        return thread.Id;
     }
 
     //

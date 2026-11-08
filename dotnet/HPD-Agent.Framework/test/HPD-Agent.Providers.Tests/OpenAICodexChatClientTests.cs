@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.ClientModel;
 using System.ClientModel.Primitives;
 using Microsoft.Extensions.AI;
+using HPD.Agent.Serialization;
 using HPD.Agent.Providers.OpenAI;
 
 namespace HPD.Agent.Providers.Tests;
@@ -289,8 +290,13 @@ public sealed class OpenAICodexChatClientTests
     {
         using var http = new HttpClient(new FixtureHandler("completed"));
         using var client = CreateClient(http);
-        var thread = ThreadProjector.Project("session", "thread",
-            [new ThreadCreatedEvent("agent", null, null, null, null, DateTime.UtcNow)], ThreadProjectionPurpose.ThreadHistory);
+        Assert.True(AgentEventCompositionHost.TryComposeRegisteredModules(out var composition));
+        var store = new InMemorySessionStore(composition.Codec);
+        var session = await store.CreateSessionAsync("session");
+        var thread = await store.CreateThreadAsync(
+            session.Id,
+            defaultAgentId: "agent",
+            threadId: "thread");
         thread.Messages.Add(new(ChatRole.User, "Work so far") { MessageId = "user" });
         var result = await new ThreadCompactionEngine().ExecuteAsync(
             new ThreadCompactionContext(thread, thread.Messages, null, client),

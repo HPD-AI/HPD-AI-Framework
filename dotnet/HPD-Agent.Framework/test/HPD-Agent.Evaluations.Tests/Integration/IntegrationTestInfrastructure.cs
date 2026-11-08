@@ -167,6 +167,8 @@ internal sealed class FakeSessionStore : ISessionStore
 
     public Task<Session?> LoadSessionAsync(string sessionId, CancellationToken ct = default) => _inner.LoadSessionAsync(sessionId, ct);
     public Task SaveSessionAsync(Session session, CancellationToken ct = default) => _inner.SaveSessionAsync(session, ct);
+    public ValueTask<bool> TryCreateSessionAsync(Session session, CancellationToken ct = default) =>
+        _inner.TryCreateSessionAsync(session, ct);
     public ValueTask<SessionPreparationResult> TryPrepareSessionAsync(Session session, CancellationToken ct = default) =>
         _inner.TryPrepareSessionAsync(session, ct);
     public Task<List<string>> ListSessionIdsAsync(CancellationToken ct = default) => _inner.ListSessionIdsAsync(ct);

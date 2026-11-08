@@ -104,6 +104,16 @@ public sealed class InMemorySessionStore : ISessionStore, IThreadDeltaStore
     }
 
     /// <inheritdoc />
+    public ValueTask<bool> TryCreateSessionAsync(
+        Session session,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(_sessions.TryAdd(session.Id, session));
+    }
+
+    /// <inheritdoc />
     public ValueTask<SessionPreparationResult> TryPrepareSessionAsync(
         Session session,
         CancellationToken cancellationToken = default)

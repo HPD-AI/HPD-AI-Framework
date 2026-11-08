@@ -102,6 +102,8 @@ public static class HPDAgentServiceCollectionExtensions
         services.TryAddSingleton<DependencyInjection.HPDAgentRegistry>();
         services.TryAddSingleton<IHPDAgentHostingServicesProvider, DependencyInjection.HPDAgentHostingServicesProvider>();
         services.TryAddSingleton<IClientToolProviderRegistry, InMemoryClientToolProviderRegistry>();
+        services.TryAddSingleton(
+            ProviderCompositionHost.Current ?? ProviderComposition.Create([]));
 
         // Register AgentManager and SessionManager so tests and adapters can inject them directly.
         services.TryAddSingleton<HPD.Agent.Hosting.Lifecycle.AgentManager>(sp =>

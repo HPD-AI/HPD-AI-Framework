@@ -51,7 +51,7 @@ namespace HPD.Agent;
 /// </list>
 /// </remarks>
 [MiddlewareState]
-public sealed record TotalErrorThresholdStateData
+internal sealed record TotalErrorThresholdStateData
 {
 
     /// <summary>

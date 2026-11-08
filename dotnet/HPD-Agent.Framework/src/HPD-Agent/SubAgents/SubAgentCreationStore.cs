@@ -113,7 +113,7 @@ public interface ISubAgentCreationStore
 }
 
 /// <summary>Durable parent-journal implementation of <see cref="ISubAgentCreationStore"/>.</summary>
-public sealed class JournalSubAgentCreationStore(ISessionStore store) : ISubAgentCreationStore
+internal sealed class JournalSubAgentCreationStore(ISessionStore store) : ISubAgentCreationStore
 {
     private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));
 

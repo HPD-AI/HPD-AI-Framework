@@ -8,7 +8,7 @@ namespace HPD.Agent;
 /// <summary>Reusable approvals shared by the threads of one session.</summary>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 [MiddlewareState(Persistent = true, Scope = StateScope.Session, Version = 1)]
-public sealed record PermissionDecisionStateData
+internal sealed record PermissionDecisionStateData
 {
     /// <summary>Gets the approvals; denial and feedback are never stored.</summary>
     public ImmutableArray<PermissionDecisionRecord> Decisions { get; init; } = [];

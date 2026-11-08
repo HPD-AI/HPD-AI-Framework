@@ -188,6 +188,9 @@ public sealed class SubAgentControlRaceTests
             inner.LoadSessionAsync(sessionId, cancellationToken);
         public Task SaveSessionAsync(Session session, CancellationToken cancellationToken = default) =>
             inner.SaveSessionAsync(session, cancellationToken);
+        public ValueTask<bool> TryCreateSessionAsync(
+            Session session, CancellationToken cancellationToken = default) =>
+            inner.TryCreateSessionAsync(session, cancellationToken);
         public ValueTask<SessionPreparationResult> TryPrepareSessionAsync(
             Session session, CancellationToken cancellationToken = default) =>
             inner.TryPrepareSessionAsync(session, cancellationToken);

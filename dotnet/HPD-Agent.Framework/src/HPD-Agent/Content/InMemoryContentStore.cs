@@ -210,21 +210,21 @@ public class InMemoryContentStore : IContentStore, IContentStoreLifecycle
     // ═══════════════════════════════════════════════════════════════════
 
     /// <summary>Clear all content in all scopes (for testing).</summary>
-    public void Clear()
+    internal void Clear()
     {
         _scopedContent.Clear();
         _nameIndex.Clear();
     }
 
     /// <summary>Total content count across all scopes (for testing).</summary>
-    public int Count => _scopedContent.Values.Sum(d => d.Count);
+    internal int Count => _scopedContent.Values.Sum(d => d.Count);
 
     /// <summary>Content count within a specific scope (for testing).</summary>
-    public int CountInScope(string scope) =>
+    internal int CountInScope(string scope) =>
         _scopedContent.TryGetValue(scope, out var d) ? d.Count : 0;
 
     /// <summary>Check if content exists in a specific scope (for testing).</summary>
-    public bool Contains(string scope, string contentId) =>
+    internal bool Contains(string scope, string contentId) =>
         _scopedContent.TryGetValue(scope, out var d) && d.ContainsKey(contentId);
 
     // ═══════════════════════════════════════════════════════════════════

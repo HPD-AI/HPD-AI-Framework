@@ -7,6 +7,14 @@
     <TargetFrameworks></TargetFrameworks>
   </PropertyGroup>
 
+  <ItemGroup Condition="$([System.String]::Copy('$(MSBuildProjectName)').StartsWith('HPD-Agent.Providers.'))">
+    <ProjectReference Include="$(MSBuildThisFileDirectory)HPD-Agent.Framework/src/HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false"
+                      GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier"
+                      AdditionalProperties="PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
+  </ItemGroup>
+
   <PropertyGroup Condition="'$(TargetFramework)' != '' AND '$(EnableLegacySupport)' == 'true' AND '$(TargetFrameworks)' == '$(TargetFrameworksModern);$(TargetFrameworksLegacy)'">
     <TargetFrameworks></TargetFrameworks>
   </PropertyGroup>

@@ -53,6 +53,14 @@ public interface ISessionStore
         Session session,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Atomically creates session metadata without overwriting an existing session.
+    /// </summary>
+    /// <returns><see langword="true"/> when created; <see langword="false"/> when the ID already exists.</returns>
+    ValueTask<bool> TryCreateSessionAsync(
+        Session session,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Conditionally creates an invisible prepared session without overwriting a colliding route.</summary>
     ValueTask<SessionPreparationResult> TryPrepareSessionAsync(
         Session session,

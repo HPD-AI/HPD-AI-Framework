@@ -90,7 +90,7 @@ public interface IThreadExecutionController
 }
 
 /// <summary>Resolves one shared controller for every agent using the same store instance.</summary>
-public static class ThreadExecutionControllerRegistry
+internal static class ThreadExecutionControllerRegistry
 {
     private static readonly ConditionalWeakTable<ISessionStore, InProcessThreadExecutionController> Controllers = new();
 
@@ -249,8 +249,18 @@ internal sealed class InProcessThreadExecutionController(ISessionStore store) : 
     {
         for (var attempt = 0; attempt < 16; attempt++)
         {
-            var head = await _store.GetThreadEventHeadAsync(request.Thread, cancellationToken).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("thread_execution_thread_missing");
+            var head = await _store.GetThreadEventHeadAsync(request.Thread, cancellationToken).ConfigureAwait(false);
+            if (head is null)
+            {
+                var session = await _store.LoadSessionAsync(
+                    request.Thread.SessionId,
+                    cancellationToken).ConfigureAwait(false);
+                throw session is null
+                    ? new SessionNotFoundException(request.Thread.SessionId)
+                    : new SessionNotFoundException(
+                        request.Thread.SessionId,
+                        request.Thread.ThreadId);
+            }
             if (await ContainsExecutionEventAsync<ThreadExecutionStartedEvent>(
                     request.Thread, request.ThreadExecutionId, head, cancellationToken).ConfigureAwait(false))
                 return;

@@ -204,7 +204,7 @@ internal static class ReflectionToolFactory
 
     [RequiresUnreferencedCode(ReflectionRequiresUnreferencedCodeMessage)]
     [RequiresDynamicCode("Reflection function creation uses runtime method invocation and JSON metadata.")]
-    private static AIFunction CreateFunction(
+    private static HPDAIFunctionFactory.HPDAIFunction CreateFunction(
         MethodInfo method,
         object? instance,
         IToolMetadata? context,
@@ -277,7 +277,7 @@ internal static class ReflectionToolFactory
 
     [RequiresUnreferencedCode(ReflectionRequiresUnreferencedCodeMessage)]
     [RequiresDynamicCode("Reflection tool registration uses runtime method invocation and System.Text.Json runtime type metadata.")]
-    internal static AIFunction CreateExplicitFunction(
+    internal static HPDAIFunctionFactory.HPDAIFunction CreateExplicitFunction(
         MethodInfo method,
         object? instance,
         JsonSerializerOptions serializerOptions) =>

@@ -93,7 +93,7 @@ public interface IThreadForkOperationStore
 }
 
 /// <summary>Source-journal implementation of the durable fork-operation authority.</summary>
-public sealed class JournalThreadForkOperationStore(ISessionStore store, ThreadKey source)
+internal sealed class JournalThreadForkOperationStore(ISessionStore store, ThreadKey source)
     : IThreadForkOperationStore
 {
     private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));

@@ -27,7 +27,7 @@ namespace HPD.Agent;
 /// </code>
 /// </remarks>
 [MiddlewareState]
-public sealed record ContinuationPermissionStateData
+internal sealed record ContinuationPermissionStateData
 {
 
     /// <summary>

@@ -225,7 +225,11 @@ public sealed class ParentQuestionRoundTripTests
             } };
     }
 
-    private static AIFunction Control(string name, string action, string json, bool background = false)
+    private static HPDAIFunctionFactory.HPDAIFunction Control(
+        string name,
+        string action,
+        string json,
+        bool background = false)
         => HPDAIFunctionFactory.Create(async (AIFunctionArguments _, FunctionExecutionContext context, CancellationToken token) =>
             {
                 try { return await SubAgentRuntime.ControlAsync(action, JsonDocument.Parse(json).RootElement, context, token); }

@@ -18,12 +18,12 @@ namespace HPD.Agent;
 /// A modern, unified AIFunctionFactory that prioritizes delegate-based invocation
 /// for performance and AOT-compatibility.
 /// </summary>
-public class HPDAIFunctionFactory
+public static class HPDAIFunctionFactory
 {
     private static readonly HPDAIFunctionFactoryOptions _defaultOptions = new();
     private static readonly JsonSerializerOptions _defaultSerializerOptions = HPDToolArgumentBinder.DefaultSerializerOptions;
 
-    public static AIFunction Create(
+    public static HPDAIFunction Create(
         Func<AIFunctionArguments, FunctionExecutionContext, CancellationToken, Task<object?>> invocation,
         HPDAIFunctionFactoryOptions? options = null)
     {
@@ -34,7 +34,7 @@ public class HPDAIFunctionFactory
     }
 
     /// <summary>Imports one plain function with an explicit host-owned permission status.</summary>
-    public static AIFunction Import(AIFunction function, AIFunctionPermissionBinding? permission = null,
+    public static HPDAIFunction Import(AIFunction function, AIFunctionPermissionBinding? permission = null,
         bool explicitlyUngoverned = false)
     {
         ArgumentNullException.ThrowIfNull(function);
@@ -63,7 +63,7 @@ public class HPDAIFunctionFactory
         });
     }
 
-    internal static AIFunction Project(AIFunction function, Dictionary<string, object?> metadata)
+    internal static HPDAIFunction Project(AIFunction function, Dictionary<string, object?> metadata)
     {
         if (function is not HPDAIFunction hpd)
             throw new InvalidOperationException("UnsupportedFunctionPermissionStatus: normalize external tools before projection.");
@@ -77,7 +77,7 @@ public class HPDAIFunctionFactory
     /// <param name="serializerOptions">Runtime reflection serializer options.</param>
     [RequiresUnreferencedCode("Reflection function registration inspects method attributes and runtime JSON metadata.")]
     [RequiresDynamicCode("Reflection function registration invokes runtime methods and JSON metadata.")]
-    public static AIFunction CreateReflection(
+    public static HPDAIFunction CreateReflection(
         MethodInfo method,
         object? instance,
         JsonSerializerOptions? serializerOptions = null) =>
@@ -91,7 +91,7 @@ public class HPDAIFunctionFactory
     /// <param name="composition">The immutable action schema, policy, and structural input contract.</param>
     /// <param name="options">The remaining function metadata.</param>
     /// <returns>The composed action function.</returns>
-    public static AIFunction CreateComposedAction(
+    public static HPDAIFunction CreateComposedAction(
         Func<AIFunctionArguments, FunctionExecutionContext, CancellationToken, Task<object?>> invocation,
         VerifiedAIFunctionActionComposition composition,
         HPDAIFunctionFactoryOptions? options = null)
@@ -248,7 +248,7 @@ public class HPDAIFunctionFactory
             };
         }
 
-        internal AIFunction ProjectMetadata(Dictionary<string, object?> metadata)
+        internal HPDAIFunction ProjectMetadata(Dictionary<string, object?> metadata)
         {
             var options = SnapshotOptions(HPDOptions);
             options.AdditionalProperties = metadata;

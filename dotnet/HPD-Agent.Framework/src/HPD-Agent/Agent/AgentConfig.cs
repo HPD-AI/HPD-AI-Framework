@@ -31,7 +31,7 @@ public class AgentConfig
     /// Global configuration instance used by source-generated code.
     /// Set by AgentBuilder during agent construction.
     /// </summary>
-    public static AgentConfig? GlobalConfig { get; set; }
+    internal static AgentConfig? GlobalConfig { get; set; }
 
     public string Name { get; set; } = "HPD-Agent";
     public string SystemInstructions { get; set; } = "You are a helpful assistant.";
@@ -261,7 +261,7 @@ public class AgentConfig
     /// This is set by the builder and used to distinguish explicit vs implicit ToolHarness registration.
     /// </summary>
     [JsonIgnore]
-    public ImmutableHashSet<string> explicitlyRegisteredToolHarnesses { get; set; } = ImmutableHashSet<string>.Empty;
+    internal ImmutableHashSet<string> explicitlyRegisteredToolHarnesses { get; set; } = ImmutableHashSet<string>.Empty;
 
     /// <summary>
     /// Configuration for distributed caching of LLM responses.
@@ -360,18 +360,32 @@ public class AgentConfig
     public string? AgentId { get; set; }
 
     /// <summary>
-    /// Optional session store for durable execution and crash recovery.
-    /// Use InMemorySessionStore for development/testing or FileSessionStore for production.
+    /// Gets or sets the session store used for thread history and crash recovery.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Example - Auto-save mode:</b>
+    /// When this property is <see langword="null"/> during <see cref="AgentBuilder.BuildAsync"/>,
+    /// the builder creates an agent-owned <see cref="InMemorySessionStore"/>.
+    /// That store retains sessions for the lifetime of the resulting agent and is disposed
+    /// when the agent is disposed; it does not survive agent disposal or process restart.
+    /// </para>
+    /// <para>
+    /// Set this property to a caller-owned store when persistence must outlive the agent.
+    /// Use <see cref="FileSessionStore"/> for file-backed persistence or provide a custom
+    /// <see cref="ISessionStore"/> implementation.
+    /// </para>
+    /// <para>
+    /// <b>Example - file-backed persistence:</b>
     /// <code>
-    /// var agent = new AgentBuilder()
-    ///     .WithSessionStore(new FileSessionStore("./sessions"), autoSave: true)
-    ///     .Build();
+    /// var config = new AgentConfig
+    /// {
+    ///     SessionStore = new FileSessionStore("./sessions", eventCodec)
+    /// };
     ///
-    /// // One line - load, run, save all handled
+    /// await using var agent = await new AgentBuilder(config)
+    ///     .WithChatClient(chatClient)
+    ///     .BuildAsync();
+    ///
     /// await agent.RunAsync("Hello", "session-123");
     /// </code>
     /// </para>

@@ -1443,7 +1443,7 @@ public class ContainerMiddleware : IAgentMiddleware
 /// </para>
 /// </remarks>
 [MiddlewareState]
-public sealed record ContainerMiddlewareState
+internal sealed record ContainerMiddlewareState
 {
     /// <summary>
     /// Gets the complete capability set pinned to the current model turn. This runtime-only
@@ -1580,7 +1580,7 @@ public sealed record ContainerMiddlewareState
 /// Instruction contexts for a container (ToolHarness or skill).
 /// Supports dual-injection: function result (ephemeral) + system prompt (persistent).
 /// </summary>
-public sealed record ContainerInstructionSet(
+internal sealed record ContainerInstructionSet(
     string? FunctionResult,
     string? SystemPrompt
 );
@@ -1592,7 +1592,7 @@ public sealed record ContainerInstructionSet(
 /// <param name="Type">Type of recovery that occurred</param>
 /// <param name="ContainerName">Name of the container that was auto-expanded</param>
 /// <param name="FunctionName">Original function name that triggered recovery</param>
-public sealed record RecoveryInfo(
+internal sealed record RecoveryInfo(
     RecoveryType Type,
     string ContainerName,
     string FunctionName
@@ -1601,7 +1601,7 @@ public sealed record RecoveryInfo(
 /// <summary>
 /// Type of recovery operation.
 /// </summary>
-public enum RecoveryType
+internal enum RecoveryType
 {
     /// <summary>Hidden item call (e.g., "Add" when container not expanded)</summary>
     HiddenItem,

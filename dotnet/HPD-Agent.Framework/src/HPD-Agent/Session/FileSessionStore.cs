@@ -271,6 +271,30 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
     }
 
     /// <inheritdoc />
+    public async ValueTask<bool> TryCreateSessionAsync(
+        Session session,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        var gate = _sessionGates.GetOrAdd(session.Id, static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var path = GetSessionMetadataPath(session.Id);
+            if (File.Exists(path))
+                return false;
+
+            var json = JsonSerializer.Serialize(session, SessionJsonContext.Combined.Session);
+            await WriteAtomicallyAsync(path, json, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <inheritdoc />
     public async ValueTask<SessionPreparationResult> TryPrepareSessionAsync(
         Session session,
         CancellationToken cancellationToken = default)

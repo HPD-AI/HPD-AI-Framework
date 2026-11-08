@@ -307,6 +307,17 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
         }
         source.AppendLine($"        }}, {Literal(info.OwnerAssembly)});");
         source.AppendLine("}");
+        source.AppendLine();
+        source.AppendLine($"internal static class {manifestName}Registration");
+        source.AppendLine("{");
+        source.AppendLine("#pragma warning disable CA2255");
+        source.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
+        source.AppendLine("    internal static void RegisterManifest()");
+        source.AppendLine("#pragma warning restore CA2255");
+        source.AppendLine("    {");
+        source.AppendLine($"        global::HPD.Agent.Providers.ProviderCompositionHost.RegisterFragments(new[] {{ {manifestName}.Fragment }});");
+        source.AppendLine("    }");
+        source.AppendLine("}");
 
         context.AddSource($"{info.SafeName}.ProviderManifest.g.cs", source.ToString());
     }

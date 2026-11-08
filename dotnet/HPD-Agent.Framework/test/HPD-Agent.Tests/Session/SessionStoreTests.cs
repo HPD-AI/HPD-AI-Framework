@@ -35,6 +35,65 @@ public class SessionStoreTests : AgentTestBase
     }
 
     [Fact]
+    public async Task InMemoryStore_LifecycleExtensions_CreateSessionAndThreadWithoutAgent()
+    {
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
+        var session = await store.CreateSessionAsync(
+            "store-lifecycle",
+            new Dictionary<string, object> { ["source"] = "extension" });
+
+        var thread = await store.CreateThreadAsync(
+            session.Id,
+            "standalone-agent",
+            threadId: "main",
+            name: "Main");
+
+        var descriptor = await store.GetThreadAsync(new ThreadKey(session.Id, thread.Id));
+        var projected = await store.ProjectThreadAsync(
+            session.Id,
+            thread.Id,
+            ThreadProjectionPurpose.ThreadHistory);
+
+        Assert.Equal("extension", session.Metadata["source"]);
+        Assert.NotNull(descriptor);
+        Assert.Equal("standalone-agent", descriptor.DefaultAgent.AgentId);
+        Assert.Equal("Main", descriptor.Name);
+        Assert.NotNull(projected);
+        Assert.Equal("standalone-agent", projected.DefaultAgentId);
+        Assert.Equal("Main", projected.Name);
+    }
+
+    [Fact]
+    public async Task InMemoryStore_TryCreateSession_DoesNotOverwriteExistingSession()
+    {
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
+        var original = new HPD.Agent.Session("create-once");
+        original.AddMetadata("version", "original");
+        var replacement = new HPD.Agent.Session("create-once");
+        replacement.AddMetadata("version", "replacement");
+
+        Assert.True(await store.TryCreateSessionAsync(original));
+        Assert.False(await store.TryCreateSessionAsync(replacement));
+
+        var loaded = await store.LoadSessionAsync("create-once");
+        Assert.NotNull(loaded);
+        Assert.Equal("original", loaded.Metadata["version"]);
+    }
+
+    [Fact]
+    public async Task StoreLifecycle_CreateOnlyOperationsRejectDuplicateIds()
+    {
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
+        var session = await store.CreateSessionAsync("duplicate-routes");
+        await store.CreateThreadAsync(session.Id, "standalone-agent", threadId: "main");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await store.CreateSessionAsync("duplicate-routes"));
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await store.CreateThreadAsync(session.Id, "standalone-agent", threadId: "main"));
+    }
+
+    [Fact]
     public async Task InMemoryStore_LoadNonExistentSession_ReturnsNull()
     {
         // Arrange
@@ -135,6 +194,42 @@ public class SessionStoreTests : AgentTestBase
             Assert.Null(await reopened.LoadSessionAsync(session.Id));
             Assert.Null(await reopened.GetThreadAsync(new ThreadKey(session.Id, "main")));
             Assert.DoesNotContain(session.Id, await reopened.ListSessionIdsAsync());
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public async Task FileStore_LifecycleExtensions_CreateAndProjectWithoutAgent()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"hpd-session-store-{Guid.NewGuid():N}");
+        try
+        {
+            var store = new FileSessionStore(directory, HPD.Agent.Tests.TestEventApplication.Codec);
+            var session = await store.CreateSessionAsync(
+                "file-store-lifecycle",
+                new Dictionary<string, object> { ["source"] = "extension" });
+            var thread = await store.CreateThreadAsync(
+                session.Id,
+                "standalone-agent",
+                threadId: "main",
+                name: "Main");
+
+            var reopened = new FileSessionStore(directory, HPD.Agent.Tests.TestEventApplication.Codec);
+            var loaded = await reopened.LoadSessionAsync(session.Id);
+            var projected = await reopened.ProjectThreadAsync(
+                session.Id,
+                thread.Id,
+                ThreadProjectionPurpose.ThreadHistory);
+
+            Assert.NotNull(loaded);
+            Assert.Equal("extension", loaded.Metadata["source"].ToString());
+            Assert.NotNull(projected);
+            Assert.Equal("standalone-agent", projected.DefaultAgentId);
+            Assert.Equal("Main", projected.Name);
         }
         finally
         {

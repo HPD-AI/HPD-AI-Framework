@@ -148,7 +148,7 @@ public sealed record ThreadHistoryCompactionCheckpointEvent(
     DateTimeOffset CompactedAt,
     CompactionSummarizer? Summarizer = null) : AgentEvent;
 
-public static class ThreadEventFactory
+internal static class ThreadEventFactory
 {
     public static AgentEvent ThreadCreated(Thread thread) =>
         Scope(thread.SessionId, thread.Id, new ThreadCreatedEvent(

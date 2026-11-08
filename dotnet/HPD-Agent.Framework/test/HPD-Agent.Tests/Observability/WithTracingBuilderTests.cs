@@ -89,13 +89,18 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
     {
         // Register a listener for the custom source
         const string customSource = "MyApp.CustomAgent.Test";
-        var customCompleted = new List<Activity>();
+        var turnCompleted = new TaskCompletionSource<Activity>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         using var customListener = new ActivityListener
         {
             ShouldListenTo = s => s.Name == customSource,
             Sample = (ref ActivityCreationOptions<ActivityContext> _) =>
                 ActivitySamplingResult.AllDataAndRecorded,
-            ActivityStopped = a => customCompleted.Add(a)
+            ActivityStopped = activity =>
+            {
+                if (activity.OperationName == "agent.turn")
+                    turnCompleted.TrySetResult(activity);
+            }
         };
         ActivitySource.AddActivityListener(customListener);
 
@@ -110,8 +115,10 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
 
         await RunTurnAsync(agent);
 
-        customCompleted.Should().Contain(a => a.OperationName == "agent.turn",
-            "spans should appear under the custom source name");
+        var turn = await turnCompleted.Task.WaitAsync(
+            TimeSpan.FromSeconds(5),
+            TestCancellationToken);
+        turn.Source.Name.Should().Be(customSource);
     }
 
     // ── WithTracing + WithTelemetry coexist ───────────────────────────────────

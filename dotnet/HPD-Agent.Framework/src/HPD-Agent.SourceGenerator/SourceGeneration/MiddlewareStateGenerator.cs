@@ -397,7 +397,7 @@ public class MiddlewareStateGenerator : IIncrementalGenerator
         sb.AppendLine("/// Extension methods for accessing middleware states defined in this assembly.");
         sb.AppendLine("/// All state access uses extension methods for consistent API.");
         sb.AppendLine("/// </summary>");
-        sb.AppendLine("public static class MiddlewareStateExtensions");
+        sb.AppendLine("internal static class MiddlewareStateExtensions");
         sb.AppendLine("{");
 
         // Generate key constants

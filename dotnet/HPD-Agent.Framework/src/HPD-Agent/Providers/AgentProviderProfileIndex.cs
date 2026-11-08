@@ -7,7 +7,7 @@ namespace HPD.Agent.Providers;
 /// Represents the canonical, immutable provider/backend profile and family-default index
 /// prepared for one built agent runtime.
 /// </summary>
-public sealed class AgentProviderProfileIndex
+internal sealed class AgentProviderProfileIndex
 {
     private static readonly ConditionalWeakTable<AgentConfig, AgentProviderProfileIndex> RuntimeIndexes = new();
     private readonly ImmutableDictionary<ProviderBackendIdentity, AgentProviderBackendProfile> _profiles;

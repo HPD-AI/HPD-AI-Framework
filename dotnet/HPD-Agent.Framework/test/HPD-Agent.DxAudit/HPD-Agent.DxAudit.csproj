@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks></TargetFrameworks>
+    <RootNamespace>HPD.Agent.DxAudit</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <HpdAgentApplication>true</HpdAgentApplication>
+    <HpdAgentEventPrecompileRequireAnalyzer>false</HpdAgentEventPrecompileRequireAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.14" />
+  </ItemGroup>
+
+</Project>

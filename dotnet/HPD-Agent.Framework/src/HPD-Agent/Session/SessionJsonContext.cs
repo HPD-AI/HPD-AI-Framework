@@ -143,7 +143,7 @@ namespace HPD.Agent;
 [JsonSerializable(typeof(bool))]
 [JsonSerializable(typeof(string))]
 
-public partial class SessionJsonContext : JsonSerializerContext
+internal partial class SessionJsonContext : JsonSerializerContext
 {
     /// <summary>
     /// Combined options that merge SessionJsonContext with M.E.AI's AIJsonUtilities.DefaultOptions.

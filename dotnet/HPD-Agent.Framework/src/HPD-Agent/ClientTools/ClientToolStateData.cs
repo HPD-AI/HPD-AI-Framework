@@ -41,7 +41,7 @@ namespace HPD.Agent;
 /// </para>
 /// </remarks>
 [MiddlewareState]
-public sealed record ClientToolStateData
+internal sealed record ClientToolStateData
 {
     /// <summary>
     /// Registered ToolHarnesses (source of truth for tools).

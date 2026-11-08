@@ -23,7 +23,7 @@ namespace HPD.Agent.Middleware;
 /// OnErrorAsync runs in reverse order (error unwinding).
 /// </para>
 /// </remarks>
-public class AgentMiddlewarePipeline
+internal class AgentMiddlewarePipeline
 {
     private readonly IReadOnlyList<IAgentMiddleware> _middlewares;
     private readonly IReadOnlyList<IAgentMiddleware> _reversedMiddlewares;

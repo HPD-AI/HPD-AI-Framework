@@ -418,7 +418,8 @@ public static partial class NativeExports
     /// Creates an AIFunction wrapper that calls back to native code via FFI.
     /// Supports ToolHarnesses written in Rust, C++, Zig, Go, Swift, or any C-compatible language.
     /// </summary>
-    private static AIFunction CreateNativeFunctionWrapper(NativeFunctionInfo nativeFunc)
+    private static HPDAIFunctionFactory.HPDAIFunction CreateNativeFunctionWrapper(
+        NativeFunctionInfo nativeFunc)
     {
         return HPDAIFunctionFactory.Create(
             (arguments, _, cancellationToken) =>

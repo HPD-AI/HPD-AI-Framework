@@ -68,7 +68,10 @@ public static class AgentBuilderSessionExtensions
         return builder;
     }
 
-    /// <summary>Creates an in-memory session store from the resolved application event codec.</summary>
+    /// <summary>
+    /// Explicitly selects an in-memory session store from the resolved application event codec.
+    /// This is also the default when no session store is configured.
+    /// </summary>
     public static AgentBuilder WithInMemorySessionStore(this AgentBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);

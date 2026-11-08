@@ -4,7 +4,7 @@ using Microsoft.Extensions.AI;
 
 namespace HPD.Agent;
 
-public static class ThreadProjector
+internal static class ThreadProjector
 {
     public static Thread Project(
         string sessionId,

@@ -85,8 +85,13 @@ public sealed class ParentResultTests
             })
             .WithEventComposition(CoreAgentEventComposition.Instance)
             .WithChatClient(new IdentifiedClient(client))
-            .WithNativeFunction(Microsoft.Extensions.AI.AIFunctionFactory.Create(() => ++sideEffects,
-                new Microsoft.Extensions.AI.AIFunctionFactoryOptions { Name = "Touch" })).BuildAsync();
+            .WithNativeFunction(HPDAIFunctionFactory.Create(
+                (_, _, _) => Task.FromResult<object?>(++sideEffects),
+                new HPDAIFunctionFactoryOptions
+                {
+                    Name = "Touch",
+                    Description = "Counts execution."
+                })).BuildAsync();
         await agent.CreateSessionAsync("session");
         var store = agent.Config.SessionStore!;
         var key = new ThreadKey("session", "main");
