@@ -33,23 +33,11 @@ internal sealed class HPDAgentRegistry
 
     private HPDAgentPair CreatePair(string name)
     {
-        var optionsMonitor = _serviceProvider.GetRequiredService<IOptionsMonitor<HPDAgentConfig>>();
+        var optionsMonitor = _serviceProvider.GetRequiredService<IOptionsMonitor<HPDAgentHostOptions>>();
         var options = optionsMonitor.Get(name);
-        var eventComposition = options.EventComposition
-            ?? _serviceProvider.GetService<AgentEventComposition>()
-            ?? (AgentEventCompositionHost.TryComposeRegisteredModules(out var moduleComposition)
-                ? moduleComposition
-                : null)
-            ?? throw new InvalidOperationException(
-                "HPD Agent Hosting requires an explicit, generated application, or generated module AgentEventComposition before activation.");
-        var inputComposition = options.InputComposition
-            ?? _serviceProvider.GetService<AgentInputComposition>()
-            ?? (AgentInputCompositionHost.TryGetDefaultApplication(out var defaultInputs)
-                ? defaultInputs
-                : AgentInputCompositionHost.TryComposeRegisteredModules(out var moduleInputs)
-                    ? moduleInputs
-                    : throw new InvalidOperationException(
-                        "HPD Agent Hosting requires a generated AgentInputComposition."));
+        var applicationComposition = _serviceProvider.GetRequiredService<HPDApplicationComposition>();
+        var eventComposition = options.EventComposition ?? applicationComposition.Events;
+        var inputComposition = options.InputComposition ?? applicationComposition.Inputs;
 
         ISessionStore sessionStore = options.SessionStore
             ?? (options.SessionStorePath != null

@@ -11,30 +11,31 @@ internal static class ThreadExecutionEndpoints
 {
     internal static void Map(
         IEndpointRouteBuilder endpoints,
-        IAgentThreadExecutionService threadExecutions)
+        IAgentThreadExecutionService threadExecutions,
+        string endpointName)
     {
         endpoints.MapGet("/agents/{agentId}/sessions/{sid}/threads/{bid}/executions",
                 (string agentId, string sid, string bid, CancellationToken ct) =>
                     ListExecutions(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), threadExecutions, ct))
-            .WithName("ListThreadExecutions")
+            .WithHostName(endpointName, "ListThreadExecutions")
             .WithSummary("List runtime-owned executions projected from a thread event log");
 
         endpoints.MapGet("/agents/{agentId}/sessions/{sid}/threads/{bid}/executions/{threadExecutionId}",
                 (string agentId, string sid, string bid, string threadExecutionId, CancellationToken ct) =>
                     GetExecution(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), RouteValue.Decode(threadExecutionId), threadExecutions, ct))
-            .WithName("GetThreadExecution")
+            .WithHostName(endpointName, "GetThreadExecution")
             .WithSummary("Get a runtime-owned thread execution by ID");
 
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/executions/{threadExecutionId}/cancel",
                 (string agentId, string sid, string bid, string threadExecutionId, CancellationToken ct) =>
                     CancelExecution(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), RouteValue.Decode(threadExecutionId), threadExecutions, ct))
-            .WithName("CancelThreadExecution")
+            .WithHostName(endpointName, "CancelThreadExecution")
             .WithSummary("Cancel one exact runtime-owned thread execution and await its terminal fact");
 
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/queue/start",
                 (string agentId, string sid, string bid, CancellationToken ct) =>
                     StartQueuedWork(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), threadExecutions, ct))
-            .WithName("StartQueuedThreadWork")
+            .WithHostName(endpointName, "StartQueuedThreadWork")
             .WithSummary("Resume promotion after an accepted hosted cancellation");
     }
 

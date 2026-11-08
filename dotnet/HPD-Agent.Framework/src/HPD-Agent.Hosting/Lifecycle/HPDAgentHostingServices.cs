@@ -23,7 +23,7 @@ public sealed record HPDAgentHostingServices(
 /// <remarks>
 /// This provider is the public customization contract for changing behavior behind
 /// built-in HPD Agent routes. Endpoint mapping calls this provider for both
-/// <c>MapHPDAgentApi()</c> and <c>MapHPDAgentApi(name)</c>.
+/// <c>MapHPDAgentHostApi()</c> and <c>MapHPDAgentHostApi(name)</c>.
 /// </remarks>
 public interface IHPDAgentHostingServicesProvider
 {

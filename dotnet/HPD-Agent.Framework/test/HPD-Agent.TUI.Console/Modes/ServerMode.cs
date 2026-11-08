@@ -30,7 +30,8 @@ internal static class ServerMode
         builder.Configuration.AddConfiguration(providers.Configuration);
         builder.Logging.ClearProviders();
         builder.Services.AddRouting();
-        builder.Services.AddHPDAgent(agentId, config =>
+        builder.Services.AddHPD();
+        builder.Services.AddHPDAgentHost(agentId, config =>
         {
             config.SessionStorePath = Path.Combine(dataRoot, "sessions");
             config.AgentStore = new JsonAgentStore(Path.Combine(dataRoot, "agents"));
@@ -52,10 +53,7 @@ internal static class ServerMode
 
         await using var server = builder.Build();
         server.MapGet("/", () => "HPD Agent TUI console server is running.");
-        server.MapGroup("/hpd").MapHPDAgentApi(agentId, api =>
-        {
-            api.MapEvals = false;
-        });
+        server.MapGroup("/hpd").MapHPDAgentHostApi(agentId);
 
         await server.StartAsync();
 

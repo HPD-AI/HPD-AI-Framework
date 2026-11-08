@@ -72,11 +72,20 @@ public class AgentMiddlewareResponseServiceTests : IAsyncLifetime
         var runtime = await _agentManager.GetOrBuildAgentRuntimeAsync(stored.Id, sessionId, threadId);
         var request = new PermissionRequestEvent(
             "permission-1",
-            "test",
-            "function",
-            null,
             "call-1",
-            null)
+            "test",
+            HPD.Agent.Permissions.PermissionDomains.ToolExecution,
+            null,
+            null,
+            null,
+            null,
+            null,
+            [
+                new HPD.Agent.Permissions.PermissionChoice(
+                    "allow_once",
+                    "Allow once",
+                    HPD.Agent.Permissions.PermissionDecisionKind.Allow)
+            ])
         {
             SessionId = sessionId,
             ThreadId = threadId

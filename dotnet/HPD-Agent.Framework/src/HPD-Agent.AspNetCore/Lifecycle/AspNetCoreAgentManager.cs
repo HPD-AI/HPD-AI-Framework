@@ -12,12 +12,12 @@ namespace HPD.Agent.AspNetCore.Lifecycle;
 /// <summary>
 /// ASP.NET Core-specific implementation of <see cref="AgentManager"/>.
 /// Builds <see cref="Agent"/> instances from stored definitions or fallback config,
-/// using <see cref="IOptionsMonitor{HPDAgentConfig}"/> for runtime configuration.
+/// using <see cref="IOptionsMonitor{HPDAgentHostOptions}"/> for runtime configuration.
 /// </summary>
 internal class AspNetCoreAgentManager : AgentManager
 {
     private readonly AspNetCoreSessionManager _sessionManager;
-    private readonly IOptionsMonitor<HPDAgentConfig> _optionsMonitor;
+    private readonly IOptionsMonitor<HPDAgentHostOptions> _optionsMonitor;
     private readonly IServiceProvider _serviceProvider;
     private readonly string _name;
     private readonly IContentStore _contentStore;
@@ -27,7 +27,7 @@ internal class AspNetCoreAgentManager : AgentManager
     internal AspNetCoreAgentManager(
         IAgentStore agentStore,
         AspNetCoreSessionManager sessionManager,
-        IOptionsMonitor<HPDAgentConfig> optionsMonitor,
+        IOptionsMonitor<HPDAgentHostOptions> optionsMonitor,
         IServiceProvider serviceProvider,
         string name,
         IContentStore contentStore,

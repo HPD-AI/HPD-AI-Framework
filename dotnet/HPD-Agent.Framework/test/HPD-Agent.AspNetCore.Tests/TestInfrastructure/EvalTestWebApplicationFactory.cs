@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: FSL-1.1-ALv2
 
 using HPD.Agent.AspNetCore;
+using HPD.Agent.AspNetCore.Evaluations;
 using HPD.Agent.Evaluations.Storage;
 using HPD.Agent;
 using HPD.Agent.Hosting.Configuration;
@@ -18,6 +19,7 @@ namespace HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 /// </summary>
 public class EvalTestWebApplicationFactory : IDisposable
 {
+    private readonly bool _registerStores;
     private TestServer? _server;
     private HttpClient? _client;
     private readonly FakeChatClient _fakeChatClient = new();
@@ -27,6 +29,14 @@ public class EvalTestWebApplicationFactory : IDisposable
 
     /// <summary>The in-memory dataset store shared between all requests in this test instance.</summary>
     public InMemoryDatasetStore DatasetStore { get; } = new InMemoryDatasetStore();
+
+    public EvalTestWebApplicationFactory()
+        : this(registerStores: true)
+    {
+    }
+
+    internal EvalTestWebApplicationFactory(bool registerStores) =>
+        _registerStores = registerStores;
 
     public HttpClient CreateClient()
     {
@@ -55,10 +65,14 @@ public class EvalTestWebApplicationFactory : IDisposable
                 services.AddRouting();
                 services.AddSingleton(_fakeChatClient);
                 services.AddSingleton<IAgentFactory, TestWebApplicationAgentFactory>();
-                // Register the shared score store so EvalEndpoints can resolve it
-                services.AddSingleton<IScoreStore>(ScoreStore);
-                services.AddSingleton<IDatasetStore>(DatasetStore);
-                services.AddTestApplicationCompositions().AddHPDAgent("test-agent", options =>
+                if (_registerStores)
+                {
+                    // Register the shared stores so non-guard evaluation tests can resolve them.
+                    services.AddSingleton<IScoreStore>(ScoreStore);
+                    services.AddSingleton<IDatasetStore>(DatasetStore);
+                }
+                services.AddHPDAgentEvaluations();
+                services.AddTestApplicationCompositions().AddHPDAgentHost("test-agent", options =>
                 {
                     options.SessionStore = new FileSessionStore(Path.Combine(Path.GetTempPath(), $"hpd-eval-tests-{Guid.NewGuid()}"), HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
                 });
@@ -68,7 +82,8 @@ public class EvalTestWebApplicationFactory : IDisposable
                 app.UseRouting();
                 app.UseEndpoints(endpoints =>
                 {
-                    endpoints.MapGroup("").MapHPDAgentApi("test-agent");
+                    endpoints.MapGroup("").MapHPDAgentHostApi("test-agent");
+                    endpoints.MapHPDAgentEvaluationApi();
                 });
             });
 

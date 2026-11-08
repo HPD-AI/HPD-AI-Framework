@@ -4,10 +4,10 @@ using HPD.Agent.Serialization;
 namespace HPD.Agent.Hosting.Configuration;
 
 /// <summary>
-/// Configuration options for hosting an HPD Agent.
+/// Configuration options for one named HPD agent host profile.
 /// Used by both AspNetCore and MAUI hosting platforms.
 /// </summary>
-public class HPDAgentConfig
+public class HPDAgentHostOptions
 {
     /// <summary>Optional explicit output-event composition; otherwise Hosting requires one from DI.</summary>
     public AgentEventComposition? EventComposition { get; set; }

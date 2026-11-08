@@ -31,6 +31,7 @@
   </Folder>
   <Folder Name="/Web/">
     <Project Path="src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj" />
+    <Project Path="src/HPD-Agent.AspNetCore.Evaluations/HPD-Agent.AspNetCore.Evaluations.csproj" />
     <Project Path="src/HPD-Agent.AspNetCore.OpenApi/HPD-Agent.AspNetCore.OpenApi.csproj" />
     <Project Path="src/HPD-Agent.Client/HPD-Agent.Client.csproj" />
     <Project Path="src/HPD-Agent.MultiAgent.AspNetCore/HPD-Agent.MultiAgent.AspNetCore.csproj" />

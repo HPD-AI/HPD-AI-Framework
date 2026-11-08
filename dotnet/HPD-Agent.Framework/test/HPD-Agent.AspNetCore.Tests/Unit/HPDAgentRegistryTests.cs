@@ -10,7 +10,7 @@ using Microsoft.Extensions.Options;
 namespace HPD.Agent.AspNetCore.Tests.Unit;
 
 /// <summary>
-/// Tests for HPDAgentRegistry (via DI) — verifies that AddHPDAgent registers
+/// Tests for HPDAgentRegistry (via DI) — verifies that AddHPDAgentHost registers
 /// a singleton AgentManager and SessionManager, seeds the "default" StoredAgent,
 /// and correctly isolates named registrations.
 /// </summary>
@@ -21,7 +21,7 @@ public class HPDAgentRegistryTests
     // ──────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void AddHPDAgent_RegistersAgentManager_AsSingleton()
+    public void AddHPDAgentHost_RegistersAgentManager_AsSingleton()
     {
         var sp = BuildProvider();
 
@@ -33,7 +33,7 @@ public class HPDAgentRegistryTests
     }
 
     [Fact]
-    public void AddHPDAgent_RegistersSessionManager_AsSingleton()
+    public void AddHPDAgentHost_RegistersSessionManager_AsSingleton()
     {
         var sp = BuildProvider();
 
@@ -45,7 +45,7 @@ public class HPDAgentRegistryTests
     }
 
     [Fact]
-    public void AddHPDAgent_SessionManager_HasStore()
+    public void AddHPDAgentHost_SessionManager_HasStore()
     {
         var sp = BuildProvider();
         var sm = sp.GetRequiredService<SessionManager>();
@@ -57,15 +57,15 @@ public class HPDAgentRegistryTests
     // ──────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void AddHPDAgent_NamedOptions_AreIsolated()
+    public void AddHPDAgentHost_NamedOptions_AreIsolated()
     {
         var services = new ServiceCollection();
         services.AddTestApplicationCompositions();
-        services.AddTestApplicationCompositions().AddHPDAgent("agent1", opts => opts.AgentIdleTimeout = TimeSpan.FromMinutes(30));
-        services.AddTestApplicationCompositions().AddHPDAgent("agent2", opts => opts.AgentIdleTimeout = TimeSpan.FromMinutes(60));
+        services.AddTestApplicationCompositions().AddHPDAgentHost("agent1", opts => opts.AgentIdleTimeout = TimeSpan.FromMinutes(30));
+        services.AddTestApplicationCompositions().AddHPDAgentHost("agent2", opts => opts.AgentIdleTimeout = TimeSpan.FromMinutes(60));
         var sp = services.BuildServiceProvider();
 
-        var monitor = sp.GetRequiredService<IOptionsMonitor<HPDAgentConfig>>();
+        var monitor = sp.GetRequiredService<IOptionsMonitor<HPDAgentHostOptions>>();
         monitor.Get("agent1").AgentIdleTimeout.Should().Be(TimeSpan.FromMinutes(30));
         monitor.Get("agent2").AgentIdleTimeout.Should().Be(TimeSpan.FromMinutes(60));
     }
@@ -75,7 +75,7 @@ public class HPDAgentRegistryTests
     // ──────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void AddHPDAgent_UsesProvidedSessionStore()
+    public void AddHPDAgentHost_UsesProvidedSessionStore()
     {
         var customStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
         var sp = BuildProvider(opts => opts.SessionStore = customStore);
@@ -85,7 +85,7 @@ public class HPDAgentRegistryTests
     }
 
     [Fact]
-    public void AddHPDAgent_CreatesInMemorySessionStore_WhenNoneProvided()
+    public void AddHPDAgentHost_CreatesInMemorySessionStore_WhenNoneProvided()
     {
         var sp = BuildProvider();
         var sm = sp.GetRequiredService<SessionManager>();
@@ -93,7 +93,7 @@ public class HPDAgentRegistryTests
     }
 
     [Fact]
-    public void AddHPDAgent_CreatesFileSessionStore_WhenPathProvided()
+    public void AddHPDAgentHost_CreatesFileSessionStore_WhenPathProvided()
     {
         var tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         try
@@ -114,12 +114,12 @@ public class HPDAgentRegistryTests
     // ──────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void AddHPDAgent_ResolvesIAgentFactory_FromDI()
+    public void AddHPDAgentHost_ResolvesIAgentFactory_FromDI()
     {
         var services = new ServiceCollection();
         services.AddTestApplicationCompositions();
         services.AddSingleton<IAgentFactory, StubAgentFactory>();
-        services.AddTestApplicationCompositions().AddHPDAgent(opts => opts.SessionStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec));
+        services.AddTestApplicationCompositions().AddHPDAgentHost(opts => opts.SessionStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec));
         var sp = services.BuildServiceProvider();
 
         // AgentManager and SessionManager must resolve without throwing
@@ -132,7 +132,7 @@ public class HPDAgentRegistryTests
     // ──────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task AddHPDAgent_DoesNotSeedDefaultStoredAgent_OnRegistration()
+    public async Task AddHPDAgentHost_DoesNotSeedDefaultStoredAgent_OnRegistration()
     {
         var agentStore = new InMemoryAgentStore();
         var sp = BuildProvider(opts => opts.AgentStore = agentStore);
@@ -145,7 +145,7 @@ public class HPDAgentRegistryTests
     }
 
     [Fact]
-    public async Task AddHPDAgent_PersistsDefaultStoredAgent_OnFirstBuild()
+    public async Task AddHPDAgentHost_PersistsDefaultStoredAgent_OnFirstBuild()
     {
         var agentStore = new InMemoryAgentStore();
         var sp = BuildProvider(opts =>
@@ -164,7 +164,7 @@ public class HPDAgentRegistryTests
     }
 
     [Fact]
-    public async Task AddHPDAgent_DoesNotOverwrite_ExistingDefaultAgent_OnFirstBuild()
+    public async Task AddHPDAgentHost_DoesNotOverwrite_ExistingDefaultAgent_OnFirstBuild()
     {
         var agentStore = new InMemoryAgentStore();
         var existing = new StoredAgent
@@ -194,11 +194,11 @@ public class HPDAgentRegistryTests
     // Helpers
     // ──────────────────────────────────────────────────────────────────────────
 
-    private static ServiceProvider BuildProvider(Action<HPDAgentConfig>? configure = null)
+    private static ServiceProvider BuildProvider(Action<HPDAgentHostOptions>? configure = null)
     {
         var services = new ServiceCollection();
         services.AddTestApplicationCompositions();
-        services.AddTestApplicationCompositions().AddHPDAgent(opts =>
+        services.AddTestApplicationCompositions().AddHPDAgentHost(opts =>
         {
             opts.SessionStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
             configure?.Invoke(opts);

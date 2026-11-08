@@ -11,22 +11,22 @@ using Microsoft.Extensions.Options;
 namespace HPD.Agent.AspNetCore.Tests.Unit;
 
 /// <summary>
-/// Unit tests for HPD-Agent service registration (AddHPDAgent).
+/// Unit tests for HPD-Agent service registration (AddHPDAgentHost).
 /// Tests DI configuration and multi-agent scenarios.
 /// </summary>
 public class ServiceRegistrationTests
 {
-    #region AddHPDAgent
+    #region AddHPDAgentHost
 
     [Fact]
-    public void AddHPDAgent_RegistersAgentRegistry_AsSingleton()
+    public void AddHPDAgentHost_RegistersAgentRegistry_AsSingleton()
     {
         // Arrange
         var services = new ServiceCollection();
         services.AddTestApplicationCompositions();
 
         // Act
-        services.AddTestApplicationCompositions().AddHPDAgent();
+        services.AddTestApplicationCompositions().AddHPDAgentHost();
         var provider = services.BuildServiceProvider();
 
         // Assert
@@ -37,34 +37,34 @@ public class ServiceRegistrationTests
     }
 
     [Fact]
-    public void AddHPDAgent_RegistersNamedOptions_Correctly()
+    public void AddHPDAgentHost_RegistersNamedOptions_Correctly()
     {
         // Arrange
         var services = new ServiceCollection();
         services.AddTestApplicationCompositions();
 
         // Act
-        services.AddTestApplicationCompositions().AddHPDAgent(opts =>
+        services.AddTestApplicationCompositions().AddHPDAgentHost(opts =>
         {
             opts.AgentIdleTimeout = TimeSpan.FromMinutes(60);
         });
         var provider = services.BuildServiceProvider();
 
         // Assert
-        var options = provider.GetService<IOptionsMonitor<HPDAgentConfig>>();
+        var options = provider.GetService<IOptionsMonitor<HPDAgentHostOptions>>();
         options.Should().NotBeNull();
         options!.CurrentValue.AgentIdleTimeout.Should().Be(TimeSpan.FromMinutes(60));
     }
 
     [Fact]
-    public void AddHPDAgent_RegistersJsonOptions_ForAOT()
+    public void AddHPDAgentHost_RegistersJsonOptions_ForAOT()
     {
         // Arrange
         var services = new ServiceCollection();
         services.AddTestApplicationCompositions();
 
         // Act
-        services.AddTestApplicationCompositions().AddHPDAgent();
+        services.AddTestApplicationCompositions().AddHPDAgentHost();
         var provider = services.BuildServiceProvider();
 
         // Assert - JSON options configurator should be registered
@@ -74,12 +74,12 @@ public class ServiceRegistrationTests
     }
 
     [Fact]
-    public void AddHPDAgent_WithProviderComposition_InstallsSharedRunConfigConverter()
+    public void AddHPDAgentHost_WithProviderComposition_InstallsSharedRunConfigConverter()
     {
         var services = new ServiceCollection();
         services.AddTestApplicationCompositions();
         services.AddSingleton(ProviderComposition.Create([]));
-        services.AddTestApplicationCompositions().AddHPDAgent();
+        services.AddTestApplicationCompositions().AddHPDAgentHost();
         var provider = services.BuildServiceProvider();
 
         var options = provider.GetRequiredService<IOptions<JsonOptions>>().Value;
@@ -89,25 +89,25 @@ public class ServiceRegistrationTests
     }
 
     [Fact]
-    public void AddHPDAgent_AllowsMultipleNamedAgents()
+    public void AddHPDAgentHost_AllowsMultipleNamedAgents()
     {
         // Arrange
         var services = new ServiceCollection();
         services.AddTestApplicationCompositions();
 
         // Act
-        services.AddTestApplicationCompositions().AddHPDAgent("agent1", opts =>
+        services.AddTestApplicationCompositions().AddHPDAgentHost("agent1", opts =>
         {
             opts.AgentIdleTimeout = TimeSpan.FromMinutes(30);
         });
-        services.AddTestApplicationCompositions().AddHPDAgent("agent2", opts =>
+        services.AddTestApplicationCompositions().AddHPDAgentHost("agent2", opts =>
         {
             opts.AgentIdleTimeout = TimeSpan.FromMinutes(60);
         });
         var provider = services.BuildServiceProvider();
 
         // Assert
-        var optionsMonitor = provider.GetRequiredService<IOptionsMonitor<HPDAgentConfig>>();
+        var optionsMonitor = provider.GetRequiredService<IOptionsMonitor<HPDAgentHostOptions>>();
         var options1 = optionsMonitor.Get("agent1");
         var options2 = optionsMonitor.Get("agent2");
 
@@ -116,27 +116,27 @@ public class ServiceRegistrationTests
     }
 
     [Fact]
-    public void AddHPDAgent_DefaultName_UsesOptionsDefaultName()
+    public void AddHPDAgentHost_DefaultName_UsesOptionsDefaultName()
     {
         // Arrange
         var services = new ServiceCollection();
         services.AddTestApplicationCompositions();
 
         // Act
-        services.AddTestApplicationCompositions().AddHPDAgent(opts =>
+        services.AddTestApplicationCompositions().AddHPDAgentHost(opts =>
         {
             opts.SessionStorePath = "./test";
         });
         var provider = services.BuildServiceProvider();
 
         // Assert
-        var optionsMonitor = provider.GetRequiredService<IOptionsMonitor<HPDAgentConfig>>();
+        var optionsMonitor = provider.GetRequiredService<IOptionsMonitor<HPDAgentHostOptions>>();
         var defaultOptions = optionsMonitor.Get(Options.DefaultName);
         defaultOptions.SessionStorePath.Should().Be("./test");
     }
 
     [Fact]
-    public void AddHPDAgentFromConfigFile_LoadsYamlDefaultAgent()
+    public void AddHPDAgentHostFromConfigFile_LoadsYamlDefaultAgent()
     {
         var path = Path.Combine(Path.GetTempPath(), $"hpd-host-agent-{Guid.NewGuid():N}.yaml");
         File.WriteAllText(path, """
@@ -150,13 +150,13 @@ public class ServiceRegistrationTests
             var services = new ServiceCollection();
         services.AddTestApplicationCompositions();
 
-            services.AddTestApplicationCompositions().AddHPDAgentFromConfigFile("hosted", path, opts =>
+            services.AddTestApplicationCompositions().AddHPDAgentHostFromConfigFile("hosted", path, opts =>
             {
                 opts.AgentIdleTimeout = TimeSpan.FromMinutes(5);
             });
             var provider = services.BuildServiceProvider();
 
-            var options = provider.GetRequiredService<IOptionsMonitor<HPDAgentConfig>>().Get("hosted");
+            var options = provider.GetRequiredService<IOptionsMonitor<HPDAgentHostOptions>>().Get("hosted");
             options.DefaultAgent.Should().BeNull();
             options.DefaultAgentPath.Should().Be(path);
             options.AgentIdleTimeout.Should().Be(TimeSpan.FromMinutes(5));
@@ -168,7 +168,7 @@ public class ServiceRegistrationTests
     }
 
     [Fact]
-    public void AddHPDAgentFromConfiguration_LoadsDefaultAgentWithoutBinderReflection()
+    public void AddHPDAgentHostFromConfiguration_LoadsDefaultAgentWithoutBinderReflection()
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -182,26 +182,26 @@ public class ServiceRegistrationTests
         var services = new ServiceCollection();
         services.AddTestApplicationCompositions();
 
-        services.AddTestApplicationCompositions().AddHPDAgentFromConfiguration("configured", configuration.GetSection("agent"));
+        services.AddTestApplicationCompositions().AddHPDAgentHostFromConfiguration("configured", configuration.GetSection("agent"));
         var provider = services.BuildServiceProvider();
 
-        var options = provider.GetRequiredService<IOptionsMonitor<HPDAgentConfig>>().Get("configured");
+        var options = provider.GetRequiredService<IOptionsMonitor<HPDAgentHostOptions>>().Get("configured");
         options.DefaultAgent.Should().BeNull();
         options.DefaultAgentDocument.Should().Contain("Hosted IConfiguration Agent");
         options.DefaultAgentDocument.Should().Contain("CodingToolHarness");
     }
 
     [Fact]
-    public void AddHPDAgent_CanBeCalledMultipleTimes()
+    public void AddHPDAgentHost_CanBeCalledMultipleTimes()
     {
         // Arrange
         var services = new ServiceCollection();
         services.AddTestApplicationCompositions();
 
         // Act - Should not throw
-        services.AddTestApplicationCompositions().AddHPDAgent("agent1");
-        services.AddTestApplicationCompositions().AddHPDAgent("agent2");
-        services.AddTestApplicationCompositions().AddHPDAgent("agent3");
+        services.AddTestApplicationCompositions().AddHPDAgentHost("agent1");
+        services.AddTestApplicationCompositions().AddHPDAgentHost("agent2");
+        services.AddTestApplicationCompositions().AddHPDAgentHost("agent3");
         var provider = services.BuildServiceProvider();
 
         // Assert
@@ -210,7 +210,7 @@ public class ServiceRegistrationTests
     }
 
     [Fact]
-    public void AddHPDAgent_SupportsIAgentFactory()
+    public void AddHPDAgentHost_SupportsIAgentFactory()
     {
         // Arrange
         var services = new ServiceCollection();
@@ -218,7 +218,7 @@ public class ServiceRegistrationTests
         services.AddSingleton<IAgentFactory, TestAgentFactory>();
 
         // Act
-        services.AddTestApplicationCompositions().AddHPDAgent();
+        services.AddTestApplicationCompositions().AddHPDAgentHost();
         var provider = services.BuildServiceProvider();
 
         // Assert

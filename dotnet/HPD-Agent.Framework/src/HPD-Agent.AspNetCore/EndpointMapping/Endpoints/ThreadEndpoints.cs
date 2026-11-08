@@ -14,46 +14,47 @@ internal static class ThreadEndpoints
 {
     internal static void Map(
         IEndpointRouteBuilder endpoints,
-        IAgentThreadService threads)
+        IAgentThreadService threads,
+        string endpointName)
     {
         endpoints.MapGet("/sessions/{sid}/threads", (string sid, CancellationToken ct) =>
                 ListThreads(RouteValue.Decode(sid), threads, ct))
-            .WithName("ListThreads")
+            .WithHostName(endpointName, "ListThreads")
             .WithSummary("List all threads in a session");
 
         endpoints.MapGet("/sessions/{sid}/thread-graph", (string sid, CancellationToken ct) =>
                 GetThreadGraph(RouteValue.Decode(sid), threads, ct))
-            .WithName("GetThreadGraph")
+            .WithHostName(endpointName, "GetThreadGraph")
             .WithSummary("Get threads and fork groups for a session");
 
         endpoints.MapGet("/sessions/{sid}/threads/{bid}", (string sid, string bid, CancellationToken ct) =>
                 GetThread(RouteValue.Decode(sid), RouteValue.Decode(bid), threads, ct))
-            .WithName("GetThread")
+            .WithHostName(endpointName, "GetThread")
             .WithSummary("Get thread metadata by ID");
 
         endpoints.MapGet("/sessions/{sid}/threads/{bid}/subagents", (string sid, string bid, CancellationToken ct) =>
                 ListSubAgents(RouteValue.Decode(sid), RouteValue.Decode(bid), threads, ct))
-            .WithName("ListThreadSubAgents")
+            .WithHostName(endpointName, "ListThreadSubAgents")
             .WithSummary("List durable subagents owned by a parent thread");
 
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads", (string agentId, string sid, CreateThreadRequest request, CancellationToken ct) =>
                 CreateThread(RouteValue.Decode(agentId), RouteValue.Decode(sid), request, threads, ct))
-            .WithName("CreateThread")
+            .WithHostName(endpointName, "CreateThread")
             .WithSummary("Create a new thread in a session");
 
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/fork", (string agentId, string sid, string bid, ForkThreadRequest request, CancellationToken ct) =>
                 ForkThread(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), request, threads, ct))
-            .WithName("ForkThread")
+            .WithHostName(endpointName, "ForkThread")
             .WithSummary("Fork an existing thread at a specific message id");
 
         endpoints.MapPatch("/sessions/{sid}/threads/{bid}", (string sid, string bid, UpdateThreadRequest request, CancellationToken ct) =>
                 UpdateThread(RouteValue.Decode(sid), RouteValue.Decode(bid), request, threads, ct))
-            .WithName("UpdateThread")
+            .WithHostName(endpointName, "UpdateThread")
             .WithSummary("Update thread name, description, or tags");
 
         endpoints.MapDelete("/sessions/{sid}/threads/{bid}", (string sid, string bid, bool recursive = false, CancellationToken ct = default) =>
                 DeleteThread(RouteValue.Decode(sid), RouteValue.Decode(bid), recursive, threads, ct))
-            .WithName("DeleteThread")
+            .WithHostName(endpointName, "DeleteThread")
             .WithSummary("Delete a thread");
 
     }

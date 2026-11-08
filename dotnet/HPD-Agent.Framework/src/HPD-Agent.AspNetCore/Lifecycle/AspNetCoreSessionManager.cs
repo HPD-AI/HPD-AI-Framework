@@ -12,12 +12,12 @@ namespace HPD.Agent.AspNetCore.Lifecycle;
 /// </summary>
 internal class AspNetCoreSessionManager : SessionManager
 {
-    private readonly IOptionsMonitor<HPDAgentConfig> _optionsMonitor;
+    private readonly IOptionsMonitor<HPDAgentHostOptions> _optionsMonitor;
     private readonly string _name;
 
     internal AspNetCoreSessionManager(
         ISessionStore store,
-        IOptionsMonitor<HPDAgentConfig> optionsMonitor,
+        IOptionsMonitor<HPDAgentHostOptions> optionsMonitor,
         string name)
         : base(store)
     {

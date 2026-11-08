@@ -15,39 +15,39 @@ using System.Text.Json.Nodes;
 namespace HPD.Agent.AspNetCore;
 
 /// <summary>
-/// Extension methods for registering HPD Agent services.
+/// Extension methods for registering HPD agent host services.
 /// </summary>
-public static class HPDAgentServiceCollectionExtensions
+public static class HPDAgentHostServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers a default (unnamed) HPD Agent.
+    /// Registers the default HPD agent host profile.
     /// </summary>
-    public static IServiceCollection AddHPDAgent(
+    public static IServiceCollection AddHPDAgentHost(
         this IServiceCollection services,
-        Action<HPDAgentConfig>? configure = null)
-        => services.AddHPDAgent(Options.DefaultName, configure);
+        Action<HPDAgentHostOptions>? configure = null)
+        => services.AddHPDAgentHost(Options.DefaultName, configure);
 
     /// <summary>
-    /// Registers a default HPD Agent using a JSON or YAML agent config file.
+    /// Registers the default HPD agent host using a JSON or YAML agent config file.
     /// </summary>
-    public static IServiceCollection AddHPDAgentFromConfigFile(
+    public static IServiceCollection AddHPDAgentHostFromConfigFile(
         this IServiceCollection services,
         string configPath,
-        Action<HPDAgentConfig>? configure = null)
-        => services.AddHPDAgentFromConfigFile(Options.DefaultName, configPath, configure);
+        Action<HPDAgentHostOptions>? configure = null)
+        => services.AddHPDAgentHostFromConfigFile(Options.DefaultName, configPath, configure);
 
     /// <summary>
-    /// Registers a named HPD Agent using a JSON or YAML agent config file.
+    /// Registers a named HPD agent host using a JSON or YAML agent config file.
     /// </summary>
-    public static IServiceCollection AddHPDAgentFromConfigFile(
+    public static IServiceCollection AddHPDAgentHostFromConfigFile(
         this IServiceCollection services,
         string name,
         string configPath,
-        Action<HPDAgentConfig>? configure = null)
+        Action<HPDAgentHostOptions>? configure = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(configPath);
 
-        return services.AddHPDAgent(name, options =>
+        return services.AddHPDAgentHost(name, options =>
         {
             options.DefaultAgentPath = configPath;
             configure?.Invoke(options);
@@ -55,26 +55,26 @@ public static class HPDAgentServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Registers a default HPD Agent using a configuration section containing AgentConfig data.
+    /// Registers the default HPD agent host using a configuration section containing agent definition data.
     /// </summary>
-    public static IServiceCollection AddHPDAgentFromConfiguration(
+    public static IServiceCollection AddHPDAgentHostFromConfiguration(
         this IServiceCollection services,
         IConfiguration configuration,
-        Action<HPDAgentConfig>? configure = null)
-        => services.AddHPDAgentFromConfiguration(Options.DefaultName, configuration, configure);
+        Action<HPDAgentHostOptions>? configure = null)
+        => services.AddHPDAgentHostFromConfiguration(Options.DefaultName, configuration, configure);
 
     /// <summary>
-    /// Registers a named HPD Agent using a configuration section containing AgentConfig data.
+    /// Registers a named HPD agent host using a configuration section containing agent definition data.
     /// </summary>
-    public static IServiceCollection AddHPDAgentFromConfiguration(
+    public static IServiceCollection AddHPDAgentHostFromConfiguration(
         this IServiceCollection services,
         string name,
         IConfiguration configuration,
-        Action<HPDAgentConfig>? configure = null)
+        Action<HPDAgentHostOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
 
-        return services.AddHPDAgent(name, options =>
+        return services.AddHPDAgentHost(name, options =>
         {
             options.DefaultAgentDocument = ConfigurationToJson(configuration);
             configure?.Invoke(options);
@@ -82,36 +82,47 @@ public static class HPDAgentServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Registers a named HPD Agent. Call multiple times with different names
-    /// to host multiple agents at different route prefixes.
+    /// Registers a named HPD agent host profile. Call multiple times with different names
+    /// to host independent profiles at different route prefixes.
     /// </summary>
-    public static IServiceCollection AddHPDAgent(
+    /// <remarks>
+    /// Call <see cref="HPDApplicationServiceCollectionExtensions.AddHPD"/> first to finalize the
+    /// provider, output-event, and input-event composition consumed by every host profile.
+    /// </remarks>
+    public static IServiceCollection AddHPDAgentHost(
         this IServiceCollection services,
         string name,
-        Action<HPDAgentConfig>? configure = null)
+        Action<HPDAgentHostOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(name);
         // Allow empty string for Options.DefaultName
 
-        // Register named options (each agent name gets its own HPDAgentConfig)
+        // Register named options (each host profile gets its own HPDAgentHostOptions)
         if (configure != null)
             services.Configure(name, configure);
 
-        // Register the agent registry (one per app, manages all named agent pairs)
+        // Register the host registry (one per app, manages all named host pairs)
         services.TryAddSingleton<DependencyInjection.HPDAgentRegistry>();
         services.TryAddSingleton<IHPDAgentHostingServicesProvider, DependencyInjection.HPDAgentHostingServicesProvider>();
         services.TryAddSingleton<IClientToolProviderRegistry, InMemoryClientToolProviderRegistry>();
-        services.TryAddSingleton(
-            ProviderCompositionHost.Current ?? ProviderComposition.Create([]));
+        services.TryAddSingleton(sp =>
+            sp.GetRequiredService<HPDApplicationComposition>().Providers);
 
         // Register AgentManager and SessionManager so tests and adapters can inject them directly.
         services.TryAddSingleton<HPD.Agent.Hosting.Lifecycle.AgentManager>(sp =>
             sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).AgentManager);
         services.TryAddSingleton<HPD.Agent.Hosting.Lifecycle.SessionManager>(sp =>
             sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).SessionManager);
+        services.TryAddKeyedSingleton<HPD.Agent.Hosting.Lifecycle.AgentManager>(name, (sp, _) =>
+            sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).AgentManager);
+        services.TryAddKeyedSingleton<HPD.Agent.Hosting.Lifecycle.SessionManager>(name, (sp, _) =>
+            sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).SessionManager);
         services.TryAddSingleton<IAgentRuntimeResolver>(sp =>
             new HostedAgentRuntimeResolver(sp.GetRequiredService<HPD.Agent.Hosting.Lifecycle.AgentManager>()));
+        services.TryAddKeyedSingleton<IAgentRuntimeResolver>(name, (sp, _) =>
+            new HostedAgentRuntimeResolver(
+                sp.GetRequiredKeyedService<HPD.Agent.Hosting.Lifecycle.AgentManager>(name)));
         services.TryAddSingleton<IAgentSessionService>(sp =>
             sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.Sessions);
         services.TryAddSingleton<IAgentThreadService>(sp =>
@@ -129,6 +140,23 @@ public static class HPDAgentServiceCollectionExtensions
         services.TryAddSingleton<IThreadJournalRebaseSeedProvider>(sp =>
             new HostedThreadJournalRebaseSeedProvider(
                 sp.GetRequiredService<HPD.Agent.Hosting.Lifecycle.SessionManager>()));
+        services.TryAddKeyedSingleton<IThreadJournalRebaseSeedProvider>(name, (sp, _) =>
+            new HostedThreadJournalRebaseSeedProvider(
+                sp.GetRequiredKeyedService<HPD.Agent.Hosting.Lifecycle.SessionManager>(name)));
+        services.TryAddKeyedSingleton<IAgentSessionService>(name, (sp, _) =>
+            sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.Sessions);
+        services.TryAddKeyedSingleton<IAgentThreadService>(name, (sp, _) =>
+            sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.Threads);
+        services.TryAddKeyedSingleton<IAgentThreadExecutionService>(name, (sp, _) =>
+            sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.ThreadExecutions);
+        services.TryAddKeyedSingleton<IAgentContentService>(name, (sp, _) =>
+            sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.Content);
+        services.TryAddKeyedSingleton<IAgentDefinitionService>(name, (sp, _) =>
+            sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.Agents);
+        services.TryAddKeyedSingleton<IAgentMiddlewareResponseService>(name, (sp, _) =>
+            sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.MiddlewareResponses);
+        services.TryAddKeyedSingleton<IAgentStreamingService>(name, (sp, _) =>
+            sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.Streaming);
 
         // Register JSON serialization context for AOT (once)
         services.AddOptions<JsonOptions>();

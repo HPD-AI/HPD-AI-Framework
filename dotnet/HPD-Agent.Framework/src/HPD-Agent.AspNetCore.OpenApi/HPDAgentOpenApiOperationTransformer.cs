@@ -41,8 +41,9 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
     {
         cancellationToken.ThrowIfCancellationRequested();
         ApplyTag(operation, context);
+        var operationName = GetOperationName(operation.OperationId);
 
-        switch (operation.OperationId)
+        switch (operationName)
         {
             case "SubmitAgentInput":
                 await DescribeInputSubmissionAsync(operation, context, false, cancellationToken)
@@ -125,7 +126,7 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
         if (path.StartsWith(agentPrefix, StringComparison.OrdinalIgnoreCase))
             path = path[agentPrefix.Length..].TrimStart('/');
 
-        string? tag = operation.OperationId switch
+        string? tag = GetOperationName(operation.OperationId) switch
         {
             "GetAgentEventCatalog" or "ObserveLiveEventsWithSse" => "Agent Events",
             "GetAgentInputCatalog" => "Agent Inputs",
@@ -377,6 +378,14 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
             JsonValue.Create("hpd.client-tool-provider.v2"));
         operation.Extensions["x-hpd-websocket-first-message"] = new JsonNodeExtension(
             JsonValue.Create("provider.hello"));
+    }
+
+    private static string? GetOperationName(string? operationId)
+    {
+        if (string.IsNullOrWhiteSpace(operationId))
+            return operationId;
+        var separator = operationId.LastIndexOf('.');
+        return separator < 0 ? operationId : operationId[(separator + 1)..];
     }
 
     private static async Task DescribeEventStreamAsync(

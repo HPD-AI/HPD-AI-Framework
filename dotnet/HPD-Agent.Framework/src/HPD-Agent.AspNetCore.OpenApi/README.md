@@ -5,13 +5,18 @@ Optional `.NET 10` OpenAPI 3.1 document generation for the HPD-Agent HTTP API.
 ## Registration
 
 ```csharp
+using HPD.Agent;
+using HPD.Agent.AspNetCore;
 using HPD.Agent.AspNetCore.OpenApi;
+using Microsoft.Extensions.DependencyInjection;
 
+builder.Services.AddHPD();
+builder.Services.AddHPDAgentHost("assistant");
 builder.Services.AddHPDAgentOpenApi();
 
 var app = builder.Build();
 app.MapHPDAgentOpenApiDocuments();
-app.MapHPDAgentApi();
+app.MapHPDAgentHostApi("assistant");
 ```
 
 Documents are available at:

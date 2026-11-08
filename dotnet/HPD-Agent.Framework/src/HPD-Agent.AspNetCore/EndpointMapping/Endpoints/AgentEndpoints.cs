@@ -10,42 +10,43 @@ namespace HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
 /// <summary>
 /// Agent definition CRUD endpoints.
 /// All routes are relative to the route group prefix set by
-/// <see cref="HPDAgentEndpointRouteBuilderExtensions"/>.
+/// <see cref="HPDAgentHostEndpointRouteBuilderExtensions"/>.
 /// </summary>
 internal static class AgentEndpoints
 {
     internal static void Map(
         IEndpointRouteBuilder endpoints,
-        IAgentDefinitionService agents)
+        IAgentDefinitionService agents,
+        string endpointName)
     {
         // POST /agents — create definition
         endpoints.MapPost("/agents", (CreateAgentRequest request, CancellationToken ct) =>
                 CreateAgent(request, agents, ct))
-            .WithName("CreateAgent")
+            .WithHostName(endpointName, "CreateAgent")
             .WithSummary("Create a new agent definition");
 
         // GET /agents — list definitions
         endpoints.MapGet("/agents", (CancellationToken ct) =>
                 ListAgents(agents, ct))
-            .WithName("ListAgents")
+            .WithHostName(endpointName, "ListAgents")
             .WithSummary("List all agent definitions");
 
         // GET /agents/{agentId} — get definition
         endpoints.MapGet("/agents/{agentId}", (string agentId, CancellationToken ct) =>
                 GetAgent(RouteValue.Decode(agentId), agents, ct))
-            .WithName("GetAgent")
+            .WithHostName(endpointName, "GetAgent")
             .WithSummary("Get an agent definition by ID");
 
         // PUT /agents/{agentId} — update definition (evicts cached instance)
         endpoints.MapPut("/agents/{agentId}", (string agentId, UpdateAgentRequest request, CancellationToken ct) =>
                 UpdateAgent(RouteValue.Decode(agentId), request, agents, ct))
-            .WithName("UpdateAgent")
+            .WithHostName(endpointName, "UpdateAgent")
             .WithSummary("Update an agent definition and evict the cached instance");
 
         // DELETE /agents/{agentId} — delete definition + evict cached instance
         endpoints.MapDelete("/agents/{agentId}", (string agentId, CancellationToken ct) =>
                 DeleteAgent(RouteValue.Decode(agentId), agents, ct))
-            .WithName("DeleteAgent")
+            .WithHostName(endpointName, "DeleteAgent")
             .WithSummary("Delete an agent definition and evict the cached instance");
     }
 

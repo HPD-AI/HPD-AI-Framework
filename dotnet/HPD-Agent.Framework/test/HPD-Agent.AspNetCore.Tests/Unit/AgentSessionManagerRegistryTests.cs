@@ -22,7 +22,7 @@ public class AgentSessionManagerRegistryTests
         var services = new ServiceCollection();
         services.AddTestApplicationCompositions();
         services.AddOptions();
-        services.Configure<HPDAgentConfig>(Options.DefaultName, opts =>
+        services.Configure<HPDAgentHostOptions>(Options.DefaultName, opts =>
         {
             opts.SessionStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
         });
@@ -45,7 +45,7 @@ public class AgentSessionManagerRegistryTests
         var services = new ServiceCollection();
         services.AddTestApplicationCompositions();
         services.AddOptions();
-        services.Configure<HPDAgentConfig>(Options.DefaultName, opts =>
+        services.Configure<HPDAgentHostOptions>(Options.DefaultName, opts =>
         {
             opts.SessionStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
         });
@@ -68,11 +68,11 @@ public class AgentSessionManagerRegistryTests
         var services = new ServiceCollection();
         services.AddTestApplicationCompositions();
         services.AddOptions();
-        services.Configure<HPDAgentConfig>("agent1", opts =>
+        services.Configure<HPDAgentHostOptions>("agent1", opts =>
         {
             opts.SessionStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
         });
-        services.Configure<HPDAgentConfig>("agent2", opts =>
+        services.Configure<HPDAgentHostOptions>("agent2", opts =>
         {
             opts.SessionStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
         });
@@ -94,7 +94,7 @@ public class AgentSessionManagerRegistryTests
         var services = new ServiceCollection();
         services.AddTestApplicationCompositions();
         services.AddOptions();
-        services.Configure<HPDAgentConfig>("test-agent", opts =>
+        services.Configure<HPDAgentHostOptions>("test-agent", opts =>
         {
             opts.SessionStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
             opts.AgentIdleTimeout = TimeSpan.FromMinutes(60);
@@ -117,7 +117,7 @@ public class AgentSessionManagerRegistryTests
         services.AddTestApplicationCompositions();
         services.AddOptions();
         services.AddSingleton<IAgentFactory, TestAgentFactory>();
-        services.Configure<HPDAgentConfig>(Options.DefaultName, opts =>
+        services.Configure<HPDAgentHostOptions>(Options.DefaultName, opts =>
         {
             opts.SessionStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
         });
@@ -139,7 +139,7 @@ public class AgentSessionManagerRegistryTests
         var services = new ServiceCollection();
         services.AddTestApplicationCompositions();
         services.AddOptions();
-        services.Configure<HPDAgentConfig>(Options.DefaultName, opts =>
+        services.Configure<HPDAgentHostOptions>(Options.DefaultName, opts =>
         {
             opts.SessionStorePath = tempPath;
         });
@@ -165,7 +165,7 @@ public class AgentSessionManagerRegistryTests
         var services = new ServiceCollection();
         services.AddTestApplicationCompositions();
         services.AddOptions();
-        services.Configure<HPDAgentConfig>(Options.DefaultName, opts => { });
+        services.Configure<HPDAgentHostOptions>(Options.DefaultName, opts => { });
         var provider = services.BuildServiceProvider();
         var registry = new HPDAgentRegistry(provider);
 
@@ -185,7 +185,7 @@ public class AgentSessionManagerRegistryTests
         var services = new ServiceCollection();
         services.AddTestApplicationCompositions();
         services.AddOptions();
-        services.Configure<HPDAgentConfig>(Options.DefaultName, opts =>
+        services.Configure<HPDAgentHostOptions>(Options.DefaultName, opts =>
         {
             opts.SessionStore = customStore;
         });

@@ -14,29 +14,29 @@ using Microsoft.Extensions.Options;
 namespace HPD.Agent.AspNetCore;
 
 /// <summary>
-/// Extension methods for mapping HPD Agent API endpoints.
+/// Extension methods for mapping HPD agent host API endpoints.
 /// </summary>
-public static class HPDAgentEndpointRouteBuilderExtensions
+public static class HPDAgentHostEndpointRouteBuilderExtensions
 {
     /// <summary>
-    /// Maps all HPD-Agent API endpoints for the default (unnamed) agent.
+    /// Maps all HPD agent-host API endpoints for the default host profile.
     /// </summary>
     /// <remarks>
     /// Endpoint behavior is resolved through <see cref="IHPDAgentHostingServicesProvider"/>.
     /// Replace that provider to customize behavior behind built-in routes.
     /// </remarks>
-    public static RouteGroupBuilder MapHPDAgentApi(
+    public static RouteGroupBuilder MapHPDAgentHostApi(
         this IEndpointRouteBuilder endpoints)
-        => endpoints.MapHPDAgentApi(Options.DefaultName);
+        => endpoints.MapHPDAgentHostApi(Options.DefaultName);
 
-    public static RouteGroupBuilder MapHPDAgentApi(
+    public static RouteGroupBuilder MapHPDAgentHostApi(
         this IEndpointRouteBuilder endpoints,
         Action<HPDAgentEndpointOptions>? configure)
-        => endpoints.MapHPDAgentApi(Options.DefaultName, configure);
+        => endpoints.MapHPDAgentHostApi(Options.DefaultName, configure);
 
     /// <summary>
-    /// Maps all HPD-Agent API endpoints for a named agent.
-    /// The name must match a previous AddHPDAgent(name, ...) registration.
+    /// Maps all HPD agent-host API endpoints for a named host profile.
+    /// The name must match a previous AddHPDAgentHost(name, ...) registration.
     /// </summary>
     /// <returns>RouteGroupBuilder for further customization</returns>
     /// <remarks>
@@ -50,14 +50,14 @@ public static class HPDAgentEndpointRouteBuilderExtensions
     /// </remarks>
     /// <remarks>
     /// Endpoint behavior is resolved through <see cref="IHPDAgentHostingServicesProvider"/>
-    /// for both default and named agents.
+    /// for both default and named host profiles.
     /// </remarks>
-    public static RouteGroupBuilder MapHPDAgentApi(
+    public static RouteGroupBuilder MapHPDAgentHostApi(
         this IEndpointRouteBuilder endpoints,
         string name)
-        => endpoints.MapHPDAgentApi(name, null);
+        => endpoints.MapHPDAgentHostApi(name, null);
 
-    public static RouteGroupBuilder MapHPDAgentApi(
+    public static RouteGroupBuilder MapHPDAgentHostApi(
         this IEndpointRouteBuilder endpoints,
         string name,
         Action<HPDAgentEndpointOptions>? configure)
@@ -77,16 +77,19 @@ public static class HPDAgentEndpointRouteBuilderExtensions
             .Get(name);
         var eventComposition = pair.EventComposition;
         var inputComposition = pair.InputComposition;
+        var endpointName = string.IsNullOrWhiteSpace(name)
+            ? "DefaultHost"
+            : name;
 
         routeGroup.MapGet("/event-catalog", () => Results.Json(
             eventComposition.Catalog,
             HPDAgentAspNetCoreJsonSerializerContext.Default.AgentEventCatalog))
-            .WithName("GetAgentEventCatalog")
+            .WithName($"{endpointName}.GetAgentEventCatalog")
             .WithSummary("Get the immutable agent event compatibility catalog");
         routeGroup.MapGet("/input-catalog", () => Results.Json(
             inputComposition.Catalog,
             HPDAgentAspNetCoreJsonSerializerContext.Default.AgentInputCatalog))
-            .WithName("GetAgentInputCatalog")
+            .WithName($"{endpointName}.GetAgentInputCatalog")
             .WithSummary("Get the immutable public and internal agent input compatibility catalog");
         if (options.MapRuntimeExtensions)
         {
@@ -96,7 +99,7 @@ public static class HPDAgentEndpointRouteBuilderExtensions
                         endpoints.ServiceProvider.GetService<RuntimeAgentExtensionRegistry>()?.GetCatalog()
                         ?? RuntimeAgentExtensionRegistry.EmptyCatalog,
                         HPDAgentAspNetCoreJsonSerializerContext.Default.RuntimeAgentExtensionCatalog))
-                .WithName("GetRuntimeAgentExtensionCatalog")
+                .WithName($"{endpointName}.GetRuntimeAgentExtensionCatalog")
                 .WithSummary("Get the current tenant-scoped runtime extension schema catalog");
         }
         if (options.MapRuntimeExtensionManagement)
@@ -104,32 +107,35 @@ public static class HPDAgentEndpointRouteBuilderExtensions
 
         // Map all endpoint groups
         if (options.MapSessions)
-            SessionEndpoints.Map(routeGroup, hostingServices.Sessions);
+            SessionEndpoints.Map(routeGroup, hostingServices.Sessions, endpointName);
         if (options.MapThreads)
         {
-            ThreadEndpoints.Map(routeGroup, hostingServices.Threads);
-            ThreadExecutionEndpoints.Map(routeGroup, hostingServices.ThreadExecutions);
+            ThreadEndpoints.Map(routeGroup, hostingServices.Threads, endpointName);
+            ThreadExecutionEndpoints.Map(routeGroup, hostingServices.ThreadExecutions, endpointName);
         }
         if (options.MapContent)
-            ContentEndpoints.Map(routeGroup, hostingServices.Content);
+            ContentEndpoints.Map(routeGroup, hostingServices.Content, endpointName);
         if (options.MapStreaming)
             StreamingEndpoints.Map(
                 routeGroup,
                 hostingServices.Streaming,
                 new HPD.Agent.Serialization.AgentInputCodec(
                     endpoints.ServiceProvider.GetRequiredService<HPD.Agent.Providers.ProviderComposition>(),
-                    inputComposition));
+                    inputComposition),
+                endpointName);
         if (options.MapMiddlewareResponses)
-            MiddlewareResponseEndpoints.Map(routeGroup, hostingServices.MiddlewareResponses, eventComposition.Codec);
+            MiddlewareResponseEndpoints.Map(
+                routeGroup,
+                hostingServices.MiddlewareResponses,
+                eventComposition.Codec,
+                endpointName);
         if (options.MapClientToolProviders)
             ClientToolProviderEndpoints.Map(
                 routeGroup,
-                endpoints.ServiceProvider.GetRequiredService<IClientToolProviderRegistry>());
+                endpoints.ServiceProvider.GetRequiredService<IClientToolProviderRegistry>(),
+                endpointName);
         if (options.MapAgents)
-            AgentEndpoints.Map(routeGroup, hostingServices.Agents);
-        if (options.MapEvals)
-            EvalEndpoints.Map(routeGroup);
-
+            AgentEndpoints.Map(routeGroup, hostingServices.Agents, endpointName);
         options.ConfigureRoutes?.Invoke(routeGroup);
 
         return routeGroup;

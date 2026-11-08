@@ -1,3 +1,5 @@
+using HPD.Agent;
+
 namespace Microsoft.Extensions.DependencyInjection;
 
 internal static class TestApplicationServiceCollectionExtensions
@@ -11,7 +13,10 @@ internal static class TestApplicationServiceCollectionExtensions
             System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
             ?? throw new MissingMethodException(generatedType.FullName, "AddHpdGeneratedAgentEvents");
         generatedMethod.Invoke(null, [services]);
-        services.AddSingleton(HPD.Agent.Providers.ProviderComposition.Create([]));
+        services.AddHPD(hpd => hpd
+            .UseProviderComposition(HPD.Agent.Providers.ProviderComposition.Create([]))
+            .UseEventComposition(HPD.Agent.AspNetCore.Tests.TestEventApplication.Composition)
+            .UseInputComposition(HPD.Agent.Serialization.AgentInputCompositionHost.ResolveDefault()));
         return services;
     }
 }

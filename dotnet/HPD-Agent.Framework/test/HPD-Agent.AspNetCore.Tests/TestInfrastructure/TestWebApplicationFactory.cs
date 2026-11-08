@@ -81,7 +81,7 @@ public class TestWebApplicationFactory : IDisposable
                 services.AddSingleton(_fakeChatClient);
                 // Register IAgentFactory to create test agents
                 services.AddSingleton<IAgentFactory, TestWebApplicationAgentFactory>();
-                services.AddTestApplicationCompositions().AddHPDAgent("test-agent", options =>
+                services.AddTestApplicationCompositions().AddHPDAgentHost("test-agent", options =>
                 {
                     options.SessionStorePath = Path.Combine(Path.GetTempPath(), $"hpd-agent-tests-{Guid.NewGuid()}");
                 });
@@ -94,7 +94,7 @@ public class TestWebApplicationFactory : IDisposable
                 app.UseEndpoints(endpoints =>
                 {
                     // Map at root level (no prefix) for integration tests
-                    endpoints.MapGroup("").MapHPDAgentApi("test-agent");
+                    endpoints.MapGroup("").MapHPDAgentHostApi("test-agent");
                     endpoints.MapAuthorizedHPDClientToolProviderConnection(
                         "/authorized-client-tool-providers/connect");
                 });

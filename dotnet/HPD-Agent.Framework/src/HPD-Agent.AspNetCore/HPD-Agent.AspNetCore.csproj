@@ -21,7 +21,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent.Hosting/HPD-Agent.Hosting.csproj" />
-    <ProjectReference Include="../HPD-Agent.Evaluations/HPD-Agent.Evaluations.csproj" />
   </ItemGroup>
 
   <ItemGroup>

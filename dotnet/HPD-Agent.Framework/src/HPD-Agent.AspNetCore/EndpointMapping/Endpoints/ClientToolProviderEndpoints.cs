@@ -25,19 +25,22 @@ internal static class ClientToolProviderEndpoints
     /// <summary>
     /// Maps client tool provider endpoints.
     /// </summary>
-    public static void Map(IEndpointRouteBuilder endpoints, IClientToolProviderRegistry registry)
+    public static void Map(
+        IEndpointRouteBuilder endpoints,
+        IClientToolProviderRegistry registry,
+        string endpointName)
     {
         endpoints.MapGet("/client-tool-providers", (
                 string? appProviderName,
                 string? appKind,
                 bool? includeDisconnected) =>
                 ListProviders(registry, appProviderName, appKind, includeDisconnected))
-            .WithName("ListClientToolProviders")
+            .WithHostName(endpointName, "ListClientToolProviders")
             .WithSummary("List connected client tool providers");
 
         endpoints.MapGet("/client-tool-providers/{clientRuntimeId}", (string clientRuntimeId) =>
                 GetProvider(registry, clientRuntimeId))
-            .WithName("GetClientToolProvider")
+            .WithHostName(endpointName, "GetClientToolProvider")
             .WithSummary("Get one connected client tool provider");
 
         MapConnection(
@@ -45,7 +48,7 @@ internal static class ClientToolProviderEndpoints
             registry,
             ProviderConnectPath,
             requireAuthorization: false,
-            endpointName: "ConnectClientToolProvider");
+            endpointName: $"{endpointName}.ConnectClientToolProvider");
     }
 
     internal static IEndpointConventionBuilder MapConnection(

@@ -15,42 +15,45 @@ internal static class SessionEndpoints
     /// <summary>
     /// Maps all session-related endpoints.
     /// </summary>
-    internal static void Map(IEndpointRouteBuilder endpoints, IAgentSessionService sessions)
+    internal static void Map(
+        IEndpointRouteBuilder endpoints,
+        IAgentSessionService sessions,
+        string endpointName)
     {
         // POST /sessions - Create new session
         endpoints.MapPost("/sessions", (CreateSessionRequest? request, CancellationToken ct) =>
                 CreateSession(sessions, request, ct))
-            .WithName("CreateSession")
+            .WithHostName(endpointName, "CreateSession")
             .WithSummary("Create a new session with a default 'main' thread");
 
         // GET /sessions - List all sessions
         endpoints.MapGet("/sessions", (CancellationToken ct) =>
                 SearchSessions(sessions, null, ct))
-            .WithName("ListSessions")
+            .WithHostName(endpointName, "ListSessions")
             .WithSummary("List all sessions");
 
         // POST /sessions/search - List/search sessions with filtering
         endpoints.MapPost("/sessions/search", (SearchSessionsRequest? request, CancellationToken ct) =>
                 SearchSessions(sessions, request, ct))
-            .WithName("SearchSessions")
+            .WithHostName(endpointName, "SearchSessions")
             .WithSummary("Search and list sessions with optional filtering");
 
         // GET /sessions/{sessionId} - Get session metadata
         endpoints.MapGet("/sessions/{sessionId}", (string sessionId, CancellationToken ct) =>
                 GetSession(RouteValue.Decode(sessionId), sessions, ct))
-            .WithName("GetSession")
+            .WithHostName(endpointName, "GetSession")
             .WithSummary("Get session metadata by ID");
 
         // PATCH /sessions/{sessionId} - Update session metadata (merge semantics)
         endpoints.MapPatch("/sessions/{sessionId}", (string sessionId, UpdateSessionRequest request, CancellationToken ct) =>
                 UpdateSession(RouteValue.Decode(sessionId), request, sessions, ct))
-            .WithName("UpdateSession")
+            .WithHostName(endpointName, "UpdateSession")
             .WithSummary("Update session metadata with merge semantics");
 
         // DELETE /sessions/{sessionId} - Delete session + all threads
         endpoints.MapDelete("/sessions/{sessionId}", (string sessionId, CancellationToken ct) =>
                 DeleteSession(RouteValue.Decode(sessionId), sessions, ct))
-            .WithName("DeleteSession")
+            .WithHostName(endpointName, "DeleteSession")
             .WithSummary("Delete a session and all its threads");
     }
 

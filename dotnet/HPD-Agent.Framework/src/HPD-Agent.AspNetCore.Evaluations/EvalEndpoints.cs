@@ -14,12 +14,12 @@ namespace HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
 
 internal static class EvalEndpoints
 {
-    internal static void Map(IEndpointRouteBuilder endpoints)
+    internal static RouteGroupBuilder Map(IEndpointRouteBuilder endpoints, string routePrefix)
     {
         var scoreStore = endpoints.ServiceProvider.GetService<IScoreStore>();
         var datasetStore = endpoints.ServiceProvider.GetService<IDatasetStore>();
 
-        var group = endpoints.MapGroup("/evals").WithTags("Evaluations");
+        var group = endpoints.MapGroup(routePrefix).WithTags("Evaluations");
         var analytics = group.MapGroup("/analytics");
         var runs = group.MapGroup("/runs");
         var datasets = group.MapGroup("/datasets");
@@ -203,6 +203,7 @@ internal static class EvalEndpoints
             => CompareStringDatasetVersions(datasetId, fromVersion, toVersion, datasetStore, ct))
             .WithName("CompareStringEvaluationDatasetVersions")
             .WithSummary("Compare two string-input dataset versions");
+        return group;
     }
 
     // Results.Problem() uses ProblemHttpResult → WriteAsJsonAsync → PipeWriter.UnflushedBytes,

@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/HPD-Agent.AspNetCore.OpenApi/HPD-Agent.AspNetCore.OpenApi.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.AspNetCore.Evaluations/HPD-Agent.AspNetCore.Evaluations.csproj" />
     <ProjectReference Include="../HPD-Agent.EventComposition.AotFixture/HPD-Agent.EventComposition.AotFixture.csproj" />
   </ItemGroup>
 

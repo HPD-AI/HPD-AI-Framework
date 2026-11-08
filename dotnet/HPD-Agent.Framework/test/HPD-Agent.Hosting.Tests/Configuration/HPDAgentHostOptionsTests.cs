@@ -5,16 +5,16 @@ using HPD.Agent;
 namespace HPD.Agent.Hosting.Tests.Configuration;
 
 /// <summary>
-/// Tests for HPDAgentConfig configuration.
+/// Tests for hosted-agent host options.
 /// </summary>
-public class HPDAgentConfigTests
+public class HPDAgentHostOptionsTests
 {
     [Fact]
     public void SessionStore_TakesPriority_OverSessionStorePath()
     {
         // Arrange
         var customStore = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
-        var options = new HPDAgentConfig
+        var options = new HPDAgentHostOptions
         {
             SessionStore = customStore,
             SessionStorePath = "./some-path" // Should be ignored
@@ -35,7 +35,7 @@ public class HPDAgentConfigTests
             SystemInstructions = "Test instructions"
         };
 
-        var options = new HPDAgentConfig
+        var options = new HPDAgentHostOptions
         {
             DefaultAgent = config,
             DefaultAgentPath = "./config.json" // Should be ignored
@@ -52,7 +52,7 @@ public class HPDAgentConfigTests
         // This test verifies the contract - actual behavior tested in implementation tests
         // Arrange
         var callbackCalled = false;
-        var options = new HPDAgentConfig
+        var options = new HPDAgentHostOptions
         {
             ConfigureAgent = builder => { callbackCalled = true; }
         };
@@ -68,7 +68,7 @@ public class HPDAgentConfigTests
     public void DefaultIdleTimeout_Is30Minutes()
     {
         // Arrange
-        var options = new HPDAgentConfig();
+        var options = new HPDAgentHostOptions();
 
         // Assert
         options.AgentIdleTimeout.Should().Be(TimeSpan.FromMinutes(30));
@@ -78,7 +78,7 @@ public class HPDAgentConfigTests
     public void AgentIdleTimeout_CanBeCustomized()
     {
         // Arrange
-        var options = new HPDAgentConfig
+        var options = new HPDAgentHostOptions
         {
             AgentIdleTimeout = TimeSpan.FromMinutes(60)
         };
@@ -91,7 +91,7 @@ public class HPDAgentConfigTests
     public void AllProperties_CanBeSetToNull()
     {
         // Arrange
-        var options = new HPDAgentConfig
+        var options = new HPDAgentHostOptions
         {
             SessionStore = null,
             SessionStorePath = null,

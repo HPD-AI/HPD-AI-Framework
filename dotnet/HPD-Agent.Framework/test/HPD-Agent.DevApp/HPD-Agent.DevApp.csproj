@@ -14,9 +14,9 @@
   <ItemGroup>
     <!-- Core agent runtime -->
     <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
-    <!-- Session manager, IAgentFactory, HPDAgentConfig -->
+    <!-- Session manager, IAgentFactory, HPDAgentHostOptions -->
     <ProjectReference Include="../../src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj" />
-    <!-- AddHPDAgent, MapHPDAgentApi -->
+    <!-- AddHPDAgentHost, MapHPDAgentHostApi -->
     <ProjectReference Include="../../src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj" />
     <!-- Bot abstractions -->
     <ProjectReference Include="../../src/HPD-Agent.Bots/HPD-Agent.Bots.Abstractions/HPD-Agent.Bots.Abstractions.csproj" />

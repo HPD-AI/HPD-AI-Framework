@@ -23,8 +23,8 @@ public class EndpointComposabilityTests
     public async Task EventCatalog_ExposesTheAuthoritativeApplicationDigest()
     {
         using var server = CreateServer(
-            services => services.AddTestApplicationCompositions().AddHPDAgent(),
-            endpoints => endpoints.MapHPDAgentApi());
+            services => services.AddTestApplicationCompositions().AddHPDAgentHost(),
+            endpoints => endpoints.MapHPDAgentHostApi());
         using var client = CreateClient(server);
 
         var catalog = await client.GetFromJsonAsync<AgentEventCatalog>("/event-catalog");
@@ -38,8 +38,8 @@ public class EndpointComposabilityTests
     public async Task MapSessionsFalse_DoesNotMapBuiltInSessionRoutes_ButKeepsOtherGroups()
     {
         using var server = CreateServer(
-            services => services.AddTestApplicationCompositions().AddHPDAgent(),
-            endpoints => endpoints.MapHPDAgentApi(options => options.MapSessions = false));
+            services => services.AddTestApplicationCompositions().AddHPDAgentHost(),
+            endpoints => endpoints.MapHPDAgentHostApi(options => options.MapSessions = false));
         using var client = CreateClient(server);
 
         var sessions = await client.GetAsync("/sessions");
@@ -53,8 +53,8 @@ public class EndpointComposabilityTests
     public async Task ConfigureRoutes_AddsCustomRouteInsideAgentGroup()
     {
         using var server = CreateServer(
-            services => services.AddTestApplicationCompositions().AddHPDAgent(),
-            endpoints => endpoints.MapHPDAgentApi(options =>
+            services => services.AddTestApplicationCompositions().AddHPDAgentHost(),
+            endpoints => endpoints.MapHPDAgentHostApi(options =>
             {
                 options.RoutePrefix = "/agent";
                 options.MapSessions = false;
@@ -78,16 +78,15 @@ public class EndpointComposabilityTests
             services =>
             {
                 services.AddSingleton<IHPDAgentHostingServicesProvider, CustomHostingServicesProvider>();
-                services.AddTestApplicationCompositions().AddHPDAgent();
+                services.AddTestApplicationCompositions().AddHPDAgentHost();
             },
-            endpoints => endpoints.MapHPDAgentApi(options =>
+            endpoints => endpoints.MapHPDAgentHostApi(options =>
             {
                 options.MapThreads = false;
                 options.MapContent = false;
                 options.MapStreaming = false;
                 options.MapMiddlewareResponses = false;
                 options.MapAgents = false;
-                options.MapEvals = false;
             }));
         using var client = CreateClient(server);
 
@@ -105,16 +104,15 @@ public class EndpointComposabilityTests
             services =>
             {
                 services.AddSingleton<IAgentSessionService, CustomSessionService>();
-                services.AddTestApplicationCompositions().AddHPDAgent();
+                services.AddTestApplicationCompositions().AddHPDAgentHost();
             },
-            endpoints => endpoints.MapHPDAgentApi(options =>
+            endpoints => endpoints.MapHPDAgentHostApi(options =>
             {
                 options.MapThreads = false;
                 options.MapContent = false;
                 options.MapStreaming = false;
                 options.MapMiddlewareResponses = false;
                 options.MapAgents = false;
-                options.MapEvals = false;
             }));
         using var client = CreateClient(server);
 
@@ -132,16 +130,15 @@ public class EndpointComposabilityTests
             services =>
             {
                 services.AddSingleton<IHPDAgentHostingServicesProvider, CustomHostingServicesProvider>();
-                services.AddTestApplicationCompositions().AddHPDAgent("named-agent");
+                services.AddTestApplicationCompositions().AddHPDAgentHost("named-agent");
             },
-            endpoints => endpoints.MapHPDAgentApi("named-agent", options =>
+            endpoints => endpoints.MapHPDAgentHostApi("named-agent", options =>
             {
                 options.MapThreads = false;
                 options.MapContent = false;
                 options.MapStreaming = false;
                 options.MapMiddlewareResponses = false;
                 options.MapAgents = false;
-                options.MapEvals = false;
             }));
         using var client = CreateClient(server);
 
@@ -150,6 +147,42 @@ public class EndpointComposabilityTests
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var session = await response.Content.ReadFromJsonAsync<SessionDto>();
         session!.Id.Should().Be("custom-session");
+    }
+
+    [Fact]
+    public async Task NamedHosts_KeepSessionStoresAndRoutesIsolated()
+    {
+        using var server = CreateServer(
+            services => services
+                .AddTestApplicationCompositions()
+                .AddHPDAgentHost("host-a")
+                .AddHPDAgentHost("host-b"),
+            endpoints =>
+            {
+                endpoints.MapHPDAgentHostApi("host-a", options =>
+                {
+                    options.RoutePrefix = "/host-a";
+                });
+                endpoints.MapHPDAgentHostApi("host-b", options =>
+                {
+                    options.RoutePrefix = "/host-b";
+                });
+            });
+        using var client = CreateClient(server);
+
+        using var create = await client.PostAsync("/host-a/sessions", null);
+        create.StatusCode.Should().Be(HttpStatusCode.Created);
+        var created = await create.Content.ReadFromJsonAsync<SessionDto>();
+
+        var hostASessions = await client.GetFromJsonAsync<List<SessionDto>>("/host-a/sessions");
+        var hostBSessions = await client.GetFromJsonAsync<List<SessionDto>>("/host-b/sessions");
+
+        hostASessions.Should().ContainSingle(session => session.Id == created!.Id);
+        hostBSessions.Should().BeEmpty();
+
+        var hostASessionManager = server.Services.GetRequiredKeyedService<SessionManager>("host-a");
+        var hostBSessionManager = server.Services.GetRequiredKeyedService<SessionManager>("host-b");
+        hostASessionManager.Should().NotBeSameAs(hostBSessionManager);
     }
 
     private static TestServer CreateServer(

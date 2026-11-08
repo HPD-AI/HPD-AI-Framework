@@ -37,7 +37,7 @@ public class RecursiveDeleteEnabledFactory : IDisposable
                 services.AddRouting();
                 services.AddSingleton(_fakeChatClient);
                 services.AddSingleton<IAgentFactory, TestWebApplicationAgentFactory>();
-                services.AddTestApplicationCompositions().AddHPDAgent("test-agent", options =>
+                services.AddTestApplicationCompositions().AddHPDAgentHost("test-agent", options =>
                 {
                     options.SessionStorePath = Path.Combine(Path.GetTempPath(), $"hpd-recursive-{Guid.NewGuid()}");
                     options.AllowRecursiveThreadDelete = true;
@@ -48,7 +48,7 @@ public class RecursiveDeleteEnabledFactory : IDisposable
                 app.UseRouting();
                 app.UseEndpoints(endpoints =>
                 {
-                    endpoints.MapGroup("").MapHPDAgentApi("test-agent");
+                    endpoints.MapGroup("").MapHPDAgentHostApi("test-agent");
                 });
             });
 

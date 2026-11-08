@@ -183,7 +183,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
         _optionsMonitor.CurrentValue.ConfigureAgent = builder =>
         {
             builder.WithToolHarnessCatalogFrom<CodingToolHarness>()
-                .WithAutoApprovePermissions();
+                .WithPermissions(HPD.Agent.Permissions.AuthorizationMode.Bypass);
             InjectTestProvider(builder);
         };
         var manager = MakeManager();
@@ -216,7 +216,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
     {
         _optionsMonitor.CurrentValue.ConfigureAgent = builder =>
             builder.WithToolHarnessCatalogFrom<CodingToolHarness>()
-                .WithAutoApprovePermissions();
+                .WithPermissions(HPD.Agent.Permissions.AuthorizationMode.Bypass);
         var manager = MakeManager();
         var stored = await manager.CreateDefinitionAsync(new AgentConfig
         {
@@ -343,11 +343,11 @@ public class AspNetCoreAgentManagerTests : IDisposable
     // Test doubles
     // ──────────────────────────────────────────────────────────────────────────
 
-    private class OptionsMonitorWrapper : IOptionsMonitor<HPDAgentConfig>
+    private class OptionsMonitorWrapper : IOptionsMonitor<HPDAgentHostOptions>
     {
-        public HPDAgentConfig CurrentValue { get; } = new HPDAgentConfig();
-        public HPDAgentConfig Get(string? name) => CurrentValue;
-        public IDisposable? OnChange(Action<HPDAgentConfig, string?> listener) => null;
+        public HPDAgentHostOptions CurrentValue { get; } = new HPDAgentHostOptions();
+        public HPDAgentHostOptions Get(string? name) => CurrentValue;
+        public IDisposable? OnChange(Action<HPDAgentHostOptions, string?> listener) => null;
     }
 
     private class CountingAgentFactory : IAgentFactory
@@ -380,7 +380,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
         public TestableAgentManager(
             IAgentStore agentStore,
             AspNetCoreSessionManager sessionManager,
-            IOptionsMonitor<HPDAgentConfig> optionsMonitor,
+            IOptionsMonitor<HPDAgentHostOptions> optionsMonitor,
             IServiceProvider serviceProvider,
             string name,
             IAgentFactory? agentFactory = null)

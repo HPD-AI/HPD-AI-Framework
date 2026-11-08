@@ -4,6 +4,7 @@ using HPD.Agent.Bots.Slack.OAuth;
 using HPD.Agent.Bots.Teams;
 using HPD.Agent.Bots.Telegram;
 using HPD.Agent.Bots.WhatsApp;
+using HPD.Agent;
 using HPD.Agent.AspNetCore;
 using HPD.Agent.Providers.Anthropic;
 
@@ -17,7 +18,8 @@ TaskScheduler.UnobservedTaskException += (_, e) =>
 var builder = WebApplication.CreateBuilder(args);
 var agentId = builder.Configuration["Agent:Id"] ?? "dev-agent";
 
-builder.Services.AddHPDAgent(cfg =>
+builder.Services.AddHPD();
+builder.Services.AddHPDAgentHost(cfg =>
 {
     cfg.ConfigureAgent = ab => ab
         .WithAnthropic(

@@ -277,11 +277,20 @@ public sealed class AgentStreamingServiceTests : IAsyncLifetime
             .Should().BeTrue();
         var request = new PermissionRequestEvent(
             "permission-1",
-            "test",
-            "function",
-            null,
             "call-1",
-            null)
+            "test",
+            HPD.Agent.Permissions.PermissionDomains.ToolExecution,
+            null,
+            null,
+            null,
+            null,
+            null,
+            [
+                new HPD.Agent.Permissions.PermissionChoice(
+                    "allow_once",
+                    "Allow once",
+                    HPD.Agent.Permissions.PermissionDecisionKind.Allow)
+            ])
         {
             SessionId = sessionId,
             ThreadId = threadId,

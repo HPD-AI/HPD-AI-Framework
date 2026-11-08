@@ -1,8 +1,8 @@
 {
-  "TypeCount": 1589,
-  "MethodCount": 6164,
-  "PropertyCount": 5420,
-  "Fingerprint": "e601c7c7408c35304c97abf92f701be9a7ff3e0621e6d6f7544486f33a5b73b8",
+  "TypeCount": 1592,
+  "MethodCount": 6171,
+  "PropertyCount": 5423,
+  "Fingerprint": "2ea154a72c63e23aa5b8a07fa8f29f86e43c24ed2c46f5e6043e655d2b1be435",
   "Types": [
     {
       "FullName": "AIDescriptionAttribute",
@@ -8829,6 +8829,34 @@
         "System.Text.Json.JsonSerializerOptions SerializerOptions",
         "System.Type ResultType"
       ]
+    },
+    {
+      "FullName": "HPD.Agent.HPDApplicationBuilder",
+      "Methods": [
+        "HPD.Agent.HPDApplicationBuilder AddEventModule(HPD.Agent.Serialization.AgentEventModuleFragment fragment)",
+        "HPD.Agent.HPDApplicationBuilder AddInputModule(HPD.Agent.Serialization.AgentInputModuleFragment fragment)",
+        "HPD.Agent.HPDApplicationBuilder AddProviderModule(HPD.Agent.Providers.ProviderManifestFragment fragment)",
+        "HPD.Agent.HPDApplicationBuilder UseEventComposition(HPD.Agent.Serialization.AgentEventComposition composition)",
+        "HPD.Agent.HPDApplicationBuilder UseInputComposition(HPD.Agent.Serialization.AgentInputComposition composition)",
+        "HPD.Agent.HPDApplicationBuilder UseProviderComposition(HPD.Agent.Providers.ProviderComposition composition)"
+      ],
+      "Properties": []
+    },
+    {
+      "FullName": "HPD.Agent.HPDApplicationComposition",
+      "Methods": [],
+      "Properties": [
+        "HPD.Agent.Providers.ProviderComposition Providers",
+        "HPD.Agent.Serialization.AgentEventComposition Events",
+        "HPD.Agent.Serialization.AgentInputComposition Inputs"
+      ]
+    },
+    {
+      "FullName": "HPD.Agent.HPDApplicationServiceCollectionExtensions",
+      "Methods": [
+        "Microsoft.Extensions.DependencyInjection.IServiceCollection AddHPD(Microsoft.Extensions.DependencyInjection.IServiceCollection services,System.Action\u003CHPD.Agent.HPDApplicationBuilder\u003E configure)"
+      ],
+      "Properties": []
     },
     {
       "FullName": "HPD.Agent.HPDCapabilityKind",

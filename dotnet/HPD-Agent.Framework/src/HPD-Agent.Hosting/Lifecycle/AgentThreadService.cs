@@ -203,7 +203,7 @@ public sealed class AgentThreadService : IAgentThreadService
                 return AgentServiceResult.Validation(
                     "RecursiveDeleteDisabled",
                     "Recursive thread deletion is not enabled on this server. " +
-                    "Set AllowRecursiveThreadDelete = true in HPDAgentConfig to enable it.");
+                    "Set AllowRecursiveThreadDelete = true in HPDAgentHostOptions to enable it.");
             }
         }
 

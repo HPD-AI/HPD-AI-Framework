@@ -21,7 +21,7 @@ namespace HPD.Agent.AspNetCore.Tests.Integration;
 /// "configured session store does not own the selected application event codec" failure.
 ///
 /// The ASP.NET Core harness registers the composition deterministically through DI
-/// (<c>AddTestApplicationCompositions().AddHPDAgent()</c>), so each scenario here drives the real
+/// (<c>AddTestApplicationCompositions().AddHPDAgentHost()</c>), so each scenario here drives the real
 /// HTTP input surface (<c>POST /agents/{agentId}/sessions/{sid}/threads/{bid}/inputs</c>) against the
 /// same DI-resolved <see cref="AgentStreamingService"/>.
 ///

@@ -132,7 +132,7 @@ registered again during host startup.
 HTTP schema registration is opt-in and disabled by default:
 
 ```csharp
-app.MapGroup("/api/hpd-agent").MapHPDAgentApi(options =>
+app.MapGroup("/api/hpd-agent").MapHPDAgentHostApi(options =>
 {
     options.MapRuntimeExtensionManagement = true;
 });

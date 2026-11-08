@@ -1,5 +1,7 @@
 using System.Net.Http.Json;
+using HPD.Agent;
 using HPD.Agent.AspNetCore.OpenApi;
+using HPD.Agent.AspNetCore.Evaluations;
 using HPD.Agent.EventComposition.AotFixture;
 using HPD.Agent.Hosting.Data;
 using HPD.Agent.Providers;
@@ -117,7 +119,7 @@ public sealed class HPDAgentOpenApiDocumentTests
             .Select(static operation => operation.OperationId));
         Assert.Contains("ListEvaluationDatasets", document.Paths["/evals/datasets"].Operations.Values
             .Select(static operation => operation.OperationId));
-        Assert.Contains("ListClientToolProviders", document.Paths["/client-tool-providers"].Operations.Values
+        Assert.Contains("full-feature.ListClientToolProviders", document.Paths["/client-tool-providers"].Operations.Values
             .Select(static operation => operation.OperationId));
         var connect = document.Paths["/client-tool-providers/connect"].Operations[HttpMethod.Get];
         Assert.Contains("101", connect.Responses.Keys);
@@ -170,8 +172,10 @@ public sealed class HPDAgentOpenApiDocumentTests
             {
                 services.AddRouting();
                 services.AddHPDAgentOpenApi();
-                AddFixtureCompositions(services);
-                services.AddHPDAgent("full-feature");
+                services.AddHPD(hpd =>
+                    hpd.UseProviderComposition(ProviderComposition.Create([])));
+                services.AddHPDAgentEvaluations();
+                services.AddHPDAgentHost("full-feature");
             })
             .Configure(app =>
             {
@@ -179,15 +183,11 @@ public sealed class HPDAgentOpenApiDocumentTests
                 app.UseEndpoints(endpoints =>
                 {
                     endpoints.MapHPDAgentOpenApi();
-                    endpoints.MapGroup("").MapHPDAgentApi("full-feature");
+                    endpoints.MapGroup("").MapHPDAgentHostApi("full-feature");
+                    endpoints.MapHPDAgentEvaluationApi();
                 });
             });
         return new TestServer(builder);
-    }
-
-    private static void AddFixtureCompositions(IServiceCollection services)
-    {
-        services.AddSingleton(ProviderComposition.Create([]));
     }
 
     private static void MapDocumentProbeEndpoints(IEndpointRouteBuilder endpoints)

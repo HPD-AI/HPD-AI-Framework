@@ -6,7 +6,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
 using FluentAssertions;
-using HPD.Agent.AspNetCore.Serialization;
+using HPD.Agent.AspNetCore.Evaluations;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.Evaluations;
 using HPD.Agent.Evaluations.Storage;
@@ -47,7 +47,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     public async Task GET_evals_scores_Returns503_WhenNoStoreRegistered()
     {
         // Use a separate factory instance that does NOT register IScoreStore
-        using var noStoreFactory = new TestWebApplicationFactory();
+        using var noStoreFactory = new EvalTestWebApplicationFactory(registerStores: false);
         var client = noStoreFactory.CreateClient();
 
         var response = await client.GetAsync("/evals/scores?evaluatorName=X");
@@ -58,7 +58,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     [Fact]
     public async Task GET_evals_evaluators_Returns503_WhenNoStoreRegistered()
     {
-        using var noStoreFactory = new TestWebApplicationFactory();
+        using var noStoreFactory = new EvalTestWebApplicationFactory(registerStores: false);
         var client = noStoreFactory.CreateClient();
 
         var response = await client.GetAsync("/evals/analytics/evaluators");
@@ -77,7 +77,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     [Fact]
     public async Task GET_evals_evaluatorCatalog_ReturnsSafetyEvaluators_WithoutScoreStore()
     {
-        using var noStoreFactory = new TestWebApplicationFactory();
+        using var noStoreFactory = new EvalTestWebApplicationFactory(registerStores: false);
         var client = noStoreFactory.CreateClient();
 
         var response = await client.GetAsync("/evals/evaluators/catalog");
@@ -96,7 +96,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     [Fact]
     public async Task GET_evals_safetyAnalytics_Returns503_WhenNoStoreRegistered()
     {
-        using var noStoreFactory = new TestWebApplicationFactory();
+        using var noStoreFactory = new EvalTestWebApplicationFactory(registerStores: false);
         var client = noStoreFactory.CreateClient();
 
         var response = await client.GetAsync("/evals/analytics/safety");
@@ -792,7 +792,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     [Fact]
     public async Task GET_evals_redTeamAnalytics_Returns503_WhenNoStoreRegistered()
     {
-        using var noStoreFactory = new TestWebApplicationFactory();
+        using var noStoreFactory = new EvalTestWebApplicationFactory(registerStores: false);
         var client = noStoreFactory.CreateClient();
 
         var response = await client.GetAsync("/evals/analytics/red-team");
@@ -839,7 +839,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     [Fact]
     public async Task GET_evals_runs_Returns503_WhenNoScoreStoreRegistered()
     {
-        using var noStoreFactory = new TestWebApplicationFactory();
+        using var noStoreFactory = new EvalTestWebApplicationFactory(registerStores: false);
         var client = noStoreFactory.CreateClient();
 
         var response = await client.GetAsync("/evals/runs");
@@ -975,7 +975,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     [Fact]
     public async Task GET_evals_datasets_Returns503_WhenNoDatasetStoreRegistered()
     {
-        using var noStoreFactory = new TestWebApplicationFactory();
+        using var noStoreFactory = new EvalTestWebApplicationFactory(registerStores: false);
         var client = noStoreFactory.CreateClient();
 
         var response = await client.GetAsync("/evals/datasets");
@@ -986,7 +986,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     [Fact]
     public async Task POST_evals_datasets_Returns503_WhenNoDatasetStoreRegistered()
     {
-        using var noStoreFactory = new TestWebApplicationFactory();
+        using var noStoreFactory = new EvalTestWebApplicationFactory(registerStores: false);
         var client = noStoreFactory.CreateClient();
 
         var response = await client.PostAsJsonAsync("/evals/datasets", new
@@ -1199,10 +1199,10 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
 
         var json = JsonSerializer.Serialize(
             request,
-            HPDAgentAspNetCoreJsonSerializerContext.Default.RegisterStringDatasetRequest);
+            HPDAgentEvaluationJsonSerializerContext.Default.RegisterStringDatasetRequest);
         var roundTrip = JsonSerializer.Deserialize(
             json,
-            HPDAgentAspNetCoreJsonSerializerContext.Default.RegisterStringDatasetRequest);
+            HPDAgentEvaluationJsonSerializerContext.Default.RegisterStringDatasetRequest);
 
         roundTrip.Should().NotBeNull();
         roundTrip!.DatasetId.Should().Be("json-context-dataset");

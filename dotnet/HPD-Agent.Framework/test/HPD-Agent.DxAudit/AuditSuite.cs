@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent;
 using HPD.Agent.AspNetCore;
+using HPD.Agent.Hosting.Configuration;
 using HPD.Agent.Middleware;
 using HPD.Agent.Permissions;
 using HPD.Agent.Providers;
@@ -51,7 +52,9 @@ internal static class AuditSuite
             await ToolOutputOffloadObservationAsync(cancellationToken),
             PortableProviderSelection(),
             ExplicitSecretSerialization(),
-            await StoreLifecycleObservationAsync(cancellationToken)
+            await StoreLifecycleObservationAsync(cancellationToken),
+            HostingVocabularySurface(),
+            ExplicitHostingCompositionSurface()
         };
 
         return results;
@@ -602,10 +605,10 @@ internal static class AuditSuite
             var builder = WebApplication.CreateBuilder();
             builder.WebHost.UseTestServer();
             builder.Logging.ClearProviders();
-            builder.Services.AddHPDAgent("dx-host-auto");
+            builder.Services.AddHPD().AddHPDAgentHost("dx-host-auto");
 
             await using var app = builder.Build();
-            app.MapHPDAgentApi("dx-host-auto", options =>
+            app.MapHPDAgentHostApi("dx-host-auto", options =>
             {
                 options.RoutePrefix = "/api/agent";
             });
@@ -614,14 +617,107 @@ internal static class AuditSuite
             return Pass(
                 id,
                 area,
-                "AddHPDAgent and MapHPDAgentApi start without explicit composition registration.");
+                "AddHPDAgentHost and MapHPDAgentHostApi start from the explicit AddHPD composition.");
         }
         catch (Exception exception)
         {
             return Failure(
                 id,
                 area,
-                "AddHPDAgent should register the provider composition it requires.",
+                "The explicit AddHPD composition should allow the hosted API to start.",
+                exception);
+        }
+    }
+
+    private static ProbeResult HostingVocabularySurface()
+    {
+        const string id = "DX-PROBE-029";
+        const string area = "hosting";
+
+        try
+        {
+            var assembly = typeof(HPDAgentHostServiceCollectionExtensions).Assembly;
+            var serviceMethods = typeof(HPDAgentHostServiceCollectionExtensions)
+                .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Select(method => method.Name)
+                .ToArray();
+            var endpointMethods = typeof(HPDAgentHostEndpointRouteBuilderExtensions)
+                .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Select(method => method.Name)
+                .ToArray();
+            var hostingTypeNames = typeof(HPDAgentHostOptions).Assembly.GetExportedTypes()
+                .Select(type => type.Name)
+                .ToHashSet(StringComparer.Ordinal);
+
+            Require(
+                serviceMethods.Contains("AddHPDAgentHost", StringComparer.Ordinal),
+                "AddHPDAgentHost is missing.");
+            Require(
+                !serviceMethods.Contains("AddHPDAgent", StringComparer.Ordinal),
+                "The ambiguous AddHPDAgent name is still exported.");
+            Require(
+                endpointMethods.Contains("MapHPDAgentHostApi", StringComparer.Ordinal),
+                "MapHPDAgentHostApi is missing.");
+            Require(
+                !endpointMethods.Contains("MapHPDAgentApi", StringComparer.Ordinal),
+                "The ambiguous MapHPDAgentApi name is still exported.");
+            Require(
+                hostingTypeNames.Contains(nameof(HPDAgentHostOptions)),
+                "HPDAgentHostOptions is missing.");
+            Require(
+                !hostingTypeNames.Contains("HPDAgentConfig"),
+                "The overloaded HPDAgentConfig type is still exported.");
+            Require(
+                assembly.GetReferencedAssemblies().All(reference =>
+                    !string.Equals(reference.Name, "HPD-Agent.Evaluations", StringComparison.Ordinal)),
+                "The base ASP.NET host still references HPD-Agent.Evaluations.");
+
+            return Pass(
+                id,
+                area,
+                "ASP.NET hosting exports host-profile vocabulary without legacy or evaluation coupling.");
+        }
+        catch (Exception exception)
+        {
+            return Failure(
+                id,
+                area,
+                "ASP.NET hosting should expose unambiguous host-profile vocabulary.",
+                exception);
+        }
+    }
+
+    private static ProbeResult ExplicitHostingCompositionSurface()
+    {
+        const string id = "DX-PROBE-030";
+        const string area = "hosting";
+
+        try
+        {
+            var services = new ServiceCollection();
+            services.AddHPD(hpd => hpd.AddOpenAI());
+            using var serviceProvider = services.BuildServiceProvider();
+            var composition = serviceProvider.GetRequiredService<HPDApplicationComposition>();
+            var providerComposition = serviceProvider.GetRequiredService<ProviderComposition>();
+
+            Require(
+                ReferenceEquals(composition.Providers, providerComposition),
+                "DI provider composition is not the finalized application composition.");
+            Require(
+                composition.Providers.Descriptors.TryGet("openai", out _),
+                "The explicit application composition does not contain OpenAI.");
+
+            return Pass(
+                id,
+                area,
+                "Provider packages contribute through AddHPD without assembly-load workarounds.");
+        }
+        catch (Exception exception)
+        {
+            return Failure(
+                id,
+                area,
+                "AddHPD should finalize explicit provider contributions without type-reference workarounds.",
                 exception);
         }
     }
@@ -637,11 +733,12 @@ internal static class AuditSuite
             var builder = WebApplication.CreateBuilder();
             builder.WebHost.UseTestServer();
             builder.Logging.ClearProviders();
-            builder.Services.AddSingleton(ProviderComposition.Create([]));
-            builder.Services.AddHPDAgent("dx-host-endpoints");
+            builder.Services.AddHPD(hpd =>
+                hpd.UseProviderComposition(ProviderComposition.Create([])));
+            builder.Services.AddHPDAgentHost("dx-host-endpoints");
 
             await using var app = builder.Build();
-            app.MapHPDAgentApi("dx-host-endpoints", options =>
+            app.MapHPDAgentHostApi("dx-host-endpoints", options =>
             {
                 options.RoutePrefix = "/api/agent";
             });

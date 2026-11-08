@@ -21,11 +21,12 @@ internal static class MiddlewareResponseEndpoints
     internal static void Map(
         IEndpointRouteBuilder endpoints,
         IAgentMiddlewareResponseService responses,
-        AgentEventCodec codec)
+        AgentEventCodec codec,
+        string endpointName)
     {
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/responses", (string agentId, string sid, string bid, HttpRequest request, CancellationToken ct) =>
                 Respond(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), request, responses, codec, ct))
-            .WithName("RespondToAgentRequest")
+            .WithHostName(endpointName, "RespondToAgentRequest")
             .WithSummary("Respond to a request from the agent");
     }
 

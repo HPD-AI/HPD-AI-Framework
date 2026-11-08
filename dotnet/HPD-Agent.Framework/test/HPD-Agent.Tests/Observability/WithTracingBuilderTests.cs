@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: FSL-1.1-ALv2
 
 using System.Diagnostics;
+using System.Collections.Concurrent;
 using FluentAssertions;
 using HPD.Agent;
 using HPD.Agent.Tests.Infrastructure;
@@ -21,7 +22,7 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
     // don't share an ActivityListener and pick up each other's spans.
     private readonly string _testSourceName = $"HPD.Agent.BuilderTest.{Guid.NewGuid():N}";
 
-    private readonly List<Activity> _completed = new();
+    private readonly ConcurrentBag<Activity> _completed = new();
     private readonly ActivityListener _listener;
 
     public WithTracingBuilderTests()
@@ -52,7 +53,7 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
         var agent = BuildTracingAgent(fakeLLM);
         await RunTurnAsync(agent);
 
-        _completed.Should().Contain(a => a.OperationName == "agent.turn",
+        (await WaitForSpanAsync("agent.turn")).Should().NotBeNull(
             "WithTracing() must register TracingObserver which produces agent.turn spans");
     }
 
@@ -65,7 +66,7 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
         var agent = BuildTracingAgent(fakeLLM);
         await RunTurnAsync(agent);
 
-        _completed.Should().Contain(a => a.OperationName == "agent.iteration");
+        (await WaitForSpanAsync("agent.iteration")).Should().NotBeNull();
     }
 
     [Fact]
@@ -79,7 +80,7 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
         var agent = BuildTracingAgent(fakeLLM, tools: ping);
         await RunTurnAsync(agent);
 
-        _completed.Should().Contain(a => a.OperationName == "agent.tool_call");
+        (await WaitForSpanAsync("agent.tool_call")).Should().NotBeNull();
     }
 
     // ── Custom source name ────────────────────────────────────────────────────
@@ -144,7 +145,7 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
         await act.Should().NotThrowAsync("WithTracing and WithTelemetry must coexist without errors");
 
         // TracingObserver span still produced
-        _completed.Should().Contain(a => a.OperationName == "agent.turn");
+        (await WaitForSpanAsync("agent.turn")).Should().NotBeNull();
     }
 
     // ── Custom sanitizer options passed through ───────────────────────────────
@@ -180,7 +181,7 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
         await RunTurnAsync(agent);
 
         // Tool call span should exist
-        var toolSpan = _completed.FirstOrDefault(a => a.OperationName == "agent.tool_call");
+        var toolSpan = await WaitForSpanAsync("agent.tool_call");
         if (toolSpan is not null)
         {
             // Find the tool.result event if recorded
@@ -251,5 +252,20 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
 
         // Event subscriptions are processed by HPD.Events subscriber mailboxes.
         await Task.Delay(100, TestCancellationToken);
+    }
+
+    private async Task<Activity?> WaitForSpanAsync(string operationName)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            var activity = _completed.FirstOrDefault(item => item.OperationName == operationName);
+            if (activity is not null)
+                return activity;
+
+            await Task.Delay(25, TestCancellationToken);
+        }
+
+        return null;
     }
 }
