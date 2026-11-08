@@ -14,6 +14,7 @@ public static class AgentBuilderExtensions
     /// </summary>
     /// <param name="builder">The agent builder instance</param>
     /// <param name="model">The model to use (e.g., "claude-sonnet-4-5-20250929")</param>
+    /// <param name="authentication">Optional provider authentication. Defaults to the portable <c>anthropic:ApiKey</c> reference.</param>
     /// <returns>The builder for method chaining</returns>
     /// <remarks>
     /// The generated provider manifest selects the portable <c>anthropic:ApiKey</c> secret reference.

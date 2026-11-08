@@ -86,8 +86,10 @@ public static class HPDAgentHostServiceCollectionExtensions
     /// to host independent profiles at different route prefixes.
     /// </summary>
     /// <remarks>
-    /// Call <see cref="HPDApplicationServiceCollectionExtensions.AddHPD"/> first to finalize the
-    /// provider, output-event, and input-event composition consumed by every host profile.
+    /// Registration initializes the application-wide provider, output-event, and input-event
+    /// composition. Generated package manifests are included automatically. Call
+    /// <see cref="HPDApplicationServiceCollectionExtensions.AddHPD"/> separately only to add or
+    /// override explicit application capabilities.
     /// </remarks>
     public static IServiceCollection AddHPDAgentHost(
         this IServiceCollection services,
@@ -97,6 +99,10 @@ public static class HPDAgentHostServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(name);
         // Allow empty string for Options.DefaultName
+
+        // Generated provider/event/input composition is application-wide. Host profiles extend
+        // that baseline without requiring consumers to repeat provider registration.
+        services.AddHPD();
 
         // Register named options (each host profile gets its own HPDAgentHostOptions)
         if (configure != null)

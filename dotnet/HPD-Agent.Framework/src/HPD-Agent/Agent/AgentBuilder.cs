@@ -444,7 +444,9 @@ public class AgentBuilder
 
     private static ProviderRegistry CreateRegistryFromHost()
     {
-        var composition = ProviderCompositionHost.Current;
+        var composition = HPDApplicationCompositionHost.TryGetApplication(out var application)
+            ? application.Providers
+            : ProviderCompositionHost.Current;
         if (composition is null)
             return new ProviderRegistry();
 
@@ -2230,16 +2232,29 @@ public class AgentBuilder
             throw new InvalidOperationException($"No generated agent event composition is registered for application '{_eventApplicationIdentity}'.");
         }
 
-        var identities = AgentEventCompositionHost.GetApplicationIdentities();
-        if (identities.Count == 1 && AgentEventCompositionHost.TryGetApplication(identities[0], out var sole))
+        if (_config.SessionStore is not null)
         {
-            _config.EventComposition = sole;
-            return;
+            foreach (var identity in AgentEventCompositionHost.GetApplicationIdentities())
+            {
+                if (AgentEventCompositionHost.TryGetApplication(identity, out var stored) &&
+                    ReferenceEquals(stored.Codec, _config.SessionStore.EventCodec))
+                {
+                    _config.EventComposition = stored;
+                    return;
+                }
+            }
         }
 
         if (AgentEventCompositionHost.TryGetDefaultApplication(out var defaultApplication))
         {
             _config.EventComposition = defaultApplication;
+            return;
+        }
+
+        var identities = AgentEventCompositionHost.GetApplicationIdentities();
+        if (identities.Count == 1 && AgentEventCompositionHost.TryGetApplication(identities[0], out var sole))
+        {
+            _config.EventComposition = sole;
             return;
         }
 

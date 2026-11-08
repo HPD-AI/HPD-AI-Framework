@@ -37,6 +37,19 @@ public class ServiceRegistrationTests
     }
 
     [Fact]
+    public void AddHPDAgentHost_InitializesGeneratedApplicationComposition()
+    {
+        var services = new ServiceCollection();
+        services.AddHPDAgentHost("automatic");
+
+        using var provider = services.BuildServiceProvider();
+        var composition = provider.GetRequiredService<HPDApplicationComposition>();
+
+        composition.Events.Fragments.Should().NotBeEmpty();
+        composition.Inputs.Fragments.Should().NotBeEmpty();
+    }
+
+    [Fact]
     public void AddHPDAgentHost_RegistersNamedOptions_Correctly()
     {
         // Arrange

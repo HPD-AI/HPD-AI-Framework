@@ -1,5 +1,6 @@
 <Project>
   <PropertyGroup>
+    <HpdAgentApplication Condition="'$(HpdAgentApplication)' == '' And '$(OutputType)' == 'Exe'">true</HpdAgentApplication>
     <HpdAgentEventPrecompilerPath Condition="'$(HpdAgentEventPrecompilerPath)' == ''">$(MSBuildThisFileDirectory)..\tools\net8.0\HPD-Agent.EventPrecompiler.dll</HpdAgentEventPrecompilerPath>
     <HpdAgentGeneratedEventContext>$(IntermediateOutputPath)HpdGeneratedAgentEventJsonContext.g.cs</HpdAgentGeneratedEventContext>
     <HpdAgentEventSourcesFile>$(IntermediateOutputPath)hpd-agent-event-sources.rsp</HpdAgentEventSourcesFile>
@@ -8,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <CompilerVisibleProperty Include="HpdAgentApplication" />
+    <CompilerVisibleProperty Include="HpdAgentExcludeProviders" />
     <CompilerVisibleProperty Include="HpdAgentEventModuleId" />
     <CompilerVisibleProperty Include="NativeLib" />
   </ItemGroup>

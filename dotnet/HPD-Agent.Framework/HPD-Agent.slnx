@@ -21,6 +21,7 @@
   </Folder>
   <Folder Name="/AOT Smoke Tests/">
     <Project Path="test/HPD-Agent.AIFunctionContracts.AotSmoke/HPD-Agent.AIFunctionContracts.AotSmoke.csproj" />
+    <Project Path="test/HPD-Agent.ApplicationComposition.AotSmoke/HPD-Agent.ApplicationComposition.AotSmoke.csproj" />
     <Project Path="test/HPD-Agent.Evaluations.AotSmoke/HPD-Agent.Evaluations.AotSmoke.csproj" />
     <Project Path="test/HPD-Agent.EventComposition.AotSmoke/HPD-Agent.EventComposition.AotSmoke.csproj" />
     <Project Path="test/HPD-Agent.Goals.AotSmoke/HPD-Agent.Goals.AotSmoke.csproj" />

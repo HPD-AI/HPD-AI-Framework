@@ -10,7 +10,6 @@ using HPD.Agent.AspNetCore;
 using HPD.Agent.AspNetCore.OpenApi;
 using Microsoft.Extensions.DependencyInjection;
 
-builder.Services.AddHPD();
 builder.Services.AddHPDAgentHost("assistant");
 builder.Services.AddHPDAgentOpenApi();
 

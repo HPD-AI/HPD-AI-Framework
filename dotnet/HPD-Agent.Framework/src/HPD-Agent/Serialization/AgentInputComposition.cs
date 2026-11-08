@@ -255,6 +255,12 @@ public static class AgentInputCompositionHost
     /// <summary>Attempts to resolve the sole registered application composition.</summary>
     public static bool TryGetDefaultApplication(out AgentInputComposition composition)
     {
+        if (HPDApplicationCompositionHost.TryGetApplication(out var application))
+        {
+            composition = application.Inputs;
+            return true;
+        }
+
         var values = Applications.Values.Distinct().ToArray();
         if (values.Length == 1)
         {

@@ -327,6 +327,7 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
         services.AppendLine("#nullable enable");
         services.AppendLine("namespace Microsoft.Extensions.DependencyInjection;");
         services.AppendLine();
+        services.AppendLine($"/// <summary>Provides application-composition registration for the {info.ProviderKey} provider.</summary>");
         services.AppendLine($"public static class {info.SafeName}HPDApplicationExtensions");
         services.AppendLine("{");
         services.AppendLine($"    /// <summary>Adds the {info.ProviderKey} provider manifest to the HPD application composition.</summary>");

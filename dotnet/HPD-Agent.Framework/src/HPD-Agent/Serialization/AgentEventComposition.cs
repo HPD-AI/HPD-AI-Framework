@@ -480,6 +480,12 @@ public static class AgentEventCompositionHost
     /// <summary>Gets the selected default application composition if it has registered.</summary>
     public static bool TryGetDefaultApplication(out AgentEventComposition composition)
     {
+        if (HPDApplicationCompositionHost.TryGetApplication(out var application))
+        {
+            composition = application.Events;
+            return true;
+        }
+
         var identity = Volatile.Read(ref _defaultApplicationIdentity);
         if (identity is not null && Applications.TryGetValue(identity, out composition!))
             return true;

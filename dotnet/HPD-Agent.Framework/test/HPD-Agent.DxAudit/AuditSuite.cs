@@ -54,7 +54,8 @@ internal static class AuditSuite
             ExplicitSecretSerialization(),
             await StoreLifecycleObservationAsync(cancellationToken),
             HostingVocabularySurface(),
-            ExplicitHostingCompositionSurface()
+            ExplicitHostingCompositionSurface(),
+            AutomaticHostingCompositionSurface()
         };
 
         return results;
@@ -718,6 +719,44 @@ internal static class AuditSuite
                 id,
                 area,
                 "AddHPD should finalize explicit provider contributions without type-reference workarounds.",
+                exception);
+        }
+    }
+
+    private static ProbeResult AutomaticHostingCompositionSurface()
+    {
+        const string id = "DX-PROBE-031";
+        const string area = "hosting";
+
+        try
+        {
+            var services = new ServiceCollection();
+            services.AddHPD();
+
+            using var serviceProvider = services.BuildServiceProvider();
+            var composition = serviceProvider.GetRequiredService<HPDApplicationComposition>();
+
+            Require(
+                composition.Providers.Descriptors.TryGet("openai", out _),
+                "The referenced OpenAI package was not composed automatically.");
+            Require(
+                composition.Events.Fragments.Count > 0,
+                "The generated event composition was not included.");
+            Require(
+                composition.Inputs.Fragments.Count > 0,
+                "The generated input composition was not included.");
+
+            return Pass(
+                id,
+                area,
+                "Referenced package manifests compose automatically without reflection or assembly scanning.");
+        }
+        catch (Exception exception)
+        {
+            return Failure(
+                id,
+                area,
+                "Referenced provider and event/input manifests should compose from AddHPD().",
                 exception);
         }
     }

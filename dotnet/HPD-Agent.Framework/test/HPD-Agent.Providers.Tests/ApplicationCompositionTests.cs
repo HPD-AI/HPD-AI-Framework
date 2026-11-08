@@ -7,6 +7,23 @@ namespace HPD.Agent.Providers.Tests;
 public sealed class ApplicationCompositionTests
 {
     [Fact]
+    public void AddHPD_AutoComposesReferencedProviderPackages()
+    {
+        var services = new ServiceCollection();
+        services.AddHPD();
+
+        using var provider = services.BuildServiceProvider();
+        var composition = provider.GetRequiredService<HPDApplicationComposition>();
+
+        Assert.Contains(
+            composition.Providers.Descriptors.Providers,
+            descriptor => descriptor.ProviderKey == "openai");
+        Assert.Contains(
+            composition.Providers.Descriptors.Providers,
+            descriptor => descriptor.ProviderKey == "anthropic");
+    }
+
+    [Fact]
     public void AddOpenAI_ContributesProviderWithoutAssemblyLoadWorkaround()
     {
         var services = new ServiceCollection();

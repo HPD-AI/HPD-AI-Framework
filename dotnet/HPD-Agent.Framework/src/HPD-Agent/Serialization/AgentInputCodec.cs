@@ -44,8 +44,10 @@ public sealed class AgentInputCodec
     public static bool IsPublicInput(AgentInputEvent input)
     {
         ArgumentNullException.ThrowIfNull(input);
-        if (AgentInputCompositionHost.TryGetDefaultApplication(out var application))
-            return application.IsPublic(input.GetType());
+        if (HPDApplicationCompositionHost.TryGetApplication(out var application))
+            return application.Inputs.IsPublic(input.GetType());
+        if (AgentInputCompositionHost.TryGetDefaultApplication(out var defaultApplication))
+            return defaultApplication.IsPublic(input.GetType());
         if (AgentInputCompositionHost.TryComposeRegisteredModules(out var modules))
             return modules.IsPublic(input.GetType());
         throw new InvalidOperationException(

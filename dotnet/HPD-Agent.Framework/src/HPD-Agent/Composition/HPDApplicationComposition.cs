@@ -1,5 +1,6 @@
 using HPD.Agent.Providers;
 using HPD.Agent.Serialization;
+using System.ComponentModel;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -27,6 +28,104 @@ public sealed class HPDApplicationComposition
 
     /// <summary>Gets the semantic-input contract composition.</summary>
     public AgentInputComposition Inputs { get; }
+}
+
+/// <summary>Receives the application composition emitted by the HPD source generator.</summary>
+/// <remarks>
+/// Generated code registers this composition from the consuming application assembly. The host
+/// consumes the composition through DI; this type is not an extension point for consumers.
+/// </remarks>
+[EditorBrowsable(EditorBrowsableState.Never)]
+public static class HPDApplicationCompositionHost
+{
+    private static readonly object Gate = new();
+    private static HPDApplicationComposition? _current;
+    private static HPDApplicationComposition? _resolved;
+
+    /// <summary>Registers the generated application composition once per process.</summary>
+    /// <remarks>
+    /// The first registered composition wins. Compile-time generation ensures every application
+    /// assembly closes provider, event, and input capabilities before its entry point runs.
+    /// </remarks>
+    public static void Register(HPDApplicationComposition composition)
+    {
+        ArgumentNullException.ThrowIfNull(composition);
+        lock (Gate)
+        {
+            _current ??= composition;
+            _resolved = null;
+        }
+    }
+
+    /// <summary>Attempts to resolve the generated application composition.</summary>
+    public static bool TryGetApplication(out HPDApplicationComposition composition)
+    {
+        lock (Gate)
+        {
+            if (_current is null)
+            {
+                composition = null!;
+                return false;
+            }
+
+            _resolved ??= Resolve(_current);
+            composition = _resolved;
+            return true;
+        }
+    }
+
+    private static HPDApplicationComposition Resolve(HPDApplicationComposition generated)
+    {
+        var providers = generated.Providers;
+        if (ProviderCompositionHost.Current is { } registeredProviders)
+        {
+            var generatedOwners = generated.Providers.Fragments
+                .Select(static fragment => fragment.OwnerAssembly)
+                .Where(static owner => !string.IsNullOrWhiteSpace(owner))
+                .ToHashSet(StringComparer.Ordinal);
+            var additionalProviders = registeredProviders.Fragments
+                .Where(fragment => string.IsNullOrWhiteSpace(fragment.OwnerAssembly) ||
+                    !generatedOwners.Contains(fragment.OwnerAssembly))
+                .ToArray();
+            if (additionalProviders.Length > 0)
+            {
+                providers = ProviderComposition.Create(
+                    [.. generated.Providers.Fragments, .. additionalProviders]);
+            }
+        }
+
+        var events = generated.Events;
+        if (AgentEventCompositionHost.TryComposeRegisteredModules(out var registeredEvents))
+        {
+            var knownModules = generated.Events.Fragments
+                .Select(static fragment => fragment.ModuleId)
+                .ToHashSet(StringComparer.Ordinal);
+            var additionalEvents = registeredEvents.Fragments
+                .Where(fragment => !knownModules.Contains(fragment.ModuleId))
+                .ToArray();
+            if (additionalEvents.Length > 0)
+                events = AgentEventComposition.Create([.. generated.Events.Fragments, .. additionalEvents]);
+        }
+
+        var inputs = generated.Inputs;
+        if (AgentInputCompositionHost.TryComposeRegisteredModules(out var registeredInputs))
+        {
+            var knownModules = generated.Inputs.Fragments
+                .Select(static fragment => fragment.ModuleId)
+                .ToHashSet(StringComparer.Ordinal);
+            var additionalInputs = registeredInputs.Fragments
+                .Where(fragment => !knownModules.Contains(fragment.ModuleId))
+                .ToArray();
+            if (additionalInputs.Length > 0)
+                inputs = AgentInputComposition.Create([.. generated.Inputs.Fragments, .. additionalInputs]);
+        }
+
+        return ReferenceEquals(providers, generated.Providers) &&
+               ReferenceEquals(events, generated.Events) &&
+               ReferenceEquals(inputs, generated.Inputs)
+            ? generated
+            : new HPDApplicationComposition(providers, events, inputs);
+    }
 }
 
 /// <summary>Collects explicit application capability contributions before DI finalization.</summary>
@@ -106,19 +205,22 @@ public sealed class HPDApplicationBuilder
             throw new InvalidOperationException("The HPD application composition has already been built.");
 
         _built = true;
+        var generated = HPDApplicationCompositionHost.TryGetApplication(out var application)
+            ? application
+            : null;
         return new HPDApplicationComposition(
             _providers
                 ?? (_providerFragments.Count > 0
                     ? ProviderComposition.Create(_providerFragments)
-                    : ProviderCompositionHost.Current ?? ProviderComposition.Create([])),
+                    : generated?.Providers ?? ProviderCompositionHost.Current ?? ProviderComposition.Create([])),
             _events
                 ?? (_eventFragments.Count > 0
                     ? AgentEventComposition.Create(_eventFragments)
-                    : ResolveEventComposition()),
+                    : generated?.Events ?? ResolveEventComposition()),
             _inputs
                 ?? (_inputFragments.Count > 0
                     ? AgentInputComposition.Create(_inputFragments)
-                    : AgentInputCompositionHost.ResolveDefault()));
+                    : generated?.Inputs ?? AgentInputCompositionHost.ResolveDefault()));
     }
 
     private static AgentEventComposition ResolveEventComposition()
@@ -146,8 +248,13 @@ public static class HPDApplicationServiceCollectionExtensions
     /// Registers or extends the application-wide provider, output-event, and input-event composition.
     /// </summary>
     /// <remarks>
-    /// Call this before registering an HPD agent host. The resulting immutable composition is
-    /// registered in DI and is the only composition authority used by hosted agents.
+    /// The resulting immutable composition is registered in DI and is the only composition
+    /// authority used by hosted agents. Use this method to
+    /// add or override explicit capabilities. Host registration also invokes the zero-argument
+    /// form automatically. When no explicit contributions are supplied, source-generated
+    /// provider, event, and input manifests referenced by the application are composed
+    /// automatically. The legacy global registries remain a fallback for project-reference and
+    /// file-based consumers without the application generator.
     /// </remarks>
     public static IServiceCollection AddHPD(
         this IServiceCollection services,

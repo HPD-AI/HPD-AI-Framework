@@ -1,8 +1,8 @@
 {
-  "TypeCount": 1592,
-  "MethodCount": 6171,
+  "TypeCount": 1593,
+  "MethodCount": 6173,
   "PropertyCount": 5423,
-  "Fingerprint": "2ea154a72c63e23aa5b8a07fa8f29f86e43c24ed2c46f5e6043e655d2b1be435",
+  "Fingerprint": "a6a8b2e5578b6564249168fa750f296283b995bb9229ce00ed00d50675f8f43e",
   "Types": [
     {
       "FullName": "AIDescriptionAttribute",
@@ -8850,6 +8850,14 @@
         "HPD.Agent.Serialization.AgentEventComposition Events",
         "HPD.Agent.Serialization.AgentInputComposition Inputs"
       ]
+    },
+    {
+      "FullName": "HPD.Agent.HPDApplicationCompositionHost",
+      "Methods": [
+        "System.Boolean TryGetApplication(HPD.Agent.HPDApplicationComposition\u0026 composition)",
+        "System.Void Register(HPD.Agent.HPDApplicationComposition composition)"
+      ],
+      "Properties": []
     },
     {
       "FullName": "HPD.Agent.HPDApplicationServiceCollectionExtensions",
