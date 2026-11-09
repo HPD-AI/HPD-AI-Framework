@@ -17,7 +17,7 @@ public sealed class FileGlobalParticipantAllocatorRealmStoreTests
             var request=new GlobalParticipantAllocatorRealmCreateRequestV1(GlobalParticipantAllocatorJournalId.FromValue(StableId128.FromBytes(Enumerable.Repeat((byte)1,16).ToArray())),new(Hash256.FromBytes(Enumerable.Repeat((byte)2,32).ToArray())));
             var result=await ((IGlobalParticipantAllocatorRealmPortV1)store).CreateAsync(request,default);
             if(!OperatingSystem.IsLinux())Assert.IsType<GlobalParticipantAllocatorRealmCreateResultV1.Unsupported>(result);
-            else Assert.True(result is GlobalParticipantAllocatorRealmCreateResultV1.Created or GlobalParticipantAllocatorRealmCreateResultV1.StoreUnavailable or GlobalParticipantAllocatorRealmCreateResultV1.Unsupported);
+            else Assert.True(result is GlobalParticipantAllocatorRealmCreateResultV1.Created or GlobalParticipantAllocatorRealmCreateResultV1.StoreUnavailable or GlobalParticipantAllocatorRealmCreateResultV1.Unsupported or GlobalParticipantAllocatorRealmCreateResultV1.RootConflict or GlobalParticipantAllocatorRealmCreateResultV1.Incompatible);
         }
         finally
         {

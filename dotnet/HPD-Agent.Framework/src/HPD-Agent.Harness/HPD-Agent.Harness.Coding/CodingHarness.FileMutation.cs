@@ -68,7 +68,11 @@ public partial class CodingToolHarness
 
     private static bool HasWindowsDeviceName(string path)
     {
-        var name = Path.GetFileNameWithoutExtension(path);
+        var trimmed = path.TrimEnd('\\', '/');
+        var separator = trimmed.LastIndexOfAny(['\\', '/']);
+        var leaf = separator >= 0 ? trimmed[(separator + 1)..] : trimmed;
+        var extension = leaf.IndexOf('.');
+        var name = extension >= 0 ? leaf[..extension] : leaf;
         return name.Equals("CON", StringComparison.OrdinalIgnoreCase) ||
             name.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
             name.Equals("AUX", StringComparison.OrdinalIgnoreCase) ||
