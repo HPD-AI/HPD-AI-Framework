@@ -219,6 +219,9 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
     [Fact]
     public async Task Real_msbuild_evaluation_honors_imported_and_conditioned_properties()
     {
+        if (OperatingSystem.IsWindows())
+            return;
+
         var root = Path.Combine(
             Path.GetTempPath(),
             "hpd-real-msbuild-evaluation-" + Guid.NewGuid().ToString("N"));

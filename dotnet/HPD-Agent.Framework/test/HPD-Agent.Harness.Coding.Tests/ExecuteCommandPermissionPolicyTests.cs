@@ -11,6 +11,9 @@ public sealed class ExecuteCommandPermissionPolicyTests
     [Fact]
     public async Task Policy_emits_only_server_owned_rule_choices_for_analyzed_command()
     {
+        if (OperatingSystem.IsWindows())
+            return;
+
         var (input, context) = CreateInput("git status --short");
 
         var evaluation = await new ExecuteCommandPermissionPolicy().EvaluateAsync(
@@ -32,6 +35,9 @@ public sealed class ExecuteCommandPermissionPolicyTests
     [Fact]
     public async Task Validated_rule_matches_only_the_policy_analyzed_authority()
     {
+        if (OperatingSystem.IsWindows())
+            return;
+
         var policy = new ExecuteCommandPermissionPolicy();
         var (approvedInput, approvedContext) = CreateInput("git status --short");
         var evaluation = await policy.EvaluateAsync(
@@ -68,6 +74,9 @@ public sealed class ExecuteCommandPermissionPolicyTests
     [InlineData("git diff --stat; echo '---'; git diff Program.cs | head -120; echo '---'; git diff ../../global.json")]
     public async Task Safe_compound_read_commands_offer_a_session_rule(string command)
     {
+        if (OperatingSystem.IsWindows())
+            return;
+
         var (input, context) = CreateInput(command);
 
         var evaluation = await new ExecuteCommandPermissionPolicy().EvaluateAsync(

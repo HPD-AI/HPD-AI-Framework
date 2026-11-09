@@ -493,18 +493,26 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
         var workspaceFolders = new JsonArray();
         workspaceFolders.Add((JsonNode)new JsonObject
         {
-            ["uri"] = new Uri(_root).AbsoluteUri,
+            ["uri"] = CreateDirectoryUri(_root).AbsoluteUri,
             ["name"] = Path.GetFileName(_root)
         });
 
         return new JsonObject
         {
             ["processId"] = Environment.ProcessId,
-            ["rootUri"] = new Uri(_root).AbsoluteUri,
+            ["rootUri"] = CreateDirectoryUri(_root).AbsoluteUri,
             ["workspaceFolders"] = workspaceFolders,
             ["capabilities"] = CreateClientCapabilities(),
             ["initializationOptions"] = initializationOptions
         };
+    }
+
+    private static Uri CreateDirectoryUri(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        return OperatingSystem.IsWindows()
+            ? new Uri($"file:///{fullPath.Replace('\\', '/')}")
+            : new Uri(fullPath);
     }
 
     private JsonObject CreateClientCapabilities()

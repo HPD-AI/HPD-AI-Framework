@@ -224,6 +224,9 @@ public sealed class ExecuteCommandTests : IDisposable
     public async Task ExecuteCommand_RunConfigSandboxPolicy_CompilesGrantsIntoProcessIsolationPolicy()
     {
         var runner = new FakeProcessProvider();
+        var writablePath = Path.Combine(
+            Path.GetTempPath(),
+            "hpd-write");
         var runConfig = CreateWorkspaceRunConfig();
         runConfig.Security = runConfig.Security with
         {
@@ -234,7 +237,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Filesystem =
             [
                 new AgentSandboxPathGrant { Access = AgentSandboxPathAccess.Read, Path = "readonly" },
-                new AgentSandboxPathGrant { Access = AgentSandboxPathAccess.Write, Path = "/tmp/hpd-write" }
+                new AgentSandboxPathGrant { Access = AgentSandboxPathAccess.Write, Path = writablePath }
             ],
             Network = new NetworkEgressPolicy
             {
@@ -264,7 +267,7 @@ public sealed class ExecuteCommandTests : IDisposable
             rule.Path.Value == expectedReadPath);
         runner.LastSpec.Isolation.Filesystem.Rules.Should().Contain(rule =>
             rule.Kind == PathAccessRuleKind.AllowWrite &&
-            rule.Path.Value == "/tmp/hpd-write");
+            rule.Path.Value == Path.GetFullPath(writablePath));
         runner.LastSpec.Isolation.Network.Mode.Should().Be(NetworkEgressMode.Filtered);
         runner.LastSpec.Isolation.Network.AllowedDomains.Should().ContainSingle(rule => rule.Pattern == "registry.npmjs.org");
         runner.LastSpec.Isolation.Network.DeniedDomains.Should().ContainSingle(rule => rule.Pattern == "169.254.169.254");

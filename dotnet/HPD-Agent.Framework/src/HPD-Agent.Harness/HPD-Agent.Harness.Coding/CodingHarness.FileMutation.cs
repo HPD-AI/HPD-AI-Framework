@@ -89,11 +89,11 @@ public partial class CodingToolHarness
 
     private static void ValidateMutationPath(ResolvedMutationPath path)
     {
-        if (IsWindowsUncPath(path.InputPath) || IsWindowsUncPath(path.FullPath))
-            throw new FileMutationException(FileMutationErrorKind.WindowsUncPath, "Cannot mutate a Windows UNC path without host approval.");
-
         if (IsBlockedMutationPath(path.FullPath))
             throw new FileMutationException(FileMutationErrorKind.BlockedDevicePath, "Cannot mutate blocked device path.");
+
+        if (IsWindowsUncPath(path.InputPath) || IsWindowsUncPath(path.FullPath))
+            throw new FileMutationException(FileMutationErrorKind.WindowsUncPath, "Cannot mutate a Windows UNC path without host approval.");
 
         if (IsNotebookPath(path.FullPath))
             throw new FileMutationException(FileMutationErrorKind.NotebookFile, "File is a notebook. Use NotebookEdit when available.");
