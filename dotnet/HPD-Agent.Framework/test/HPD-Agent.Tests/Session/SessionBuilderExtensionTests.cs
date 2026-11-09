@@ -180,6 +180,34 @@ public class SessionBuilderExtensionTests : AgentTestBase
     }
 
     [Fact]
+    public async Task Builder_AppliesDurabilityPolicyBeforeCreatingSessionStore()
+    {
+        var builder = new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
+            .WithEventComposition(TestEventApplication.Composition)
+            .WithEventDurability<StateSnapshotEvent>(AgentEventDurability.Durable)
+            .WithInMemorySessionStore();
+
+        await using var agent = await builder.BuildAsync();
+
+        Assert.Same(agent.Config!.EventComposition!.Codec, agent.Config.SessionStore!.EventCodec);
+        Assert.True(agent.Config.EventComposition.Codec.TryGetByType(
+            typeof(StateSnapshotEvent), out var descriptor));
+        Assert.Equal(AgentEventDurability.Durable, descriptor.Durability);
+    }
+
+    [Fact]
+    public async Task Builder_RejectsExplicitStoreWithDifferentEffectiveCodec()
+    {
+        var store = new InMemorySessionStore(TestEventApplication.Codec);
+        var builder = new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
+            .WithEventComposition(TestEventApplication.Composition)
+            .WithEventDurability<StateSnapshotEvent>(AgentEventDurability.Durable)
+            .WithSessionStore(store);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => builder.BuildAsync());
+    }
+
+    [Fact]
     public async Task BuildFailure_DisposesBuilderOwnedContentStore()
     {
         var contentStore = new TrackingContentStore();

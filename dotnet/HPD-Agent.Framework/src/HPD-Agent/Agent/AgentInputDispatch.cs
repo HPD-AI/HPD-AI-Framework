@@ -82,6 +82,8 @@ internal sealed class AgentInputHandlingContext
     public AgentChatClientHandle? DefaultChatClient { get; init; }
 
     public ActiveRuntimeInput? ActiveInput { get; init; }
+    public Func<AgentInputEvent, Exception, ErrorSource, CancellationToken, ValueTask> ReportErrorAsync { get; init; }
+        = (_, _, _, _) => ValueTask.CompletedTask;
     public required Func<AgentInputEvent, UserMessagesInputEvent, ActiveRuntimeInput?, IEventCoordinator, CancellationToken, Task<AgentTurnResult>> RunMessagesAsync { get; init; }
     public required Func<ClientToolOperationOutcomeEvent, bool> TryResolveClientToolOperation { get; init; }
 }
@@ -121,7 +123,15 @@ internal sealed class AgentInputDispatcher
 
         var startedAt = DateTimeOffset.UtcNow;
         var before = new BeforeInputContext(input, context);
-        await _middleware.ExecuteBeforeInputAsync(before, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _middleware.ExecuteBeforeInputAsync(before, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await context.ReportErrorAsync(before.Input, ex, ErrorSource.Input, cancellationToken).ConfigureAwait(false);
+            throw;
+        }
 
         if (before.Cancelled)
         {
@@ -159,11 +169,20 @@ internal sealed class AgentInputDispatcher
         catch (Exception ex)
         {
             error = ex;
+            await context.ReportErrorAsync(
+                effectiveInput,
+                ex,
+                input is UserMessagesInputEvent
+                    ? ErrorSource.MessageTurn
+                    : ErrorSource.Input,
+                cancellationToken).ConfigureAwait(false);
             throw;
         }
         finally
         {
-            await _middleware.ExecuteAfterInputAsync(
+            try
+            {
+                await _middleware.ExecuteAfterInputAsync(
                     new AfterInputContext(
                         effectiveInput,
                         context,
@@ -179,7 +198,17 @@ internal sealed class AgentInputDispatcher
                                 null, cancellationToken.IsCancellationRequested ? "caller_token" : "execution")
                             : null),
                     CancellationToken.None)
-                .ConfigureAwait(false);
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                await context.ReportErrorAsync(
+                    effectiveInput,
+                    ex,
+                    ErrorSource.Input,
+                    CancellationToken.None).ConfigureAwait(false);
+                throw;
+            }
         }
     }
 

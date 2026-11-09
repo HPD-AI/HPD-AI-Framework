@@ -46,8 +46,8 @@ await File.WriteAllTextAsync(
         <Nullable>enable</Nullable>
       </PropertyGroup>
       <ItemGroup>
-        <PackageReference Include="HPD-Agent.AspNetCore" Version="0.9.2" />
-        <PackageReference Include="HPD-Agent.Providers.Anthropic" Version="0.9.2" />
+        <PackageReference Include="HPD-Agent.AspNetCore" Version="1.0.0" />
+        <PackageReference Include="HPD-Agent.Providers.Anthropic" Version="1.0.0" />
         <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.13" />
       </ItemGroup>
     </Project>
@@ -208,10 +208,10 @@ static async Task CopyPublishedDependenciesAsync(string feed)
     var packages = line[(line.IndexOf(':') + 1)..].Trim().TrimEnd('/');
     foreach (var package in new[]
     {
-        ("hpd-environment.contracts", "0.9.2"),
-        ("hpd-environment.runtime", "0.9.2"),
-        ("hpd-events", "0.9.2"),
-        ("hpd-serialization", "0.9.2")
+        ("hpd-environment.contracts", "1.0.0"),
+        ("hpd-environment.runtime", "1.0.0"),
+        ("hpd-events", "1.0.0"),
+        ("hpd-serialization", "1.0.0")
     })
     {
         var source = Path.Combine(

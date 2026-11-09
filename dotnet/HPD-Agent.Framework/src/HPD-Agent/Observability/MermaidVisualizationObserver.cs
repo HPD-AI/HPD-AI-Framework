@@ -113,17 +113,6 @@ public class MermaidVisualizationObserver
                     _currentNode = decisionNode;
                     break;
 
-                case IterationContextSnapshotEvent e:
-                    var llmNode = AddNode($"LLM_{e.Iteration}",
-                        $"LLM Context\\n{e.ContextMessageCount} context messages\\n{e.ToolCount} tools");
-
-                    if (_currentNode != null)
-                    {
-                        AddEdge(_currentNode, llmNode);
-                    }
-                    _currentNode = llmNode;
-                    break;
-
                 case InternalParallelToolExecutionEvent e:
                     var toolNode = AddNode($"TOOL_{e.Iteration}",
                         $"Tools: {e.ToolCount}\\n{e.Duration.TotalMilliseconds:F0}ms" +
@@ -266,7 +255,6 @@ public class MermaidVisualizationObserver
         MessageTurnStartedEvent e => $"▶ Message Turn Started: {e.MessageTurnId}",
         IterationStartEvent e => $"├─ Iteration {e.Iteration}/{e.MaxIterations}",
         AgentDecisionEvent e => $"  ├─ Decision: {e.DecisionType}",
-        IterationContextSnapshotEvent e => $"  ├─ LLM Context ({e.ContextMessageCount} context messages, {e.ToolCount} tools)",
         InternalParallelToolExecutionEvent e =>
             $"  ├─ Tools: {e.ToolCount} executed ({e.Duration.TotalMilliseconds:F0}ms)" +
             (e.IsParallel ? " [PARALLEL]" : ""),
@@ -314,7 +302,6 @@ public class MermaidVisualizationObserver
         MessageTurnFinishedEvent e => e.Timestamp,
         IterationStartEvent e => e.Timestamp,
         AgentDecisionEvent e => e.Timestamp,
-        IterationContextSnapshotEvent e => e.Timestamp,
         InternalParallelToolExecutionEvent e => e.Timestamp,
         CircuitBreakerTriggeredEvent e => e.Timestamp,
         PermissionResolvedEvent e => DateTimeOffset.UtcNow,

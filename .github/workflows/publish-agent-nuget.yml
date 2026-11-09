@@ -111,9 +111,12 @@ jobs:
 
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
+  verify:
+    uses: ./.github/workflows/dotnet-build-and-test.yml
+
   publish:
     runs-on: ubuntu-latest
-    needs: determine-version
+    needs: [determine-version, verify]
     timeout-minutes: 30
     permissions:
       contents: read
@@ -158,6 +161,10 @@ jobs:
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.MCP/HPD-Agent.MCP.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.AspNetCore.OpenApi/HPD-Agent.AspNetCore.OpenApi.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.AspNetCore.Evaluations/HPD-Agent.AspNetCore.Evaluations.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Client/HPD-Agent.Client.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.MultiAgent.AspNetCore/HPD-Agent.MultiAgent.AspNetCore.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox/HPD-Agent.Sandbox.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.HostProcess/HPD-Agent.Sandbox.HostProcess.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.HostContainers/HPD-Agent.Sandbox.HostContainers.csproj"
@@ -167,6 +174,7 @@ jobs:
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.OpenApi/HPD-Agent.OpenApi.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.TUI/HPD-Agent.TUI.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.ModelsDev/HPD-Agent.ModelsDev.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Audio/HPD-Agent.Audio.LiveKit/HPD-Agent.Audio.LiveKit/HPD-Agent.Audio.LiveKit.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Audio/HPD-Agent.Audio.LiveKit/HPD-Agent.Audio.LiveKit.NativeAssets/HPD-Agent.Audio.LiveKit.NativeAssets.csproj"
             # Bots
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.Abstractions/HPD-Agent.Bots.Abstractions.csproj"
@@ -177,6 +185,7 @@ jobs:
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.Telegram/HPD-Agent.Bots.Telegram.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.WhatsApp/HPD-Agent.Bots.WhatsApp.csproj"
             # ToolHarnesses
+            # Deprecated: publish only for the 1.0 migration package, then remove this entry.
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.FileSystem/HPD-Agent.Harness.FileSystem.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.WebSearch/HPD-Agent.Harness.WebSearch.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj"
@@ -220,7 +229,7 @@ jobs:
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Venice/HPD-Agent.Providers.Venice.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Xai/HPD-Agent.Providers.Xai.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Zai/HPD-Agent.Providers.Zai.csproj"
-            # HPD-Agent.MultiAgent.AspNetCore remains blocked on publishing
+            # HPD-Agent.MultiAgent.HpdBase remains blocked on publishing
             # HPD-Base.AspNetCore and HPD-Graph.Base. HPD-Agent.Studio uses a
             # separate Studio release path.
           )
@@ -303,6 +312,19 @@ jobs:
             fi
           done
 
+          for PROJECT in "${PROJECTS[@]}"; do
+            PACKAGE_ID="$(
+              perl -ne 'if (m#<PackageId>([^<]+)</PackageId>#) { print $1; exit }' "$PROJECT"
+            )"
+            if [ -z "$PACKAGE_ID" ]; then
+              PACKAGE_ID="$(basename "$PROJECT" .csproj)"
+            fi
+            if [ ! -f "./nupkg/$PACKAGE_ID.${{ needs.determine-version.outputs.version }}.nupkg" ]; then
+              echo "::error::$PACKAGE_ID was configured in the Agent release train but no package was produced."
+              exit 1
+            fi
+          done
+
       - name: Validate sandbox package contents
         run: |
           SANDBOX_PACKAGES=(
@@ -318,6 +340,18 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Validate LiveKit package contents
+        run: |
+          LIVEKIT_PACKAGE="$(ls ./nupkg/HPD-Agent.Audio.LiveKit.*.nupkg | grep -v NativeAssets | head -n 1)"
+          LIVEKIT_NATIVE_PACKAGE="$(ls ./nupkg/HPD-Agent.Audio.LiveKit.NativeAssets.*.nupkg | head -n 1)"
+
+          for TFM in net8.0 net9.0 net10.0; do
+            unzip -l "$LIVEKIT_PACKAGE" | grep -q "lib/$TFM/HPD-Agent.Audio.LiveKit.dll"
+          done
+          unzip -l "$LIVEKIT_NATIVE_PACKAGE" | grep -q "runtimes/osx-arm64/native/liblivekit_ffi.dylib"
+          unzip -p "$LIVEKIT_PACKAGE" '*.nuspec' | grep -qi 'dependency id="HPD-Agent.Audio.LiveKit.NativeAssets"'
+          unzip -p "$LIVEKIT_PACKAGE" '*.nuspec' | grep -qi 'dependency id="HPD-Agent.Audio"'
 
       - name: Validate coding package contents
         run: |

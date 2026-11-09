@@ -199,7 +199,7 @@ internal sealed class JournalThreadForkOperationStore(ISessionStore store, Threa
     }
 }
 
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("THREAD_FORK_OPERATION_CHANGED")]
 public sealed record ThreadForkOperationChangedEvent(ThreadForkOperationRecord Operation) : AgentEvent;
 

@@ -185,6 +185,7 @@ public record MaxConsecutiveErrorsExceededEvent(
     int Iteration) : AgentEvent, IObservabilityEvent, IErrorEvent
 {
     /// <inheritdoc />
+    [System.Text.Json.Serialization.JsonIgnore]
     public string ErrorMessage => $"Maximum consecutive errors ({ConsecutiveErrors}/{MaxConsecutiveErrors}) exceeded";
 
     /// <inheritdoc />

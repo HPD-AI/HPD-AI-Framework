@@ -63,6 +63,13 @@ All notable changes to the HPD AI Framework are documented in this file.
   implementation file names. Protocol-version information remains in schema
   identifiers, payload tags, and genuine legacy compatibility contracts.
 
+### Breaking
+
+- Removed the durable `ITERATION_CONTEXT_SNAPSHOT` event and its snapshot
+  models. It duplicated model-bound context and schemas without participating
+  in execution recovery or thread projection. Journals containing this
+  discriminator are intentionally not replay-compatible with 1.0.
+
 ### Fixed
 
 - Generated ASP.NET bot webhook routes now execute adapter responses, preserving

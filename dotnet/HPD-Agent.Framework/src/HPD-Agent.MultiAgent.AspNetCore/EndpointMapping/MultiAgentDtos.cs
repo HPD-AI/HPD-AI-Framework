@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using HPD.Base;
 
 namespace HPD.Agent.MultiAgent.AspNetCore.EndpointMapping;
 
@@ -44,7 +43,7 @@ public sealed record MultiAgentRunAcceptedResult
     /// <summary>Gets the durable activation identity.</summary>
     public required string ActivationId { get; init; }
     /// <summary>Gets the durable activation state.</summary>
-    public required BaseActivationState State { get; init; }
+    public required string State { get; init; }
     /// <summary>Gets whether the request committed or exactly replayed.</summary>
-    public required BaseMutationRequestDisposition Disposition { get; init; }
+    public required string Disposition { get; init; }
 }

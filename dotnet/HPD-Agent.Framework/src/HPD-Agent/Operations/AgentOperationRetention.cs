@@ -40,7 +40,7 @@ public sealed record AgentOperationTombstone
 }
 
 /// <summary>Records replacement of a terminal operation snapshot with a tombstone.</summary>
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("AGENT_OPERATION_TOMBSTONED")]
 public sealed record AgentOperationTombstonedEvent : AgentEvent
 {
@@ -51,7 +51,6 @@ public sealed record AgentOperationTombstonedEvent : AgentEvent
 }
 
 /// <summary>Records expiry of terminal replay protection.</summary>
-[HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("AGENT_OPERATION_TOMBSTONE_EVICTED")]
 public sealed record AgentOperationTombstoneEvictedEvent : AgentEvent
 {

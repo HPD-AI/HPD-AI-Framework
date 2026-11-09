@@ -4,8 +4,9 @@ using HPD.Agent;
 namespace HPD.Agent.ToolHarness.FileSystem;
 
 /// <summary>
-/// Context for FileSystem ToolHarness operations with workspace validation.
+/// Legacy context for deprecated FileSystem ToolHarness operations.
 /// </summary>
+[Obsolete(FileSystemDeprecation.Message)]
 public class FileSystemContext : IToolMetadata
 {
     private readonly Dictionary<string, object> _properties = new();

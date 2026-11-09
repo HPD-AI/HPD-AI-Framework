@@ -16,7 +16,7 @@ Product documentation, websites, and opinionated product layers live in their ow
 
 Use HPD-Agent to build production agents that can talk to models, call tools, stream events, manage sessions, hand work to sub-agents, handle deduplicated user inputs, and expose chat surfaces.
 
-[GitHub](https://github.com/HPD-AI/HPD-Agent) · [Documentation](https://hpd-ai.github.io/HPD-Agent-Framework/)
+[GitHub](https://github.com/HPD-AI/HPD-Agent) · [Documentation](https://hpd-ai.github.io/HPD-Agent/getting-started/)
 
 ---
 
@@ -114,6 +114,11 @@ Use HPD-TUI to build native AOT-friendly terminal interfaces that stay allocatio
 
 ---
 
-## HPD-AI Use Discretion
+## Versioning
 
-HPD-AI Framework is pre-1.0. Until `1.0.0`, API and persistence contracts may continue to evolve as the framework stabilizes.
+HPD-AI Framework contains independently released package families. HPD-Agent
+`1.0.0` follows semantic versioning for its documented public APIs, event
+contracts, persistence formats, and hosted integration surfaces. Other package
+families remain pre-1.0 until their release notes state otherwise.
+
+See [HPD-Agent 1.0.0 release notes](RELEASE-NOTES-1.0.0.md).

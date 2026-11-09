@@ -11,6 +11,8 @@ using HPD.Agent.Bots.Slack.SocketMode;
 using HPD.Agent.Bots.Streaming;
 using HPD.Agent.Hosting.Lifecycle;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 [assembly: InternalsVisibleTo("HPD-Agent.Bots.Tests")]
@@ -91,9 +93,11 @@ public partial class SlackBot(
     SlackApiClient api,
     SlackFormatConverter formatter,
     SlackUserCache userCache,
-    IOptionsMonitor<BotStreamingOptions>? streamingOptions = null)
+    IOptionsMonitor<BotStreamingOptions>? streamingOptions = null,
+    ILogger<SlackBot>? logger = null)
 {
     private readonly SlackBotConfig _config = options.Value;
+    private readonly ILogger _logger = logger ?? NullLogger<SlackBot>.Instance;
 
     // ── Pre-dispatch: signature verification ───────────────────────────────────
 
@@ -216,7 +220,12 @@ public partial class SlackBot(
         var (sessionId, threadId) = await sessionMapper.ResolveAsync(platformKey, ctx.CancellationToken);
         var input = await BuildInputAsync(ev, ctx.CancellationToken);
 
-        Console.WriteLine($"[SLACK] HandleMessageAsync: channel={ev.Channel} channelType={ev.ChannelType} user={ev.User} botId={ev.BotId} subtype={ev.Subtype} text={ev.Text} threadTs={threadTs} sessionId={sessionId} threadId={threadId}");
+        _logger.LogDebug(
+            "Received Slack message. Channel={Channel}, Subtype={Subtype}, SessionId={SessionId}, ThreadId={ThreadId}",
+            ev.Channel,
+            ev.Subtype,
+            sessionId,
+            threadId);
 
         // Fire-and-forget: Slack requires 200 within 3 seconds.
         _ = StreamToSlackAsync(sessionId, threadId, input, ev.Channel!, threadTs, CancellationToken.None);
@@ -413,13 +422,27 @@ public partial class SlackBot(
                 ct);
 
             if (!started)
-                Console.WriteLine($"[SLACK] StreamToSlackAsync: thread operation lock already held for session={sessionId} thread={threadId}, dropping");
+            {
+                _logger.LogWarning(
+                    "Slack agent stream was dropped because the thread operation lock was already held. SessionId={SessionId}, ThreadId={ThreadId}",
+                    sessionId,
+                    threadId);
+            }
             else
-                Console.WriteLine("[SLACK] StreamToSlackAsync: agent stream complete");
+            {
+                _logger.LogDebug(
+                    "Slack agent stream completed. SessionId={SessionId}, ThreadId={ThreadId}",
+                    sessionId,
+                    threadId);
+            }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[SLACK] StreamToSlackAsync EXCEPTION: {ex}");
+            _logger.LogError(
+                ex,
+                "Slack agent stream failed. SessionId={SessionId}, ThreadId={ThreadId}",
+                sessionId,
+                threadId);
         }
     }
 
@@ -439,7 +462,10 @@ public partial class SlackBot(
 
     private async Task InitializeSlackStreamAsync(SlackStreamContext context, CancellationToken ct)
     {
-        Console.WriteLine($"[SLACK] StreamToSlackAsync: starting for session={context.SessionId} channel={context.Channel} threadTs={context.ThreadTs}");
+        _logger.LogDebug(
+            "Starting Slack stream. SessionId={SessionId}, Channel={Channel}",
+            context.SessionId,
+            context.Channel);
 
         // UseNativeStreaming: chat.startStream -> chat.appendStream -> chat.stopStream.
         // Only available when recipientUserId is known (Assistants threads only).
@@ -459,9 +485,7 @@ public partial class SlackBot(
             return;
         }
 
-        Console.WriteLine("[SLACK] StreamToSlackAsync: posting placeholder message...");
         context.PlaceholderTs = await api.PostMessageAsync(context.Channel, context.ThreadTs, "...", ct);
-        Console.WriteLine($"[SLACK] StreamToSlackAsync: placeholder posted ts={context.PlaceholderTs}");
         await api.TrySetAssistantStatusAsync(context.Channel, context.ThreadTs, "Typing...", ct);
     }
 
@@ -483,7 +507,10 @@ public partial class SlackBot(
             return;
 
         var finalMrkdwn = formatter.ToMrkdwn(content);
-        Console.WriteLine($"[SLACK] StreamToSlackAsync: TextMessageEnd, posting final update len={finalMrkdwn.Length}");
+        _logger.LogDebug(
+            "Completing Slack stream. SessionId={SessionId}, Length={Length}",
+            context.SessionId,
+            finalMrkdwn.Length);
         if (context.UseNative)
         {
             await api.StopStreamAsync(context.Channel, context.PlaceholderTs, finalMrkdwn, null, ct);

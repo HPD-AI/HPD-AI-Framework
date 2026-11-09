@@ -1,11 +1,6 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using HPD.Agent.MultiAgent.AspNetCore.EndpointMapping;
 using HPD.Agent.MultiAgent.AspNetCore.Serialization;
-using HPD.Base;
-using HPD.Base.AspNetCore;
-using HPD.Graph.Base;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -32,31 +27,51 @@ public static class HPDMultiAgentEndpointRouteBuilderExtensions
         ArgumentNullException.ThrowIfNull(endpoints);
         var options = new HPDMultiAgentEndpointOptions();
         configure?.Invoke(options);
-        BaseGraphActivationDefinition[] graphs = endpoints.ServiceProvider
-            .GetServices<BaseGraphActivationDefinition>()
-            .OrderBy(static graph => graph.GraphId, StringComparer.Ordinal)
+        IHPDMultiAgentWorkflowBackend[] backends = endpoints.ServiceProvider
+            .GetServices<IHPDMultiAgentWorkflowBackend>()
             .ToArray();
+        if (backends.Length == 0)
+        {
+            throw new InvalidOperationException(
+                "Register at least one IHPDMultiAgentWorkflowBackend before mapping the multi-agent API.");
+        }
+
+        (IHPDMultiAgentWorkflowBackend Backend, HPDMultiAgentWorkflow Workflow)[] workflows = backends
+            .SelectMany(static backend => backend.Workflows.Select(workflow => (Backend: backend, Workflow: workflow)))
+            .OrderBy(static item => item.Workflow.WorkflowId, StringComparer.Ordinal)
+            .ToArray();
+        if (workflows.Select(static item => item.Workflow.WorkflowId).Distinct(StringComparer.Ordinal).Count() != workflows.Length)
+        {
+            throw new InvalidOperationException("Multi-agent workflow identifiers must be unique across registered backends.");
+        }
+
         var group = endpoints.MapGroup(options.RoutePrefix);
         group.MapGet("/workflows", () => Results.Json(new MultiAgentWorkflowListResponse
         {
-            Workflows = graphs.Select(static graph => new MultiAgentWorkflowSummaryDto
+            Workflows = workflows.Select(static item => new MultiAgentWorkflowSummaryDto
             {
-                WorkflowId = graph.GraphId,
-                GraphVersion = graph.GraphVersion,
-                DefinitionVersion = graph.Registration.Definition.Version,
-                GraphChecksum = Convert.ToHexStringLower(graph.GraphChecksum.Span),
+                WorkflowId = item.Workflow.WorkflowId,
+                GraphVersion = item.Workflow.WorkflowVersion,
+                DefinitionVersion = item.Workflow.DefinitionVersion,
+                GraphChecksum = item.Workflow.Checksum,
             }).ToArray(),
         }, HPDMultiAgentAspNetCoreJsonSerializerContext.Default.MultiAgentWorkflowListResponse));
-        foreach (BaseGraphActivationDefinition graph in graphs)
+        foreach ((IHPDMultiAgentWorkflowBackend backend, HPDMultiAgentWorkflow workflow) in workflows)
         {
-            BaseGraphActivationDefinition captured = graph;
-            group.MapPost($"/workflows/{graph.GraphId}/runs", (RequestDelegate)(context => StartRunAsync(context, captured)));
+            IHPDMultiAgentWorkflowBackend capturedBackend = backend;
+            HPDMultiAgentWorkflow capturedWorkflow = workflow;
+            group.MapPost(
+                $"/workflows/{workflow.WorkflowId}/runs",
+                (RequestDelegate)(context => StartRunAsync(context, capturedBackend, capturedWorkflow)));
         }
         options.ConfigureRoutes?.Invoke(group);
         return group;
     }
 
-    private static async Task StartRunAsync(HttpContext context, BaseGraphActivationDefinition graph)
+    private static async Task StartRunAsync(
+        HttpContext context,
+        IHPDMultiAgentWorkflowBackend backend,
+        HPDMultiAgentWorkflow workflow)
     {
         MultiAgentRunRequest? request;
         try
@@ -71,70 +86,52 @@ public static class HPDMultiAgentEndpointRouteBuilderExtensions
             await Problem(context, 400, "base.activation.invalid").ConfigureAwait(false);
             return;
         }
-        if (request is null || !context.Request.Headers.TryGetValue(BaseHttpHeaders.IdempotencyKey, out var keys)
+        if (request is null || !context.Request.Headers.TryGetValue(HPDMultiAgentHttpHeaders.IdempotencyKey, out var keys)
             || keys.Count != 1 || request.DueAtUnixMilliseconds is < 0)
         {
             await Problem(context, 400, "base.activation.invalid").ConfigureAwait(false);
             return;
         }
-        using var inputBuffer = new MemoryStream();
-        using (var inputWriter = new Utf8JsonWriter(inputBuffer)) request.Input.WriteTo(inputWriter);
-        byte[] source = inputBuffer.ToArray();
-        byte[] canonical;
-        try { canonical = BaseGraphActivationRegistration.CanonicalJson(source); }
-        catch (JsonException)
+
+        DateTimeOffset? dueAt = null;
+        if (request.DueAtUnixMilliseconds is long dueAtUnixMilliseconds)
         {
-            await Problem(context, 400, "base.activation.invalid").ConfigureAwait(false);
-            return;
-        }
-        string executionId = string.IsNullOrWhiteSpace(request.ExecutionId)
-            ? $"run:{Convert.ToHexStringLower(SHA256.HashData(canonical))}:{keys[0]}"
-            : request.ExecutionId;
-        BaseGraphActivationInput input;
-        BaseMutationRequestIdentity identity;
-        try
-        {
-            input = graph.CreateInput(executionId, canonical);
-            using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-            hash.AppendData("hpd.multiAgent.activation.v1\0"u8);
-            hash.AppendData(graph.GraphChecksum.Span);
-            hash.AppendData(SHA256.HashData(canonical));
-            if (request.DueAtUnixMilliseconds is long fingerprintDueAt)
-                hash.AppendData(Encoding.UTF8.GetBytes(fingerprintDueAt.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-            identity = BaseMutationRequestIdentity.Create(
-                $"multi-agent:{graph.GraphId}", "enqueue", keys[0]!,
-                BaseMutationRequestFingerprint.Create(hash.GetHashAndReset()));
-        }
-        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or OverflowException)
-        {
-            await Problem(context, 400, "base.activation.invalid").ConfigureAwait(false);
-            return;
-        }
-        PrincipalContext principal = await context.RequestServices
-            .GetRequiredService<IBaseHttpPrincipalContextFactory>()
-            .CreateAsync(context, context.RequestAborted).ConfigureAwait(false);
-        BaseSession session = context.RequestServices.GetRequiredService<IBaseSessionFactory>().For(principal);
-        OperationResult<BaseActivationEnqueueResult> result = await session.Activations
-            .Get(graph.Registration.Identity)
-            .EnqueueAsync(input, identity, new BaseActivationEnqueueOptions
+            try
             {
-                DueAt = request.DueAtUnixMilliseconds is long dueAt
-                    ? DateTimeOffset.FromUnixTimeMilliseconds(dueAt)
-                    : null,
-            }, context.RequestAborted).ConfigureAwait(false);
-        if (!result.IsSuccess() || result.Value is null)
+                dueAt = DateTimeOffset.FromUnixTimeMilliseconds(dueAtUnixMilliseconds);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                await Problem(context, 400, "base.activation.invalid").ConfigureAwait(false);
+                return;
+            }
+        }
+
+        HPDMultiAgentRunSubmission result = await backend.EnqueueAsync(new HPDMultiAgentRunCommand
         {
-            await Problem(context, StatusCode(result.Status),
-                result.Error?.Code ?? "base.activation.storeError").ConfigureAwait(false);
+            WorkflowId = workflow.WorkflowId,
+            IdempotencyKey = keys[0]!,
+            Input = request.Input,
+            ExecutionId = request.ExecutionId,
+            DueAt = dueAt,
+        }, context, context.RequestAborted).ConfigureAwait(false);
+
+        if (!result.IsSuccess || result.Admission is null)
+        {
+            await Problem(
+                context,
+                result.StatusCode,
+                result.ErrorCode ?? "multi-agent.activation.storeError").ConfigureAwait(false);
             return;
         }
         await Results.Json(new MultiAgentRunAcceptedResult
         {
-            ExecutionId = executionId,
-            ActivationId = result.Value.ActivationId,
-            State = result.Value.State,
-            Disposition = result.Value.Disposition,
-        }, HPDMultiAgentAspNetCoreJsonSerializerContext.Default.MultiAgentRunAcceptedResult)
+            ExecutionId = result.Admission.ExecutionId,
+            ActivationId = result.Admission.ActivationId,
+            State = result.Admission.State,
+            Disposition = result.Admission.Disposition,
+        }, HPDMultiAgentAspNetCoreJsonSerializerContext.Default.MultiAgentRunAcceptedResult,
+            statusCode: StatusCodes.Status202Accepted)
             .ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -142,14 +139,4 @@ public static class HPDMultiAgentEndpointRouteBuilderExtensions
         statusCode: status,
         title: "The durable multi-agent run request failed.",
         extensions: new Dictionary<string, object?> { ["hpd.error.code"] = code }).ExecuteAsync(context);
-
-    private static int StatusCode(HPD.Base.OperationStatus status) => status switch
-    {
-        HPD.Base.OperationStatus.ValidationFailed => 400,
-        HPD.Base.OperationStatus.PolicyDenied => 403,
-        HPD.Base.OperationStatus.NotFound => 404,
-        HPD.Base.OperationStatus.Conflict => 409,
-        HPD.Base.OperationStatus.Unsupported or HPD.Base.OperationStatus.CapabilityUnavailable => 424,
-        _ => 500,
-    };
 }

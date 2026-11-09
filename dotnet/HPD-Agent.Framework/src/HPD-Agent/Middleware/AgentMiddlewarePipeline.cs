@@ -387,10 +387,13 @@ internal class AgentMiddlewarePipeline
             var previousHandler = handler;
 
             handler = async (req) =>
-            {
-                return await middleware.WrapFunctionCallAsync(req, previousHandler, req.CancellationToken ?? cancellationToken)
-                    .ConfigureAwait(false);
-            };
+                middleware.ShouldExecute(req)
+                    ? await middleware.WrapFunctionCallAsync(
+                            req,
+                            previousHandler,
+                            req.CancellationToken ?? cancellationToken)
+                        .ConfigureAwait(false)
+                    : await previousHandler(req).ConfigureAwait(false);
         }
 
         return await handler(request).ConfigureAwait(false);

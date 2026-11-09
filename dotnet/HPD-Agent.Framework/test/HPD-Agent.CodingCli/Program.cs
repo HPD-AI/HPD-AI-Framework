@@ -89,33 +89,6 @@ using var turnStartedSubscription = agent.Subscribe<MessageTurnStartedEvent>(evt
         ConsoleColor.Blue,
         $"[turn:start] {evt.AgentName} {evt.MessageTurnId}");
 });
-// using var contextSnapshotSubscription = agent.Subscribe<IterationContextSnapshotEvent>(evt =>
-// {
-//     CliConsole.WriteErrorLine(
-//         ConsoleColor.DarkCyan,
-//         $"[context] iteration={evt.Iteration} injected_messages={evt.ContextMessageCount} tools={evt.ToolCount} total_model_messages={evt.TotalMessageCount}");
-//
-//     if (!string.IsNullOrWhiteSpace(evt.Instructions))
-//     {
-//         CliConsole.WriteErrorLine(
-//             ConsoleColor.DarkCyan,
-//             $"[context:instructions] {NormalizeSingleLine(evt.Instructions)}");
-//     }
-//
-//     foreach (var message in evt.ContextMessages)
-//     {
-//         CliConsole.WriteErrorLine(
-//             ConsoleColor.DarkCyan,
-//             $"[context:message] role={message.Role} text={Preview(message.Text)}");
-//     }
-//
-//     foreach (var tool in evt.Tools)
-//     {
-//         CliConsole.WriteErrorLine(
-//             ConsoleColor.DarkCyan,
-//             $"[context:tool] {tool.Name} toolharness={tool.ToolHarnessName ?? "-"} type={tool.CallType?.ToString() ?? "-"} container={tool.IsContainer} schema={Preview(tool.InputSchemaJson)}");
-//     }
-// });
 // using var middlewareStateSnapshotSubscription = agent.Subscribe<MiddlewareStateSnapshotEvent>(evt =>
 // {
 //     CliConsole.WriteErrorLine(

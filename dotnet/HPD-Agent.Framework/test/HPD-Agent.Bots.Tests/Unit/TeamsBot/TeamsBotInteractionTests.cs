@@ -78,7 +78,9 @@ public class TeamsBotInteractionTests
     [Fact]
     public async Task ProcessActionAsync_PermissionAction_DoesNotRaiseCardAction()
     {
-        var agent = new HpdAgent(CreateAgentConfig(), new NoOpChatClient(), mergedOptions: null);
+        await using var agent = await new AgentBuilder(CreateAgentConfig())
+            .WithChatClient(new NoOpChatClient())
+            .BuildAsync();
         var bot = CreateBot(new StaticAgentManager(agent));
         var cardActionRaised = false;
         bot.OnCardAction += _ => cardActionRaised = true;

@@ -8,6 +8,8 @@ namespace HPD.Agent.Bots;
 /// <remarks>
 /// The method must be <c>private</c> or <c>internal</c>. The generator produces
 /// the public adapter dispatch entry point that calls this method.
+/// Handler methods must accept <c>(BotRequestContext, Payload)</c> and return
+/// <c>Task&lt;BotAdapterResponse&gt;</c>.
 /// </remarks>
 /// <param name="eventType">
 /// The event type string to route to this handler

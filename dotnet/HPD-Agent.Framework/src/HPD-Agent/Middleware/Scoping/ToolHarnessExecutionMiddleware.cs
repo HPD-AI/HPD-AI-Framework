@@ -222,7 +222,7 @@ public sealed class ToolHarnessExecutionMiddleware : IAgentMiddleware
             await using var lease = await AcquireActiveAsync(
                 context,
                 harnessName,
-                new AgentRunConfig(),
+                context.RunConfig ?? new AgentRunConfig(),
                 cancellationToken).ConfigureAwait(false);
             if (lease is not null)
                 await lease.Pipeline.DispatchOnErrorAsync(context, cancellationToken).ConfigureAwait(false);

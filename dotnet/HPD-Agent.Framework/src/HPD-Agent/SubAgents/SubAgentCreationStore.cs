@@ -277,12 +277,12 @@ internal sealed class JournalSubAgentCreationStore(ISessionStore store) : ISubAg
 }
 
 /// <summary>Commits a newly allocated child creation.</summary>
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("SUBAGENT_CREATION_RESERVED")]
 public sealed record SubAgentCreationReservedEvent(SubAgentCreationRecord Record) : AgentEvent;
 
 /// <summary>Commits an idempotent phase transition for a child creation.</summary>
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("SUBAGENT_CREATION_ADVANCED")]
 public sealed record SubAgentCreationAdvancedEvent(SubAgentCreationRecord Record) : AgentEvent;
 

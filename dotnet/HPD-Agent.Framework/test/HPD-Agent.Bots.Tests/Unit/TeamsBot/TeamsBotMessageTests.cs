@@ -130,7 +130,9 @@ public class TeamsBotMessageTests
         var sessionStore = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
         var sessionManager = new TestSessionManager(sessionStore);
         var chatClient = new CapturingChatClient("done");
-        var agent = new HpdAgent(CreateAgentConfig(sessionStore), chatClient, mergedOptions: null);
+        await using var agent = await new AgentBuilder(CreateAgentConfig(sessionStore))
+            .WithChatClient(chatClient)
+            .BuildAsync();
         var bot = CreateBot(sessionManager, new StaticAgentManager(agent)).Bot;
         var fileBytes = new byte[] { 0x01, 0x02, 0x03 };
         var turn = new FakeTeamsTurn

@@ -1,6 +1,262 @@
 /* eslint-disable */
 // Generated from HPD Agent SDK IR v1.
 
+export const ClientToolProviderBindingLeaseStatus = {
+  Active: "Active",
+  Released: "Released",
+  Expired: "Expired",
+  Disconnected: "Disconnected",
+  Revoked: "Revoked",
+  Broken: "Broken",
+} as const;
+export type ClientToolProviderBindingLeaseStatus = typeof ClientToolProviderBindingLeaseStatus[keyof typeof ClientToolProviderBindingLeaseStatus] | (string & {});
+
+export const ClientToolProviderConnectionState = {
+  Connected: "Connected",
+  Registered: "Registered",
+  Ready: "Ready",
+  Bound: "Bound",
+  Disconnected: "Disconnected",
+  Revoked: "Revoked",
+} as const;
+export type ClientToolProviderConnectionState = typeof ClientToolProviderConnectionState[keyof typeof ClientToolProviderConnectionState] | (string & {});
+
+export const ClientToolProviderReadiness = {
+  Initializing: "Initializing",
+  Ready: "Ready",
+  Degraded: "Degraded",
+  Revoked: "Revoked",
+} as const;
+export type ClientToolProviderReadiness = typeof ClientToolProviderReadiness[keyof typeof ClientToolProviderReadiness] | (string & {});
+
+export interface AIAnnotation {
+}
+
+export interface AIAnnotationBase {
+  annotatedRegions?: Array<AnnotatedRegion> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIAnnotationCitationAnnotation {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<AnnotatedRegion> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContent {
+}
+
+export interface AIContentBase {
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContentCodeInterpreterToolCallContent {
+  $type: string;
+  inputs?: null;
+  callId: string;
+  annotations?: null;
+  additionalProperties?: null;
+}
+
+export interface AIContentCodeInterpreterToolResultContent {
+  $type: string;
+  outputs?: Array<AIContent> | null;
+  callId: string;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContentDataContent {
+  $type: string;
+  uri: string;
+  name?: string | null;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContentErrorContent {
+  $type: string;
+  message: string | null;
+  errorCode?: string | null;
+  details?: string | null;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContentFunctionCallContent {
+  $type: string;
+  name: string;
+  arguments?: unknown;
+  informationalOnly?: boolean | null;
+  callId: string;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContentFunctionResultContent {
+  $type: string;
+  result: null;
+  callId: string;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContentHostedFileContent {
+  $type: string;
+  fileId: string;
+  mediaType?: string | null;
+  name?: string | null;
+  sizeInBytes?: number | null;
+  createdAt?: string | null;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContentHostedVectorStoreContent {
+  $type: string;
+  vectorStoreId: string;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContentImageGenerationToolCallContent {
+  $type: string;
+  callId: string;
+  annotations?: null;
+  additionalProperties?: null;
+}
+
+export interface AIContentImageGenerationToolResultContent {
+  $type: string;
+  outputs?: Array<AIContent> | null;
+  callId: string;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContentInputRequestContent {
+  $type: string;
+  requestId?: string | null;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContentInputResponseContent {
+  $type: string;
+  requestId?: string | null;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContentMcpServerToolCallContent {
+  $type: string;
+  name: string;
+  serverName: string | null;
+  arguments?: null;
+  callId: string;
+  annotations?: null;
+  additionalProperties?: null;
+}
+
+export interface AIContentMcpServerToolResultContent {
+  $type: string;
+  outputs?: Array<AIContent> | null;
+  callId: string;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContentTextContent {
+  $type: string;
+  text: string | null;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContentTextReasoningContent {
+  $type: string;
+  text: string | null;
+  protectedData?: string | null;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContentToolApprovalRequestContent {
+  $type: string;
+  toolCall: ToolCallContent;
+  requestId: string;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContentToolApprovalResponseContent {
+  $type: string;
+  approved: boolean;
+  toolCall: ToolCallContent;
+  reason?: string | null;
+  requestId: string;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContentToolCallContent {
+  $type: string;
+  callId: string;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContentToolResultContent {
+  $type: string;
+  callId: string;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContentUriContent {
+  $type: string;
+  uri: string;
+  mediaType?: string | null;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContentUsageContent {
+  $type: string;
+  details: UsageDetails;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIContentWebSearchToolCallContent {
+  $type: string;
+  queries?: null;
+  callId: string;
+  annotations?: null;
+  additionalProperties?: null;
+}
+
+export interface AIContentWebSearchToolResultContent {
+  $type: string;
+  outputs?: Array<AIContent> | null;
+  callId: string;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface AIFunctionPermissionDeclaration {
+  requiresPermission: boolean;
+  authority: string;
+  policyDescriptorId?: string | null;
+  source: number;
+}
+
 export interface ActionRetryExclusion {
   function?: string | null;
   action?: string | null;
@@ -72,7 +328,14 @@ export interface AgentMetadata {
   parentAgentId?: string | null;
   agentChain?: Array<string> | null;
   depth?: number | null;
-  isSubAgent?: boolean | null;
+}
+
+export interface AgentOperationNotificationPolicy {
+  includeInputRequired?: boolean | null;
+  includeProgress?: boolean | null;
+  includeTerminal?: boolean | null;
+  deduplicationKey?: string | null;
+  minimumInterval?: string | null;
 }
 
 export interface AgentOperationRetentionPolicy {
@@ -112,6 +375,9 @@ export interface AgenticLoopConfig {
   maxTurnDuration?: string | null;
   maxParallelFunctions?: number | null;
   terminateOnUnknownCalls?: boolean | null;
+}
+
+export interface AnnotatedRegion {
 }
 
 export interface AudioConfig {
@@ -178,6 +444,165 @@ export interface ChatClientConfig {
   modelName?: string | null;
   endpoint?: string | null;
   customHeaders?: Record<string, string> | null;
+}
+
+export interface ChatDetails {
+  turnDetails: Array<ChatTurnDetails>;
+}
+
+export interface ChatMessage {
+  authorName?: string | null;
+  createdAt?: string | null;
+  role?: unknown;
+  contents?: Array<AIContent> | null;
+  messageId?: string | null;
+  additionalProperties?: unknown;
+}
+
+export interface ChatResponse {
+  messages?: Array<ChatMessage> | null;
+  responseId?: string | null;
+  conversationId?: string | null;
+  modelId?: string | null;
+  createdAt?: string | null;
+  finishReason?: unknown;
+  usage?: unknown;
+  continuationToken?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface ChatTurnDetails {
+  latency: string;
+  model: string | null;
+  modelProvider: string | null;
+  usage?: unknown;
+  cacheKey?: string | null;
+  cacheHit?: boolean | null;
+}
+
+export interface ClientAppProviderDescriptor {
+  name: string;
+  displayName?: string | null;
+  description?: string | null;
+  version?: string | null;
+  tags?: Array<string> | null;
+  metadata?: unknown;
+}
+
+export interface ClientSkillDefinition {
+  name: string;
+  description: string;
+  instructions: string;
+  reinforcement?: string | null;
+  references?: Array<ClientSkillReference> | null;
+}
+
+export interface ClientSkillReference {
+  toolName: string;
+  toolsetName?: string | null;
+}
+
+export interface ClientToolDefinition {
+  name: string;
+  description: string;
+  parametersSchema: unknown;
+  defaultPolicy?: ClientToolPolicy | null;
+  operationContract?: unknown;
+  metadata?: unknown;
+}
+
+export interface ClientToolOperationContract {
+  discriminator: string;
+  actions: Record<string, ClientToolPolicy>;
+}
+
+export interface ClientToolPolicy {
+  permission?: unknown;
+  mutatesState?: boolean | null;
+  requiresFreshContext?: boolean | null;
+  destructive?: boolean | null;
+  idempotent?: boolean | null;
+  invocationModePolicy?: unknown;
+  operationNotification?: unknown;
+}
+
+export interface ClientToolProviderBindingLease {
+  bindingId: string;
+  clientRuntimeId: string;
+  connectionId: string;
+  ownerRuntimeId?: string | null;
+  agentId?: string | null;
+  sessionId?: string | null;
+  threadId?: string | null;
+  threadExecutionId?: string | null;
+  boundAt?: string | null;
+  expiresAt?: string | null;
+  heartbeatInterval?: string | null;
+  status?: ClientToolProviderBindingLeaseStatus | null;
+  releasedAt?: string | null;
+  releaseReason?: string | null;
+}
+
+export interface ClientToolProviderContext {
+  workspaceId?: string | null;
+  documentId?: string | null;
+  documentName?: string | null;
+  pageId?: string | null;
+  fileId?: string | null;
+  projectId?: string | null;
+  sceneId?: string | null;
+  activeView?: string | null;
+  selectionSummary?: string | null;
+  appStateVersion?: string | null;
+  metadata?: unknown;
+}
+
+export interface ClientToolProviderIdentity {
+  providerName: string;
+  appKind: string;
+  instanceId?: string | null;
+  installationId?: string | null;
+  userHint?: string | null;
+  origin?: string | null;
+  version?: string | null;
+}
+
+export interface ClientToolProviderManifest {
+  protocolVersion?: string | null;
+  identity: ClientToolProviderIdentity;
+  appProvider: ClientAppProviderDescriptor;
+  context?: unknown;
+  readiness?: ClientToolProviderReadiness | null;
+  clientToolHarnesses?: Array<ClientToolHarnessDefinition> | null;
+  metadata?: unknown;
+}
+
+export interface ClientToolProviderRuntimeIdentity {
+  appId: string;
+  appRevision: string;
+  installationId: string;
+  workloadId: string;
+  workloadGeneration: number;
+  endpointId: string;
+  publicationId: string;
+  publicationGeneration: number;
+  launchSurfaceId: string;
+  browserLaunchSessionId: string;
+  browserLaunchSessionGeneration: number;
+  providerConnectionGeneration: number;
+  origin: string;
+}
+
+export interface ClientToolProviderSnapshot {
+  clientRuntimeId: string;
+  connectionId: string;
+  runtimeIdentity?: unknown;
+  manifest?: unknown;
+  state?: ClientToolProviderConnectionState | null;
+  connectedAt?: string | null;
+  lastHeartbeatAt?: string | null;
+  disconnectedAt?: string | null;
+  bindingLease?: unknown;
 }
 
 export interface CollapsingConfig {
@@ -300,6 +725,7 @@ export interface ContentRetrievalLimits {
 }
 
 export interface CreateAgentRequest {
+  agentId: string;
   name: string;
   config: AgentConfig;
   metadata?: unknown;
@@ -317,6 +743,25 @@ export interface CreateThreadRequest {
   description: string | null;
   tags: Array<string> | null;
   metadata?: unknown;
+}
+
+export interface DatasetRecord {
+  datasetId: string;
+  currentVersion: string;
+  description: string | null;
+  contentHash: string;
+  registeredAt: string;
+  metadata: unknown;
+}
+
+export interface DatasetVersionRecord {
+  datasetId: string;
+  version: string;
+  description: string | null;
+  contentHash: string;
+  caseCount: number;
+  registeredAt: string;
+  metadata: unknown;
 }
 
 export interface EmbeddingsClientConfig {
@@ -343,177 +788,127 @@ export interface ErrorHandlingConfig {
   singleFunctionTimeout?: string | null;
 }
 
-export interface ExecuteCommandAutoBackgroundedEvent {
-  type: "EXECUTE_COMMAND_AUTO_BACKGROUNDED";
-  kind?: number | null;
-  operationId: string;
-  backgroundedAt: string;
-  elapsedMilliseconds: number;
-  toolCallId: string;
-  functionName: string;
-  commandId: string;
-  command: string;
-  baseCommand: string;
-  category: string;
-  workingDirectory: string;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
+export interface EvaluationContext {
+  name?: string | null;
+  contents?: Array<AIContent> | null;
 }
 
-export interface ExecuteCommandOutputChunkEvent {
-  type: "EXECUTE_COMMAND_OUTPUT_CHUNK";
-  channel?: number | null;
-  kind?: number | null;
-  stream: string;
-  text: string;
-  observedAt: string;
-  streamBytesObserved: number;
-  combinedBytesObserved: number;
-  truncated?: boolean | null;
-  suppressed?: boolean | null;
-  binary?: boolean | null;
-  toolCallId: string;
-  functionName: string;
-  commandId: string;
-  command: string;
-  baseCommand: string;
-  category: string;
-  workingDirectory: string;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
+export interface EvaluationDiagnostic {
+  severity: number;
+  message: string;
 }
 
-export interface ExecuteCommandProcessExitedEvent {
-  type: "EXECUTE_COMMAND_PROCESS_EXITED";
-  kind?: number | null;
-  exitCode?: number | null;
-  completionKind: string;
-  durationMilliseconds: number;
-  stdoutBytes: number;
-  stderrBytes: number;
-  combinedOutputBytes: number;
-  stdoutBytesDiscarded: number;
-  stderrBytesDiscarded: number;
-  combinedBytesDiscarded: number;
-  outputTruncated: boolean;
-  outputDrainTimedOut: boolean;
-  outputEventsSuppressed: boolean;
-  maxPersistedOutputBytes: number;
-  combinedOutputFormat: string;
-  toolCallId: string;
-  functionName: string;
-  commandId: string;
-  command: string;
-  baseCommand: string;
-  category: string;
-  workingDirectory: string;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
+export interface EvaluationMetric {
 }
 
-export interface ExecuteCommandProcessStartedEvent {
-  type: "EXECUTE_COMMAND_PROCESS_STARTED";
-  kind?: number | null;
-  shell: string;
-  startedAt: string;
-  background: boolean;
-  autoBackgroundEligible: boolean;
-  processId?: number | null;
-  timeoutMilliseconds: number;
-  toolCallId: string;
-  functionName: string;
-  commandId: string;
-  command: string;
-  baseCommand: string;
-  category: string;
-  workingDirectory: string;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
+export interface EvaluationMetricBooleanMetric {
+  $type?: string | null;
+  value?: boolean | null;
+  name: string;
+  reason?: string | null;
+  interpretation?: unknown;
+  context?: Record<string, EvaluationContext> | null;
+  diagnostics?: Array<EvaluationDiagnostic> | null;
+  metadata?: Record<string, string> | null;
 }
 
-export interface ExecuteCommandProgressEvent {
-  type: "EXECUTE_COMMAND_PROGRESS";
-  channel?: number | null;
-  kind?: number | null;
-  elapsedMilliseconds: number;
-  stdoutBytes: number;
-  stderrBytes: number;
-  combinedOutputBytes: number;
-  combinedBytesDiscarded: number;
-  outputObserved: boolean;
-  outputEventsSuppressed: boolean;
-  toolCallId: string;
-  functionName: string;
-  commandId: string;
-  command: string;
-  baseCommand: string;
-  category: string;
-  workingDirectory: string;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
+export interface EvaluationMetricEvaluationMetric {
+  $type?: string | null;
+  name: string;
+  reason?: string | null;
+  interpretation?: unknown;
+  context?: Record<string, EvaluationContext> | null;
+  diagnostics?: Array<EvaluationDiagnostic> | null;
+  metadata?: Record<string, string> | null;
+}
+
+export interface EvaluationMetricInterpretation {
+  rating?: number | null;
+  failed?: boolean | null;
+  reason?: string | null;
+}
+
+export interface EvaluationMetricNumericMetric {
+  $type?: string | null;
+  value?: number | null;
+  name: string;
+  reason?: string | null;
+  interpretation?: unknown;
+  context?: Record<string, EvaluationContext> | null;
+  diagnostics?: Array<EvaluationDiagnostic> | null;
+  metadata?: Record<string, string> | null;
+}
+
+export interface EvaluationMetricStringMetric {
+  $type?: string | null;
+  value?: string | null;
+  name: string;
+  reason?: string | null;
+  interpretation?: unknown;
+  context?: Record<string, EvaluationContext> | null;
+  diagnostics?: Array<EvaluationDiagnostic> | null;
+  metadata?: Record<string, string> | null;
+}
+
+export interface EvaluationResult {
+  metrics: Record<string, EvaluationMetric>;
+}
+
+export interface EvaluationRunRecord {
+  id?: string | null;
+  executionName?: string | null;
+  scenarioName?: string | null;
+  iterationName?: string | null;
+  createdAt?: string | null;
+  messages?: Array<ChatMessage> | null;
+  modelResponse?: ChatResponse | null;
+  evaluationResult?: EvaluationResult | null;
+  chatDetails?: unknown;
+  judgeCalls?: Array<JudgeCallRecord> | null;
+  tags?: Array<string> | null;
+  metadata?: unknown;
+  source?: number | null;
+  agentName?: string | null;
   sessionId?: string | null;
   threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
+  turnIndex?: number | null;
+  providerKey?: string | null;
+  modelId?: string | null;
+  responseModelId?: string | null;
+  datasetId?: string | null;
+  datasetVersion?: string | null;
+  caseId?: string | null;
+  caseVersion?: string | null;
+  caseValidFrom?: string | null;
+  caseValidTo?: string | null;
+  taskDuration?: string | null;
+  evaluatorDuration?: string | null;
+  totalDuration?: string | null;
+}
+
+export interface EvaluatorCatalogItem {
+  name: string;
+  category: string;
+  kind: string;
+  metricNames: Array<string>;
+  defaultPolicy: string;
+  requiresJudge: boolean;
+  description: string;
+}
+
+export interface EvaluatorSummary {
+  evaluatorName: string;
+  totalCount: number;
+  averageScore: number;
+  passRate: number;
+  averageJudgeCostUsd: number;
+  averageJudgeDuration: string;
+  failureCount: number;
+}
+
+export interface FailureRateResponse {
+  evaluatorName: string;
+  failureRate: number;
 }
 
 export interface ForkThreadRequest {
@@ -583,7 +978,6 @@ export interface HPDAgentAgentCapabilityRefreshRejectedEvent {
   retainedEpoch: number;
   error: string;
   reason: string;
-  errorMessage?: string | null;
   eventId?: string | null;
   threadSequenceNumber?: number | null;
   sessionId?: string | null;
@@ -1371,135 +1765,6 @@ export interface HPDAgentDocumentProcessedEvent {
   exchangeTimestampNs?: number | null;
 }
 
-export interface HPDAgentEvaluationsIntegrationAnnotationRequestedEvent {
-  type: "ANNOTATION_REQUESTED";
-  annotationId?: string | null;
-  turnIndex?: number | null;
-  triggerEvaluatorName?: string | null;
-  triggerScore?: number | null;
-  requestId?: string | null;
-  sourceName?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  kind?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDAgentEvaluationsIntegrationAnnotationResponseEvent {
-  type: "ANNOTATION_RESPONSE";
-  annotationId?: string | null;
-  reviewerId?: string | null;
-  label?: string | null;
-  score?: number | null;
-  comment?: string | null;
-  evaluatorName?: string | null;
-  metricName?: string | null;
-  requestId?: string | null;
-  sourceName?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  kind?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDAgentEvaluationsIntegrationEvalFailedEvent {
-  type: "EVAL_FAILED";
-  evaluatorName?: string | null;
-  turnIndex?: number | null;
-  errorMessage?: string | null;
-  timedOut?: boolean | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  kind?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDAgentEvaluationsIntegrationEvalPolicyViolationEvent {
-  type: "EVAL_POLICY_VIOLATION";
-  evaluatorName?: string | null;
-  metricName?: string | null;
-  turnIndex?: number | null;
-  result?: InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResult | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  kind?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDAgentEvaluationsIntegrationEvalScoreEvent {
-  type: "EVAL_SCORE";
-  evaluatorName?: string | null;
-  evaluatorVersion?: string | null;
-  result?: InlineHPDAgentEvaluationsIntegrationEvalScoreEventResult | null;
-  source?: number | null;
-  turnIndex?: number | null;
-  evaluatorDuration?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  kind?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
 export interface HPDAgentEventDroppedEvent {
   type: "EVENT_DROPPED";
   droppedEventFlowId: string;
@@ -1553,9 +1818,6 @@ export interface HPDAgentFunctionRetryEvent {
   exceptionType: string;
   errorMessage: string;
   kind?: number | null;
-  category?: number | null;
-  isModelNotFound?: boolean | null;
-  isRetryable?: boolean | null;
   eventId?: string | null;
   threadSequenceNumber?: number | null;
   sessionId?: string | null;
@@ -2079,35 +2341,6 @@ export interface HPDAgentInterruptionHandledEvent {
   exchangeTimestampNs?: number | null;
 }
 
-export interface HPDAgentIterationContextSnapshotEvent {
-  type: "ITERATION_CONTEXT_SNAPSHOT";
-  agentName: string;
-  iteration: number;
-  totalMessageCount: number;
-  contextMessageCount: number;
-  contextMessages: Array<InlineHPDAgentIterationContextSnapshotEventContextMessagesItem>;
-  instructions: string | null;
-  toolCount: number;
-  tools: Array<InlineHPDAgentIterationContextSnapshotEventToolsItem>;
-  compactionSummaryInputs?: Array<InlineHPDAgentIterationContextSnapshotEventCompactionSummaryInputsItem> | null;
-  kind?: number | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp: string;
-  exchangeTimestampNs?: number | null;
-}
-
 export interface HPDAgentIterationStartEvent {
   type: "ITERATION_START";
   agentName: string;
@@ -2141,8 +2374,6 @@ export interface HPDAgentMaxConsecutiveErrorsExceededEvent {
   consecutiveErrors: number;
   maxConsecutiveErrors: number;
   iteration: number;
-  errorMessage?: string | null;
-  exception?: InlineHPDAgentMaxConsecutiveErrorsExceededEventException | null;
   eventId?: string | null;
   threadSequenceNumber?: number | null;
   sessionId?: string | null;
@@ -2173,9 +2404,6 @@ export interface HPDAgentMessageTurnErrorEvent {
   errorType?: string | null;
   cancellation?: InlineHPDAgentMessageTurnErrorEventCancellation | null;
   category?: number | null;
-  errorCode?: string | null;
-  isModelNotFound?: boolean | null;
-  isRetryable?: boolean | null;
   eventId?: string | null;
   threadSequenceNumber?: number | null;
   sessionId?: string | null;
@@ -2469,9 +2697,6 @@ export interface HPDAgentModelCallRetryEvent {
   errorMessage: string;
   channel?: number | null;
   kind?: number | null;
-  category?: number | null;
-  isModelNotFound?: boolean | null;
-  isRetryable?: boolean | null;
   eventId?: string | null;
   threadSequenceNumber?: number | null;
   sessionId?: string | null;
@@ -2961,255 +3186,6 @@ export interface HPDAgentRuntimeAgentLiveEvent {
   exchangeTimestampNs?: number | null;
 }
 
-export interface HPDAgentSandboxHostProcessEventsLocalProcessInvocationCancelledEvent {
-  type: "LOCAL_PROCESS_INVOCATION_CANCELLED";
-  sourceName?: string | null;
-  processId?: string | null;
-  commandKind?: string | null;
-  fileName?: string | null;
-  workingDirectory?: string | null;
-  networkMode?: number | null;
-  platform?: string | null;
-  duration?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  kind?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDAgentSandboxHostProcessEventsLocalProcessInvocationCompletedEvent {
-  type: "LOCAL_PROCESS_INVOCATION_COMPLETED";
-  exitCode?: number | null;
-  sourceName?: string | null;
-  processId?: string | null;
-  commandKind?: string | null;
-  fileName?: string | null;
-  workingDirectory?: string | null;
-  networkMode?: number | null;
-  platform?: string | null;
-  duration?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  kind?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDAgentSandboxHostProcessEventsLocalProcessInvocationFailedEvent {
-  type: "LOCAL_PROCESS_INVOCATION_FAILED";
-  message?: string | null;
-  sourceName?: string | null;
-  processId?: string | null;
-  commandKind?: string | null;
-  fileName?: string | null;
-  workingDirectory?: string | null;
-  networkMode?: number | null;
-  platform?: string | null;
-  duration?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  kind?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDAgentSandboxHostProcessEventsLocalProcessInvocationKilledEvent {
-  type: "LOCAL_PROCESS_INVOCATION_KILLED";
-  reason?: string | null;
-  sourceName?: string | null;
-  processId?: string | null;
-  commandKind?: string | null;
-  fileName?: string | null;
-  workingDirectory?: string | null;
-  networkMode?: number | null;
-  platform?: string | null;
-  duration?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  kind?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDAgentSandboxHostProcessEventsLocalProcessInvocationStartedEvent {
-  type: "LOCAL_PROCESS_INVOCATION_STARTED";
-  systemProcessId?: number | null;
-  sourceName?: string | null;
-  processId?: string | null;
-  commandKind?: string | null;
-  fileName?: string | null;
-  workingDirectory?: string | null;
-  networkMode?: number | null;
-  platform?: string | null;
-  duration?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  kind?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDAgentSandboxHostProcessEventsLocalProcessInvocationStartingEvent {
-  type: "LOCAL_PROCESS_INVOCATION_STARTING";
-  sourceName?: string | null;
-  processId?: string | null;
-  commandKind?: string | null;
-  fileName?: string | null;
-  workingDirectory?: string | null;
-  networkMode?: number | null;
-  platform?: string | null;
-  duration?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  kind?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDAgentSandboxHostProcessEventsLocalProcessInvocationTimedOutEvent {
-  type: "LOCAL_PROCESS_INVOCATION_TIMED_OUT";
-  timeout?: string | null;
-  sourceName?: string | null;
-  processId?: string | null;
-  commandKind?: string | null;
-  fileName?: string | null;
-  workingDirectory?: string | null;
-  networkMode?: number | null;
-  platform?: string | null;
-  duration?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  kind?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDAgentSandboxHostProcessEventsProcessIsolationInitializedEvent {
-  type: "PROCESS_ISOLATION_INITIALIZED";
-  platform?: string | null;
-  httpProxyPort?: number | null;
-  socks5ProxyPort?: number | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  kind?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDAgentSandboxHostProcessEventsProcessIsolationViolationEvent {
-  type: "PROCESS_ISOLATION_VIOLATION";
-  sourceName?: string | null;
-  processId?: string | null;
-  violationType?: number | null;
-  message?: string | null;
-  path?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  kind?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
 export interface HPDAgentSkillActivatedEvent {
   type: "SKILL_ACTIVATED";
   capabilityId: InlineHPDAgentSkillActivatedEventCapabilityId;
@@ -3239,7 +3215,6 @@ export interface HPDAgentSkillActivationFailedEvent {
   capabilityId: InlineHPDAgentSkillActivationFailedEventCapabilityId;
   name: string;
   errorType: string;
-  errorMessage?: string | null;
   eventId?: string | null;
   threadSequenceNumber?: number | null;
   sessionId?: string | null;
@@ -3307,7 +3282,6 @@ export interface HPDAgentSkillResourceReadFailedEvent {
   capabilityId: InlineHPDAgentSkillResourceReadFailedEventCapabilityId;
   name: string;
   errorType: string;
-  errorMessage?: string | null;
   eventId?: string | null;
   threadSequenceNumber?: number | null;
   sessionId?: string | null;
@@ -3375,7 +3349,6 @@ export interface HPDAgentSkillScriptFailedEvent {
   capabilityId: InlineHPDAgentSkillScriptFailedEventCapabilityId;
   name: string;
   category: number;
-  errorMessage?: string | null;
   eventId?: string | null;
   threadSequenceNumber?: number | null;
   sessionId?: string | null;
@@ -3421,7 +3394,6 @@ export interface HPDAgentSkillScriptTimedOutEvent {
   type: "SKILL_SCRIPT_TIMED_OUT";
   capabilityId: InlineHPDAgentSkillScriptTimedOutEventCapabilityId;
   name: string;
-  errorMessage?: string | null;
   eventId?: string | null;
   threadSequenceNumber?: number | null;
   sessionId?: string | null;
@@ -3765,7 +3737,7 @@ export interface HPDAgentSubAgentCreationReservedEvent {
 }
 
 export interface HPDAgentSubAgentExecutionControllerEvent {
-  type: "SUB_AGENT_EXECUTION_CONTROLLER";
+  type: "SUBAGENT_EXECUTION_CONTROLLER";
   executionId: string;
   controller: InlineHPDAgentSubAgentExecutionControllerEventController;
   operationId?: string | null;
@@ -3883,7 +3855,7 @@ export interface HPDAgentSubAgentInvocationStartedEvent {
 }
 
 export interface HPDAgentSubAgentQuestionRaisedEvent {
-  type: "SUB_AGENT_QUESTION_RAISED";
+  type: "SUBAGENT_QUESTION_RAISED";
   requestId: string;
   child: InlineHPDAgentSubAgentQuestionRaisedEventChild;
   childExecutionId: string;
@@ -3930,7 +3902,7 @@ export interface HPDAgentSubAgentRegistrySeedEvent {
 }
 
 export interface HPDAgentSubAgentResultSubmittedEvent {
-  type: "SUB_AGENT_RESULT_SUBMITTED";
+  type: "SUBAGENT_RESULT_SUBMITTED";
   executionId: string;
   callId: string;
   controller: InlineHPDAgentSubAgentResultSubmittedEventController;
@@ -4368,63 +4340,6 @@ export interface HPDAgentToolCallStartEvent {
   exchangeTimestampNs?: number | null;
 }
 
-export interface HPDAgentToolHarnessCodingDebuggingDebugRunInTerminalRequestEvent {
-  type: "DEBUG_RUN_IN_TERMINAL_REQUEST";
-  kind?: number | null;
-  channel?: number | null;
-  debugRequestId: string;
-  debugTreeId: string;
-  debugSessionId: string;
-  terminalKind?: string | null;
-  title?: string | null;
-  workingDirectory: string;
-  arguments: Array<string>;
-  environmentDelta: Record<string, string>;
-  argsCanBeInterpretedByShell?: boolean | null;
-  requestId?: string | null;
-  sourceName?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDAgentToolHarnessCodingDebuggingDebugRunInTerminalResponseEvent {
-  type: "DEBUG_RUN_IN_TERMINAL_RESPONSE";
-  kind?: number | null;
-  channel?: number | null;
-  debugRequestId: string;
-  processId?: number | null;
-  shellProcessId?: number | null;
-  responderId?: string | null;
-  requestId?: string | null;
-  sourceName?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
 export interface HPDAgentToolOutputProjectedEvent {
   type: "TOOL_OUTPUT_PROJECTED";
   functionName: string | null;
@@ -4483,8 +4398,6 @@ export interface HPDAgentTotalErrorThresholdExceededEvent {
   totalErrorCount: number;
   maxTotalErrors: number;
   iteration: number;
-  errorMessage?: string | null;
-  exception?: InlineHPDAgentTotalErrorThresholdExceededEventException | null;
   eventId?: string | null;
   threadSequenceNumber?: number | null;
   sessionId?: string | null;
@@ -4557,6 +4470,7 @@ export interface HPDAgentUserAudioTranscriptFailedEvent {
   errorMessage: string;
   providerItemId?: string | null;
   contentIndex?: number | null;
+  error?: InlineHPDAgentUserAudioTranscriptFailedEventError | null;
   channel?: number | null;
   eventId?: string | null;
   threadSequenceNumber?: number | null;
@@ -4626,1264 +4540,6 @@ export interface HPDAgentUserQuestionRequestEvent {
   traceId?: string | null;
   spanId?: string | null;
   parentSpanId?: string | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugBreakpointChangedEvent {
-  type: "DEBUG_BREAKPOINT_CHANGED";
-  clientBreakpointId: string;
-  breakpointKind: number;
-  change: number;
-  acknowledged: boolean;
-  verified: boolean;
-  safeMessage?: string | null;
-  displayPath?: string | null;
-  resolvedLine?: number | null;
-  resolvedColumn?: number | null;
-  instructionReferenceToken?: string | null;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugBreakpointSelectionAppliedEvent {
-  type: "DEBUG_BREAKPOINT_SELECTION_APPLIED";
-  toolCallId: string;
-  action: string;
-  breakpointKind: number;
-  before: Array<InlineHPDOSToolHarnessesMiddlewareDebugBreakpointSelectionAppliedEventBeforeItem>;
-  after: Array<InlineHPDOSToolHarnessesMiddlewareDebugBreakpointSelectionAppliedEventAfterItem>;
-  changes: Array<InlineHPDOSToolHarnessesMiddlewareDebugBreakpointSelectionAppliedEventChangesItem>;
-  counts: InlineHPDOSToolHarnessesMiddlewareDebugBreakpointSelectionAppliedEventCounts;
-  sourcePreviews?: Array<InlineHPDOSToolHarnessesMiddlewareDebugBreakpointSelectionAppliedEventSourcePreviewsItem> | null;
-  detailsTruncated: boolean;
-  truncationReason?: string | null;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugCapabilitiesChangedEvent {
-  type: "DEBUG_CAPABILITIES_CHANGED";
-  enabled: Array<string>;
-  disabled: Array<string>;
-  kind?: number | null;
-  channel?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugChildSessionStartedEvent {
-  type: "DEBUG_CHILD_SESSION_STARTED";
-  parentDebugSessionId: string;
-  adapterStartMethod: number;
-  outputPresentation?: string | null;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugExecutionActivatingEvent {
-  type: "DEBUG_EXECUTION_ACTIVATING";
-  semanticStartKind: number;
-  adapterStartMethod: number;
-  executionPlannerId: string;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugExecutionActivationFailedEvent {
-  type: "DEBUG_EXECUTION_ACTIVATION_FAILED";
-  executionPlannerId: string;
-  safeReasonCode: string;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugExecutionCommandAppliedEvent {
-  type: "DEBUG_EXECUTION_COMMAND_APPLIED";
-  command: number;
-  adapterThreadId?: number | null;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugExecutionPlannedEvent {
-  type: "DEBUG_EXECUTION_PLANNED";
-  semanticStartKind: number;
-  adapterStartMethod: number;
-  executionPlannerId: string;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugHostProcessExitedEvent {
-  type: "DEBUG_HOST_PROCESS_EXITED";
-  safeProcessRole: string;
-  exitCode?: number | null;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugHostProcessStartedEvent {
-  type: "DEBUG_HOST_PROCESS_STARTED";
-  safeProcessRole: string;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugHostReadyEvent {
-  type: "DEBUG_HOST_READY";
-  safeProcessRole: string;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugLoadedSourceChangedEvent {
-  type: "DEBUG_LOADED_SOURCE_CHANGED";
-  reason: string;
-  name?: string | null;
-  path?: string | null;
-  sourceReference?: number | null;
-  kind?: number | null;
-  channel?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugMemoryChangedEvent {
-  type: "DEBUG_MEMORY_CHANGED";
-  memoryReferenceToken: string;
-  offset: number;
-  count: number;
-  invalidatedRanges?: number | null;
-  kind?: number | null;
-  channel?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugModuleChangedEvent {
-  type: "DEBUG_MODULE_CHANGED";
-  reason: string;
-  opaqueModuleId: string;
-  name: string;
-  path?: string | null;
-  kind?: number | null;
-  channel?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugOutputAvailableEvent {
-  type: "DEBUG_OUTPUT_AVAILABLE";
-  kind?: number | null;
-  firstSequence: number;
-  lastSequence: number;
-  category: string;
-  inlineText?: string | null;
-  contentScope?: string | null;
-  contentId?: string | null;
-  contentVersion?: string | null;
-  droppedRecords?: number | null;
-  droppedBytes?: number | null;
-  channel?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugOwnedResourceCleanupFailedEvent {
-  type: "DEBUG_OWNED_RESOURCE_CLEANUP_FAILED";
-  safeResourceKind: string;
-  safeResourceIdentity: string;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugPrimaryStopAvailableEvent {
-  type: "DEBUG_PRIMARY_STOP_AVAILABLE";
-  adapterThreadId: number;
-  suspensionEpoch: number;
-  reason: string;
-  description?: string | null;
-  frameName?: string | null;
-  displayPath?: string | null;
-  line?: number | null;
-  column?: number | null;
-  sourcePreview?: InlineHPDOSToolHarnessesMiddlewareDebugPrimaryStopAvailableEventSourcePreview | null;
-  inspectionSucceeded: boolean;
-  safeFailureCode?: string | null;
-  hitBreakpointClientIds?: Array<string> | null;
-  hitBreakpointIdentityUnknown: boolean;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugProcessChangedEvent {
-  type: "DEBUG_PROCESS_CHANGED";
-  name: string;
-  systemProcessId?: number | null;
-  isLocalProcess?: boolean | null;
-  startMethod?: string | null;
-  kind?: number | null;
-  channel?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugProgressCompletedEvent {
-  type: "DEBUG_PROGRESS_COMPLETED";
-  progressId: string;
-  message?: string | null;
-  percentage?: number | null;
-  kind?: number | null;
-  channel?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugProgressStartedEvent {
-  type: "DEBUG_PROGRESS_STARTED";
-  title: string;
-  cancellable?: boolean | null;
-  progressId: string;
-  message?: string | null;
-  percentage?: number | null;
-  kind?: number | null;
-  channel?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugProgressUpdatedEvent {
-  type: "DEBUG_PROGRESS_UPDATED";
-  progressId: string;
-  message?: string | null;
-  percentage?: number | null;
-  kind?: number | null;
-  channel?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugRestartTransitionEvent {
-  type: "DEBUG_RESTART_TRANSITION";
-  inPlace: boolean;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugSessionContinuedEvent {
-  type: "DEBUG_SESSION_CONTINUED";
-  adapterThreadId: number;
-  allThreadsContinued?: boolean | null;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugSessionExitedEvent {
-  type: "DEBUG_SESSION_EXITED";
-  exitCode: number;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugSessionFailedEvent {
-  type: "DEBUG_SESSION_FAILED";
-  safeReasonCode: string;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugSessionStateChangedEvent {
-  type: "DEBUG_SESSION_STATE_CHANGED";
-  status: string;
-  adapterThreadId?: number | null;
-  reason?: string | null;
-  suspensionEpoch?: number | null;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugSessionStoppedEvent {
-  type: "DEBUG_SESSION_STOPPED";
-  adapterThreadId?: number | null;
-  reason: string;
-  description?: string | null;
-  suspensionEpoch?: number | null;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugSessionTerminatedEvent {
-  type: "DEBUG_SESSION_TERMINATED";
-  restartRequested?: boolean | null;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugStateInvalidatedEvent {
-  type: "DEBUG_STATE_INVALIDATED";
-  areas: Array<string>;
-  adapterThreadId?: number | null;
-  stackFrameId?: number | null;
-  kind?: number | null;
-  channel?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugStateMutationAppliedEvent {
-  type: "DEBUG_STATE_MUTATION_APPLIED";
-  mutationKind: number;
-  safeTargetName?: string | null;
-  safeNewValue?: string | null;
-  byteCount?: number | null;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugTerminalRecordEvictedEvent {
-  type: "DEBUG_TERMINAL_RECORD_EVICTED";
-  safeReasonCode: string;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugTerminalRecordRetainedEvent {
-  type: "DEBUG_TERMINAL_RECORD_RETAINED";
-  finalStatus: string;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugThreadChangedEvent {
-  type: "DEBUG_THREAD_CHANGED";
-  reason: string;
-  adapterThreadId: number;
-  kind?: number | null;
-  channel?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugTreeCompletedEvent {
-  type: "DEBUG_TREE_COMPLETED";
-  finalStatus: string;
-  exitCode?: number | null;
-  durationMilliseconds: number;
-  sessionCount: number;
-  childSessionCount: number;
-  breakpoints: InlineHPDOSToolHarnessesMiddlewareDebugTreeCompletedEventBreakpoints;
-  breakpointStopCount: number;
-  retainedOutputBytes: number;
-  droppedOutputRecords: number;
-  droppedOutputBytes: number;
-  projectionFailures: number;
-  safeReasonCode?: string | null;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugTreeFaultedEvent {
-  type: "DEBUG_TREE_FAULTED";
-  safeReasonCode: string;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugTreeStartedEvent {
-  type: "DEBUG_TREE_STARTED";
-  environmentId: string;
-  semanticStartKind: number;
-  adapterStartMethod: number;
-  executionPlannerId: string;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareDebugTreeTerminatedEvent {
-  type: "DEBUG_TREE_TERMINATED";
-  safeReasonCode: string;
-  kind?: number | null;
-  debugTreeId: string;
-  debugSessionId: string;
-  adapterId: string;
-  toolCallId?: string | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareFileEditAppliedEvent {
-  type: "FILE_EDIT_APPLIED";
-  editCount: number;
-  replacementCount: number;
-  replacements: Array<InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventReplacementsItem>;
-  normalizations: Array<InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventNormalizationsItem>;
-  kind?: number | null;
-  toolCallId: string;
-  functionName: string;
-  path: string;
-  displayPath: string;
-  mutationKind: number;
-  created: boolean;
-  changed: boolean;
-  before: InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventBefore;
-  after: InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventAfter;
-  textEdits: Array<InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventTextEditsItem>;
-  hunks: Array<InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventHunksItem>;
-  hunksTruncated: boolean;
-  diffStat: InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventDiffStat;
-  notes?: Array<InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventNotesItem> | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareFileWriteAppliedEvent {
-  type: "FILE_WRITE_APPLIED";
-  mode: number;
-  kind?: number | null;
-  toolCallId: string;
-  functionName: string;
-  path: string;
-  displayPath: string;
-  mutationKind: number;
-  created: boolean;
-  changed: boolean;
-  before: InlineHPDOSToolHarnessesMiddlewareFileWriteAppliedEventBefore;
-  after: InlineHPDOSToolHarnessesMiddlewareFileWriteAppliedEventAfter;
-  textEdits: Array<InlineHPDOSToolHarnessesMiddlewareFileWriteAppliedEventTextEditsItem>;
-  hunks: Array<InlineHPDOSToolHarnessesMiddlewareFileWriteAppliedEventHunksItem>;
-  hunksTruncated: boolean;
-  diffStat: InlineHPDOSToolHarnessesMiddlewareFileWriteAppliedEventDiffStat;
-  notes?: Array<InlineHPDOSToolHarnessesMiddlewareFileWriteAppliedEventNotesItem> | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareLanguageServerDiagnosticsReceivedEvent {
-  type: "LANGUAGE_SERVER_DIAGNOSTICS_RECEIVED";
-  errorCount?: number | null;
-  warningCount?: number | null;
-  informationCount?: number | null;
-  hintCount?: number | null;
-  diagnosticSetCount?: number | null;
-  diagnostics?: Array<InlineHPDOSToolHarnessesMiddlewareLanguageServerDiagnosticsReceivedEventDiagnosticsItem> | null;
-  diagnosticsTruncated?: boolean | null;
-  kind?: number | null;
-  path: string;
-  uri: string;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareLanguageServerDocumentChangedEvent {
-  type: "LANGUAGE_SERVER_DOCUMENT_CHANGED";
-  languageId: string;
-  documentVersion?: number | null;
-  kind?: number | null;
-  path: string;
-  uri: string;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareLanguageServerDocumentClosedEvent {
-  type: "LANGUAGE_SERVER_DOCUMENT_CLOSED";
-  kind?: number | null;
-  path: string;
-  uri: string;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareLanguageServerDocumentOpenedEvent {
-  type: "LANGUAGE_SERVER_DOCUMENT_OPENED";
-  languageId: string;
-  documentVersion?: number | null;
-  kind?: number | null;
-  path: string;
-  uri: string;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareLanguageServerDocumentSavedEvent {
-  type: "LANGUAGE_SERVER_DOCUMENT_SAVED";
-  kind?: number | null;
-  path: string;
-  uri: string;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareLanguageServerStatusSnapshotEvent {
-  type: "LANGUAGE_SERVER_STATUS_SNAPSHOT";
-  kind?: number | null;
-  servers?: Array<InlineHPDOSToolHarnessesMiddlewareLanguageServerStatusSnapshotEventServersItem> | null;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
-  direction?: number | null;
-  eventFlowId?: string | null;
-  canInterrupt?: boolean | null;
-  timestamp?: string | null;
-  exchangeTimestampNs?: number | null;
-}
-
-export interface HPDOSToolHarnessesMiddlewareLanguageServerWatchedFileChangedEvent {
-  type: "LANGUAGE_SERVER_WATCHED_FILE_CHANGED";
-  changeKind: number;
-  kind?: number | null;
-  path: string;
-  uri: string;
-  eventId?: string | null;
-  threadSequenceNumber?: number | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  threadExecutionId?: string | null;
-  metadata?: AgentMetadata | null;
-  traceId?: string | null;
-  spanId?: string | null;
-  parentSpanId?: string | null;
-  channel?: number | null;
   direction?: number | null;
   eventFlowId?: string | null;
   canInterrupt?: boolean | null;
@@ -7131,818 +5787,6 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf9Details {
   additionalCounts?: Record<string, number> | null;
 }
 
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResult {
-  metrics: Record<string, unknown>;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0 {
-  $type?: string | null;
-  value?: number | null;
-  name: string;
-  reason?: string | null;
-  interpretation?: InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0Interpretation | null;
-  context?: Record<string, InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalProperty> | null;
-  diagnostics?: Array<InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0DiagnosticsItem> | null;
-  metadata?: Record<string, string> | null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalProperty {
-  name?: string | null;
-  contents?: Array<unknown> | null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf0 {
-  $type: string;
-  uri: string;
-  name?: string | null;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf0AnnotationsItemAnyOf0 {
-  $type: string;
-  title?: string | null;
-  url?: string | null;
-  fileId?: string | null;
-  toolName?: string | null;
-  snippet?: string | null;
-  annotatedRegions?: Array<InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf0AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf0AnnotationsItemAnyOf0AnnotatedRegionsItem {
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf0AnnotationsItemAnyOf1 {
-  annotatedRegions?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf1 {
-  $type: string;
-  message: string | null;
-  errorCode?: string | null;
-  details?: string | null;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf10 {
-  $type: string;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf11 {
-  $type: string;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf12 {
-  $type: string;
-  requestId?: string | null;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf13 {
-  $type: string;
-  requestId?: string | null;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf14 {
-  $type: string;
-  toolCall: unknown;
-  requestId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf14ToolCallAnyOf0 {
-  $type: string;
-  name: string;
-  arguments?: null;
-  informationalOnly?: boolean | null;
-  callId: string;
-  annotations?: null;
-  additionalProperties?: null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf14ToolCallAnyOf1 {
-  $type: string;
-  name: string;
-  serverName: string | null;
-  arguments?: unknown;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf14ToolCallAnyOf2 {
-  $type: string;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf14ToolCallAnyOf3 {
-  $type: string;
-  inputs?: Array<unknown> | null;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf14ToolCallAnyOf4 {
-  $type: string;
-  queries?: Array<string> | null;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf14ToolCallAnyOf5 {
-  callId: string;
-  annotations?: unknown;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf15 {
-  $type: string;
-  approved: boolean;
-  toolCall: unknown;
-  reason?: string | null;
-  requestId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf15ToolCallAnyOf0 {
-  $type: string;
-  name: string;
-  arguments?: null;
-  informationalOnly?: boolean | null;
-  callId: string;
-  annotations?: null;
-  additionalProperties?: null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf15ToolCallAnyOf1 {
-  $type: string;
-  name: string;
-  serverName: string | null;
-  arguments?: null;
-  callId: string;
-  annotations?: null;
-  additionalProperties?: null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf15ToolCallAnyOf2 {
-  $type: string;
-  callId: string;
-  annotations?: null;
-  additionalProperties?: null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf15ToolCallAnyOf3 {
-  $type: string;
-  inputs?: null;
-  callId: string;
-  annotations?: null;
-  additionalProperties?: null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf15ToolCallAnyOf4 {
-  $type: string;
-  queries?: null;
-  callId: string;
-  annotations?: null;
-  additionalProperties?: null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf15ToolCallAnyOf5 {
-  callId: string;
-  annotations?: unknown;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf16 {
-  $type: string;
-  name: string;
-  serverName: string | null;
-  arguments?: null;
-  callId: string;
-  annotations?: null;
-  additionalProperties?: null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf17 {
-  $type: string;
-  outputs?: Array<unknown> | null;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf18 {
-  $type: string;
-  callId: string;
-  annotations?: null;
-  additionalProperties?: null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf19 {
-  $type: string;
-  outputs?: Array<unknown> | null;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf2 {
-  $type: string;
-  name: string;
-  arguments?: unknown;
-  informationalOnly?: boolean | null;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf20 {
-  $type: string;
-  inputs?: null;
-  callId: string;
-  annotations?: null;
-  additionalProperties?: null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf21 {
-  $type: string;
-  outputs?: Array<unknown> | null;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf22 {
-  $type: string;
-  queries?: null;
-  callId: string;
-  annotations?: null;
-  additionalProperties?: null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf23 {
-  $type: string;
-  outputs?: Array<unknown> | null;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf24 {
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf3 {
-  $type: string;
-  result: null;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf4 {
-  $type: string;
-  fileId: string;
-  mediaType?: string | null;
-  name?: string | null;
-  sizeInBytes?: number | null;
-  createdAt?: string | null;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf5 {
-  $type: string;
-  vectorStoreId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf6 {
-  $type: string;
-  text: string | null;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf7 {
-  $type: string;
-  text: string | null;
-  protectedData?: string | null;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf8 {
-  $type: string;
-  uri: string;
-  mediaType?: string | null;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf9 {
-  $type: string;
-  details: InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf9Details;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf9Details {
-  inputTokenCount?: number | null;
-  outputTokenCount?: number | null;
-  totalTokenCount?: number | null;
-  cachedInputTokenCount?: number | null;
-  reasoningTokenCount?: number | null;
-  additionalCounts?: Record<string, number> | null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0DiagnosticsItem {
-  severity: number;
-  message: string;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf0Interpretation {
-  rating?: number | null;
-  failed?: boolean | null;
-  reason?: string | null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf1 {
-  $type?: string | null;
-  value?: boolean | null;
-  name: string;
-  reason?: string | null;
-  interpretation?: InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf1Interpretation | null;
-  context?: Record<string, unknown> | null;
-  diagnostics?: Array<unknown> | null;
-  metadata?: Record<string, string> | null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf1Interpretation {
-  rating?: number | null;
-  failed?: boolean | null;
-  reason?: string | null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf2 {
-  $type?: string | null;
-  value?: string | null;
-  name: string;
-  reason?: string | null;
-  interpretation?: InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf2Interpretation | null;
-  context?: Record<string, unknown> | null;
-  diagnostics?: Array<unknown> | null;
-  metadata?: Record<string, string> | null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf2Interpretation {
-  rating?: number | null;
-  failed?: boolean | null;
-  reason?: string | null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf3 {
-  $type?: string | null;
-  name: string;
-  reason?: string | null;
-  interpretation?: InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf3Interpretation | null;
-  context?: Record<string, unknown> | null;
-  diagnostics?: Array<unknown> | null;
-  metadata?: Record<string, string> | null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalPolicyViolationEventResultMetricsAdditionalPropertyAnyOf3Interpretation {
-  rating?: number | null;
-  failed?: boolean | null;
-  reason?: string | null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResult {
-  metrics: Record<string, unknown>;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0 {
-  $type?: string | null;
-  value?: number | null;
-  name: string;
-  reason?: string | null;
-  interpretation?: InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0Interpretation | null;
-  context?: Record<string, InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalProperty> | null;
-  diagnostics?: Array<InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0DiagnosticsItem> | null;
-  metadata?: Record<string, string> | null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalProperty {
-  name?: string | null;
-  contents?: Array<unknown> | null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf0 {
-  $type: string;
-  uri: string;
-  name?: string | null;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf0AnnotationsItemAnyOf0 {
-  $type: string;
-  title?: string | null;
-  url?: string | null;
-  fileId?: string | null;
-  toolName?: string | null;
-  snippet?: string | null;
-  annotatedRegions?: Array<InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf0AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf0AnnotationsItemAnyOf0AnnotatedRegionsItem {
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf0AnnotationsItemAnyOf1 {
-  annotatedRegions?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf1 {
-  $type: string;
-  message: string | null;
-  errorCode?: string | null;
-  details?: string | null;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf10 {
-  $type: string;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf11 {
-  $type: string;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf12 {
-  $type: string;
-  requestId?: string | null;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf13 {
-  $type: string;
-  requestId?: string | null;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf14 {
-  $type: string;
-  toolCall: unknown;
-  requestId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf14ToolCallAnyOf0 {
-  $type: string;
-  name: string;
-  arguments?: null;
-  informationalOnly?: boolean | null;
-  callId: string;
-  annotations?: null;
-  additionalProperties?: null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf14ToolCallAnyOf1 {
-  $type: string;
-  name: string;
-  serverName: string | null;
-  arguments?: unknown;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf14ToolCallAnyOf2 {
-  $type: string;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf14ToolCallAnyOf3 {
-  $type: string;
-  inputs?: Array<unknown> | null;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf14ToolCallAnyOf4 {
-  $type: string;
-  queries?: Array<string> | null;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf14ToolCallAnyOf5 {
-  callId: string;
-  annotations?: unknown;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf15 {
-  $type: string;
-  approved: boolean;
-  toolCall: unknown;
-  reason?: string | null;
-  requestId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf15ToolCallAnyOf0 {
-  $type: string;
-  name: string;
-  arguments?: null;
-  informationalOnly?: boolean | null;
-  callId: string;
-  annotations?: null;
-  additionalProperties?: null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf15ToolCallAnyOf1 {
-  $type: string;
-  name: string;
-  serverName: string | null;
-  arguments?: null;
-  callId: string;
-  annotations?: null;
-  additionalProperties?: null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf15ToolCallAnyOf2 {
-  $type: string;
-  callId: string;
-  annotations?: null;
-  additionalProperties?: null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf15ToolCallAnyOf3 {
-  $type: string;
-  inputs?: null;
-  callId: string;
-  annotations?: null;
-  additionalProperties?: null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf15ToolCallAnyOf4 {
-  $type: string;
-  queries?: null;
-  callId: string;
-  annotations?: null;
-  additionalProperties?: null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf15ToolCallAnyOf5 {
-  callId: string;
-  annotations?: unknown;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf16 {
-  $type: string;
-  name: string;
-  serverName: string | null;
-  arguments?: null;
-  callId: string;
-  annotations?: null;
-  additionalProperties?: null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf17 {
-  $type: string;
-  outputs?: Array<unknown> | null;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf18 {
-  $type: string;
-  callId: string;
-  annotations?: null;
-  additionalProperties?: null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf19 {
-  $type: string;
-  outputs?: Array<unknown> | null;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf2 {
-  $type: string;
-  name: string;
-  arguments?: unknown;
-  informationalOnly?: boolean | null;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf20 {
-  $type: string;
-  inputs?: null;
-  callId: string;
-  annotations?: null;
-  additionalProperties?: null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf21 {
-  $type: string;
-  outputs?: Array<unknown> | null;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf22 {
-  $type: string;
-  queries?: null;
-  callId: string;
-  annotations?: null;
-  additionalProperties?: null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf23 {
-  $type: string;
-  outputs?: Array<unknown> | null;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf24 {
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf3 {
-  $type: string;
-  result: null;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf4 {
-  $type: string;
-  fileId: string;
-  mediaType?: string | null;
-  name?: string | null;
-  sizeInBytes?: number | null;
-  createdAt?: string | null;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf5 {
-  $type: string;
-  vectorStoreId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf6 {
-  $type: string;
-  text: string | null;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf7 {
-  $type: string;
-  text: string | null;
-  protectedData?: string | null;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf8 {
-  $type: string;
-  uri: string;
-  mediaType?: string | null;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf9 {
-  $type: string;
-  details: InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf9Details;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0ContextAdditionalPropertyContentsItemAnyOf9Details {
-  inputTokenCount?: number | null;
-  outputTokenCount?: number | null;
-  totalTokenCount?: number | null;
-  cachedInputTokenCount?: number | null;
-  reasoningTokenCount?: number | null;
-  additionalCounts?: Record<string, number> | null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0DiagnosticsItem {
-  severity: number;
-  message: string;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf0Interpretation {
-  rating?: number | null;
-  failed?: boolean | null;
-  reason?: string | null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf1 {
-  $type?: string | null;
-  value?: boolean | null;
-  name: string;
-  reason?: string | null;
-  interpretation?: InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf1Interpretation | null;
-  context?: Record<string, unknown> | null;
-  diagnostics?: Array<unknown> | null;
-  metadata?: Record<string, string> | null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf1Interpretation {
-  rating?: number | null;
-  failed?: boolean | null;
-  reason?: string | null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf2 {
-  $type?: string | null;
-  value?: string | null;
-  name: string;
-  reason?: string | null;
-  interpretation?: InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf2Interpretation | null;
-  context?: Record<string, unknown> | null;
-  diagnostics?: Array<unknown> | null;
-  metadata?: Record<string, string> | null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf2Interpretation {
-  rating?: number | null;
-  failed?: boolean | null;
-  reason?: string | null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf3 {
-  $type?: string | null;
-  name: string;
-  reason?: string | null;
-  interpretation?: InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf3Interpretation | null;
-  context?: Record<string, unknown> | null;
-  diagnostics?: Array<unknown> | null;
-  metadata?: Record<string, string> | null;
-}
-
-export interface InlineHPDAgentEvaluationsIntegrationEvalScoreEventResultMetricsAdditionalPropertyAnyOf3Interpretation {
-  rating?: number | null;
-  failed?: boolean | null;
-  reason?: string | null;
-}
-
 export interface InlineHPDAgentFunctionInvocationAuditedEventInvocation {
   functionName: string;
   functionCallId: string;
@@ -9093,60 +6937,6 @@ export interface InlineHPDAgentGoalsGoalUsageLimitedEventGoalContinuation {
   reservedAt: string;
   sourceExecutionId: string;
   activationOwner?: string | null;
-}
-
-export interface InlineHPDAgentIterationContextSnapshotEventCompactionSummaryInputsItem {
-  messageId: string | null;
-  role: string;
-  textLength: number;
-  textSha256: string;
-}
-
-export interface InlineHPDAgentIterationContextSnapshotEventContextMessagesItem {
-  role: string;
-  text: string;
-}
-
-export interface InlineHPDAgentIterationContextSnapshotEventToolsItem {
-  name: string;
-  description: string;
-  toolHarnessName: string | null;
-  callType: string;
-  isContainer: boolean;
-  inputSchemaJson: string | null;
-}
-
-export interface InlineHPDAgentMaxConsecutiveErrorsExceededEventException {
-  targetSite?: null;
-  message?: string | null;
-  data?: unknown;
-  innerException?: InlineHPDAgentMaxConsecutiveErrorsExceededEventExceptionInnerException | null;
-  helpLink?: string | null;
-  source?: string | null;
-  hResult?: number | null;
-  stackTrace?: string | null;
-}
-
-export interface InlineHPDAgentMaxConsecutiveErrorsExceededEventExceptionInnerException {
-  targetSite?: null;
-  message?: string | null;
-  data?: unknown;
-  innerException?: InlineHPDAgentMaxConsecutiveErrorsExceededEventExceptionInnerExceptionInnerException | null;
-  helpLink?: string | null;
-  source?: string | null;
-  hResult?: number | null;
-  stackTrace?: string | null;
-}
-
-export interface InlineHPDAgentMaxConsecutiveErrorsExceededEventExceptionInnerExceptionInnerException {
-  targetSite?: null;
-  message?: string | null;
-  data?: null;
-  innerException?: null;
-  helpLink?: string | null;
-  source?: string | null;
-  hResult?: number | null;
-  stackTrace?: string | null;
 }
 
 export interface InlineHPDAgentMessageTurnErrorEventCancellation {
@@ -16718,37 +14508,15 @@ export interface InlineHPDAgentToolCallResultEventResult {
   resultType?: string | null;
 }
 
-export interface InlineHPDAgentTotalErrorThresholdExceededEventException {
-  targetSite?: null;
-  message?: string | null;
-  data?: unknown;
-  innerException?: InlineHPDAgentTotalErrorThresholdExceededEventExceptionInnerException | null;
-  helpLink?: string | null;
-  source?: string | null;
-  hResult?: number | null;
-  stackTrace?: string | null;
-}
-
-export interface InlineHPDAgentTotalErrorThresholdExceededEventExceptionInnerException {
-  targetSite?: null;
-  message?: string | null;
-  data?: unknown;
-  innerException?: InlineHPDAgentTotalErrorThresholdExceededEventExceptionInnerExceptionInnerException | null;
-  helpLink?: string | null;
-  source?: string | null;
-  hResult?: number | null;
-  stackTrace?: string | null;
-}
-
-export interface InlineHPDAgentTotalErrorThresholdExceededEventExceptionInnerExceptionInnerException {
-  targetSite?: null;
-  message?: string | null;
-  data?: null;
-  innerException?: null;
-  helpLink?: string | null;
-  source?: string | null;
-  hResult?: number | null;
-  stackTrace?: string | null;
+export interface InlineHPDAgentUserAudioTranscriptFailedEventError {
+  code: string;
+  message: string;
+  category?: number | null;
+  isRetryable?: boolean | null;
+  statusCode?: number | null;
+  errorType?: string | null;
+  requestId?: string | null;
+  retryAfter?: string | null;
 }
 
 export interface InlineHPDAgentUserMessagesInputEventMessagesItem {
@@ -18725,292 +16493,6 @@ export interface InlineHPDAgentUserQuestionRequestEventQuestionsItemOptionsItem 
   description?: string | null;
 }
 
-export interface InlineHPDOSToolHarnessesMiddlewareDebugBreakpointSelectionAppliedEventAfterItem {
-  clientBreakpointId: string;
-  kind: number;
-  displayPath?: string | null;
-  requestedLine?: number | null;
-  requestedColumn?: number | null;
-  resolvedLine?: number | null;
-  resolvedColumn?: number | null;
-  safeDisplayName?: string | null;
-  condition?: string | null;
-  hitCondition?: string | null;
-  logMessage?: string | null;
-  acknowledged: boolean;
-  verified: boolean;
-  safeMessage?: string | null;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareDebugBreakpointSelectionAppliedEventBeforeItem {
-  clientBreakpointId: string;
-  kind: number;
-  displayPath?: string | null;
-  requestedLine?: number | null;
-  requestedColumn?: number | null;
-  resolvedLine?: number | null;
-  resolvedColumn?: number | null;
-  safeDisplayName?: string | null;
-  condition?: string | null;
-  hitCondition?: string | null;
-  logMessage?: string | null;
-  acknowledged: boolean;
-  verified: boolean;
-  safeMessage?: string | null;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareDebugBreakpointSelectionAppliedEventChangesItem {
-  clientBreakpointId: string;
-  kind: number;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareDebugBreakpointSelectionAppliedEventCounts {
-  requested: number;
-  acknowledged: number;
-  verified: number;
-  pending: number;
-  hit?: number | null;
-  unknownHit?: number | null;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareDebugBreakpointSelectionAppliedEventSourcePreviewsItem {
-  displayPath: string;
-  language?: string | null;
-  contentHash?: string | null;
-  sourceVersion?: string | null;
-  hunks: Array<InlineHPDOSToolHarnessesMiddlewareDebugBreakpointSelectionAppliedEventSourcePreviewsItemHunksItem>;
-  truncated: boolean;
-  unavailableReason?: string | null;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareDebugBreakpointSelectionAppliedEventSourcePreviewsItemHunksItem {
-  startLine: number;
-  lines: Array<string>;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareDebugPrimaryStopAvailableEventSourcePreview {
-  displayPath: string;
-  language?: string | null;
-  contentHash?: string | null;
-  sourceVersion?: string | null;
-  hunks: Array<InlineHPDOSToolHarnessesMiddlewareDebugPrimaryStopAvailableEventSourcePreviewHunksItem>;
-  truncated: boolean;
-  unavailableReason?: string | null;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareDebugPrimaryStopAvailableEventSourcePreviewHunksItem {
-  startLine: number;
-  lines: Array<string>;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareDebugTreeCompletedEventBreakpoints {
-  requested: number;
-  acknowledged: number;
-  verified: number;
-  pending: number;
-  hit?: number | null;
-  unknownHit?: number | null;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventAfter {
-  text: string | null;
-  contentHash: string;
-  byteLength: number;
-  lineCount: number;
-  encodingName: string;
-  hasBom: boolean;
-  lineEnding: string;
-  lastWriteTimeUtc: string | null;
-  textOmitted: boolean;
-  omissionReason: string | null;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventBefore {
-  text: string | null;
-  contentHash: string;
-  byteLength: number;
-  lineCount: number;
-  encodingName: string;
-  hasBom: boolean;
-  lineEnding: string;
-  lastWriteTimeUtc: string | null;
-  textOmitted: boolean;
-  omissionReason: string | null;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventDiffStat {
-  addedLines: number;
-  removedLines: number;
-  addedChars: number;
-  removedChars: number;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventHunksItem {
-  oldStart: number;
-  oldLines: number;
-  newStart: number;
-  newLines: number;
-  lines: Array<string>;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventNormalizationsItem {
-  editIndex: number;
-  kind: string;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventNotesItem {
-  editIndex: number | null;
-  kind: string;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventReplacementsItem {
-  editIndex: number;
-  replaceAll: boolean;
-  replacementCount: number;
-  matchStrategy: string;
-  recovered: boolean;
-  beforeRanges: Array<InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventReplacementsItemBeforeRangesItem>;
-  afterRanges: Array<InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventReplacementsItemAfterRangesItem>;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventReplacementsItemAfterRangesItem {
-  startLine: number;
-  startColumn: number;
-  endLine: number;
-  endColumn: number;
-  startOffset: number;
-  length: number;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventReplacementsItemBeforeRangesItem {
-  startLine: number;
-  startColumn: number;
-  endLine: number;
-  endColumn: number;
-  startOffset: number;
-  length: number;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventTextEditsItem {
-  editIndex: number;
-  beforeRange: InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventTextEditsItemBeforeRange;
-  afterRange: InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventTextEditsItemAfterRange;
-  oldText: string | null;
-  newText: string | null;
-  textOmitted: boolean;
-  omissionReason: string | null;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventTextEditsItemAfterRange {
-  startLine: number;
-  startColumn: number;
-  endLine: number;
-  endColumn: number;
-  startOffset: number;
-  length: number;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareFileEditAppliedEventTextEditsItemBeforeRange {
-  startLine: number;
-  startColumn: number;
-  endLine: number;
-  endColumn: number;
-  startOffset: number;
-  length: number;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareFileWriteAppliedEventAfter {
-  text: string | null;
-  contentHash: string;
-  byteLength: number;
-  lineCount: number;
-  encodingName: string;
-  hasBom: boolean;
-  lineEnding: string;
-  lastWriteTimeUtc: string | null;
-  textOmitted: boolean;
-  omissionReason: string | null;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareFileWriteAppliedEventBefore {
-  text: string | null;
-  contentHash: string;
-  byteLength: number;
-  lineCount: number;
-  encodingName: string;
-  hasBom: boolean;
-  lineEnding: string;
-  lastWriteTimeUtc: string | null;
-  textOmitted: boolean;
-  omissionReason: string | null;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareFileWriteAppliedEventDiffStat {
-  addedLines: number;
-  removedLines: number;
-  addedChars: number;
-  removedChars: number;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareFileWriteAppliedEventHunksItem {
-  oldStart: number;
-  oldLines: number;
-  newStart: number;
-  newLines: number;
-  lines: Array<string>;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareFileWriteAppliedEventNotesItem {
-  editIndex: number | null;
-  kind: string;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareFileWriteAppliedEventTextEditsItem {
-  editIndex: number;
-  beforeRange: InlineHPDOSToolHarnessesMiddlewareFileWriteAppliedEventTextEditsItemBeforeRange;
-  afterRange: InlineHPDOSToolHarnessesMiddlewareFileWriteAppliedEventTextEditsItemAfterRange;
-  oldText: string | null;
-  newText: string | null;
-  textOmitted: boolean;
-  omissionReason: string | null;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareFileWriteAppliedEventTextEditsItemAfterRange {
-  startLine: number;
-  startColumn: number;
-  endLine: number;
-  endColumn: number;
-  startOffset: number;
-  length: number;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareFileWriteAppliedEventTextEditsItemBeforeRange {
-  startLine: number;
-  startColumn: number;
-  endLine: number;
-  endColumn: number;
-  startOffset: number;
-  length: number;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareLanguageServerDiagnosticsReceivedEventDiagnosticsItem {
-  path: string;
-  serverId: string;
-  source: number;
-  severity: number;
-  line?: number | null;
-  character?: number | null;
-  code?: string | null;
-  message: string;
-}
-
-export interface InlineHPDOSToolHarnessesMiddlewareLanguageServerStatusSnapshotEventServersItem {
-  serverId: string;
-  root: string;
-  status: number;
-  message?: string | null;
-}
-
 export interface InlineMcpServerConfigToolInvocationModePolicies {
 }
 
@@ -19959,11 +17441,11 @@ export interface InlineSubAgentRunConfigToolOutputsRetrievalLimits {
 export interface InlineUpdateSessionRequestMetadata {
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidContextUsagePostRequestApplicationJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdContextUsagePostRequestApplicationJson {
   runConfig: null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidContextUsagePostResponse200ApplicationJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdContextUsagePostResponse200ApplicationJson {
   sessionId?: string | null;
   threadId?: string | null;
   providerKey?: string | null;
@@ -19977,63 +17459,7 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidContextUsage
   source?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidContextUsagePostResponse404ApplicationProblemJson {
-  type?: string | null;
-  title?: string | null;
-  status?: number | null;
-  detail?: string | null;
-  instance?: string | null;
-}
-
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidContextUsagePostResponse409ApplicationProblemJson {
-  type?: string | null;
-  title?: string | null;
-  status?: number | null;
-  detail?: string | null;
-  instance?: string | null;
-}
-
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidContextUsagePostResponse500ApplicationProblemJson {
-  type?: string | null;
-  title?: string | null;
-  status?: number | null;
-  detail?: string | null;
-  instance?: string | null;
-}
-
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidEventsGetResponse200TextEventStream {
-  id?: string | null;
-  event: string;
-  data: unknown;
-}
-
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidEventsGetResponse200TextEventStreamDataOneOf0 {
-  event: unknown;
-  route: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidEventsGetResponse200TextEventStreamDataOneOf0Route;
-}
-
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidEventsGetResponse200TextEventStreamDataOneOf0Route {
-  origin: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidEventsGetResponse200TextEventStreamDataOneOf0RouteOrigin;
-  path: Array<InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidEventsGetResponse200TextEventStreamDataOneOf0RoutePathItem>;
-  threadExecutionId: string | null;
-}
-
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidEventsGetResponse200TextEventStreamDataOneOf0RouteOrigin {
-  sessionId?: string | null;
-  threadId?: string | null;
-}
-
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidEventsGetResponse200TextEventStreamDataOneOf0RoutePathItem {
-  sessionId?: string | null;
-  threadId?: string | null;
-}
-
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidEventsGetResponse200TextEventStreamDataOneOf1 {
-  previousGeneration: number;
-  currentGeneration: number;
-}
-
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidEventsGetResponse400ApplicationProblemJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdContextUsagePostResponse400ApplicationProblemJson {
   type?: string | null;
   title?: string | null;
   status?: number | null;
@@ -20042,7 +17468,7 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidEventsGetRes
   errors?: Record<string, Array<string>> | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidEventsGetResponse404ApplicationProblemJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdContextUsagePostResponse404ApplicationProblemJson {
   type?: string | null;
   title?: string | null;
   status?: number | null;
@@ -20050,7 +17476,7 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidEventsGetRes
   instance?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidEventsGetResponse500ApplicationProblemJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdContextUsagePostResponse409ApplicationProblemJson {
   type?: string | null;
   title?: string | null;
   status?: number | null;
@@ -20058,14 +17484,79 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidEventsGetRes
   instance?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidExecutionsThreadExecutionIdCancelPostResponse200ApplicationJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdContextUsagePostResponse500ApplicationProblemJson {
+  type?: string | null;
+  title?: string | null;
+  status?: number | null;
+  detail?: string | null;
+  instance?: string | null;
+}
+
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdEventsGetResponse200TextEventStream {
+  id?: string | null;
+  event: string;
+  data: unknown;
+}
+
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdEventsGetResponse200TextEventStreamDataOneOf0 {
+  event: unknown;
+  route: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdEventsGetResponse200TextEventStreamDataOneOf0Route;
+}
+
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdEventsGetResponse200TextEventStreamDataOneOf0Route {
+  origin: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdEventsGetResponse200TextEventStreamDataOneOf0RouteOrigin;
+  path: Array<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdEventsGetResponse200TextEventStreamDataOneOf0RoutePathItem>;
+  threadExecutionId: string | null;
+}
+
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdEventsGetResponse200TextEventStreamDataOneOf0RouteOrigin {
+  sessionId?: string | null;
+  threadId?: string | null;
+}
+
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdEventsGetResponse200TextEventStreamDataOneOf0RoutePathItem {
+  sessionId?: string | null;
+  threadId?: string | null;
+}
+
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdEventsGetResponse200TextEventStreamDataOneOf1 {
+  previousGeneration: number;
+  currentGeneration: number;
+}
+
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdEventsGetResponse400ApplicationProblemJson {
+  type?: string | null;
+  title?: string | null;
+  status?: number | null;
+  detail?: string | null;
+  instance?: string | null;
+  errors?: Record<string, Array<string>> | null;
+}
+
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdEventsGetResponse404ApplicationProblemJson {
+  type?: string | null;
+  title?: string | null;
+  status?: number | null;
+  detail?: string | null;
+  instance?: string | null;
+}
+
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdEventsGetResponse500ApplicationProblemJson {
+  type?: string | null;
+  title?: string | null;
+  status?: number | null;
+  detail?: string | null;
+  instance?: string | null;
+}
+
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdExecutionsThreadExecutionIdCancelPostResponse200ApplicationJson {
   threadExecutionId: string;
   status: string;
   cancellationApplied: boolean;
   queuePromotion: string;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidExecutionsThreadExecutionIdCancelPostResponse404ApplicationProblemJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdExecutionsThreadExecutionIdCancelPostResponse404ApplicationProblemJson {
   type?: string | null;
   title?: string | null;
   status?: number | null;
@@ -20073,7 +17564,7 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidExecutionsTh
   instance?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidExecutionsThreadExecutionIdCancelPostResponse500ApplicationProblemJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdExecutionsThreadExecutionIdCancelPostResponse409ApplicationProblemJson {
   type?: string | null;
   title?: string | null;
   status?: number | null;
@@ -20081,15 +17572,23 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidExecutionsTh
   instance?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdExecutionsThreadExecutionIdCancelPostResponse500ApplicationProblemJson {
+  type?: string | null;
+  title?: string | null;
+  status?: number | null;
+  detail?: string | null;
+  instance?: string | null;
+}
+
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJson {
   disposition: string;
   threadExecutionId?: string | null;
   startedAt?: string | null;
-  activeExecution?: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonActiveExecution | null;
+  activeExecution?: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonActiveExecution | null;
   result?: unknown;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonActiveExecution {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonActiveExecution {
   threadExecutionId: string;
   agentId: string;
   sessionId: string;
@@ -20097,16 +17596,16 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostRe
   status: string;
   startedAt: string;
   finishedAt: string | null;
-  error: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonActiveExecutionError | null;
-  operations: Array<InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonActiveExecutionOperationsItem>;
+  error: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonActiveExecutionError | null;
+  operations: Array<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonActiveExecutionOperationsItem>;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonActiveExecutionError {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonActiveExecutionError {
   type: string | null;
   message: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonActiveExecutionOperationsItem {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonActiveExecutionOperationsItem {
   operationId: string;
   providerOperationId: string | null;
   name: string;
@@ -20128,29 +17627,29 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostRe
   metadata: Record<string, string> | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0 {
   type?: string | null;
-  turnResult: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResult;
+  turnResult: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResult;
   threadExecutionId: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResult {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResult {
   text?: string | null;
-  events?: Array<InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultEventsItem> | null;
-  toolCalls?: Array<InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultToolCallsItem> | null;
-  started?: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultStarted | null;
-  finished?: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinished | null;
-  usage?: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultUsage | null;
+  events?: Array<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultEventsItem> | null;
+  toolCalls?: Array<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultToolCallsItem> | null;
+  started?: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultStarted | null;
+  finished?: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinished | null;
+  usage?: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultUsage | null;
   duration?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultEventsItem {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultEventsItem {
   eventId?: string | null;
   threadSequenceNumber?: number | null;
   sessionId?: string | null;
   threadId?: string | null;
   threadExecutionId?: string | null;
-  metadata?: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultEventsItemMetadata | null;
+  metadata?: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultEventsItemMetadata | null;
   traceId?: string | null;
   spanId?: string | null;
   parentSpanId?: string | null;
@@ -20163,22 +17662,21 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostRe
   exchangeTimestampNs?: number | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultEventsItemMetadata {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultEventsItemMetadata {
   agentName: string;
   agentId: string;
   parentAgentId?: string | null;
   agentChain?: Array<string> | null;
   depth?: number | null;
-  isSubAgent?: boolean | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinished {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinished {
   messageTurnId: string;
   conversationId: string;
   agentId: string;
   agentName: string;
   duration: string;
-  usage: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsage;
+  usage: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsage;
   kind?: number | null;
   iteration?: number | null;
   terminationReason?: string | null;
@@ -20188,7 +17686,7 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostRe
   sessionId?: string | null;
   threadId?: string | null;
   threadExecutionId?: string | null;
-  metadata?: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedMetadata | null;
+  metadata?: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedMetadata | null;
   traceId?: string | null;
   spanId?: string | null;
   parentSpanId?: string | null;
@@ -20200,20 +17698,19 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostRe
   exchangeTimestampNs?: number | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedMetadata {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedMetadata {
   agentName: string;
   agentId: string;
   parentAgentId?: string | null;
   agentChain?: unknown;
   depth?: number | null;
-  isSubAgent?: boolean | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsage {
-  operations: Array<InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsageOperationsItem>;
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsage {
+  operations: Array<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsageOperationsItem>;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsageOperationsItem {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsageOperationsItem {
   sourceEventId: string;
   messageTurnId: string;
   threadSequenceNumber: number;
@@ -20223,13 +17720,13 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostRe
   operationKind: number;
   family: number;
   outcome: number;
-  usage: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsageOperationsItemUsage | null;
+  usage: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsageOperationsItemUsage | null;
   providerKey: string | null;
   modelId: string | null;
   responseId: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsageOperationsItemUsage {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsageOperationsItemUsage {
   inputTokenCount?: number | null;
   outputTokenCount?: number | null;
   totalTokenCount?: number | null;
@@ -20238,7 +17735,7 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostRe
   additionalCounts?: Record<string, number> | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultStarted {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultStarted {
   messageTurnId: string;
   conversationId: string;
   agentId: string;
@@ -20251,7 +17748,7 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostRe
   sessionId?: string | null;
   threadId?: string | null;
   threadExecutionId?: string | null;
-  metadata?: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultStartedMetadata | null;
+  metadata?: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultStartedMetadata | null;
   traceId?: string | null;
   spanId?: string | null;
   parentSpanId?: string | null;
@@ -20263,59 +17760,58 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostRe
   exchangeTimestampNs?: number | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultStartedMetadata {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultStartedMetadata {
   agentName: string;
   agentId: string;
   parentAgentId?: string | null;
   agentChain?: unknown;
   depth?: number | null;
-  isSubAgent?: boolean | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultToolCallsItem {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultToolCallsItem {
   callId?: string | null;
   name?: string | null;
   argumentsJson?: string | null;
-  result?: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultToolCallsItemResult | null;
+  result?: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultToolCallsItemResult | null;
   text?: string | null;
   toolHarnessName?: string | null;
   callType?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultToolCallsItemResult {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultToolCallsItemResult {
   text?: string | null;
   json?: unknown;
   content?: Array<unknown> | null;
   resultType?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultUsage {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultUsage {
   operations: unknown;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf1 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf1 {
   type?: string | null;
   threadExecutionId: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf2 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf2 {
   type?: string | null;
   disposition: number;
   threadExecutionId: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf3 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf3 {
   type?: string | null;
   result: unknown;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf0 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf0 {
   type?: string | null;
   audioSessionId: string;
   revision: number;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf1 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf1 {
   type?: string | null;
   audioSessionId: string;
   previousRevision: number;
@@ -20323,28 +17819,28 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostRe
   disposition: string;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf10 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf10 {
   type?: string | null;
   disposition: string;
   safeCode: string;
   currentRevision?: number | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf11 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf11 {
   type?: string | null;
   operationId: string;
   audioSessionId?: string | null;
   currentRevision?: number | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf2 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf2 {
   type?: string | null;
   audioSessionId: string;
   candidateId: string;
   revision: number;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf3 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf3 {
   type?: string | null;
   audioSessionId: string;
   candidateId: string;
@@ -20352,35 +17848,35 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostRe
   safeCode: string;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf4 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf4 {
   type?: string | null;
   audioSessionId: string;
   revision: number;
   enabled: boolean;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf5 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf5 {
   type?: string | null;
   audioSessionId: string;
   revision: number;
   enabled: boolean;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf6 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf6 {
   type?: string | null;
   audioSessionId: string;
   revision: number;
   operationId: string;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf7 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf7 {
   type?: string | null;
   audioSessionId: string;
   revision: number;
   operationId: string;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf8 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf8 {
   type?: string | null;
   audioSessionId: string;
   revision: number;
@@ -20388,13 +17884,22 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostRe
   safeCode: string;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf9 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf9 {
   type?: string | null;
   audioSessionId: string;
   revision: number;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse404ApplicationProblemJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse400ApplicationProblemJson {
+  type?: string | null;
+  title?: string | null;
+  status?: number | null;
+  detail?: string | null;
+  instance?: string | null;
+  errors?: Record<string, Array<string>> | null;
+}
+
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse404ApplicationProblemJson {
   type?: string | null;
   title?: string | null;
   status?: number | null;
@@ -20402,7 +17907,7 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostRe
   instance?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse409ApplicationProblemJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse409ApplicationProblemJson {
   type?: string | null;
   title?: string | null;
   status?: number | null;
@@ -20410,7 +17915,7 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostRe
   instance?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostResponse500ApplicationProblemJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse500ApplicationProblemJson {
   type?: string | null;
   title?: string | null;
   status?: number | null;
@@ -20418,7 +17923,7 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidInputsPostRe
   instance?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidQueueStartPostResponse200ApplicationJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdQueueStartPostResponse200ApplicationJson {
   threadExecutionId: string;
   agentId: string;
   sessionId: string;
@@ -20426,16 +17931,16 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidQueueStartPo
   status: string;
   startedAt: string;
   finishedAt: string | null;
-  error: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidQueueStartPostResponse200ApplicationJsonError | null;
-  operations: Array<InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidQueueStartPostResponse200ApplicationJsonOperationsItem>;
+  error: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdQueueStartPostResponse200ApplicationJsonError | null;
+  operations: Array<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdQueueStartPostResponse200ApplicationJsonOperationsItem>;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidQueueStartPostResponse200ApplicationJsonError {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdQueueStartPostResponse200ApplicationJsonError {
   type: string | null;
   message: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidQueueStartPostResponse200ApplicationJsonOperationsItem {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdQueueStartPostResponse200ApplicationJsonOperationsItem {
   operationId: string;
   providerOperationId: string | null;
   name: string;
@@ -20457,7 +17962,7 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidQueueStartPo
   metadata: Record<string, string> | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidQueueStartPostResponse404ApplicationProblemJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdQueueStartPostResponse404ApplicationProblemJson {
   type?: string | null;
   title?: string | null;
   status?: number | null;
@@ -20465,7 +17970,7 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidQueueStartPo
   instance?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidQueueStartPostResponse500ApplicationProblemJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdQueueStartPostResponse409ApplicationProblemJson {
   type?: string | null;
   title?: string | null;
   status?: number | null;
@@ -20473,14 +17978,22 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidQueueStartPo
   instance?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidResponsesPostResponse200ApplicationJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdQueueStartPostResponse500ApplicationProblemJson {
+  type?: string | null;
+  title?: string | null;
+  status?: number | null;
+  detail?: string | null;
+  instance?: string | null;
+}
+
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdResponsesPostResponse200ApplicationJson {
   status: number;
   requestId: string;
   message?: string | null;
   accepted?: boolean | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidResponsesPostResponse404ApplicationProblemJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdResponsesPostResponse404ApplicationProblemJson {
   type?: string | null;
   title?: string | null;
   status?: number | null;
@@ -20488,7 +18001,7 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidResponsesPos
   instance?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidResponsesPostResponse409ApplicationProblemJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdResponsesPostResponse409ApplicationProblemJson {
   type?: string | null;
   title?: string | null;
   status?: number | null;
@@ -20496,7 +18009,7 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidResponsesPos
   instance?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidResponsesPostResponse500ApplicationProblemJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdResponsesPostResponse500ApplicationProblemJson {
   type?: string | null;
   title?: string | null;
   status?: number | null;
@@ -20504,13 +18017,13 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidResponsesPos
   instance?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResponse200ApplicationJson {
-  observedCursor: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResponse200ApplicationJsonObservedCursor;
-  activeExecution: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResponse200ApplicationJsonActiveExecution | null;
-  pendingRequests: Array<InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResponse200ApplicationJsonPendingRequestsItem>;
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJson {
+  observedCursor: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJsonObservedCursor;
+  activeExecution: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJsonActiveExecution | null;
+  pendingRequests: Array<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJsonPendingRequestsItem>;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResponse200ApplicationJsonActiveExecution {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJsonActiveExecution {
   threadExecutionId: string;
   agentId: string;
   sessionId: string;
@@ -20518,16 +18031,16 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResp
   status: string;
   startedAt: string;
   finishedAt: string | null;
-  error: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResponse200ApplicationJsonActiveExecutionError | null;
-  operations: Array<InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResponse200ApplicationJsonActiveExecutionOperationsItem>;
+  error: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJsonActiveExecutionError | null;
+  operations: Array<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJsonActiveExecutionOperationsItem>;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResponse200ApplicationJsonActiveExecutionError {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJsonActiveExecutionError {
   type: string | null;
   message: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResponse200ApplicationJsonActiveExecutionOperationsItem {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJsonActiveExecutionOperationsItem {
   operationId: string;
   providerOperationId: string | null;
   name: string;
@@ -20549,23 +18062,23 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResp
   metadata: Record<string, string> | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResponse200ApplicationJsonObservedCursor {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJsonObservedCursor {
   generation?: number | null;
   sequenceNumber?: number | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResponse200ApplicationJsonPendingRequestsItem {
-  request: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResponse200ApplicationJsonPendingRequestsItemRequest;
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJsonPendingRequestsItem {
+  request: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJsonPendingRequestsItemRequest;
   createdAt: string;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResponse200ApplicationJsonPendingRequestsItemRequest {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJsonPendingRequestsItemRequest {
   eventId?: string | null;
   threadSequenceNumber?: number | null;
   sessionId?: string | null;
   threadId?: string | null;
   threadExecutionId?: string | null;
-  metadata?: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResponse200ApplicationJsonPendingRequestsItemRequestMetadata | null;
+  metadata?: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJsonPendingRequestsItemRequestMetadata | null;
   traceId?: string | null;
   spanId?: string | null;
   parentSpanId?: string | null;
@@ -20578,16 +18091,15 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResp
   exchangeTimestampNs?: number | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResponse200ApplicationJsonPendingRequestsItemRequestMetadata {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJsonPendingRequestsItemRequestMetadata {
   agentName: string;
   agentId: string;
   parentAgentId?: string | null;
   agentChain?: Array<string> | null;
   depth?: number | null;
-  isSubAgent?: boolean | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResponse404ApplicationProblemJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse404ApplicationProblemJson {
   type?: string | null;
   title?: string | null;
   status?: number | null;
@@ -20595,7 +18107,7 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResp
   instance?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResponse500ApplicationProblemJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse409ApplicationProblemJson {
   type?: string | null;
   title?: string | null;
   status?: number | null;
@@ -20603,15 +18115,23 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidStateGetResp
   instance?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse500ApplicationProblemJson {
+  type?: string | null;
+  title?: string | null;
+  status?: number | null;
+  detail?: string | null;
+  instance?: string | null;
+}
+
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJson {
   disposition: string;
   threadExecutionId?: string | null;
   startedAt?: string | null;
-  activeExecution?: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonActiveExecution | null;
+  activeExecution?: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonActiveExecution | null;
   result?: unknown;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonActiveExecution {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonActiveExecution {
   threadExecutionId: string;
   agentId: string;
   sessionId: string;
@@ -20619,16 +18139,16 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLoc
   status: string;
   startedAt: string;
   finishedAt: string | null;
-  error: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonActiveExecutionError | null;
-  operations: Array<InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonActiveExecutionOperationsItem>;
+  error: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonActiveExecutionError | null;
+  operations: Array<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonActiveExecutionOperationsItem>;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonActiveExecutionError {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonActiveExecutionError {
   type: string | null;
   message: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonActiveExecutionOperationsItem {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonActiveExecutionOperationsItem {
   operationId: string;
   providerOperationId: string | null;
   name: string;
@@ -20650,29 +18170,29 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLoc
   metadata: Record<string, string> | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0 {
   type?: string | null;
-  turnResult: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResult;
+  turnResult: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResult;
   threadExecutionId: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResult {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResult {
   text?: string | null;
-  events?: Array<InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultEventsItem> | null;
-  toolCalls?: Array<InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultToolCallsItem> | null;
-  started?: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultStarted | null;
-  finished?: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinished | null;
-  usage?: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultUsage | null;
+  events?: Array<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultEventsItem> | null;
+  toolCalls?: Array<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultToolCallsItem> | null;
+  started?: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultStarted | null;
+  finished?: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinished | null;
+  usage?: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultUsage | null;
   duration?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultEventsItem {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultEventsItem {
   eventId?: string | null;
   threadSequenceNumber?: number | null;
   sessionId?: string | null;
   threadId?: string | null;
   threadExecutionId?: string | null;
-  metadata?: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultEventsItemMetadata | null;
+  metadata?: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultEventsItemMetadata | null;
   traceId?: string | null;
   spanId?: string | null;
   parentSpanId?: string | null;
@@ -20685,22 +18205,21 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLoc
   exchangeTimestampNs?: number | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultEventsItemMetadata {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultEventsItemMetadata {
   agentName: string;
   agentId: string;
   parentAgentId?: string | null;
   agentChain?: Array<string> | null;
   depth?: number | null;
-  isSubAgent?: boolean | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinished {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinished {
   messageTurnId: string;
   conversationId: string;
   agentId: string;
   agentName: string;
   duration: string;
-  usage: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsage;
+  usage: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsage;
   kind?: number | null;
   iteration?: number | null;
   terminationReason?: string | null;
@@ -20710,7 +18229,7 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLoc
   sessionId?: string | null;
   threadId?: string | null;
   threadExecutionId?: string | null;
-  metadata?: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedMetadata | null;
+  metadata?: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedMetadata | null;
   traceId?: string | null;
   spanId?: string | null;
   parentSpanId?: string | null;
@@ -20722,20 +18241,19 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLoc
   exchangeTimestampNs?: number | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedMetadata {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedMetadata {
   agentName: string;
   agentId: string;
   parentAgentId?: string | null;
   agentChain?: unknown;
   depth?: number | null;
-  isSubAgent?: boolean | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsage {
-  operations: Array<InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsageOperationsItem>;
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsage {
+  operations: Array<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsageOperationsItem>;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsageOperationsItem {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsageOperationsItem {
   sourceEventId: string;
   messageTurnId: string;
   threadSequenceNumber: number;
@@ -20745,13 +18263,13 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLoc
   operationKind: number;
   family: number;
   outcome: number;
-  usage: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsageOperationsItemUsage | null;
+  usage: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsageOperationsItemUsage | null;
   providerKey: string | null;
   modelId: string | null;
   responseId: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsageOperationsItemUsage {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultFinishedUsageOperationsItemUsage {
   inputTokenCount?: number | null;
   outputTokenCount?: number | null;
   totalTokenCount?: number | null;
@@ -20760,7 +18278,7 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLoc
   additionalCounts?: Record<string, number> | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultStarted {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultStarted {
   messageTurnId: string;
   conversationId: string;
   agentId: string;
@@ -20773,7 +18291,7 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLoc
   sessionId?: string | null;
   threadId?: string | null;
   threadExecutionId?: string | null;
-  metadata?: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultStartedMetadata | null;
+  metadata?: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultStartedMetadata | null;
   traceId?: string | null;
   spanId?: string | null;
   parentSpanId?: string | null;
@@ -20785,59 +18303,58 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLoc
   exchangeTimestampNs?: number | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultStartedMetadata {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultStartedMetadata {
   agentName: string;
   agentId: string;
   parentAgentId?: string | null;
   agentChain?: unknown;
   depth?: number | null;
-  isSubAgent?: boolean | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultToolCallsItem {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultToolCallsItem {
   callId?: string | null;
   name?: string | null;
   argumentsJson?: string | null;
-  result?: InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultToolCallsItemResult | null;
+  result?: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultToolCallsItemResult | null;
   text?: string | null;
   toolHarnessName?: string | null;
   callType?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultToolCallsItemResult {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultToolCallsItemResult {
   text?: string | null;
   json?: unknown;
   content?: Array<unknown> | null;
   resultType?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultUsage {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultUsage {
   operations: unknown;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf1 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf1 {
   type?: string | null;
   threadExecutionId: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf2 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf2 {
   type?: string | null;
   disposition: number;
   threadExecutionId: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3 {
   type?: string | null;
   result: unknown;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf0 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf0 {
   type?: string | null;
   audioSessionId: string;
   revision: number;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf1 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf1 {
   type?: string | null;
   audioSessionId: string;
   previousRevision: number;
@@ -20845,28 +18362,28 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLoc
   disposition: string;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf10 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf10 {
   type?: string | null;
   disposition: string;
   safeCode: string;
   currentRevision?: number | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf11 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf11 {
   type?: string | null;
   operationId: string;
   audioSessionId?: string | null;
   currentRevision?: number | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf2 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf2 {
   type?: string | null;
   audioSessionId: string;
   candidateId: string;
   revision: number;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf3 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf3 {
   type?: string | null;
   audioSessionId: string;
   candidateId: string;
@@ -20874,35 +18391,35 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLoc
   safeCode: string;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf4 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf4 {
   type?: string | null;
   audioSessionId: string;
   revision: number;
   enabled: boolean;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf5 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf5 {
   type?: string | null;
   audioSessionId: string;
   revision: number;
   enabled: boolean;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf6 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf6 {
   type?: string | null;
   audioSessionId: string;
   revision: number;
   operationId: string;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf7 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf7 {
   type?: string | null;
   audioSessionId: string;
   revision: number;
   operationId: string;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf8 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf8 {
   type?: string | null;
   audioSessionId: string;
   revision: number;
@@ -20910,13 +18427,22 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLoc
   safeCode: string;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf9 {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf3ResultAnyOf9 {
   type?: string | null;
   audioSessionId: string;
   revision: number;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse404ApplicationProblemJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse400ApplicationProblemJson {
+  type?: string | null;
+  title?: string | null;
+  status?: number | null;
+  detail?: string | null;
+  instance?: string | null;
+  errors?: Record<string, Array<string>> | null;
+}
+
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse404ApplicationProblemJson {
   type?: string | null;
   title?: string | null;
   status?: number | null;
@@ -20924,7 +18450,7 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLoc
   instance?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse409ApplicationProblemJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse409ApplicationProblemJson {
   type?: string | null;
   title?: string | null;
   status?: number | null;
@@ -20932,7 +18458,7 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLoc
   instance?: string | null;
 }
 
-export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLocalIdInputsPostResponse500ApplicationProblemJson {
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse500ApplicationProblemJson {
   type?: string | null;
   title?: string | null;
   status?: number | null;
@@ -20940,36 +18466,37 @@ export interface InlineApiHpdAgentAgentsAgentIdSessionsSidThreadsBidSubagentsLoc
   instance?: string | null;
 }
 
-export interface InlineApiHpdAgentEventCatalogGetResponse200ApplicationJson {
-  events: Array<InlineApiHpdAgentEventCatalogGetResponse200ApplicationJsonEventsItem>;
+export interface InlineEventCatalogGetResponse200ApplicationJson {
+  events: Array<InlineEventCatalogGetResponse200ApplicationJsonEventsItem>;
   digest: string;
 }
 
-export interface InlineApiHpdAgentEventCatalogGetResponse200ApplicationJsonEventsItem {
+export interface InlineEventCatalogGetResponse200ApplicationJsonEventsItem {
   discriminator: string;
   contractName: string;
   durability: number;
   moduleId: string;
+  contractDigest: string;
 }
 
-export interface InlineApiHpdAgentInputCatalogGetResponse200ApplicationJson {
-  inputs: Array<InlineApiHpdAgentInputCatalogGetResponse200ApplicationJsonInputsItem>;
+export interface InlineInputCatalogGetResponse200ApplicationJson {
+  inputs: Array<InlineInputCatalogGetResponse200ApplicationJsonInputsItem>;
   digest: string;
 }
 
-export interface InlineApiHpdAgentInputCatalogGetResponse200ApplicationJsonInputsItem {
+export interface InlineInputCatalogGetResponse200ApplicationJsonInputsItem {
   discriminator: string;
   contractName: string;
   moduleId: string;
   isPublic: boolean;
 }
 
-export interface InlineApiHpdAgentRuntimeExtensionCatalogGetResponse200ApplicationJson {
-  schemas: Array<InlineApiHpdAgentRuntimeExtensionCatalogGetResponse200ApplicationJsonSchemasItem>;
+export interface InlineRuntimeExtensionCatalogGetResponse200ApplicationJson {
+  schemas: Array<InlineRuntimeExtensionCatalogGetResponse200ApplicationJsonSchemasItem>;
   digest: string;
 }
 
-export interface InlineApiHpdAgentRuntimeExtensionCatalogGetResponse200ApplicationJsonSchemasItem {
+export interface InlineRuntimeExtensionCatalogGetResponse200ApplicationJsonSchemasItem {
   key: string;
   namespace: string;
   name: string;
@@ -20980,8 +18507,32 @@ export interface InlineApiHpdAgentRuntimeExtensionCatalogGetResponse200Applicati
   description: string | null;
 }
 
-export interface InlineApiHpdAgentSessionsSidThreadsBidContentPostRequestMultipartFormData {
+export interface InlineSessionsSessionIdThreadsThreadIdContentPostRequestMultipartFormData {
   file: string;
+}
+
+export interface InlineStorageGetResponse200ApplicationJson {
+  sessions: InlineStorageGetResponse200ApplicationJsonSessions;
+  agentDefinitions: InlineStorageGetResponse200ApplicationJsonAgentDefinitions;
+  content: InlineStorageGetResponse200ApplicationJsonContent;
+}
+
+export interface InlineStorageGetResponse200ApplicationJsonAgentDefinitions {
+  persistence: string;
+  configured: boolean;
+  usingDefaultFallback: boolean;
+}
+
+export interface InlineStorageGetResponse200ApplicationJsonContent {
+  persistence: string;
+  configured: boolean;
+  usingDefaultFallback: boolean;
+}
+
+export interface InlineStorageGetResponse200ApplicationJsonSessions {
+  persistence: string;
+  configured: boolean;
+  usingDefaultFallback: boolean;
 }
 
 export interface InputMediaPolicy {
@@ -20990,6 +18541,18 @@ export interface InputMediaPolicy {
   retainInputMediaArtifact?: boolean | null;
   allowDerivedTextPersistence?: boolean | null;
   allowDigestCapture?: boolean | null;
+}
+
+export interface JudgeCallRecord {
+  evaluatorName: string;
+  phase: string;
+  prompt: Array<ChatMessage>;
+  response: unknown;
+  modelId: string | null;
+  usage: unknown;
+  duration: string;
+  succeeded: boolean;
+  errorMessage: string | null;
 }
 
 export interface McpManifestReference {
@@ -21128,6 +18691,11 @@ export interface ProviderReference {
   authentication?: unknown;
 }
 
+export interface RateResponse {
+  evaluatorName: string;
+  passRate: number;
+}
+
 export interface RealtimeAudioFormatRunConfig {
   mediaType?: string | null;
   sampleRate?: number | null;
@@ -21156,10 +18724,132 @@ export interface ReasoningOptions {
   output?: unknown;
 }
 
+export interface RedTeamAnalyticsSummary {
+  attackSuccessRate: number;
+  attackSuccessRateByPlugin: Record<string, number>;
+  attackSuccessRateByStrategy: Record<string, number>;
+  findingCount: number;
+}
+
+export interface RedTeamFinding {
+  scoreRecordId: string;
+  pluginId: string | null;
+  strategyId: string | null;
+  category: string | null;
+  severity: string | null;
+  attackGoal: string | null;
+  attackSucceeded: boolean;
+  evaluatorName: string;
+  sessionId: string;
+  threadId: string;
+  turnIndex: number;
+  createdAt: string;
+}
+
+export interface RedTeamPluginCatalogItem {
+  id: string;
+  displayName: string;
+  category: string;
+}
+
+export interface RedTeamStrategyCatalogItem {
+  id: string;
+  displayName: string;
+}
+
+export interface RegisterStringDatasetRequest {
+  datasetId?: string | null;
+  version?: string | null;
+  description?: string | null;
+  registeredAt?: string | null;
+  cases?: Array<StringEvalCaseDto> | null;
+}
+
 export interface RetryExclusionConfig {
   harnesses?: Array<string> | null;
   functions?: Array<string> | null;
   actions?: Array<ActionRetryExclusion> | null;
+}
+
+export interface RiskAutonomyDataPoint {
+  sessionId: string;
+  threadId: string;
+  turnIndex: number;
+  agentName: string;
+  riskScore: number;
+  autonomyScore: number;
+  createdAt: string;
+}
+
+export interface SafetyAnalyticsSummary {
+  totalCount: number;
+  passedCount: number;
+  failedCount: number;
+  passRate: number;
+  averageSafetyScore: number;
+  byCategory: Record<string, number>;
+  bySeverity: Record<string, number>;
+  byRecommendedAction: Record<string, number>;
+}
+
+export interface ScoreAggregate {
+  average: number;
+  min: number;
+  max: number;
+  count: number;
+  passRate: number;
+}
+
+export interface ScoreBucket {
+  start: string;
+  average: number;
+  min: number;
+  max: number;
+  count: number;
+  passRate: number;
+}
+
+export interface ScoreRecord {
+  id?: string | null;
+  evaluatorName?: string | null;
+  evaluatorVersion?: string | null;
+  result?: EvaluationResult | null;
+  source?: number | null;
+  sessionId?: string | null;
+  threadId?: string | null;
+  turnIndex?: number | null;
+  agentName?: string | null;
+  providerKey?: string | null;
+  modelId?: string | null;
+  responseModelId?: string | null;
+  datasetId?: string | null;
+  datasetVersion?: string | null;
+  caseId?: string | null;
+  caseVersion?: string | null;
+  caseValidFrom?: string | null;
+  caseValidTo?: string | null;
+  redTeamPluginId?: string | null;
+  redTeamStrategyId?: string | null;
+  redTeamCategory?: string | null;
+  redTeamSeverity?: string | null;
+  attackGoal?: string | null;
+  attackSucceeded?: boolean | null;
+  turnUsage?: unknown;
+  turnDuration?: string | null;
+  attributes?: unknown;
+  metrics?: Record<string, number> | null;
+  judgeModelId?: string | null;
+  judgeUsage?: unknown;
+  judgeDuration?: string | null;
+  judgeCalls?: Array<JudgeCallRecord> | null;
+  samplingRate?: number | null;
+  policy?: number | null;
+  createdAt?: string | null;
+}
+
+export interface ScoreTrend {
+  evaluatorName: string;
+  buckets: Array<ScoreBucket>;
 }
 
 export interface SearchSessionsRequest {
@@ -21197,6 +18887,37 @@ export interface StoredAgentDto {
   createdAt: string;
   updatedAt: string;
   metadata: unknown;
+}
+
+export interface StringDatasetCaseChangeDto {
+  caseId?: string | null;
+  before?: StringEvalCaseDto | null;
+  after?: StringEvalCaseDto | null;
+}
+
+export interface StringDatasetDiffResponse {
+  datasetId?: string | null;
+  fromVersion?: string | null;
+  toVersion?: string | null;
+  added?: Array<StringEvalCaseDto> | null;
+  removed?: Array<StringEvalCaseDto> | null;
+  changed?: Array<StringDatasetCaseChangeDto> | null;
+}
+
+export interface StringDatasetVersionResponse {
+  datasetId?: string | null;
+  version?: string | null;
+  cases?: Array<StringEvalCaseDto> | null;
+}
+
+export interface StringEvalCaseDto {
+  caseId?: string | null;
+  name?: string | null;
+  version?: string | null;
+  validFrom?: string | null;
+  validTo?: string | null;
+  input?: string | null;
+  groundTruth?: string | null;
 }
 
 export interface SubAgentDto {
@@ -21305,6 +19026,14 @@ export interface TextToSpeechPacingOptions {
   continuation?: TextToSpeechContinuationOptions | null;
   boundaries?: TextToSpeechBoundaryOptions | null;
   filtering?: TextToSpeechFilteringOptions | null;
+}
+
+export interface ThreadComparisonResult {
+  sessionId: string;
+  threadId1: string;
+  threadId2: string;
+  thread1Scores: Record<string, ScoreAggregate>;
+  thread2Scores: Record<string, ScoreAggregate>;
 }
 
 export interface ThreadDto {
@@ -21463,6 +19192,58 @@ export interface ThreadRuntimeChildDto {
   lastActivity: string;
 }
 
+export interface ToolCallContent {
+}
+
+export interface ToolCallContentBase {
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface ToolCallContentCodeInterpreterToolCallContent {
+  $type: string;
+  inputs?: Array<AIContent> | null;
+  callId: string;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface ToolCallContentFunctionCallContent {
+  $type: string;
+  name: string;
+  arguments?: null;
+  informationalOnly?: boolean | null;
+  callId: string;
+  annotations?: null;
+  additionalProperties?: null;
+}
+
+export interface ToolCallContentImageGenerationToolCallContent {
+  $type: string;
+  callId: string;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface ToolCallContentMcpServerToolCallContent {
+  $type: string;
+  name: string;
+  serverName: string | null;
+  arguments?: unknown;
+  callId: string;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
+export interface ToolCallContentWebSearchToolCallContent {
+  $type: string;
+  queries?: Array<string> | null;
+  callId: string;
+  annotations?: Array<AIAnnotation> | null;
+  additionalProperties?: unknown;
+}
+
 export interface ToolOutputConfig {
   enabled?: boolean | null;
   maxInlineResultBytes?: number | null;
@@ -21474,6 +19255,12 @@ export interface ToolOutputConfig {
 export interface ToolSelectionConfig {
   toolMode?: string | null;
   requiredFunctionName?: string | null;
+}
+
+export interface ToolUsageSummary {
+  totalCalls: number;
+  permissionDeniedCount: number;
+  permissionDeniedRate: number;
 }
 
 export interface TraceCapturePolicy {
@@ -21498,6 +19285,15 @@ export interface UpdateThreadRequest {
   metadata?: unknown;
 }
 
+export interface UsageDetails {
+  inputTokenCount?: number | null;
+  outputTokenCount?: number | null;
+  totalTokenCount?: number | null;
+  cachedInputTokenCount?: number | null;
+  reasoningTokenCount?: number | null;
+  additionalCounts?: Record<string, number> | null;
+}
+
 export interface ValidationConfig {
   enableAsyncValidation?: boolean | null;
   timeoutMs?: number | null;
@@ -21509,5 +19305,30 @@ export interface VoiceActivityClientConfig {
   modelName?: string | null;
   endpoint?: string | null;
   customHeaders?: Record<string, string> | null;
+}
+
+export interface WriteScoreRequest {
+  evaluatorName?: string | null;
+  evaluatorVersion?: string | null;
+  result?: unknown;
+  source?: string | null;
+  sessionId?: string | null;
+  threadId?: string | null;
+  turnIndex?: number | null;
+  agentName?: string | null;
+  turnDuration?: string | null;
+  samplingRate?: number | null;
+  policy?: string | null;
+  createdAt?: string | null;
+}
+
+export interface ClientToolHarnessDefinition {
+  name: string;
+  description: string | null;
+  tools: Array<ClientToolDefinition>;
+  skills?: Array<ClientSkillDefinition> | null;
+  functionResult?: string | null;
+  systemPrompt?: string | null;
+  startCollapsed?: boolean | null;
 }
 

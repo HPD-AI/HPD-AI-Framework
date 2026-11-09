@@ -255,6 +255,7 @@ public record TotalErrorThresholdExceededEvent(
     int Iteration) : AgentEvent, IObservabilityEvent, IErrorEvent
 {
     /// <inheritdoc />
+    [System.Text.Json.Serialization.JsonIgnore]
     public string ErrorMessage => $"Total error threshold ({TotalErrorCount}/{MaxTotalErrors}) exceeded";
 
     /// <inheritdoc />

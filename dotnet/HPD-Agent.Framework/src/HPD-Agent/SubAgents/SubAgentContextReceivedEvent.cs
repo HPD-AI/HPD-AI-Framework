@@ -3,7 +3,7 @@ using Microsoft.Extensions.AI;
 namespace HPD.Agent;
 
 /// <summary>Durable background received by a fresh child; source events are not imported.</summary>
-[Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [Serialization.EventType("SUBAGENT_CONTEXT_RECEIVED")]
 public sealed record SubAgentContextReceivedEvent(
     string MessageId,

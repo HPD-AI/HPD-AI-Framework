@@ -747,6 +747,7 @@ public sealed class AgentContext
     internal ErrorContext AsError(
         Exception error,
         ErrorSource source,
-        int iteration)
-        => new(this, error, source, iteration);
+        int iteration,
+        AgentRunConfig? runConfig = null)
+        => new(this, error, source, iteration, runConfig);
 }

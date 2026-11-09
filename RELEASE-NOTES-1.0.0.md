@@ -83,6 +83,13 @@ Applications should create agents through `AgentBuilder`. Consumers using the
 former public direct constructor must migrate provider, middleware, content-store,
 and resource ownership to builder-owned construction.
 
+The durable `ITERATION_CONTEXT_SNAPSHOT` event was removed before the 1.0
+freeze. It was diagnostic-only and did not participate in compaction recovery
+or thread projection. Existing journals that contain this discriminator
+intentionally fail closed rather than carrying a compatibility decoder into
+1.0. Use model/provider logs or application-defined live diagnostics when the
+provider-bound context must be observed.
+
 Audio consumers should remove `V1` and `V2` suffixes from HPD audio type names.
 For example, use `LiveAudioSessionStartRequest`,
 `EndpointDecisionProjection`, and `VoiceActivityRequest` instead of their former

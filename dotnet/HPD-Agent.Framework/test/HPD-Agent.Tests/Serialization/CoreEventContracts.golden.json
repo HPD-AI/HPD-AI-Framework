@@ -1,0 +1,1023 @@
+{
+  "Version": "1.0",
+  "Digest": "923db075c7d4c1297e35bd5faa75a4ad43dbe09b536c3c2832495d0370af8134",
+  "BehaviorDigest": "a1de80c75efc508249133567c08f0810c27119303730619832f439cbaf9650f4",
+  "EventCount": 145,
+  "Events": [
+    {
+      "Discriminator": "AGENT_CAPABILITY_REFRESH_PUBLISHED",
+      "ContractDigest": "595f35ee29f1faf5aafef426bf766bc55fb300e4191459710b1932adb8374062",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "AGENT_CAPABILITY_REFRESH_REJECTED",
+      "ContractDigest": "6a887251a71be41adfa690d9780d7e1d689e3e33b48854f5c3efeec7028cb41a",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "AGENT_CAPABILITY_REFRESH_STARTED",
+      "ContractDigest": "1a5fd73ed3b2c8e059b868f2ecaba3d4ca258106aaa3fd9a0c9b917daeb08df2",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "AGENT_COMPLETION",
+      "ContractDigest": "d90d44eaaa425a49f12cf499e887aa479968ab61ae504b7fc0c290444b315ca7",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "AGENT_DECISION",
+      "ContractDigest": "2b6298df2b628bea466209d306f102b88de4164b2d95c3c299190264722c440d",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "AGENT_OPERATION_NOTIFICATION_DELIVERED",
+      "ContractDigest": "c1082bd45800306546fbba335601883c458f43f78cecc912192e109fde32dff3",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "AGENT_OPERATION_NOTIFICATION_QUEUED",
+      "ContractDigest": "c40975e56530b433823e64485fe1b21b599d3e5799316bcade07b27b81705362",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "AGENT_OPERATION_NOTIFICATION_SUPPRESSED",
+      "ContractDigest": "d1305286fa358a60332df968c3d1575ee0e1c5c08d0fa87818bd60a4bc78f6ea",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "AGENT_OPERATION_REGISTERED",
+      "ContractDigest": "e2fcacfcffcf01f8004597584acb270cf6ba7d02bee8334ef32215bb2d83ed32",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "AGENT_OPERATION_TOMBSTONED",
+      "ContractDigest": "2b2aeedd65566838e61835bdbd61e11a9b1b152440ef654cd58ac1bc5681903c",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "AGENT_OPERATION_TOMBSTONE_EVICTED",
+      "ContractDigest": "5d0ff8bcc60ed633f084a55a042b8e639a998a4867a8ba02b02f6c2aab209997",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "AGENT_OPERATION_TRANSITIONED",
+      "ContractDigest": "4dd777ff3130826f82ff91f3cfb79970b3b0d30c37ef7e2acfa02a6d9a0e6fb5",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "AGENT_REQUEST_TERMINATED",
+      "ContractDigest": "460de9d63cd5bf6c907392011961fa972cf0764cc4bde4bce8c897aa77c35cde",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "AGENT_TURN_CAPABILITIES_PINNED",
+      "ContractDigest": "7bba24d67b42f65c86d6b0f24535d31c366fe6e1e2b952017f7295a9ccdd9fa1",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "AGENT_TURN_FINISHED",
+      "ContractDigest": "2fe706274194a119791f87e33254f792451c7afe1386dd73933af875dba2a86b",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "AGENT_TURN_STARTED",
+      "ContractDigest": "eb3655f5b420e1301c51bac5b370ef2f07e1303a8148cf03c7c5fb9fc0b0ea70",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "CIRCUIT_BREAKER_TRIGGERED",
+      "ContractDigest": "a57f3413f53a69e181f339ef60d681adae6af2074ce3966d8be2944c5c317512",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "CLIENT_TOOL_INVOKE_OUTCOME",
+      "ContractDigest": "c883901e9b309e29b30e0dcdf0278f18c179f04d603bd32da15ddce3682d59c5",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "CLIENT_TOOL_INVOKE_REQUEST",
+      "ContractDigest": "a6afd140143d342b2ec9094aac14ca6ef67f9684d2fd6dca7252f79b40b58ec2",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "COLLAPSED_TOOLS_VISIBLE",
+      "ContractDigest": "00aeebe7777e37a23555853b026c6cae62d3fe58734eb18ce0a402e42f0741ed",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "COLLAPSING_STATE",
+      "ContractDigest": "4f60c7b0d3d21f3a3ee6e051e074fd01bcebf93f90e1f80e76c1dd24ae5da265",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "COMPACTION",
+      "ContractDigest": "8c9ff5db3dbdd0378b786a8761e792df5edc509bc26b268f340510b3013932df",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "CONTAINER_EXPANDED",
+      "ContractDigest": "235460e9b42849fc31399c3d253e2be0a8450063761fe4d6455a01f242abd2e8",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "CONTENT_ADDED",
+      "ContractDigest": "bd99e44dc3ca549e2402545fd29fd0168e97bfd5122ae45b913a0208a0300975",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "CONTENT_CAPTURE_FINALIZED",
+      "ContractDigest": "fa092bc2945b3581b377797f490e9edd9b11c09146840040b438d974a07e5201",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "CONTENT_READ",
+      "ContractDigest": "6412451e97079ce560c3f378d834b7883b111280401924ec0140a6d7dd1d1fe5",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "CONTENT_REFERENCE_RESOLUTION_FAILED",
+      "ContractDigest": "4c1b5a667efb3b5e7edcc66ceee117a26e3d0ae50c75e664061f8004b1320acf",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "CONTENT_REFERENCE_RESOLVED",
+      "ContractDigest": "f6e20f6cc0d7791b598939fef55a930605508994276fcac63c1ed2f4664e5729",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "CONTENT_SCOPE_CLEANED",
+      "ContractDigest": "097554116cc1e9d8bfa29d115582962f6c1cd7c5df18943002d116f1048ed9e4",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "CONTENT_UPLOADED",
+      "ContractDigest": "7d8902084276bcef2790412f569aeabb6b8e10f9821eb0ddad2176860f072c83",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "CONTENT_UPLOAD_FAILED",
+      "ContractDigest": "a989b15d58f505c69a793f6390233a499f159b68ed2040432b94963608e78c89",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "CONTINUATION_REQUEST",
+      "ContractDigest": "268211e5fc5ef97dc95990bb430293ef6b38d4b0749b41c9354c600883987117",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "CONTINUATION_RESPONSE",
+      "ContractDigest": "43140e285bb94bb95f571de089a8f8957ffeee19a60f5b6f41634b8a41116eb1",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "DELTA_SENDING_ACTIVATED",
+      "ContractDigest": "10910bddf6fbc0060959d8719477c083647c7109de72f89b96f9470390d84140",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "DOCUMENT_PROCESSED",
+      "ContractDigest": "5c8d295712d5f7d2fc0ba054545a35b551a1c36b3dab67fea79660a0b2396768",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "EVENT_DROPPED",
+      "ContractDigest": "10fcb966df84c1633d3f8ccb60c1249a80f108a3f66fed38cc6659100ce32a93",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "FUNCTION_INVOCATION_AUDITED",
+      "ContractDigest": "9eba60b97b27e58c4b6c9b2337f0ce89370f2799704af7785cb1ab0d70f9c57b",
+      "Durability": "Durable",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "FUNCTION_RETRY",
+      "ContractDigest": "8d413c586a8b1ce9643c53ef28ec10ab54fb7aa2825ea285e2bb03a458050600",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "GOAL_AWAITING_INPUT",
+      "ContractDigest": "5a5f24ece12a572fa999465a4728a92b815852e0c50d4054868ea4c519521c03",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "GOAL_BLOCKED",
+      "ContractDigest": "5a5f24ece12a572fa999465a4728a92b815852e0c50d4054868ea4c519521c03",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "GOAL_BLOCKER_REJECTED",
+      "ContractDigest": "5a5f24ece12a572fa999465a4728a92b815852e0c50d4054868ea4c519521c03",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "GOAL_BLOCKER_REPORTED",
+      "ContractDigest": "5a5f24ece12a572fa999465a4728a92b815852e0c50d4054868ea4c519521c03",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "GOAL_CLEARED",
+      "ContractDigest": "5a5f24ece12a572fa999465a4728a92b815852e0c50d4054868ea4c519521c03",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "GOAL_COMPLETED",
+      "ContractDigest": "c14c078c61f73cf62dca9fb3bd7b73aed0606a1aa10ca2a4c13951c92f802755",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "GOAL_COMPLETION_PROPOSED",
+      "ContractDigest": "5a5f24ece12a572fa999465a4728a92b815852e0c50d4054868ea4c519521c03",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "GOAL_COMPLETION_REJECTED",
+      "ContractDigest": "5a5f24ece12a572fa999465a4728a92b815852e0c50d4054868ea4c519521c03",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "GOAL_CONTINUATION_SCHEDULED",
+      "ContractDigest": "5a5f24ece12a572fa999465a4728a92b815852e0c50d4054868ea4c519521c03",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "GOAL_CONTINUATION_SKIPPED",
+      "ContractDigest": "5a5f24ece12a572fa999465a4728a92b815852e0c50d4054868ea4c519521c03",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "GOAL_CONTINUATION_STARTED",
+      "ContractDigest": "5a5f24ece12a572fa999465a4728a92b815852e0c50d4054868ea4c519521c03",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "GOAL_EDITED",
+      "ContractDigest": "5a5f24ece12a572fa999465a4728a92b815852e0c50d4054868ea4c519521c03",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "GOAL_FAULTED",
+      "ContractDigest": "5a5f24ece12a572fa999465a4728a92b815852e0c50d4054868ea4c519521c03",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "GOAL_PAUSED",
+      "ContractDigest": "957a076bbc92187f436715549ce42ae8d3c4c7162f490362378158d7aeebbbc5",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "GOAL_PROGRESS_ACCOUNTED",
+      "ContractDigest": "5a5f24ece12a572fa999465a4728a92b815852e0c50d4054868ea4c519521c03",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "GOAL_RESUMED",
+      "ContractDigest": "5a5f24ece12a572fa999465a4728a92b815852e0c50d4054868ea4c519521c03",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "GOAL_STARTED",
+      "ContractDigest": "5a5f24ece12a572fa999465a4728a92b815852e0c50d4054868ea4c519521c03",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "GOAL_UPDATED",
+      "ContractDigest": "5a5f24ece12a572fa999465a4728a92b815852e0c50d4054868ea4c519521c03",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "GOAL_USAGE_LIMITED",
+      "ContractDigest": "5a5f24ece12a572fa999465a4728a92b815852e0c50d4054868ea4c519521c03",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "HOSTED_FILE_UPLOADED",
+      "ContractDigest": "44c93a68c76fd3f51224a48563708f875ba154172eb922df071fd48501b3beb9",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "HOSTED_FILE_UPLOAD_FAILED",
+      "ContractDigest": "a989b15d58f505c69a793f6390233a499f159b68ed2040432b94963608e78c89",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "INTERNAL_MESSAGE_PREPARED",
+      "ContractDigest": "cf7efdab1fca670723d2ae69b25a83e92ee2c83e50a7efbdb56e1d170e371d5d",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "INTERNAL_PARALLEL_TOOL_EXECUTION",
+      "ContractDigest": "8f550e06844ae185de88a2324195bac979ca06106a32260c42ea699c644d701a",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "INTERRUPTION_HANDLED",
+      "ContractDigest": "afc8df5579aff4efd45692d1f4792a562a3fd267abb8856b14e547dcb0de6ac7",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "ITERATION_START",
+      "ContractDigest": "6e59d4245d87a5394b426e1269243a0a9107978a33c02440145b9b4d49b633c3",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "MAX_CONSECUTIVE_ERRORS_EXCEEDED",
+      "ContractDigest": "b8caaf86a4c856016106acceeb81dad5686b4538bbd02fb9c58aa2fe363eeefa",
+      "Durability": "Durable",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "MESSAGE_TURN_ERROR",
+      "ContractDigest": "7092199a91acb9b399270695d3a41cd1096c5eae2de1c66cd928e122f8838dae",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "MESSAGE_TURN_FINISHED",
+      "ContractDigest": "6c6e2424c06a25a193d3dc434071361a2853828ad3c5ac4b9422e10a9b90e85a",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "MESSAGE_TURN_STARTED",
+      "ContractDigest": "5ed15031ae8ebc2362206be59eaa0421d9e55f0e96a26dff1b137960c0315422",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "MIDDLEWARE_ERROR",
+      "ContractDigest": "b0bf5ee5634a7bf3bba32942b2910116fff7e9bb1c05d5a2e1a174b73b4b690d",
+      "Durability": "Durable",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "MIDDLEWARE_STATE_CHANGED",
+      "ContractDigest": "b54edde651f2ddc66ed92718f901f1903cb0b2c465b773f01f078474198319e0",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "MIDDLEWARE_STATE_SNAPSHOT",
+      "ContractDigest": "c20cfd3714370948a9139b6b9e619df557d6d67d10a38e1d40bbfd57244e478c",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "MODEL_CALL_RETRY",
+      "ContractDigest": "51b0b3f852f1ad6c06307634778d73228d95fb83e24654a5caf59d8803a3c44d",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "NESTED_AGENT_INVOKED",
+      "ContractDigest": "b6f561b1d90079aec350f98bf4ddbf44b3a634c305c565af2903dd9319c81e63",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "OPERATION_EXECUTION_OWNER_CLEANUP_FAILED",
+      "ContractDigest": "ecaf19e95c5ceb595a62a1f5bcacd9e62deed77121db9a2a0ca7ae8df22738dc",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "PARENT_QUESTION_REQUEST",
+      "ContractDigest": "065c957ba481f83ba06b9fc17c250bac88a888f23fdbebb33efb77183c97a44e",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "PERMISSION_EVALUATED",
+      "ContractDigest": "54fa14c75c8a660fae8abfc807a465d3d34a614cae545a01b0ac079964ffde0a",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "PERMISSION_REQUEST",
+      "ContractDigest": "03ba9addb7ae46d0811d71081e6d8a21a835e11ba9e9d51c0d7fbdd931e76602",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "PERMISSION_RESOLVED",
+      "ContractDigest": "a7d645e41ad52d354bfca153a54a66ae648606359e8fb55527a5f41e5b76f920",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "PERMISSION_RESPONSE",
+      "ContractDigest": "e8add7b106af65464040fe84700bd4d11821446d352022047a7635f39d1b72d1",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "PII_DETECTED",
+      "ContractDigest": "a03d4ef485c13f6d20d2598444f25da2fb6228fd038f9ff820f5a53c089f8d23",
+      "Durability": "Durable",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "PLAN_UPDATED",
+      "ContractDigest": "7d28a87f6ec0a815cee4f679388309a4c9dfff3be2aa7b80936b812465754113",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "PROVIDER_OPERATION_USAGE",
+      "ContractDigest": "1fbf57f9e0a7d570725bcc0e708c4195d2fde48af083a0559ba9a2573075f81d",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "PROVIDER_VALUATION_OBSERVATION",
+      "ContractDigest": "4d18896f2438509bdbc0ed77b30e366f0f8819a06d9c2d011600adb1277363da",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "QUESTION_RESPONSE",
+      "ContractDigest": "4a47e1030a4a6be36338e336c4f61e5f6b67dcc3b5b9b7fc802d060aa280990c",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "REASONING_DELTA",
+      "ContractDigest": "53bef787d9b67b4288f870ef798c6f397290f2274988974d1319777fd7eb9aee",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "REASONING_MESSAGE_END",
+      "ContractDigest": "5117548f9c52f6e97aa64412824e11ca37817da934dcbf42ffc2555c93cdb93a",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "REASONING_MESSAGE_START",
+      "ContractDigest": "1451b6190cbba72760bcffa99e0f2eebfbb97c792fdfd63ca841bb870de1f680",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "REQUEST_EVENT_PROCESSED",
+      "ContractDigest": "a392215606bc5489583df1fa1975e56c398f244808e46bafce25b2d88c77b120",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "RUNTIME_AGENT_DURABLE_EVENT",
+      "ContractDigest": "0daccbb9b31dbf2d4eb23f4ad50ecdad0af6086cc6c0d914c17e6002a5e9fc61",
+      "Durability": "Durable",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "RUNTIME_AGENT_LIVE_EVENT",
+      "ContractDigest": "0daccbb9b31dbf2d4eb23f4ad50ecdad0af6086cc6c0d914c17e6002a5e9fc61",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SKILL_ACTIVATED",
+      "ContractDigest": "d7c32bd5425e39256c4b9cbebdf0f019124230d253fe2fd058813d7906675b3b",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SKILL_ACTIVATION_FAILED",
+      "ContractDigest": "56de61749a8a326a22270c18eea1c49ca6c481af8393939f80a6171157a43b8d",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SKILL_ACTIVATION_STARTED",
+      "ContractDigest": "7383aaf6fab8a576b26d8d1821136f09fb500497f6d1b2a06faae336f83a3cc8",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SKILL_RESOURCE_READ_COMPLETED",
+      "ContractDigest": "7383aaf6fab8a576b26d8d1821136f09fb500497f6d1b2a06faae336f83a3cc8",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SKILL_RESOURCE_READ_FAILED",
+      "ContractDigest": "56de61749a8a326a22270c18eea1c49ca6c481af8393939f80a6171157a43b8d",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SKILL_RESOURCE_READ_STARTED",
+      "ContractDigest": "7383aaf6fab8a576b26d8d1821136f09fb500497f6d1b2a06faae336f83a3cc8",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SKILL_SCRIPT_COMPLETED",
+      "ContractDigest": "7383aaf6fab8a576b26d8d1821136f09fb500497f6d1b2a06faae336f83a3cc8",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SKILL_SCRIPT_FAILED",
+      "ContractDigest": "2cba8eaf2f8a0c325fec5a984d8a3d19277c28f6fa98d41ebe15fd495e376c08",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SKILL_SCRIPT_STARTED",
+      "ContractDigest": "507b197784a774ab5cf4dd6ada359dd3f1d4ddf0604d601b9261f441a5788fff",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SKILL_SCRIPT_TIMED_OUT",
+      "ContractDigest": "7383aaf6fab8a576b26d8d1821136f09fb500497f6d1b2a06faae336f83a3cc8",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "STATE_SNAPSHOT",
+      "ContractDigest": "d42d626a084c71db4a3a67c440655868d543bdc37884b158f2ca13b9b8b71243",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "STRUCTURED_OUTPUT_COMPLETE",
+      "ContractDigest": "ff867fa375e9c9af12131ea175a75d353d37a356c3c06b7ad3dde4ed72db31ad",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "STRUCTURED_OUTPUT_ERROR",
+      "ContractDigest": "528ebef7fcb1aff154ad92b56c5abfc04c0b08427c6aeeca1b17bb6b2c5b126e",
+      "Durability": "Durable",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "STRUCTURED_OUTPUT_PARTIAL",
+      "ContractDigest": "8663ca2211bf8b45bc345bb633cda322fd7d89798710923fdaead1640d065b2f",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "STRUCTURED_OUTPUT_START",
+      "ContractDigest": "dc499aca01da3760a1edef99f964a8d5fdb735ce979f9ebb617104cdf71af63c",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SUBAGENT_CHILD_CONTROLLER_AUTHORITY",
+      "ContractDigest": "89c75accabe006546cee956f862d426206535e8f3670358fb51f0a4d2ac74792",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SUBAGENT_CHILD_DETACHED",
+      "ContractDigest": "be24b426e5573f8e64917656c01627d17458c04dbeb063ecfdbc5813ff779d03",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SUBAGENT_CHILD_REGISTERED",
+      "ContractDigest": "7847501e87e0b31dd700c3388f1bd42114c86df72865eed0a959cb5fd27c04f6",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SUBAGENT_CHILD_REMAPPED",
+      "ContractDigest": "499e6d95d98218129983a2267c37b5c9c168673cde83db7ca99fd73bf891ea2f",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SUBAGENT_CHILD_UNAVAILABLE",
+      "ContractDigest": "557b68e1d98dcac4acc147acd93cf95ce594a83601c817164682b657c5eaa8b7",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SUBAGENT_CONTEXT_RECEIVED",
+      "ContractDigest": "b737cedbaa474dd8688947b28ecf7bc5bf896b6fe72f11a0272162e94d48645e",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SUBAGENT_CONTROLLER_GRANTED",
+      "ContractDigest": "499e6d95d98218129983a2267c37b5c9c168673cde83db7ca99fd73bf891ea2f",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SUBAGENT_CREATION_ADVANCED",
+      "ContractDigest": "3069d6af5e92cb60f8adad8416b94dd7fa11a13b1665b901c4b372c67576ae85",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SUBAGENT_CREATION_RESERVED",
+      "ContractDigest": "3069d6af5e92cb60f8adad8416b94dd7fa11a13b1665b901c4b372c67576ae85",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SUBAGENT_EXECUTION_CONTROLLER",
+      "ContractDigest": "17789585a7a6e3ffc495dadb857ee221100485595105df3ba699d0227fc57c13",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SUBAGENT_INVOCATION_CANCELLED",
+      "ContractDigest": "08a84f69c0115fc16caf2c070fe0dc219863e052acbed21490d16a28aa11c706",
+      "Durability": "Durable",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SUBAGENT_INVOCATION_COMPLETED",
+      "ContractDigest": "73871662bbbfa07a52782c1216c451ada65449c741d04a41a6f168cbdaf328fe",
+      "Durability": "Durable",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SUBAGENT_INVOCATION_FAILED",
+      "ContractDigest": "03291a01a6301a80c78dad16a7d07838015cf2b58076fbfd7a6f8448a0b96c29",
+      "Durability": "Durable",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SUBAGENT_INVOCATION_STARTED",
+      "ContractDigest": "5494c7009199a1fe0384e794f91997742de1e2f413266f0ea175f38b3b52277f",
+      "Durability": "Durable",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SUBAGENT_QUESTION_RAISED",
+      "ContractDigest": "689750edf84584b33432936d25efe50e5f2890377851a2d6922c288bb2bbe3be",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SUBAGENT_REGISTRY_SEED",
+      "ContractDigest": "b505a142ad0a075a6472306010817c866a8ec3d69287e6831a942829e5ceb35e",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "SUBAGENT_RESULT_SUBMITTED",
+      "ContractDigest": "248b836831dd46edc9b1fea177b5815c63ab040b73a3298516aec092485775ae",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "TEXT_DELTA",
+      "ContractDigest": "02a6207303471c1a91049f437ca0aabeb80b78cb647da3756a8ece3bb64877e6",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "TEXT_MESSAGE_END",
+      "ContractDigest": "5117548f9c52f6e97aa64412824e11ca37817da934dcbf42ffc2555c93cdb93a",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "TEXT_MESSAGE_START",
+      "ContractDigest": "be86da6c0da2bbd8d0e75272dfddb00b486cadf00bcaf30a3b15f88f69ffabe1",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "THREAD_CREATED",
+      "ContractDigest": "f25cd04b54e19f21e43c2babb5dd19f26a18bd1b9f7ca3f6dce41391c5a1bbb3",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "THREAD_EXECUTION_FINISHED",
+      "ContractDigest": "aa78ededf724f46a3771ef4f368416bfed179b426d5b0920327556fcc769c498",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "THREAD_EXECUTION_STARTED",
+      "ContractDigest": "bf97493399a3c04784d7b00b2eecf8c7263b92f2365edc2cd65ee6942b629b9d",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "THREAD_FORK_OPERATION_CHANGED",
+      "ContractDigest": "e97823f065aa25084352596dec2a5d8f69ea5a4af07d6c70fe68893d6fc7a514",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "THREAD_HISTORY_COMPACTION_CHECKPOINT",
+      "ContractDigest": "c16fe498886eb7d388382ce6df50d52defdf611300f34b09020fac5003bd7842",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "THREAD_MESSAGE_REPLACED",
+      "ContractDigest": "69a525521ef50586768450524e64ccd66591797b377492c48b06fe7aa437c10f",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "THREAD_MIDDLEWARE_STATE_COMMITTED",
+      "ContractDigest": "d9c9a018514187dffa0592d064e2fa94409e164970c9c7128f83d11b2a982524",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "THREAD_UPDATED",
+      "ContractDigest": "51866e4f1996f3316fda3978dd1319e86424c566b43b3beeb70ce22cd3a47079",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "TOOL_BODY_OPERATION_COMMITTED_FAILURE",
+      "ContractDigest": "ad94041c34e81c37825d1644235716b2dbdd2d6a2c41bfd1d40ee18782feb57c",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "TOOL_CALL_ARGS",
+      "ContractDigest": "604b2359145714b776f4450ece8190f23263aa637b2e08bbc2cf33c9d485749c",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "TOOL_CALL_END",
+      "ContractDigest": "444f6f0c1e92d4b1d0c50afa2ffe6c5aadedc2ea498b644bd748a9257c631809",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "TOOL_CALL_RESULT",
+      "ContractDigest": "0d898372d1f10584dd2d1cad17262b94be464183fa130bec6f978542d9b654f4",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "TOOL_CALL_START",
+      "ContractDigest": "a51a8f2d02a23ce9115d1881b5002715e6baeac637cd63644cfe1b2f821256e5",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "TOOL_OUTPUT_PROJECTED",
+      "ContractDigest": "e24f5afc823a4b8e6702cd09861244f7ae0d63cd878d7f4f6ffdd7530e665316",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "TOOL_OUTPUT_PROJECTION_FAILED",
+      "ContractDigest": "97fd59de29d732139aa2f334dca627f3e8e7547c67dfa417d40c8411d0788d38",
+      "Durability": "LiveOnly",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "TOTAL_ERROR_THRESHOLD_EXCEEDED",
+      "ContractDigest": "58961a5888a929ef8ed739d93cb4ad5a39a52733bc9d5d4b5763c46c01ef143e",
+      "Durability": "Durable",
+      "RequiresDurable": false,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "USER_AUDIO_TRANSCRIPT_COMPLETED",
+      "ContractDigest": "c9ad889cef7043849327aa2cd453b8c1ed61e31320203e953cea1f6c0cfadaeb",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "USER_AUDIO_TRANSCRIPT_DELTA",
+      "ContractDigest": "c9ad889cef7043849327aa2cd453b8c1ed61e31320203e953cea1f6c0cfadaeb",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "USER_AUDIO_TRANSCRIPT_FAILED",
+      "ContractDigest": "fb0bdc90b6eaf0e5c873b7bc6e9db87381780eb063aa30c373902041f9889fc7",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "USER_MESSAGE",
+      "ContractDigest": "02a6207303471c1a91049f437ca0aabeb80b78cb647da3756a8ece3bb64877e6",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    },
+    {
+      "Discriminator": "USER_QUESTION_REQUEST",
+      "ContractDigest": "9857dd88721fc0176cb41be935abcbd7ca2cb14a5c66d0243880cccf7a7143e9",
+      "Durability": "Durable",
+      "RequiresDurable": true,
+      "ModuleId": "hpd.agent.core"
+    }
+  ]
+}

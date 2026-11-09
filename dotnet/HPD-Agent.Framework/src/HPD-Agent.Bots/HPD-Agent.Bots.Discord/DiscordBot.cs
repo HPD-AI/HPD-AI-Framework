@@ -10,6 +10,8 @@ using HPD.Agent.Hosting.Lifecycle;
 using HPD.Agent.Bots.Discord.Gateway;
 using HPD.Agent.Bots.Discord.Payloads;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 [assembly: InternalsVisibleTo("HPD-Agent.Bots.Tests")]
@@ -56,9 +58,11 @@ public partial class DiscordBot(
     PlatformSessionMapper? sessionMapper = null,
     DiscordApiClient? api = null,
     DiscordFormatConverter? formatter = null,
-    IOptionsMonitor<BotStreamingOptions>? streamingOptions = null)
+    IOptionsMonitor<BotStreamingOptions>? streamingOptions = null,
+    ILogger<DiscordBot>? logger = null)
 {
     private readonly DiscordBotConfig _config = options.Value;
+    private readonly ILogger _logger = logger ?? NullLogger<DiscordBot>.Instance;
     private readonly ConcurrentDictionary<string, DiscordThreadParentCacheEntry> _threadParentCache = new();
     private static readonly TimeSpan ThreadParentCacheTtl = TimeSpan.FromMinutes(5);
 
@@ -370,7 +374,11 @@ public partial class DiscordBot(
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DISCORD] StreamToDiscordAsync exception: {ex}");
+            _logger.LogError(
+                ex,
+                "Discord agent stream failed. SessionId={SessionId}, ThreadId={ThreadId}",
+                sessionId,
+                threadId);
         }
     }
 

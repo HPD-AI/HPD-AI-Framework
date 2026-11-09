@@ -44,6 +44,93 @@ dotnet add package HPD-Agent.Framework
 
 Use this package when you need this HPD Agent capability in an agent application.
 
+## Middleware
+
+`IAgentMiddleware` adds cross-cutting behavior around agent turns, iterations, model
+calls, functions, runtime lifecycle, and error handling. Override only the hooks your
+middleware needs:
+
+```csharp
+using HPD.Agent;
+using HPD.Agent.Middleware;
+
+public sealed class RequestAuditMiddleware : IAgentMiddleware
+{
+    public Task BeforeMessageTurnAsync(
+        BeforeMessageTurnContext context,
+        CancellationToken cancellationToken)
+    {
+        Console.WriteLine(
+            $"{context.AgentName}: {context.UserInputMessages.Count} input message(s)");
+        return Task.CompletedTask;
+    }
+}
+
+await using var agent = await new AgentBuilder(new AgentConfig())
+    .WithChatClient(chatClient)
+    .WithMiddleware(new RequestAuditMiddleware())
+    .BuildAsync();
+```
+
+Middleware runs in registration order for `Before*` hooks; `After*` and `OnErrorAsync`
+run in reverse order. For wrapper hooks such as `WrapFunctionCallAsync`, the first
+registered middleware is outermost. Function middleware scopes also apply to function
+wrappers, not only the before/after function hooks.
+
+Middleware referenced from `AgentConfig.Middlewares` is required. A missing registry
+entry, unresolved dependency, or constructor failure stops the build with a structured
+`AgentRunConfigurationException`.
+
+See the [middleware overview](https://hpd-ai.github.io/HPD-Agent/guides/middleware/overview),
+[custom middleware guide](https://hpd-ai.github.io/HPD-Agent/guides/middleware/custom-middleware),
+and [lifecycle reference](https://hpd-ai.github.io/HPD-Agent/concepts/middleware-lifecycle).
+
+## Supported targets
+
+The core framework, general hosting, ASP.NET Core host, bots, audio, sandbox,
+TUI, MCP, evaluation, multi-agent orchestration, and tool-harness packages
+target `net8.0`, `net9.0`, and `net10.0`.
+
+The following packages target `net10.0` only:
+
+- `HPD-Agent.Client`
+- `HPD-Agent.AspNetCore.OpenApi`
+- `HPD-Agent.MultiAgent.AspNetCore`
+- `HPD-Agent.MultiAgent.HpdBase`
+- `HPD-Agent.Providers.Cohere`
+- `HPD-Agent.Providers.DashScope`
+- `HPD-Agent.Providers.Fireworks`
+- `HPD-Agent.Providers.Groq`
+- `HPD-Agent.Providers.HuggingFace`
+- `HPD-Agent.Providers.Mistral`
+- `HPD-Agent.Providers.Replicate`
+- `HPD-Agent.Providers.Together`
+
+Analyzer packages target `netstandard2.0`. `HPD-Agent.Audio.LiveKit` targets
+`net8.0`, `net9.0`, and `net10.0`. Its companion native-assets package targets
+`net8.0` and currently supplies the execution-qualified `osx-arm64` LiveKit FFI
+artifact. Unsupported runtime identifiers fail closed.
+
+## Audio
+
+Install `HPD-Agent.Audio` plus one or more audio provider packages when the
+agent accepts speech, returns synthesized speech, or uses a retained realtime
+transport:
+
+```bash
+dotnet add package HPD-Agent.Audio
+dotnet add package HPD-Agent.Providers.Audio.OpenAI
+dotnet add package HPD-Agent.Providers.Audio.ElevenLabs
+```
+
+Audio input and output are opt-in through `WithAudio(...)` after the relevant
+STT, TTS, or realtime provider has been configured. Assistant audio emits
+artifact, stream, playback, interruption, and failure events. Realtime user
+transcription emits delta, completion, and structured failure events.
+
+See the [audio integration guide](../HPD-Agent.Audio/HPD-Agent.Audio/README.md)
+for batch STT, TTS, realtime, playback, artifact, and diagnostic examples.
+
 ## Event composition
 
 Agent events need one immutable application schema so live events, durable thread
@@ -94,12 +181,12 @@ run overrides, dependency ownership, supplied instances, and migration.
 For explicit native result offloading and the bounded `Content` retrieval tool,
 see [Native tool outputs and retrieval](Tools/TOOL_OUTPUTS.md).
 
-## Pre-1.0 API Evolution
+## Compatibility
 
-HPD-Agent is still pre-1.0. Until `1.0.0`, minor and patch releases may refine
-public APIs, persistence shapes, and hosting contracts as the framework settles.
-The current conversation model is session-owned threads with event-sourced thread
-history.
+HPD-Agent follows semantic versioning from `1.0.0`. Public APIs, serialized event
+contracts, and supported persistence formats are compatibility surfaces. Breaking
+changes require a new major version and an explicit migration path. The current
+conversation model is session-owned threads with event-sourced thread history.
 
 ## Session Fork Graph
 

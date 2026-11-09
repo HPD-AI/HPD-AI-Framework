@@ -145,22 +145,22 @@ public sealed record SubAgentChildRegistryProjection(
 }
 
 /// <summary>Durably registers one child route under its parent-local identifier.</summary>
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("SUBAGENT_CHILD_REGISTERED")]
 public sealed record SubAgentChildRegisteredEvent(SubAgentChildReference Child) : AgentEvent;
 
 /// <summary>Replaces an available child route with an explanatory detached tombstone.</summary>
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("SUBAGENT_CHILD_DETACHED")]
 public sealed record SubAgentChildDetachedEvent(SubAgentLocalId LocalId, string Reason) : AgentEvent;
 
 /// <summary>Remaps an existing local identifier to a prepared forked child route.</summary>
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("SUBAGENT_CHILD_REMAPPED")]
 public sealed record SubAgentChildRemappedEvent(SubAgentLocalId LocalId, ThreadKey ChildThread) : AgentEvent;
 
 /// <summary>Marks a child route unavailable while preserving its local identity.</summary>
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("SUBAGENT_CHILD_UNAVAILABLE")]
 public sealed record SubAgentChildUnavailableEvent(
     SubAgentLocalId LocalId,
@@ -168,7 +168,7 @@ public sealed record SubAgentChildUnavailableEvent(
     string Reason) : AgentEvent;
 
 /// <summary>Seeds the registry and durable creation replay receipts during destructive journal compaction.</summary>
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("SUBAGENT_REGISTRY_SEED")]
 public sealed record SubAgentRegistrySeedEvent(
     IReadOnlyList<SubAgentRegistryEntry> Entries,
@@ -176,7 +176,7 @@ public sealed record SubAgentRegistrySeedEvent(
     IReadOnlyList<SubAgentLocalId>? ControllerGrants = null) : AgentEvent;
 
 /// <summary>Durably grants one parent authority to control an explicitly shared child route.</summary>
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("SUBAGENT_CONTROLLER_GRANTED")]
 public sealed record SubAgentControllerGrantedEvent(
     SubAgentLocalId LocalId,
@@ -188,7 +188,7 @@ public sealed record SubAgentControllerGrantedEvent(
 /// <param name="ForkOperationId">The topology operation that admitted the authority.</param>
 /// <param name="ForkOperationSource">The root journal containing that operation.</param>
 /// <param name="Revoked">Whether this entry is a revocation tombstone.</param>
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("SUBAGENT_CHILD_CONTROLLER_AUTHORITY")]
 public sealed record SubAgentChildControllerAuthorityEvent(
     ThreadKey Controller,

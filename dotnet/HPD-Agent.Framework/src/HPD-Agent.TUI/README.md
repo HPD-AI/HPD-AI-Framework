@@ -499,12 +499,11 @@ dotnet run --project test/HPD-Agent.TUI.Console -- coding
 dotnet run --project test/HPD-Agent.TUI.Console -- server
 ```
 
-## Pre-1.0 compatibility
+## Compatibility
 
-HPD Agent TUI is pre-1.0. Releases may refine runtime interfaces, transcript
-rendering contracts, and model-selection surfaces as the terminal experience
-stabilizes. Pin the package version for applications that need a stable integration
-surface.
+Starting with `1.0.0`, public runtime interfaces, transcript rendering contracts,
+and model-selection surfaces follow semantic versioning. Applications may pin the
+package version when they need a fixed integration surface.
 
 ## Install
 

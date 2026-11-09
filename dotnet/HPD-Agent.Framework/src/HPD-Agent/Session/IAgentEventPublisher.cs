@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using HPD.Agent.Serialization;
 using HPD.Events;
 using HPD.Agent.Permissions;
@@ -48,6 +50,7 @@ public interface IAgentEventPublisher
 /// <summary>Coordinator-scoped event publisher backed by one codec-owned session store.</summary>
 public sealed class AgentEventPublisher : IAgentEventPublisher
 {
+    private static readonly ConditionalWeakTable<ISessionStore, NonDurableDeltaStaging> NonDurableDeltaStages = new();
     private readonly ISessionStore _store;
     private readonly IEventCoordinator _coordinator;
     private readonly IAgentEventContentArchiver _archiver;
@@ -141,7 +144,18 @@ public sealed class AgentEventPublisher : IAgentEventPublisher
     {
         EventCodec.RequireDurable(delta);
         if (_store is not IThreadDeltaStore deltaStore)
-            return await CommitAndPublishAsync(thread, delta, cancellationToken).ConfigureAwait(false);
+        {
+            var fallbackScoped = ThreadEventValidation.PrepareForAppend(thread.SessionId, thread.ThreadId, delta) with
+            {
+                ThreadSequenceNumber = 0
+            };
+            NonDurableDeltaStages.GetValue(_store, static _ => new NonDurableDeltaStaging()).Stage(thread, fallbackScoped);
+            await _coordinator.EmitAsync(
+                fallbackScoped,
+                AgentEventRoutes.Create(_coordinator, fallbackScoped),
+                cancellationToken).ConfigureAwait(false);
+            return fallbackScoped;
+        }
         var scoped = ThreadEventValidation.PrepareForAppend(thread.SessionId, thread.ThreadId, delta) with
         {
             ThreadSequenceNumber = 0
@@ -159,8 +173,32 @@ public sealed class AgentEventPublisher : IAgentEventPublisher
     {
         EventCodec.RequireDurable(messageEnd);
         if (_store is not IThreadDeltaStore deltaStore)
-            return await CommitAndPublishAsync(thread, [messageEnd], cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
+        {
+            var fallbackStaging = NonDurableDeltaStages.GetValue(_store, static _ => new NonDurableDeltaStaging());
+            var fallbackStaged = fallbackStaging.Finalize(thread, messageEnd);
+            var fallbackScopedEnd = ThreadEventValidation.PrepareForAppend(
+                thread.SessionId,
+                thread.ThreadId,
+                messageEnd);
+            var fallbackEvents = ThreadDeltaCoalescer.Coalesce(fallbackStaged, fallbackScopedEnd)
+                .Select(value => ThreadEventValidation.PrepareForAppend(
+                    thread.SessionId,
+                    thread.ThreadId,
+                    value))
+                .ToArray();
+            var fallbackResult = await _store.AppendThreadEventsAsync(
+                thread,
+                fallbackEvents,
+                ThreadAppendCondition.Any,
+                cancellationToken).ConfigureAwait(false);
+            var fallbackCommittedEnd = fallbackResult.CommittedEvents[^1];
+            await _coordinator.EmitAsync(
+                fallbackCommittedEnd,
+                AgentEventRoutes.Create(_coordinator, fallbackCommittedEnd),
+                cancellationToken).ConfigureAwait(false);
+            await _archiver.ArchiveAsync(EventCodec, fallbackCommittedEnd, cancellationToken).ConfigureAwait(false);
+            return fallbackResult;
+        }
         var scoped = ThreadEventValidation.PrepareForAppend(thread.SessionId, thread.ThreadId, messageEnd);
         var result = await deltaStore.FinalizeThreadDeltasAsync(thread, scoped, cancellationToken)
             .ConfigureAwait(false);
@@ -196,5 +234,48 @@ public sealed class AgentEventPublisher : IAgentEventPublisher
             await _archiver.ArchiveAsync(EventCodec, committed, cancellationToken).ConfigureAwait(false);
         }
         return result;
+    }
+
+    private sealed class NonDurableDeltaStaging
+    {
+        private readonly object _gate = new();
+        private readonly Dictionary<(ThreadKey Thread, string MessageId, Type Kind), List<AgentEvent>> _pending = [];
+
+        internal void Stage(ThreadKey thread, AgentEvent delta)
+        {
+            var (messageId, kind) = Key(delta);
+            lock (_gate)
+            {
+                if (!_pending.TryGetValue((thread, messageId, kind), out var values))
+                {
+                    values = [];
+                    _pending.Add((thread, messageId, kind), values);
+                }
+                values.Add(delta);
+            }
+        }
+
+        internal IReadOnlyList<AgentEvent> Finalize(ThreadKey thread, AgentEvent messageEnd)
+        {
+            var (messageId, kind) = Key(messageEnd);
+            lock (_gate)
+            {
+                if (!_pending.Remove((thread, messageId, kind), out var values))
+                    return [];
+                return values;
+            }
+        }
+
+        private static (string MessageId, Type Kind) Key(AgentEvent value) =>
+            value switch
+            {
+                TextDeltaEvent delta => (delta.MessageId, typeof(TextDeltaEvent)),
+                TextMessageEndEvent end => (end.MessageId, typeof(TextDeltaEvent)),
+                ReasoningDeltaEvent delta => (delta.MessageId, typeof(ReasoningDeltaEvent)),
+                ReasoningMessageEndEvent end => (end.MessageId, typeof(ReasoningDeltaEvent)),
+                _ => throw new ArgumentException(
+                    $"Event '{value.GetType().FullName}' is not a supported delta or delta boundary.",
+                    nameof(value))
+            };
     }
 }

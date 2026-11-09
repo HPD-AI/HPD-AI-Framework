@@ -1,0 +1,52 @@
+name: HPD Agent Audio Live Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      chat_model:
+        description: Chat model used by the AudioCli qualification run
+        required: false
+        default: gpt-4.1-mini
+      stt_model:
+        description: OpenAI speech-to-text model
+        required: false
+        default: gpt-4o-mini-transcribe
+      tts_model:
+        description: ElevenLabs text-to-speech model
+        required: false
+        default: eleven_turbo_v2_5
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hpd-agent-audio-live-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  live-audio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore and build AudioCli
+        working-directory: dotnet/HPD-Agent.Framework
+        run: >
+          dotnet build
+          test/HPD-Agent.AudioCli/HPD-Agent.AudioCli.csproj
+          --configuration Release
+
+      - name: Run live batch and realtime audio smoke tests
+        working-directory: dotnet/HPD-Agent.Framework
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          HPD_AUDIO_SMOKE_CHAT_MODEL: ${{ inputs.chat_model }}
+          HPD_AUDIO_SMOKE_STT_MODEL: ${{ inputs.stt_model }}
+          HPD_AUDIO_SMOKE_TTS_MODEL: ${{ inputs.tts_model }}
+        run: bash eng/test-audio-live-smoke.sh all

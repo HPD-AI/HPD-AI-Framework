@@ -41,7 +41,7 @@ public sealed class MiddlewareAttribute : Attribute
 {
     /// <summary>
     /// Optional custom name for registry lookup.
-    /// If not provided, the class name is used (without "Middleware" suffix if present).
+    /// If not provided, the middleware class name is used unchanged.
     /// </summary>
     /// <remarks>
     /// <para>

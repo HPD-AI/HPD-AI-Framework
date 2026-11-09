@@ -13,7 +13,7 @@ public static class ThreadEventTypes
     public const string ThreadHistoryCompactionCheckpoint = "THREAD_HISTORY_COMPACTION_CHECKPOINT";
 }
 
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("THREAD_CREATED")]
 public sealed record ThreadCreatedEvent(
     string DefaultAgentId,
@@ -41,7 +41,7 @@ public sealed record ThreadCreatedEvent(
     public ThreadPreparationDescriptor? Preparation { get; init; }
 }
 
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("THREAD_UPDATED")]
 public sealed record ThreadUpdatedEvent(
     string DefaultAgentId,
@@ -64,7 +64,7 @@ public sealed record ThreadUpdatedEvent(
     List<string>? ChildThreads = null,
     Dictionary<string, string>? Ancestors = null) : AgentEvent;
 
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("CONTENT_ADDED")]
 public sealed record ContentAddedEvent(
     string MessageId,
@@ -78,7 +78,7 @@ public sealed record ContentAddedEvent(
     AgentMessagePersistence Persistence = AgentMessagePersistence.ThreadHistory,
     AdditionalPropertiesDictionary? AdditionalProperties = null) : AgentEvent;
 
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("THREAD_MIDDLEWARE_STATE_COMMITTED")]
 public sealed record ThreadMiddlewareStateCommittedEvent(
     IReadOnlyDictionary<string, string> State) : AgentEvent;
@@ -132,7 +132,7 @@ public sealed record CompactionStrategyDescriptor(
     };
 }
 
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("THREAD_HISTORY_COMPACTION_CHECKPOINT")]
 public sealed record ThreadHistoryCompactionCheckpointEvent(
     string CompactionId,

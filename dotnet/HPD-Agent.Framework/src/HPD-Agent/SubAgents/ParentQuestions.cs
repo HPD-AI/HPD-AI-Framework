@@ -7,12 +7,13 @@ using System.Text.Json;
 
 namespace HPD.Agent;
 
-[DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 public sealed record ParentQuestionRequestEvent(string RequestId, string SourceName, ThreadKey Controller,
     AgentQuestion[] Questions) : AgentEvent, IAgentRequestEvent<QuestionResponseEvent>;
 
 /// <summary>A reference in the controller journal; the actual request remains owned by the child.</summary>
-[DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
+[HPD.Agent.Serialization.EventType("SUBAGENT_QUESTION_RAISED")]
 public sealed record SubAgentQuestionRaisedEvent(string RequestId, ThreadKey Child, string ChildExecutionId,
     AgentQuestion[] Questions) : AgentEvent;
 

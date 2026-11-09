@@ -763,14 +763,13 @@ public class ErrorHandlingConfig
     /// - Internal implementation details
     /// </para>
     /// <para>
-    /// When <c>false</c> (default), function errors are reported to the LLM as generic messages like
-    /// "Error: Function 'X' failed." The full exception is still available to application code via
-    /// <see cref="FunctionResultContent.Exception"/> for logging and debugging.
+    /// When <c>true</c> (default), the exception message is included in function errors sent to
+    /// the LLM so the model can use the failure details to self-correct.
     /// </para>
     /// <para>
-    /// When <c>true</c>, the full exception message is included in the function result, allowing the LLM
-    /// to potentially self-correct (e.g., retry with different arguments). Use this only in trusted
-    /// environments or with sanitized exceptions.
+    /// When <c>false</c>, function errors are reported to the LLM as generic messages like
+    /// "Error: Function 'X' failed." Set this to <c>false</c> for production-facing agents when
+    /// tool exceptions may contain secrets, filesystem paths, connection strings, or internal details.
     /// </para>
     /// <para>
     /// </remarks>

@@ -9,7 +9,7 @@ on:
       - 'dotnet/HPD-Agent.Framework/eng/verify-voice-activity-architecture.cs'
       - 'dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Silero/**'
       - 'dotnet/HPD-Agent.Framework/test/HPD-Agent.Audio.VoiceActivity.AotSmoke/**'
-      - 'dotnet/HPD-Agent.Framework/test/HPD.Agent.Audio.V2.Tests/VoiceActivity/SileroAudioProviderV1Tests.cs'
+      - 'dotnet/HPD-Agent.Framework/test/HPD.Agent.Audio.Tests/**'
       - '.github/workflows/agent-silero-qualification.yml'
 
 permissions:

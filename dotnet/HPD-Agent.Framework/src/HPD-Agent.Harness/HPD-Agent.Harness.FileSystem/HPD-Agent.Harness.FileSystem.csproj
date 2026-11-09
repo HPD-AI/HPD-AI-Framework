@@ -11,11 +11,15 @@
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- The public types are intentionally obsolete; internal compatibility references
+         are part of the deprecation window. Consumers still receive CS0618. -->
+    <NoWarn>$(NoWarn);CS0618</NoWarn>
 
     <!-- Package Metadata (inherits Version, Authors, License from Directory.Build.props) -->
     <PackageId>HPD-Agent.ToolHarness.FileSystem</PackageId>
-    <Description>File system toolharness for HPD-Agent. Provides AI functions for reading, writing, editing, searching, and discovering files.</Description>
-    <PackageTags>ai;agent;filesystem;toolharness;hpd-agent</PackageTags>
+    <Description>[DEPRECATED] This package is retained only for migration. It does not provide a supported security boundary. Use HPD-Agent.ToolHarness.Coding for workspace tools or sandboxed execution for untrusted workloads.</Description>
+    <PackageTags>ai;agent;filesystem;toolharness;hpd-agent;deprecated</PackageTags>
+    <PackageReleaseNotes>Deprecated in HPD-Agent 1.0.0. This harness is not a supported workspace-isolation or command-execution security boundary. Use HPD-Agent.ToolHarness.Coding for trusted coding workspaces or a sandbox runtime for untrusted execution. See README.md and DEPRECATION.md.</PackageReleaseNotes>
   </PropertyGroup>
 
   <ItemGroup>
@@ -40,6 +44,10 @@
     <!-- Reference to core HPD-Agent project -->
     <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
     <ProjectReference Include="../../HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="DEPRECATION.md" Pack="true" PackagePath="" Visible="false" />
   </ItemGroup>
 
 </Project>

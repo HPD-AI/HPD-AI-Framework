@@ -12,9 +12,10 @@ using Ude;
 namespace HPD.Agent.ToolHarness.FileSystem;
 
 /// <summary>
-/// File system operations ToolHarness for HPD-Agent.
-/// Provides AI functions for reading, writing, editing, searching, and discovering files.
+/// Deprecated file system operations ToolHarness for HPD-Agent.
+/// Retained only so existing applications have a migration window.
 /// </summary>
+[Obsolete(FileSystemDeprecation.Message)]
 public partial class FileSystemTools
 {
     private readonly FileSystemContext _context;

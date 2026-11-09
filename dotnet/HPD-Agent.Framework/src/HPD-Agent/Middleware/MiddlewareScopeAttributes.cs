@@ -1,3 +1,5 @@
+using Microsoft.Extensions.AI;
+
 namespace HPD.Agent.Middleware;
 
 /// <summary>
@@ -38,73 +40,118 @@ internal class MiddlewareScopeMetadata
     /// Determines if this middleware should apply to the given BeforeFunction context.
     /// </summary>
     public bool AppliesTo(BeforeFunctionContext context)
-    {
-        // Handle unknown functions (Function can be null)
-        var functionName = context.Function?.Name;
-        var toolName = context.ToolHarnessName;
-        var skillName = context.SkillName;
-
-        // Check if this is a skill container by looking at AdditionalProperties
-        var isSkillContainer = context.Function?.AdditionalProperties?.ContainsKey("IsSkillContainer") == true &&
-                               context.Function.AdditionalProperties["IsSkillContainer"] is true;
-
-        return Scope switch
-        {
-            MiddlewareScope.Global => true,
-
-            MiddlewareScope.ToolHarness => !string.IsNullOrEmpty(toolName) &&
-                                       string.Equals(Target, toolName, StringComparison.Ordinal),
-
-            MiddlewareScope.Skill =>
-                // Apply if this function IS the skill container itself
-                (isSkillContainer && !string.IsNullOrEmpty(functionName) && string.Equals(Target, functionName, StringComparison.Ordinal)) ||
-                // OR if this function is called FROM this skill (via mapping)
-                (!string.IsNullOrEmpty(skillName) && string.Equals(Target, skillName, StringComparison.Ordinal)),
-
-            MiddlewareScope.Function => !string.IsNullOrEmpty(functionName) && string.Equals(Target, functionName, StringComparison.Ordinal),
-
-            _ => false
-        };
-    }
+        => AppliesTo(
+            context.Function,
+            context.ToolHarnessName,
+            context.SkillName,
+            context.Base.State);
 
     /// <summary>
     /// Determines if this middleware should apply to the given AfterFunction context.
     /// </summary>
     public bool AppliesTo(AfterFunctionContext context)
+        => AppliesTo(
+            context.Function,
+            context.ToolHarnessName,
+            context.SkillName,
+            context.Base.State);
+
+    /// <summary>
+    /// Determines if this middleware should apply to the given function request.
+    /// </summary>
+    internal bool AppliesTo(FunctionRequest request)
+        => AppliesTo(
+            request.Function,
+            request.ToolHarnessName,
+            request.SkillName,
+            request.State);
+
+    private bool AppliesTo(
+        AIFunction? function,
+        string? toolName,
+        string? skillName,
+        AgentLoopState state)
     {
-        // Handle unknown functions (Function can be null)
-        var functionName = context.Function?.Name;
-        var toolName = context.ToolHarnessName;
-        var skillName = context.SkillName;
-
-        // Check if this is a skill container by looking at AdditionalProperties
-        var isSkillContainer = context.Function?.AdditionalProperties?.ContainsKey("IsSkillContainer") == true &&
-                               context.Function.AdditionalProperties["IsSkillContainer"] is true;
-
+        var functionName = function?.Name;
         return Scope switch
         {
             MiddlewareScope.Global => true,
-
             MiddlewareScope.ToolHarness => !string.IsNullOrEmpty(toolName) &&
-                                       string.Equals(Target, toolName, StringComparison.Ordinal),
-
-            MiddlewareScope.Skill =>
-                // Apply if this function IS the skill container itself
-                (isSkillContainer && !string.IsNullOrEmpty(functionName) && string.Equals(Target, functionName, StringComparison.Ordinal)) ||
-                // OR if this function is called FROM this skill (via mapping)
-                (!string.IsNullOrEmpty(skillName) && string.Equals(Target, skillName, StringComparison.Ordinal)),
-
-            MiddlewareScope.Function => !string.IsNullOrEmpty(functionName) && string.Equals(Target, functionName, StringComparison.Ordinal),
-
+                string.Equals(Target, toolName, StringComparison.Ordinal),
+            MiddlewareScope.Skill => IsInSkillScope(function, skillName, state),
+            MiddlewareScope.Function => !string.IsNullOrEmpty(functionName) &&
+                string.Equals(Target, functionName, StringComparison.Ordinal),
             _ => false
         };
     }
+
+    private bool IsInSkillScope(
+        AIFunction? function,
+        string? skillName,
+        AgentLoopState state)
+    {
+        if (function is null || string.IsNullOrEmpty(Target))
+            return false;
+
+        if (!string.IsNullOrEmpty(skillName) &&
+            string.Equals(Target, skillName, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var capability = GetCapabilityMetadata(function);
+        if (capability?.Kind == HPDCapabilityKind.SkillActivation &&
+            string.Equals(Target, function.Name, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (capability is null)
+            return false;
+
+        var containerState = state.MiddlewareState.GetState<ContainerMiddlewareState>(
+            typeof(ContainerMiddlewareState).FullName!);
+        if (containerState is null || !containerState.ExpandedContainers.Contains(Target))
+            return false;
+
+        var activeSkill = containerState.TurnCapabilityFunctions
+            .Select(GetCapabilityMetadata)
+            .FirstOrDefault(metadata =>
+                metadata is { Kind: HPDCapabilityKind.SkillActivation } &&
+                string.Equals(metadata.OwnerHarnessIdentity, Target, StringComparison.Ordinal));
+
+        // Generated skill activation functions are named for the skill even when their owner
+        // identity stays on the generated harness.
+        if (activeSkill is null)
+        {
+            var activation = containerState.TurnCapabilityFunctions.FirstOrDefault(candidate =>
+                string.Equals(candidate.Name, Target, StringComparison.Ordinal));
+            activeSkill = GetCapabilityMetadata(activation);
+        }
+
+        return activeSkill is { Kind: HPDCapabilityKind.SkillActivation } &&
+            activeSkill.Reveals.Contains(capability.Id);
+    }
+
+    private static HPDCapabilityMetadata? GetCapabilityMetadata(AIFunction? function)
+        => function?.AdditionalProperties?.TryGetValue(
+                HPDCapabilityMetadata.AdditionalPropertiesKey,
+                out var value) == true &&
+            value is HPDCapabilityMetadata metadata
+                ? metadata
+                : null;
 }
 
 /// <summary>
 /// Extension methods for scoped middleware registration.
 /// Provides fluent API for attaching scope metadata to middleware instances.
 /// </summary>
+/// <remarks>
+/// Scope filtering applies to <see cref="IAgentMiddleware.BeforeFunctionAsync"/>,
+/// <see cref="IAgentMiddleware.WrapFunctionCallAsync"/>, and
+/// <see cref="IAgentMiddleware.AfterFunctionAsync"/>. Model- and turn-level hooks remain
+/// global because they do not target one function invocation.
+/// </remarks>
 public static class MiddlewareScopeExtensions
 {
     // Internal dictionary to store scope metadata per middleware instance
@@ -138,6 +185,11 @@ public static class MiddlewareScopeExtensions
     /// <summary>
     /// Marks this middleware as skill-scoped (applies to skill container and functions called by the skill).
     /// </summary>
+    /// <remarks>
+    /// Referenced-function matching uses the skill's typed capability graph and the
+    /// active expanded-container state. It does not depend on legacy
+    /// <c>IsSkillContainer</c> metadata.
+    /// </remarks>
     /// <param name="middleware">The middleware instance</param>
     /// <param name="skillName">The skill name (e.g., "analyze_codebase")</param>
     public static IAgentMiddleware ForSkill(this IAgentMiddleware middleware, string skillName)
@@ -192,5 +244,14 @@ public static class MiddlewareScopeExtensions
     {
         var metadata = middleware.GetScopeMetadata();
         return metadata.AppliesTo(context);
+    }
+
+    /// <summary>
+    /// Checks if the middleware should execute for the given function request.
+    /// </summary>
+    internal static bool ShouldExecute(this IAgentMiddleware middleware, FunctionRequest request)
+    {
+        var metadata = middleware.GetScopeMetadata();
+        return metadata.AppliesTo(request);
     }
 }

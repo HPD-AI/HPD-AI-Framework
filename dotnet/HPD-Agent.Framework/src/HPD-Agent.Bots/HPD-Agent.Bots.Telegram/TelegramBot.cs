@@ -11,6 +11,8 @@ using HPD.Agent.Bots.Streaming;
 using HPD.Agent.Hosting.Lifecycle;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
@@ -36,6 +38,7 @@ public partial class TelegramBot
     private readonly ITelegramBotClient _bot;
     private readonly TelegramFormatConverter _formatter;
     private readonly IOptionsMonitor<BotStreamingOptions>? _streamingOptions;
+    private readonly ILogger _logger;
     private readonly ConcurrentDictionary<string, List<TelegramParsedMessage>> _messageCache = new();
     private readonly string? _secretToken;
     private string? _botUserId;
@@ -49,7 +52,8 @@ public partial class TelegramBot
         ITelegramBotClient? bot = null,
         TelegramFormatConverter? formatter = null,
         IOptionsMonitor<BotStreamingOptions>? streamingOptions = null,
-        IHttpClientFactory? httpClientFactory = null)
+        IHttpClientFactory? httpClientFactory = null,
+        ILogger<TelegramBot>? logger = null)
     {
         _config = options.Value;
         _sessionManager = sessionManager;
@@ -57,6 +61,7 @@ public partial class TelegramBot
         _sessionMapper = sessionMapper;
         _formatter = formatter ?? new TelegramFormatConverter();
         _streamingOptions = streamingOptions;
+        _logger = logger ?? NullLogger<TelegramBot>.Instance;
         _secretToken = _config.ResolveSecretToken();
         _userName = NormalizeUserName(_config.ResolveUserName());
 
@@ -688,6 +693,14 @@ public partial class TelegramBot
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Telegram agent stream failed. SessionId={SessionId}, ThreadId={ThreadId}",
+                sessionId,
+                threadId);
         }
     }
 

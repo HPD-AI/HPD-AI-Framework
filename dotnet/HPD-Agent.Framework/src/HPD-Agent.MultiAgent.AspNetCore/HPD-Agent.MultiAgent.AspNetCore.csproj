@@ -20,10 +20,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj" />
-    <ProjectReference Include="../../../HPD-Graph.Framework/src/HPD-Graph.Base/HPD-Graph.Base.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
-    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base.AspNetCore/HPD.Base.AspNetCore.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
-    <PackageReference Include="HPD-Graph.Base" Version="$(HPDGraphVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
-    <PackageReference Include="HPD-Base.AspNetCore" Version="$(HPDBaseVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
   </ItemGroup>
 
   <ItemGroup>

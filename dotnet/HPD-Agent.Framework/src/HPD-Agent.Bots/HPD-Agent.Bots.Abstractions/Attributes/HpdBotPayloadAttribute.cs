@@ -10,7 +10,7 @@ namespace HPD.Agent.Bots;
 /// class, such as <c>SlackBotJsonContext</c>, and include each payload with
 /// <c>[JsonSerializable]</c>.
 /// <para>
-/// The type must be a <c>record</c> — the generator emits diagnostic <c>HPD-A006</c>
+/// The type must be a <c>record</c> — the generator emits diagnostic <c>HPDA006</c>
 /// if a non-record type is decorated.
 /// </para>
 /// </remarks>

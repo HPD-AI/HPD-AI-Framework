@@ -15,6 +15,7 @@ public class CollapsedMiddlewareSystemTests
     {
         public string Name { get; }
         public bool WasCalled { get; set; }
+        public bool WasWrapped { get; set; }
 
         public TestMiddleware(string name) => Name = name;
 
@@ -44,6 +45,15 @@ public class CollapsedMiddlewareSystemTests
 
         public Task AfterMessageTurnAsync(AfterMessageTurnContext context, CancellationToken cancellationToken)
             => Task.CompletedTask;
+
+        public Task<object?> WrapFunctionCallAsync(
+            FunctionRequest request,
+            Func<FunctionRequest, Task<object?>> handler,
+            CancellationToken cancellationToken)
+        {
+            WasWrapped = true;
+            return handler(request);
+        }
     }
 
     #region MiddlewareScope Enum Tests
@@ -252,6 +262,95 @@ public class CollapsedMiddlewareSystemTests
         Assert.False(functionMiddleware.WasCalled);
     }
 
+    [Fact]
+    public async Task Pipeline_WrapperHonorsFunctionScope()
+    {
+        var middleware = new TestMiddleware("Function");
+        middleware.ForFunction("ReadFile");
+        var pipeline = new AgentMiddlewarePipeline(new[] { middleware });
+
+        _ = await pipeline.ExecuteFunctionCallAsync(
+            CreateFunctionRequest("ReadFile"),
+            request => Task.FromResult<object?>(request.FunctionName),
+            CancellationToken.None);
+        Assert.True(middleware.WasWrapped);
+
+        middleware.WasWrapped = false;
+        _ = await pipeline.ExecuteFunctionCallAsync(
+            CreateFunctionRequest("WriteFile"),
+            request => Task.FromResult<object?>(request.FunctionName),
+            CancellationToken.None);
+        Assert.False(middleware.WasWrapped);
+    }
+
+    [Fact]
+    public async Task Pipeline_WrapperHonorsToolHarnessScope()
+    {
+        var middleware = new TestMiddleware("Harness");
+        middleware.ForToolHarness("FileSystemTools");
+        var pipeline = new AgentMiddlewarePipeline(new[] { middleware });
+
+        _ = await pipeline.ExecuteFunctionCallAsync(
+            CreateFunctionRequest("ReadFile", toolName: "FileSystemTools"),
+            request => Task.FromResult<object?>(request.FunctionName),
+            CancellationToken.None);
+        Assert.True(middleware.WasWrapped);
+
+        middleware.WasWrapped = false;
+        _ = await pipeline.ExecuteFunctionCallAsync(
+            CreateFunctionRequest("ReadFile", toolName: "DatabaseTools"),
+            request => Task.FromResult<object?>(request.FunctionName),
+            CancellationToken.None);
+        Assert.False(middleware.WasWrapped);
+    }
+
+    [Fact]
+    public async Task Pipeline_WrapperHonorsActiveSkillCapabilityScope()
+    {
+        var childId = CapabilityId.Create("generated:Files:ReadFile");
+        var skillId = CapabilityId.Create("generated:Files:analyze_codebase");
+        var child = CreateFunction(
+            "ReadFile",
+            new HPDCapabilityMetadata
+            {
+                Id = childId,
+                Kind = HPDCapabilityKind.Function
+            });
+        var skill = CreateFunction(
+            "analyze_codebase",
+            new HPDCapabilityMetadata
+            {
+                Id = skillId,
+                Kind = HPDCapabilityKind.SkillActivation,
+                Reveals = [childId]
+            });
+        var containerState = new ContainerMiddlewareState
+        {
+            TurnCapabilityFunctions = [skill, child],
+            ExpandedContainers = ["analyze_codebase"]
+        };
+        var state = AgentLoopState.InitialSafe(
+            messages: [],
+            runId: "test-run",
+            conversationId: "test-conv",
+            agentName: "TestAgent") with
+        {
+            MiddlewareState = new MiddlewareState().SetState(
+                typeof(ContainerMiddlewareState).FullName!,
+                containerState)
+        };
+        var middleware = new TestMiddleware("Skill");
+        middleware.ForSkill("analyze_codebase");
+        var pipeline = new AgentMiddlewarePipeline(new[] { middleware });
+
+        _ = await pipeline.ExecuteFunctionCallAsync(
+            CreateFunctionRequest("ReadFile", function: child, state: state),
+            request => Task.FromResult<object?>(request.FunctionName),
+            CancellationToken.None);
+
+        Assert.True(middleware.WasWrapped);
+    }
+
     #endregion
 
     #region Skill Container Tests
@@ -379,7 +478,14 @@ public class CollapsedMiddlewareSystemTests
     {
         var additionalProps = new Dictionary<string, object?>();
         if (isSkillContainer)
-            additionalProps["IsSkillContainer"] = true;
+        {
+            additionalProps[HPDCapabilityMetadata.AdditionalPropertiesKey] =
+                new HPDCapabilityMetadata
+                {
+                    Id = CapabilityId.Create($"generated:TestTools:{functionName}"),
+                    Kind = HPDCapabilityKind.SkillActivation
+                };
+        }
 
         var options = new HPDAIFunctionFactoryOptions
         {
@@ -453,6 +559,52 @@ public class CollapsedMiddlewareSystemTests
         var finalResponse = new ChatResponse(new ChatMessage(ChatRole.Assistant, "Test response"));
         turnHistory ??= new List<ChatMessage>();
         return agentContext.AsAfterMessageTurn(finalResponse, turnHistory, new AgentRunConfig());
+    }
+
+    private static FunctionRequest CreateFunctionRequest(
+        string functionName,
+        string? toolName = null,
+        string? skillName = null,
+        AIFunction? function = null,
+        AgentLoopState? state = null)
+    {
+        state ??= AgentLoopState.InitialSafe(
+            messages: [],
+            runId: "test-run",
+            conversationId: "test-conv",
+            agentName: "TestAgent");
+        function ??= CreateFunction(functionName);
+
+        return new FunctionRequest
+        {
+            Function = function,
+            CallId = "test-call",
+            Arguments = new Dictionary<string, object?>(),
+            State = state,
+            ToolHarnessName = toolName,
+            SkillName = skillName
+        };
+    }
+
+    private static AIFunction CreateFunction(
+        string functionName,
+        HPDCapabilityMetadata? capability = null)
+    {
+        Dictionary<string, object?>? additionalProperties = capability is null
+            ? null
+            : new()
+            {
+                [HPDCapabilityMetadata.AdditionalPropertiesKey] = capability
+            };
+
+        return HPDAIFunctionFactory.Create(
+            (_, _, _) => Task.FromResult<object?>("test"),
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = functionName,
+                Description = "Test function",
+                AdditionalProperties = additionalProperties
+            });
     }
 
 }

@@ -259,9 +259,12 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
 
         // Check for [EventType("CUSTOM_NAME")] attribute override
         var customDiscriminator = GetCustomEventTypeAttribute(typeSymbol);
-        var durability = HasAttribute(typeSymbol, "DurableEventAttribute", "DurableEvent")
+        var durableAttribute = GetAttribute(typeSymbol, "DurableEventAttribute", "DurableEvent");
+        var durability = durableAttribute is not null
             ? "Durable"
             : "LiveOnly";
+        var requiresDurable = durableAttribute?.NamedArguments.Any(argument =>
+            argument.Key == "Required" && argument.Value.Value is true) == true;
         var contentPolicy = GetContentPolicy(typeSymbol);
         var discriminator = customDiscriminator ?? ToScreamingSnakeCase(typeSymbol.Name);
 
@@ -292,6 +295,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             IsValid: true,
             Diagnostics: diagnostics,
             Durability: durability,
+            RequiresDurable: requiresDurable,
             ContentPolicy: contentPolicy,
             SourceLocation: recordDecl.Identifier.GetLocation());
     }
@@ -475,7 +479,10 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
     }
 
     private static bool HasAttribute(INamedTypeSymbol typeSymbol, string longName, string shortName)
-        => typeSymbol.GetAttributes().Any(attr =>
+        => GetAttribute(typeSymbol, longName, shortName) is not null;
+
+    private static AttributeData? GetAttribute(INamedTypeSymbol typeSymbol, string longName, string shortName)
+        => typeSymbol.GetAttributes().FirstOrDefault(attr =>
             attr.AttributeClass?.Name == longName || attr.AttributeClass?.Name == shortName);
 
     private static EventContentPolicyInfo? GetContentPolicy(INamedTypeSymbol typeSymbol)
@@ -822,6 +829,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             sb.AppendLine($"                JsonTypeInfo = {contextName}.Default.GetTypeInfo(typeof(global::{evt.FullTypeName}))");
             sb.AppendLine($"                    ?? throw new global::System.InvalidOperationException(\"Missing generated JSON metadata for {evt.FullTypeName}.\"),");
             sb.AppendLine($"                Durability = AgentEventDurability.{evt.Durability},");
+            sb.AppendLine($"                RequiresDurable = {evt.RequiresDurable.ToString().ToLowerInvariant()},");
             if (evt.ContentPolicy is { } policy)
             {
                 var scope = policy.Scope is null ? "null" : $"\"{EscapeString(policy.Scope)}\"";
@@ -1059,6 +1067,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         bool IsValid,
         List<Diagnostic> Diagnostics,
         string Durability = "LiveOnly",
+        bool RequiresDurable = false,
         EventContentPolicyInfo? ContentPolicy = null,
         Location? SourceLocation = null);
 

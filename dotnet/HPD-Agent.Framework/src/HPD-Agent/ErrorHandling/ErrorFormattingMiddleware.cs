@@ -6,14 +6,15 @@ using Microsoft.Extensions.AI;
 namespace HPD.Agent.Middleware.Function;
 
 /// <summary>
-/// Middleware that formats function execution and model call errors for LLM consumption.
-/// Provides security-aware error message formatting to prevent exposing sensitive information.
+/// Middleware that formats function execution and model-call errors for LLM consumption.
+/// Detailed exception messages are included by default and can be suppressed for sanitized output.
 /// </summary>
 /// <remarks>
 /// <para><b>Security Features:</b></para>
 /// <para>
-/// This middleware acts as a security boundary between function exceptions and the LLM.
-/// By default, it sanitizes error messages to prevent exposing:
+/// This middleware controls the exception detail exposed to the LLM. Because
+/// <see cref="ErrorHandlingConfig.IncludeDetailedErrorsInChat"/> defaults to <c>true</c>,
+/// detailed messages may expose:
 /// - Stack traces
 /// - Database connection strings
 /// - File system paths
@@ -24,14 +25,14 @@ namespace HPD.Agent.Middleware.Function;
 /// <para><b>Configuration:</b></para>
 /// <para>
 /// Controlled by <c>ErrorHandlingConfig.IncludeDetailedErrorsInChat</c>:
-/// - <c>false</c> (default): Returns generic error messages like "Error: Function 'X' failed."
-/// - <c>true</c>: Returns detailed error messages with exception information
+/// - <c>true</c> (default): Returns detailed messages with exception information
+/// - <c>false</c>: Returns generic function errors and sanitized model errors
 /// </para>
 ///
 /// <para><b>Observability:</b></para>
 /// <para>
-/// Regardless of the security setting, the full exception is ALWAYS stored in
-/// <c>AgentMiddlewareContext.FunctionException</c> for logging, debugging, and observability.
+/// Regardless of the formatting setting, the original exception remains available through the
+/// middleware error and function contexts for logging, debugging, and observability.
 /// </para>
 ///
 /// <para><b>Recommended Middleware Order:</b></para>
@@ -43,7 +44,7 @@ namespace HPD.Agent.Middleware.Function;
 ///
 /// <para><b>Example Usage:</b></para>
 /// <code>
-/// // Default - sanitized errors for security
+/// // Default - detailed exception messages
 /// var config = new AgentConfig();
 /// await using var secureAgent = await new AgentBuilder(config)
 ///     .WithErrorFormatting()
@@ -68,7 +69,9 @@ public class ErrorFormattingMiddleware : IAgentMiddleware
     private readonly IProviderErrorHandler _providerHandler;
 
     /// <summary>
-    /// Creates a new error formatting middleware with default settings (sanitized errors).
+    /// Creates a new error formatting middleware with sanitized errors.
+    /// The <see cref="ErrorHandlingConfig"/> constructor uses that configuration's default,
+    /// which enables detailed errors.
     /// </summary>
     public ErrorFormattingMiddleware()
     {
@@ -99,14 +102,15 @@ public class ErrorFormattingMiddleware : IAgentMiddleware
     /// - Internal implementation details
     /// </para>
     /// <para>
-    /// When <c>false</c> (default), function errors are reported to the LLM as generic messages like
-    /// "Error: Function 'X' failed." The full exception is still available to application code via
-    /// <c>AgentMiddlewareContext.FunctionException</c> for logging and debugging.
+    /// A new <see cref="ErrorHandlingConfig"/> enables detailed errors by default. When <c>false</c>,
+    /// function errors are reported to the LLM as generic messages like
+    /// "Error: Function 'X' failed." The original exception remains available to application code
+    /// through middleware contexts for logging and debugging.
     /// </para>
     /// <para>
-    /// When <c>true</c>, the full exception message is included in the function result, allowing the LLM
-    /// to potentially self-correct (e.g., retry with different arguments). Use this only in trusted
-    /// environments or with sanitized exceptions.
+    /// When <c>true</c>, the exception message is included in the function result, allowing the LLM
+    /// to potentially self-correct (e.g., retry with different arguments). Disable it when model-facing
+    /// errors may expose sensitive information.
     /// </para>
     /// </remarks>
     public bool IncludeDetailedErrorsInChat

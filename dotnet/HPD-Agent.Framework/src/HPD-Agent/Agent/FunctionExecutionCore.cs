@@ -872,14 +872,15 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 "FunctionExecution",
                 $"Error executing function '{functionCall.Name}': {ex.Message}") { Exception = ex });
 
-            var errorContext = agentContext.AsError(
-                error: ex,
-                source: ErrorSource.ToolCall,
-                iteration: agentContext.State.Iteration);
-
             try
             {
-                await _middlewarePipeline.ExecuteOnErrorAsync(errorContext, cancellationToken)
+                await MiddlewareErrorRouter.ReportAsync(
+                        agentContext,
+                        _middlewarePipeline,
+                        ex,
+                        ErrorSource.ToolCall,
+                        cancellationToken,
+                        runConfig)
                     .ConfigureAwait(false);
             }
             catch

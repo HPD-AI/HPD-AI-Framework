@@ -1,6 +1,5 @@
 using HPD.Agent.MultiAgent.AspNetCore.Serialization;
 using HPD.Graph.Abstractions.Serialization;
-using HPD.Graph.Base;
 using HPD.MultiAgent;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,16 +11,11 @@ namespace HPD.Agent.MultiAgent.AspNetCore;
 public static class HPDMultiAgentAspNetCoreServiceCollectionExtensions
 {
     public static IServiceCollection AddHPDMultiAgentAspNetCore(
-        this IServiceCollection services,
-        params BaseGraphActivationDefinition[] graphs)
+        this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        ArgumentNullException.ThrowIfNull(graphs);
-        if (graphs.Length == 0 || graphs.Select(static graph => graph.GraphId).Distinct(StringComparer.Ordinal).Count() != graphs.Length)
-            throw new ArgumentException("At least one uniquely identified installed graph is required.", nameof(graphs));
 
         services.AddMultiAgentGraphSerialization();
-        foreach (BaseGraphActivationDefinition graph in graphs) services.AddSingleton(graph);
         services.AddOptions<JsonOptions>();
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IConfigureOptions<JsonOptions>, HPDMultiAgentJsonOptionsSetup>());

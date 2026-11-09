@@ -36,6 +36,7 @@
     <Project Path="src/HPD-Agent.AspNetCore.OpenApi/HPD-Agent.AspNetCore.OpenApi.csproj" />
     <Project Path="src/HPD-Agent.Client/HPD-Agent.Client.csproj" />
     <Project Path="src/HPD-Agent.MultiAgent.AspNetCore/HPD-Agent.MultiAgent.AspNetCore.csproj" />
+    <Project Path="src/HPD-Agent.MultiAgent.HpdBase/HPD-Agent.MultiAgent.HpdBase.csproj" />
     <Project Path="src/HPD-Agent.Studio/HPD-Agent.Studio.csproj" />
     <Project Path="src/HPD-Agent.OpenApi/HPD-Agent.OpenApi.csproj" />
     <Project Path="src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj" />
@@ -157,6 +158,7 @@
     <Project Path="../HPD-Extract.Framework/test/HPD-Extract.Pdf.Tests/HPD-Extract.Pdf.Tests.csproj" />
     <Project Path="test/HPD-Agent.MultiAgent.Tests/HPD-Agent.MultiAgent.Tests.csproj" />
     <Project Path="test/HPD-Agent.MultiAgent.AspNetCore.Tests/HPD-Agent.MultiAgent.AspNetCore.Tests.csproj" />
+    <Project Path="test/HPD-Agent.MultiAgent.HpdBase.Tests/HPD-Agent.MultiAgent.HpdBase.Tests.csproj" />
     <Project Path="test/HPD-Agent.OpenApi.Tests/HPD-Agent.OpenApi.Tests.csproj" />
     <Project Path="test/HPD-Agent.AspNetCore.OpenApi.Tests/HPD-Agent.AspNetCore.OpenApi.Tests.csproj" />
     <Project Path="test/HPD-Agent.ClientGenerator.Tests/HPD-Agent.ClientGenerator.Tests.csproj" />
