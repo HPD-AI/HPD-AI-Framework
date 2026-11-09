@@ -40,7 +40,7 @@ public sealed class AgentTuiProjectionContext
     private bool _renderRequested;
     private bool _committed;
 
-    public AgentTuiProjectionContext(
+    internal AgentTuiProjectionContext(
         AgentTuiRuntimeScope scope,
         ChatShellModel shell,
         HpdAgentTuiRegistry registry,

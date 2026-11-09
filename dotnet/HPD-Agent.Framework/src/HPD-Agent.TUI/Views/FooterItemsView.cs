@@ -6,7 +6,7 @@ using HPD.TUI.Core;
 namespace HPD.Agent.TUI.Views;
 
 /// <summary>Renders the registered application-owned footer items.</summary>
-public sealed class FooterItemsView : Component
+internal sealed class FooterItemsView : Component
 {
     private readonly IComponent[] _components;
 

@@ -15,7 +15,7 @@ namespace HPD.MultiAgent;
 /// <summary>
 /// Fluent builder for creating multi-agent workflows.
 /// </summary>
-public class MultiAgent
+public sealed class MultiAgent
 {
     private readonly GraphBuilder _graphBuilder;
     private readonly Dictionary<string, Agent.Agent> _agents = new();

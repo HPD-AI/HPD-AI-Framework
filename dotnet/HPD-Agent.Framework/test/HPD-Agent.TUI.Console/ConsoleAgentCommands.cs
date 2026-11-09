@@ -306,13 +306,13 @@ internal static class ConsoleAgentCommands
     private static void SwitchToSelectedAgent(AgentTuiPageContext context)
     {
         if (PageState.Snapshot().SelectedAgent is not { } agent ||
-            context.Shell.Runtime is not IAgentTuiAgentRuntime { CanSwitchAgents: true } ||
-            context.Shell.SwitchScopeAsync is null)
+            context.Runtime is not IAgentTuiAgentRuntime { CanSwitchAgents: true } ||
+            context.SwitchScopeAsync is null)
         {
             return;
         }
 
-        _ = context.Shell.SwitchScopeAsync(
+        _ = context.SwitchScopeAsync(
             context.Scope with { AgentId = agent.Id },
             CancellationToken.None);
     }

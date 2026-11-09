@@ -106,7 +106,7 @@ public sealed class AnnotationQueue
     /// Called by LiveEvaluationMiddleware when AutoQueueBelowScore is configured.
     /// Returns the annotation ID, or null if not queued (score above threshold or queue full).
     /// </summary>
-    public string? TryEnqueueFromScore(
+    internal string? TryEnqueueFromScore(
         string sessionId, string threadId, int turnIndex,
         string evaluatorName, double score)
     {

@@ -44,7 +44,7 @@ public sealed class DefaultAgentTuiPromptFactory : IAgentTuiPromptFactory
             visualCursor: true);
 }
 
-public sealed class DelegateAgentTuiPromptFactory : IAgentTuiPromptFactory
+internal sealed class DelegateAgentTuiPromptFactory : IAgentTuiPromptFactory
 {
     private readonly Func<AgentTuiPromptContext, Action<ReadOnlyMemory<char>>, AutocompleteController, PromptView> _create;
 

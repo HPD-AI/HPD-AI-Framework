@@ -6,37 +6,43 @@ using System.Text.Json;
 public sealed class SkillScript : SkillCapability
 {
     /// <summary>Initializes a script capability.</summary>
-    public SkillScript(string name, string description) : base(name, description)
+    internal SkillScript(string name, string description) : base(name, description)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
     }
 
     /// <summary>Gets the external script reference.</summary>
-    public required SkillScriptReference Reference { get; init; }
+    public SkillScriptReference Reference { get; internal init; } = null!;
 
     /// <summary>Gets the required schema, validation, and binding contract for model arguments.</summary>
-    public required SkillScriptInputContract InputContract { get; init; }
+    public SkillScriptInputContract InputContract { get; internal init; } = null!;
 
     /// <summary>Gets whether invocation requires permission.</summary>
-    public bool RequiresPermission { get; init; } = true;
+    public bool RequiresPermission { get; internal init; } = true;
 
     /// <summary>Gets the maximum execution duration.</summary>
-    public TimeSpan Timeout { get; init; } = TimeSpan.FromMinutes(2);
+    public TimeSpan Timeout { get; internal init; } = TimeSpan.FromMinutes(2);
 
     /// <summary>Gets the maximum encoded output size.</summary>
-    public long MaximumOutputBytes { get; init; } = 1_048_576;
+    public long MaximumOutputBytes { get; internal init; } = 1_048_576;
 
     /// <summary>Gets the package content store binding used by installed scripts.</summary>
     internal IContentStore? ContentStore { get; init; }
 }
 
 /// <summary>Base type for storage-neutral external script references.</summary>
-public abstract record SkillScriptReference(string Runtime)
+public abstract record SkillScriptReference
 {
+    /// <summary>Initializes a storage-neutral script reference.</summary>
+    /// <param name="runtime">The runner runtime identifier.</param>
+    protected SkillScriptReference(string runtime)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(runtime);
+        Runtime = runtime;
+    }
+
     /// <summary>Gets the runner runtime identifier.</summary>
-    public string Runtime { get; init; } = string.IsNullOrWhiteSpace(Runtime)
-        ? throw new ArgumentException("A script runtime is required.", nameof(Runtime))
-        : Runtime;
+    public string Runtime { get; }
 }
 
 /// <summary>References an exact script snapshot in an IContentStore.</summary>
@@ -118,7 +124,7 @@ public sealed class SkillScriptArguments
     /// <param name="value">The generated CLR value or validated dynamic JSON value.</param>
     /// <param name="boundType">The generated CLR type, or <see langword="null"/> for dynamic JSON.</param>
     /// <param name="contractFingerprint">The canonical input-contract fingerprint.</param>
-    public SkillScriptArguments(
+    internal SkillScriptArguments(
         JsonElement json,
         object value,
         Type? boundType,
@@ -183,6 +189,10 @@ public sealed class SkillScriptArguments
 /// <summary>Owns the schema, binding, and effective JSON semantics for one skill script.</summary>
 public abstract class SkillScriptInputContract
 {
+    private protected SkillScriptInputContract()
+    {
+    }
+
     /// <summary>Gets the generated CLR input type, or <see langword="null"/> for a data-driven contract.</summary>
     public abstract Type? BoundType { get; }
 

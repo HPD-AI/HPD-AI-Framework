@@ -1,0 +1,498 @@
+#nullable enable
+const HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTranscriptRendererKeys.Command = "hpd.coding.command" -> string!
+const HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTranscriptRendererKeys.DebugActivity = "hpd.coding.debug.activity" -> string!
+const HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTranscriptRendererKeys.DebugBreakpoint = "hpd.coding.debug.breakpoint" -> string!
+const HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTranscriptRendererKeys.DebugStopped = "hpd.coding.debug.stopped" -> string!
+const HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTranscriptRendererKeys.Diagnostics = "hpd.coding.diagnostics" -> string!
+const HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTranscriptRendererKeys.Exploration = "hpd.coding.exploration" -> string!
+const HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTranscriptRendererKeys.FileMutation = "hpd.coding.file-mutation" -> string!
+const HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTranscriptRendererKeys.Harness = "hpd.coding.harness" -> string!
+const HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTranscriptRendererKeys.SubAgent = "hpd.coding.subagent" -> string!
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiExtensions
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.CodingHarnessTuiTheme() -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.CommandBackgrounded.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.CommandBackgrounded.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.CommandCancelled.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.CommandCancelled.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.CommandCompleted.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.CommandCompleted.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.CommandErrorOutput.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.CommandErrorOutput.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.CommandFailed.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.CommandFailed.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.CommandOutput.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.CommandOutput.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.CommandRunning.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.CommandRunning.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DebugBreakpointPending.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DebugBreakpointPending.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DebugBreakpointRejected.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DebugBreakpointRejected.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DebugBreakpointVerified.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DebugBreakpointVerified.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DebugCurrentLine.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DebugCurrentLine.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DebugFailed.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DebugFailed.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DebugRunning.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DebugRunning.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DebugStopped.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DebugStopped.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DiagnosticError.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DiagnosticError.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DiagnosticWarning.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DiagnosticWarning.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DiffAdded.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DiffAdded.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DiffContext.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DiffContext.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DiffGutter.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DiffGutter.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DiffRemoved.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.DiffRemoved.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.Label.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.Label.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.Muted.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.Muted.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.PermissionCommand.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.PermissionCommand.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.PermissionDetail.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.PermissionDetail.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.PermissionSelected.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.PermissionSelected.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.PermissionTitle.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.PermissionTitle.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.Prefix.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.Prefix.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveCommandErrorOutput(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveCommandOutput(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveCommandState(HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandTranscriptState state, HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveDebugBreakpointPending(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveDebugBreakpointRejected(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveDebugBreakpointVerified(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveDebugCurrentLine(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveDebugFailed(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveDebugRunning(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveDebugStopped(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveDiagnosticError(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveDiagnosticWarning(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveDiffAdded(HPD.TUI.Core.Theme! theme, HPD.TUI.Core.Color background) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveDiffContext(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveDiffGutter(HPD.TUI.Core.Theme! theme, HPD.TUI.Core.Color background) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveDiffRemoved(HPD.TUI.Core.Theme! theme, HPD.TUI.Core.Color background) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveLabel(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveMuted(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolvePermissionCommand(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolvePermissionDetail(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolvePermissionSelected(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolvePermissionTitle(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolvePrefix(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveSourceGutter(HPD.TUI.Core.Theme! theme, HPD.TUI.Core.Color background) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveSourceTrailingAnnotation(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.ResolveText(HPD.TUI.Core.Theme! theme) -> HPD.TUI.Core.Style
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.SourceGutter.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.SourceGutter.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.SourceLineNumber.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.SourceLineNumber.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.SourceTrailingAnnotation.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.SourceTrailingAnnotation.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.Text.get -> HPD.TUI.Core.Style?
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.Text.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTranscriptRendererKeys
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandArtifactInfo
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandArtifactInfo.ByteLength.get -> long?
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandArtifactInfo.ByteLength.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandArtifactInfo.CodingCommandArtifactInfo(string! Kind, string? Path, string? ContentId, long? ByteLength) -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandArtifactInfo.ContentId.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandArtifactInfo.ContentId.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandArtifactInfo.Kind.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandArtifactInfo.Kind.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandArtifactInfo.Path.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandArtifactInfo.Path.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.Artifacts.get -> System.Collections.Generic.IReadOnlyList<HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandArtifactInfo!>!
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.Artifacts.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.AutoBackgroundEligible.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.AutoBackgroundEligible.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.BackgroundedAt.get -> System.DateTimeOffset?
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.BackgroundedAt.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.BaseCommand.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.BaseCommand.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.BinaryOutputObserved.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.BinaryOutputObserved.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.Category.get -> ExecuteCommandCategory
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.Category.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.CodingCommandCell(string! CommandId, string! ToolCallId, string! FunctionName, string! Command, string! DisplayCommand, string! BaseCommand, ExecuteCommandCategory Category, string! WorkingDirectory, string? Shell, HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandTranscriptState State, System.DateTimeOffset? StartedAt, System.DateTimeOffset? CompletedAt, System.DateTimeOffset? BackgroundedAt, int? ProcessId, int? TimeoutMilliseconds, int? ExitCode, string? CompletionKind, System.TimeSpan? Duration, bool IsBackground, bool AutoBackgroundEligible, string? OperationId, bool OutputObserved, bool OutputTruncated, bool OutputEventsSuppressed, bool DrainTimedOut, bool BinaryOutputObserved, long StdoutBytes, long StderrBytes, long CombinedOutputBytes, long CombinedBytesDiscarded, System.Collections.Generic.IReadOnlyList<HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputLine!>! Output, HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputWindow! OutputWindow, System.Collections.Generic.IReadOnlyList<HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandArtifactInfo!>! Artifacts, string! Summary) -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.CombinedBytesDiscarded.get -> long
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.CombinedBytesDiscarded.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.CombinedOutputBytes.get -> long
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.CombinedOutputBytes.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.Command.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.Command.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.CommandId.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.CommandId.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.CompletedAt.get -> System.DateTimeOffset?
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.CompletedAt.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.CompletionKind.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.CompletionKind.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.DisplayCommand.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.DisplayCommand.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.DrainTimedOut.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.DrainTimedOut.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.Duration.get -> System.TimeSpan?
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.Duration.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.ExitCode.get -> int?
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.ExitCode.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.FunctionName.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.FunctionName.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.IsBackground.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.IsBackground.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.OperationId.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.OperationId.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.Output.get -> System.Collections.Generic.IReadOnlyList<HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputLine!>!
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.Output.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.OutputEventsSuppressed.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.OutputEventsSuppressed.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.OutputObserved.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.OutputObserved.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.OutputTruncated.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.OutputTruncated.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.OutputWindow.get -> HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputWindow!
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.OutputWindow.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.ProcessId.get -> int?
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.ProcessId.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.Shell.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.Shell.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.StartedAt.get -> System.DateTimeOffset?
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.StartedAt.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.State.get -> HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandTranscriptState
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.State.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.StderrBytes.get -> long
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.StderrBytes.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.StdoutBytes.get -> long
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.StdoutBytes.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.Summary.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.Summary.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.TimeoutMilliseconds.get -> int?
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.TimeoutMilliseconds.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.ToolCallId.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.ToolCallId.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.WorkingDirectory.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandCell.WorkingDirectory.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputLine
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputLine.CodingCommandOutputLine(HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputStream Stream, string! Text) -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputLine.Stream.get -> HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputStream
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputLine.Stream.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputLine.Text.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputLine.Text.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputStream
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputStream.Combined = 2 -> HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputStream
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputStream.Stderr = 1 -> HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputStream
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputStream.Stdout = 0 -> HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputStream
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputWindow
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputWindow.Binary.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputWindow.Binary.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputWindow.CodingCommandOutputWindow(int HeadLineCount, int OmittedLineCount, bool Truncated, bool Suppressed, bool Binary) -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputWindow.HeadLineCount.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputWindow.HeadLineCount.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputWindow.OmittedLineCount.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputWindow.OmittedLineCount.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputWindow.Suppressed.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputWindow.Suppressed.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputWindow.Truncated.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandOutputWindow.Truncated.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandTranscriptState
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandTranscriptState.Backgrounded = 1 -> HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandTranscriptState
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandTranscriptState.Cancelled = 4 -> HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandTranscriptState
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandTranscriptState.Completed = 2 -> HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandTranscriptState
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandTranscriptState.Exited = 6 -> HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandTranscriptState
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandTranscriptState.Failed = 3 -> HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandTranscriptState
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandTranscriptState.Running = 0 -> HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandTranscriptState
+HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandTranscriptState.TimedOut = 5 -> HPD.Agent.ToolHarness.Coding.TUI.Commands.CodingCommandTranscriptState
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugActivityCell
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugActivityCell.Action.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugActivityCell.Action.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugActivityCell.DebugActivityCell(string! ToolCallId, string! Action, string! Label, System.Collections.Generic.IReadOnlyList<string!>! Lines, bool IsActive, bool IsError) -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugActivityCell.IsActive.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugActivityCell.IsActive.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugActivityCell.IsError.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugActivityCell.IsError.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugActivityCell.Label.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugActivityCell.Label.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugActivityCell.Lines.get -> System.Collections.Generic.IReadOnlyList<string!>!
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugActivityCell.Lines.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugActivityCell.ToolCallId.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugActivityCell.ToolCallId.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.After.get -> System.Collections.Generic.IReadOnlyList<HPDOS.ToolHarnesses.Middleware.DebugBreakpointSelectionEventItem!>!
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.After.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.Before.get -> System.Collections.Generic.IReadOnlyList<HPDOS.ToolHarnesses.Middleware.DebugBreakpointSelectionEventItem!>!
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.Before.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.BreakpointKind.get -> HPD.Agent.ToolHarness.Coding.Debugging.DebugBreakpointKind
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.BreakpointKind.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.Changes.get -> System.Collections.Generic.IReadOnlyList<HPDOS.ToolHarnesses.Middleware.DebugBreakpointSelectionDelta!>!
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.Changes.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.Counts.get -> HPD.Agent.ToolHarness.Coding.Debugging.DebugBreakpointCounts!
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.Counts.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.DebugBreakpointCell(string! EntryKey, string! Label, HPD.Agent.ToolHarness.Coding.Debugging.DebugBreakpointKind BreakpointKind, System.Collections.Generic.IReadOnlyList<HPDOS.ToolHarnesses.Middleware.DebugBreakpointSelectionEventItem!>! Before, System.Collections.Generic.IReadOnlyList<HPDOS.ToolHarnesses.Middleware.DebugBreakpointSelectionEventItem!>! After, System.Collections.Generic.IReadOnlyList<HPDOS.ToolHarnesses.Middleware.DebugBreakpointSelectionDelta!>! Changes, HPD.Agent.ToolHarness.Coding.Debugging.DebugBreakpointCounts! Counts, System.Collections.Generic.IReadOnlySet<string!>! HitBreakpointClientIds, System.Collections.Generic.IReadOnlyList<HPDOS.ToolHarnesses.Middleware.DebugSourcePreview!>! SourcePreviews, bool Truncated) -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.EntryKey.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.EntryKey.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.HitBreakpointClientIds.get -> System.Collections.Generic.IReadOnlySet<string!>!
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.HitBreakpointClientIds.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.Label.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.Label.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.SourcePreviews.get -> System.Collections.Generic.IReadOnlyList<HPDOS.ToolHarnesses.Middleware.DebugSourcePreview!>!
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.SourcePreviews.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.Truncated.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugBreakpointCell.Truncated.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugStoppedCell
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugStoppedCell.DebugSessionId.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugStoppedCell.DebugSessionId.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugStoppedCell.DebugStoppedCell(string! DebugTreeId, string! DebugSessionId, int? ThreadId, long SuspensionEpoch, string! Reason, HPDOS.ToolHarnesses.Middleware.DebugPrimaryStopAvailableEvent? Summary) -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugStoppedCell.DebugTreeId.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugStoppedCell.DebugTreeId.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugStoppedCell.Reason.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugStoppedCell.Reason.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugStoppedCell.Summary.get -> HPDOS.ToolHarnesses.Middleware.DebugPrimaryStopAvailableEvent?
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugStoppedCell.Summary.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugStoppedCell.SuspensionEpoch.get -> long
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugStoppedCell.SuspensionEpoch.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugStoppedCell.ThreadId.get -> int?
+HPD.Agent.ToolHarness.Coding.TUI.Debugging.DebugStoppedCell.ThreadId.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationCell
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationCell.CodingExplorationCell(string! GroupId, string? MessageId, bool IsActive, System.DateTimeOffset StartedAt, System.DateTimeOffset LastUpdatedAt, System.Collections.Generic.IReadOnlyList<HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationCell!>! Operations, System.Collections.Generic.IReadOnlyList<string!>! Rows) -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationCell.GroupId.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationCell.GroupId.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationCell.IsActive.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationCell.IsActive.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationCell.LastUpdatedAt.get -> System.DateTimeOffset
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationCell.LastUpdatedAt.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationCell.MessageId.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationCell.MessageId.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationCell.Operations.get -> System.Collections.Generic.IReadOnlyList<HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationCell!>!
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationCell.Operations.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationCell.Rows.get -> System.Collections.Generic.IReadOnlyList<string!>!
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationCell.Rows.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationCell.StartedAt.get -> System.DateTimeOffset
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationCell.StartedAt.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationCell
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationCell.ArgsJson.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationCell.ArgsJson.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationCell.CallId.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationCell.CallId.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationCell.CodingExplorationOperationCell(string! CallId, string! ToolName, HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationState State, string? ArgsJson, System.DateTimeOffset StartedAt, System.DateTimeOffset? CompletedAt, HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationSummaryCell? Summary) -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationCell.CompletedAt.get -> System.DateTimeOffset?
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationCell.CompletedAt.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationCell.StartedAt.get -> System.DateTimeOffset
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationCell.StartedAt.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationCell.State.get -> HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationState
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationCell.State.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationCell.Summary.get -> HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationSummaryCell?
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationCell.Summary.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationCell.ToolName.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationCell.ToolName.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationState
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationState.Completed = 2 -> HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationState
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationState.Failed = 3 -> HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationState
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationState.Pending = 0 -> HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationState
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationState.Running = 1 -> HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationOperationState
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationSummaryCell
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationSummaryCell.ErrorMessage.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationSummaryCell.ErrorMessage.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationSummaryCell.HasMore.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationSummaryCell.HasMore.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationSummaryCell.IsError.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationSummaryCell.IsError.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationSummaryCell.Path.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationSummaryCell.Path.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationSummaryCell.Truncated.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationSummaryCell.Truncated.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationSummaryCell.TruncationReason.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.CodingExplorationSummaryCell.TruncationReason.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GlobExplorationSummaryCell
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GlobExplorationSummaryCell.IgnoredCount.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GlobExplorationSummaryCell.IgnoredCount.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GlobExplorationSummaryCell.MatchesRead.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GlobExplorationSummaryCell.MatchesRead.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GlobExplorationSummaryCell.OriginalPattern.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GlobExplorationSummaryCell.OriginalPattern.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GlobExplorationSummaryCell.Pattern.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GlobExplorationSummaryCell.Pattern.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GlobExplorationSummaryCell.TotalMatches.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GlobExplorationSummaryCell.TotalMatches.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GrepExplorationSummaryCell
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GrepExplorationSummaryCell.OutputMode.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GrepExplorationSummaryCell.OutputMode.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GrepExplorationSummaryCell.Pattern.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GrepExplorationSummaryCell.Pattern.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GrepExplorationSummaryCell.Status.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GrepExplorationSummaryCell.Status.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GrepExplorationSummaryCell.TotalMatches.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GrepExplorationSummaryCell.TotalMatches.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GrepExplorationSummaryCell.TotalResults.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.GrepExplorationSummaryCell.TotalResults.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.ListDirectoryExplorationSummaryCell
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.ListDirectoryExplorationSummaryCell.EntriesRead.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.ListDirectoryExplorationSummaryCell.EntriesRead.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.ListDirectoryExplorationSummaryCell.IgnoredCount.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.ListDirectoryExplorationSummaryCell.IgnoredCount.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.ListDirectoryExplorationSummaryCell.Recursive.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.ListDirectoryExplorationSummaryCell.Recursive.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.ListDirectoryExplorationSummaryCell.TotalEntries.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.ListDirectoryExplorationSummaryCell.TotalEntries.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.ReadFileExplorationSummaryCell
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.ReadFileExplorationSummaryCell.Coverage.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.ReadFileExplorationSummaryCell.Coverage.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.ReadFileExplorationSummaryCell.LinesRead.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.ReadFileExplorationSummaryCell.LinesRead.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.ReadFileExplorationSummaryCell.StartLine.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.ReadFileExplorationSummaryCell.StartLine.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.ReadFileExplorationSummaryCell.TotalLines.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.ReadFileExplorationSummaryCell.TotalLines.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.ReadFileExplorationSummaryCell.Unchanged.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.ReadFileExplorationSummaryCell.Unchanged.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Exploration.UnknownExplorationSummaryCell
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticLine
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticLine.Character.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticLine.Character.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticLine.Code.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticLine.Code.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticLine.CodingDiagnosticLine(HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticSeverity Severity, string! Source, string? Code, int Line, int Character, string! Message) -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticLine.Line.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticLine.Line.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticLine.Message.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticLine.Message.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticLine.Severity.get -> HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticSeverity
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticLine.Severity.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticLine.Source.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticLine.Source.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticsCell
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticsCell.CodingDiagnosticsCell(string! Path, string! DisplayPath, int ErrorCount, int WarningCount, System.Collections.Generic.IReadOnlyList<HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticLine!>! Diagnostics, bool Truncated) -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticsCell.Diagnostics.get -> System.Collections.Generic.IReadOnlyList<HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticLine!>!
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticsCell.Diagnostics.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticsCell.DisplayPath.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticsCell.DisplayPath.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticsCell.ErrorCount.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticsCell.ErrorCount.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticsCell.Path.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticsCell.Path.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticsCell.Truncated.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticsCell.Truncated.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticsCell.WarningCount.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticsCell.WarningCount.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticSeverity
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticSeverity.Error = 0 -> HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticSeverity
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticSeverity.Hint = 3 -> HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticSeverity
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticSeverity.Information = 2 -> HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticSeverity
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticSeverity.Warning = 1 -> HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticSeverity
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.Diagnostics.get -> System.Collections.Generic.IReadOnlyList<HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticLine!>!
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.Diagnostics.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.DiagnosticsTruncated.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.DiagnosticsTruncated.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.DiffStat.get -> HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffStat!
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.DiffStat.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.DisplayPath.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.DisplayPath.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.EntryKey.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.EntryKey.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.FileMutationCell(string! EntryKey, string! Path, string! DisplayPath, string! Label, HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationKind Kind, HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffStat! DiffStat, System.Collections.Generic.IReadOnlyList<HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationHunk!>! Hunks, bool HunksTruncated, System.Collections.Generic.IReadOnlyList<HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticLine!>! Diagnostics, bool DiagnosticsTruncated) -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.Hunks.get -> System.Collections.Generic.IReadOnlyList<HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationHunk!>!
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.Hunks.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.HunksTruncated.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.HunksTruncated.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.Kind.get -> HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationKind
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.Kind.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.Label.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.Label.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.Path.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell.Path.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffLine
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffLine.FileMutationDiffLine(HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffLineKind Kind, string! Text) -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffLine.Kind.get -> HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffLineKind
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffLine.Kind.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffLine.Text.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffLine.Text.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffLineKind
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffLineKind.Added = 1 -> HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffLineKind
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffLineKind.Context = 0 -> HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffLineKind
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffLineKind.Removed = 2 -> HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffLineKind
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffStat
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffStat.AddedLines.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffStat.AddedLines.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffStat.FileMutationDiffStat(int AddedLines, int RemovedLines) -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffStat.RemovedLines.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffStat.RemovedLines.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationHunk
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationHunk.FileMutationHunk(int OldStart, int OldLines, int NewStart, int NewLines, System.Collections.Generic.IReadOnlyList<HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffLine!>! Lines) -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationHunk.Lines.get -> System.Collections.Generic.IReadOnlyList<HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationDiffLine!>!
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationHunk.Lines.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationHunk.NewLines.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationHunk.NewLines.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationHunk.NewStart.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationHunk.NewStart.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationHunk.OldLines.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationHunk.OldLines.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationHunk.OldStart.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationHunk.OldStart.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationKind
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationKind.Created = 0 -> HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationKind
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationKind.Deleted = 2 -> HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationKind
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationKind.Modified = 1 -> HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationKind
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationKind.Renamed = 3 -> HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationKind
+HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationKind.Unknown = 4 -> HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationKind
+HPD.Agent.ToolHarness.Coding.TUI.Harness.CodingHarnessToolCell
+HPD.Agent.ToolHarness.Coding.TUI.Harness.CodingHarnessToolCell.CallId.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Harness.CodingHarnessToolCell.CallId.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Harness.CodingHarnessToolCell.CodingHarnessToolCell(string! CallId, bool IsActive, string! Summary) -> void
+HPD.Agent.ToolHarness.Coding.TUI.Harness.CodingHarnessToolCell.IsActive.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Harness.CodingHarnessToolCell.IsActive.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Harness.CodingHarnessToolCell.Summary.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Harness.CodingHarnessToolCell.Summary.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Observability.CodingCommandTranscriptUpdated
+HPD.Agent.ToolHarness.Coding.TUI.Observability.CodingCommandTranscriptUpdated.AgentId.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.Observability.CodingCommandTranscriptUpdated.AgentId.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Observability.CodingCommandTranscriptUpdated.Applied.get -> bool
+HPD.Agent.ToolHarness.Coding.TUI.Observability.CodingCommandTranscriptUpdated.Applied.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Observability.CodingCommandTranscriptUpdated.CodingCommandTranscriptUpdated(string? AgentId, string! CommandId, bool Applied, int OutputLinesInCell, int OmittedLines, System.TimeSpan SnapshotDuration) -> void
+HPD.Agent.ToolHarness.Coding.TUI.Observability.CodingCommandTranscriptUpdated.CommandId.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.Observability.CodingCommandTranscriptUpdated.CommandId.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Observability.CodingCommandTranscriptUpdated.OmittedLines.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.Observability.CodingCommandTranscriptUpdated.OmittedLines.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Observability.CodingCommandTranscriptUpdated.OutputLinesInCell.get -> int
+HPD.Agent.ToolHarness.Coding.TUI.Observability.CodingCommandTranscriptUpdated.OutputLinesInCell.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.Observability.CodingCommandTranscriptUpdated.SnapshotDuration.get -> System.TimeSpan
+HPD.Agent.ToolHarness.Coding.TUI.Observability.CodingCommandTranscriptUpdated.SnapshotDuration.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentCell
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentCell.CallId.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentCell.CallId.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentCell.CodingSubAgentCell(string! CallId, string! RoleName, string? TaskName, HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentState State, HPD.Agent.SubAgentContextPolicy? ContextPolicy, HPD.Agent.AgentInvocationMode? Mode, string? Detail) -> void
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentCell.ContextPolicy.get -> HPD.Agent.SubAgentContextPolicy?
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentCell.ContextPolicy.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentCell.Detail.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentCell.Detail.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentCell.Mode.get -> HPD.Agent.AgentInvocationMode?
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentCell.Mode.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentCell.RoleName.get -> string!
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentCell.RoleName.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentCell.State.get -> HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentState
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentCell.State.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentCell.TaskName.get -> string?
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentCell.TaskName.init -> void
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentState
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentState.Cancelled = 4 -> HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentState
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentState.Completed = 2 -> HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentState
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentState.Failed = 3 -> HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentState
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentState.Preparing = 0 -> HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentState
+HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentState.Running = 1 -> HPD.Agent.ToolHarness.Coding.TUI.SubAgents.CodingSubAgentState
+override HPD.Agent.ToolHarness.Coding.TUI.Observability.CodingCommandTranscriptUpdated.FormatSummary() -> string!
+static HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiExtensions.AddCodingCommandTui(this HPD.Agent.TUI.HpdAgentTuiBuilder! tui, HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme? theme = null) -> HPD.Agent.TUI.HpdAgentTuiBuilder!
+static HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiExtensions.AddCodingDebuggerTui(this HPD.Agent.TUI.HpdAgentTuiBuilder! tui, HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme? theme = null) -> HPD.Agent.TUI.HpdAgentTuiBuilder!
+static HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiExtensions.AddCodingExplorationTui(this HPD.Agent.TUI.HpdAgentTuiBuilder! tui, HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme? theme = null) -> HPD.Agent.TUI.HpdAgentTuiBuilder!
+static HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiExtensions.AddCodingFileMutationTui(this HPD.Agent.TUI.HpdAgentTuiBuilder! tui, HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme? theme = null) -> HPD.Agent.TUI.HpdAgentTuiBuilder!
+static HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiExtensions.AddCodingHarnessExpansionTui(this HPD.Agent.TUI.HpdAgentTuiBuilder! tui, HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme? theme = null) -> HPD.Agent.TUI.HpdAgentTuiBuilder!
+static HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiExtensions.AddCodingHarnessTui(this HPD.Agent.TUI.HpdAgentTuiBuilder! tui, HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme? theme = null) -> HPD.Agent.TUI.HpdAgentTuiBuilder!
+static HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiExtensions.AddCodingLanguageServerTui(this HPD.Agent.TUI.HpdAgentTuiBuilder! tui, HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme? theme = null) -> HPD.Agent.TUI.HpdAgentTuiBuilder!
+static HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiExtensions.AddCodingSubAgentTui(this HPD.Agent.TUI.HpdAgentTuiBuilder! tui, HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme? theme = null) -> HPD.Agent.TUI.HpdAgentTuiBuilder!
+static HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme.Default.get -> HPD.Agent.ToolHarness.Coding.TUI.CodingHarnessTuiTheme!

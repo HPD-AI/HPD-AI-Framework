@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace HPD.Agent.MCP;
 
-public sealed class McpResourceListResult
+internal sealed class McpResourceListResult
 {
     [JsonPropertyName("server")]
     public string Server { get; set; } = string.Empty;
@@ -17,7 +17,7 @@ public sealed class McpResourceListResult
     public bool Truncated { get; set; }
 }
 
-public sealed class McpResourceTemplateListResult
+internal sealed class McpResourceTemplateListResult
 {
     [JsonPropertyName("server")]
     public string Server { get; set; } = string.Empty;
@@ -32,7 +32,7 @@ public sealed class McpResourceTemplateListResult
     public bool Truncated { get; set; }
 }
 
-public sealed class McpResourceReadResult
+internal sealed class McpResourceReadResult
 {
     [JsonPropertyName("server")]
     public string Server { get; set; } = string.Empty;
@@ -47,7 +47,7 @@ public sealed class McpResourceReadResult
     public bool Truncated { get; set; }
 }
 
-public sealed class McpResourceSummary
+internal sealed class McpResourceSummary
 {
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
@@ -68,7 +68,7 @@ public sealed class McpResourceSummary
     public long? Size { get; set; }
 }
 
-public sealed class McpResourceTemplateSummary
+internal sealed class McpResourceTemplateSummary
 {
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
@@ -89,7 +89,7 @@ public sealed class McpResourceTemplateSummary
     public bool IsTemplated { get; set; }
 }
 
-public sealed class McpResourceContentSummary
+internal sealed class McpResourceContentSummary
 {
     [JsonPropertyName("uri")]
     public string Uri { get; set; } = string.Empty;
@@ -110,7 +110,7 @@ public sealed class McpResourceContentSummary
     public int? ByteLength { get; set; }
 }
 
-public sealed class McpPromptListResult
+internal sealed class McpPromptListResult
 {
     [JsonPropertyName("server")]
     public string Server { get; set; } = string.Empty;
@@ -125,7 +125,7 @@ public sealed class McpPromptListResult
     public bool Truncated { get; set; }
 }
 
-public sealed class McpPromptGetResult
+internal sealed class McpPromptGetResult
 {
     [JsonPropertyName("server")]
     public string Server { get; set; } = string.Empty;
@@ -143,7 +143,7 @@ public sealed class McpPromptGetResult
     public bool Truncated { get; set; }
 }
 
-public sealed class McpPromptSummary
+internal sealed class McpPromptSummary
 {
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
@@ -158,7 +158,7 @@ public sealed class McpPromptSummary
     public List<McpPromptArgumentSummary> Arguments { get; set; } = new();
 }
 
-public sealed class McpPromptArgumentSummary
+internal sealed class McpPromptArgumentSummary
 {
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
@@ -173,7 +173,7 @@ public sealed class McpPromptArgumentSummary
     public bool Required { get; set; }
 }
 
-public sealed class McpPromptMessageSummary
+internal sealed class McpPromptMessageSummary
 {
     [JsonPropertyName("role")]
     public string Role { get; set; } = string.Empty;
@@ -182,7 +182,7 @@ public sealed class McpPromptMessageSummary
     public McpPromptContentSummary Content { get; set; } = new();
 }
 
-public sealed class McpPromptContentSummary
+internal sealed class McpPromptContentSummary
 {
     [JsonPropertyName("contentType")]
     public string ContentType { get; set; } = string.Empty;

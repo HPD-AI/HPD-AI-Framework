@@ -5,7 +5,7 @@ using HPD.TUI.Components;
 namespace HPD.Agent.TUI.Interactions;
 
 /// <summary>Readable, replayable question history independent of the live dialog.</summary>
-public sealed class QuestionTranscriptHandler(Action<AgentEvent>? settle = null) :
+internal sealed class QuestionTranscriptHandler(Action<AgentEvent>? settle = null) :
     IAgentTuiEventHandler,
     IAgentTuiToolCallHandler
 {

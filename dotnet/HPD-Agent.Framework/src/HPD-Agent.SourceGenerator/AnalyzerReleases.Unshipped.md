@@ -15,6 +15,7 @@ HPDINP005 | HPD.Agent.Serialization | Error | [AgentInput] target validation
 HPDINP006 | HPD.Agent.Serialization | Error | Agent input manifest closure validation
 HPDP016 | HPD.Provider | Warning | Application provider exclusion validation
 HPDP017 | HPD.Provider | Error | Application provider manifest validation
+HPDSKILL019 | HPD.Agent.Skills | Error | Skill model-name validation
 
 ### Removed Rules
 
@@ -23,3 +24,4 @@ Rule ID | Category | Severity | Notes
 HPDAG1004 | HPD.Permissions | Error | Removed custom interaction descriptor contracts
 HPDAG1005 | HPD.Permissions | Error | Removed typed presentation contracts
 HPDAG1006 | HPD.Permissions | Error | Removed custom permission event-pair contracts
+HPDSKILL016 | HPD.Agent.Skills | Error | Removed unsupported skill activation lifetimes

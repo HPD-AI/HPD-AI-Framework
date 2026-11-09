@@ -6,7 +6,7 @@ using Microsoft.Extensions.AI;
 namespace HPD.Agent;
 
 /// <summary>Immutable pre-filter catalog of every subagent declaration admitted by an agent build.</summary>
-public sealed record SubAgentDeclarationCatalog
+internal sealed record SubAgentDeclarationCatalog
 {
     /// <summary>Gets the stable revision fingerprint of the declarations.</summary>
     public required string Revision { get; init; }
@@ -92,7 +92,7 @@ public sealed record SubAgentActionDescriptor
 }
 
 /// <summary>Builds the one reserved closed <c>SubAgents</c> action function.</summary>
-public static class SubAgentsFunctionFactory
+internal static class SubAgentsFunctionFactory
 {
     /// <summary>The reserved model-facing function name.</summary>
     public const string FunctionName = "SubAgents";
@@ -337,7 +337,7 @@ public static class SubAgentsFunctionFactory
 internal sealed record BoundSubAgentAction(string Action, object? Value, JsonElement Branch);
 
 /// <summary>Strongly typed admitted input for one generated subagent role branch.</summary>
-public sealed record BoundSubAgentStartAction(string Input, string? Context);
+internal sealed record BoundSubAgentStartAction(string Input, string? Context);
 
 /// <summary>Native-AOT-safe binder used by generated subagent role descriptors.</summary>
 public static class SubAgentGeneratedBranchBinder

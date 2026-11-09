@@ -7,6 +7,7 @@ on:
         description: 'Version for every package in the HPD Agent release train'
         required: true
         type: string
+        default: '0.9.5'
 
 concurrency:
   group: hpd-agent-release
@@ -55,6 +56,14 @@ jobs:
       version: ${{ needs.validate.outputs.version }}
     secrets: inherit
 
+  publish-auth-core:
+    needs: [validate, publish-events]
+    uses: ./.github/workflows/publish-auth-nuget.yml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+      package_set: core
+    secrets: inherit
+
   publish-openapi-core:
     needs: [validate, publish-serialization]
     uses: ./.github/workflows/publish-shared-foundations-nuget.yml
@@ -85,11 +94,34 @@ jobs:
       hpd_events_version: ${{ needs.validate.outputs.version }}
     secrets: inherit
 
+  publish-base:
+    needs: [validate, publish-events, publish-auth-core]
+    uses: ./.github/workflows/publish-base-nuget.yml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+      hpd_events_version: ${{ needs.validate.outputs.version }}
+      hpd_auth_version: ${{ needs.validate.outputs.version }}
+    secrets: inherit
+
+  publish-auth:
+    needs: [validate, publish-base]
+    uses: ./.github/workflows/publish-auth-nuget.yml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+      package_set: all
+    secrets: inherit
+
   publish-graph:
-    needs: [validate, publish-events, publish-serialization, publish-openapi-core]
+    needs:
+      - validate
+      - publish-events
+      - publish-serialization
+      - publish-openapi-core
+      - publish-base
     uses: ./.github/workflows/publish-graph-nuget.yml
     with:
       version: ${{ needs.validate.outputs.version }}
+      hpd_base_version: ${{ needs.validate.outputs.version }}
     secrets: inherit
 
   publish-agent:
@@ -101,6 +133,8 @@ jobs:
       - publish-openapi-core
       - publish-realtime-media
       - publish-tui
+      - publish-auth
+      - publish-base
       - publish-graph
     uses: ./.github/workflows/publish-agent-nuget.yml
     with:
@@ -112,4 +146,5 @@ jobs:
       hpd_events_version: ${{ needs.validate.outputs.version }}
       hpd_serialization_version: ${{ needs.validate.outputs.version }}
       hpd_openapi_core_version: ${{ needs.validate.outputs.version }}
+      hpd_base_version: ${{ needs.validate.outputs.version }}
     secrets: inherit

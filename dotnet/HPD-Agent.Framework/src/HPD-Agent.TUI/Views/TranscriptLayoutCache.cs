@@ -8,7 +8,7 @@ using HPD.TUI.Observability;
 namespace HPD.Agent.TUI.Views;
 
 /// <summary>Resolves bounded retained transcript layouts for immutable entries.</summary>
-public interface ITranscriptLayoutCache : IDisposable
+internal interface ITranscriptLayoutCache : IDisposable
 {
     /// <summary>Gets or prepares the layout for an immutable entry and structural layout key.</summary>
     PreparedTranscriptEntry Resolve(TranscriptEntry entry, TranscriptLayoutKey key);
@@ -19,14 +19,14 @@ public interface ITranscriptLayoutCache : IDisposable
 /// <param name="Theme">Structural theme identity.</param>
 /// <param name="ColorSystem">Negotiated terminal color system.</param>
 /// <param name="RendererRevision">Application renderer revision.</param>
-public readonly record struct TranscriptLayoutKey(
+internal readonly record struct TranscriptLayoutKey(
     int Width,
     ThemeKey Theme,
     ColorSystem ColorSystem,
     long RendererRevision);
 
 /// <summary>Owns the exact bounded raster and stable row metadata for one transcript entry.</summary>
-public sealed class PreparedTranscriptEntry : IDisposable
+internal sealed class PreparedTranscriptEntry : IDisposable
 {
     private readonly TerminalGrid _grid;
     private bool _disposed;

@@ -18,7 +18,7 @@ namespace HPD.Agent.MCP;
 /// <summary>
 /// Manages lifecycle of MCP clients and tool loading
 /// </summary>
-public sealed class McpRuntime : IAsyncDisposable
+internal sealed class McpRuntime : IAsyncDisposable
 {
     private readonly Dictionary<string, McpClient> _clients = new();
     private readonly Dictionary<string, McpServerConfig> _serverConfigs = new(StringComparer.Ordinal);
@@ -113,7 +113,7 @@ public sealed class McpRuntime : IAsyncDisposable
         }
         """;
 
-    public McpRuntime(ILogger logger, McpOptions? options = null)
+    internal McpRuntime(ILogger logger, McpOptions? options = null)
         : this(logger, options, catalogPages: null)
     {
     }
@@ -136,7 +136,7 @@ public sealed class McpRuntime : IAsyncDisposable
     /// <param name="enableCollapsing">Enable ToolHarness Collapsing (groups tools by server behind containers)</param>
     /// <param name="maxFunctionNamesInDescription">Max function names to show in container descriptions</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    public async Task<List<AIFunction>> LoadToolsFromManifestAsync(
+    internal async Task<List<AIFunction>> LoadToolsFromManifestAsync(
         string manifestPath,
         bool enableCollapsing = false,
         int maxFunctionNamesInDescription = 10,
@@ -222,7 +222,7 @@ public sealed class McpRuntime : IAsyncDisposable
     /// <param name="enableCollapsing">Enable ToolHarness Collapsing (groups tools by server behind containers)</param>
     /// <param name="maxFunctionNamesInDescription">Max function names to show in container descriptions</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    public async Task<List<AIFunction>> LoadToolsFromManifestContentAsync(
+    internal async Task<List<AIFunction>> LoadToolsFromManifestContentAsync(
         string manifestContent,
         bool enableCollapsing = false,
         int maxFunctionNamesInDescription = 10,
@@ -1586,7 +1586,7 @@ public sealed class McpRuntime : IAsyncDisposable
     /// <param name="maxFunctionNamesInDescription">Max function names to show in container descriptions</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>List of AIFunctions (flat tools or container + collapsed tools)</returns>
-    public async Task<List<AIFunction>> LoadToolsForToolHarnessAsync(
+    internal async Task<List<AIFunction>> LoadToolsForToolHarnessAsync(
         McpServerConfig config,
         int maxFunctionNamesInDescription = 10,
         ISecretResolver? secretResolver = null,
@@ -1840,7 +1840,7 @@ public sealed class McpRuntime : IAsyncDisposable
     /// <summary>
     /// Performs health check on all connected servers
     /// </summary>
-    public async Task<Dictionary<string, bool>> HealthCheckAsync(CancellationToken cancellationToken = default)
+    internal async Task<Dictionary<string, bool>> HealthCheckAsync(CancellationToken cancellationToken = default)
     {
         var results = new Dictionary<string, bool>();
         
@@ -1866,7 +1866,7 @@ public sealed class McpRuntime : IAsyncDisposable
     /// <summary>
     /// Gets information about all loaded servers
     /// </summary>
-    public IReadOnlyDictionary<string, bool> GetServerStatus()
+    internal IReadOnlyDictionary<string, bool> GetServerStatus()
     {
         return _clients.ToDictionary(kvp => kvp.Key, kvp => true);
     }

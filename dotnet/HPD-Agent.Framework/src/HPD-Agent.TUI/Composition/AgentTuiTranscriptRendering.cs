@@ -11,7 +11,7 @@ public interface IAgentTuiTranscriptRenderer<TCell>
     IComponent Create(AgentTuiTranscriptRenderContext<TCell> context);
 }
 
-public sealed class DelegateAgentTuiTranscriptRenderer<TCell> : IAgentTuiTranscriptRenderer<TCell>
+internal sealed class DelegateAgentTuiTranscriptRenderer<TCell> : IAgentTuiTranscriptRenderer<TCell>
     where TCell : TranscriptCell
 {
     private readonly Func<AgentTuiTranscriptRenderContext<TCell>, IComponent> _create;
@@ -455,7 +455,7 @@ internal sealed class AgentTuiTranscriptRendererAdapter<TCell> : IAgentTuiTransc
 /// <summary>Declares that a renderer preserves prepared Markdown rows for irreversible range publication.</summary>
 /// <remarks>The rendered Markdown rows must match the prepared layout in order and geometry. Decorations
 /// before the Markdown must have a fixed height; renderers that transform or omit Markdown must not implement this contract.</remarks>
-public interface IAgentTuiMarkdownPublicationRenderer
+internal interface IAgentTuiMarkdownPublicationRenderer
 {
     /// <summary>Gets the fixed number of decoration rows before the first prepared Markdown row.</summary>
     int MarkdownRowOffset { get; }

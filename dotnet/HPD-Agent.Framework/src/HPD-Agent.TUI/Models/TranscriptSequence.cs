@@ -5,7 +5,7 @@ namespace HPD.Agent.TUI.Models;
 /// <summary>
 /// Represents an immutable, indexed transcript sequence whose snapshots share unchanged storage.
 /// </summary>
-public sealed class TranscriptSequence : IReadOnlyList<TranscriptEntry>
+internal sealed class TranscriptSequence : IReadOnlyList<TranscriptEntry>
 {
     private const int ChunkCapacity = 64;
     private readonly TranscriptEntry[][] _chunks;

@@ -211,10 +211,13 @@ public class SessionBuilderExtensionTests : AgentTestBase
     public async Task BuildFailure_DisposesBuilderOwnedContentStore()
     {
         var contentStore = new TrackingContentStore();
-        var builder = new AgentBuilder().WithInMemorySessionStore();
-        builder.Config.EventComposition = TestEventApplication.Composition;
+        var builder = new AgentBuilder(
+                DefaultConfig(),
+                new TestProviderRegistry(new FakeChatClient()))
+            .WithEventComposition(TestEventApplication.Composition)
+            .WithSessionStore(new InMemorySessionStore(
+                AgentEventComposition.Create([]).Codec));
         builder._implicitContentStoreFactory = () => contentStore;
-        builder.Config.Skills.ActivationLifetime = SkillActivationLifetime.Session;
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => builder.BuildAsync());
 

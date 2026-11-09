@@ -13,7 +13,7 @@ public static class AgentTuiPerformanceDiagnostics
     public const string EnvironmentVariableName = "HPD_TUI_PERF";
     public const string SinkStateKey = "hpd.agent-tui.performance.sink";
 
-    public static void SetSink(AgentTuiStateBag state, IHpdTuiPerformanceEventSink sink)
+    internal static void SetSink(AgentTuiStateBag state, IHpdTuiPerformanceEventSink sink)
     {
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(sink);
@@ -21,19 +21,19 @@ public static class AgentTuiPerformanceDiagnostics
         state.SetSharedService(SinkStateKey, sink);
     }
 
-    public static void SetSink(AgentTuiStateBag state, IEventPublisher publisher)
+    internal static void SetSink(AgentTuiStateBag state, IEventPublisher publisher)
     {
         ArgumentNullException.ThrowIfNull(publisher);
         SetSink(state, new EventPublisherTuiPerformanceEventSink(publisher));
     }
 
-    public static bool RemoveSink(AgentTuiStateBag state)
+    internal static bool RemoveSink(AgentTuiStateBag state)
     {
         ArgumentNullException.ThrowIfNull(state);
         return state.RemoveSharedService(SinkStateKey);
     }
 
-    public static bool TryGetSink(AgentTuiStateBag state, out IHpdTuiPerformanceEventSink sink)
+    internal static bool TryGetSink(AgentTuiStateBag state, out IHpdTuiPerformanceEventSink sink)
     {
         ArgumentNullException.ThrowIfNull(state);
         return state.TryGetShared(SinkStateKey, out sink);
@@ -45,7 +45,7 @@ public static class AgentTuiPerformanceDiagnostics
         return services.TryGet(SinkStateKey, out sink);
     }
 
-    public static bool ConfigureFromEnvironment(AgentTuiStateBag state)
+    internal static bool ConfigureFromEnvironment(AgentTuiStateBag state)
         => ConfigureFromEnvironment(
             state,
             global::System.Environment.GetEnvironmentVariable,

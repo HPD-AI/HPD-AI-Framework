@@ -146,8 +146,7 @@ internal static class RuntimeSkillFunctionProjector
 }
 
 /// <summary>Stable internal metadata keys used by generated skill registration.</summary>
-[EditorBrowsable(EditorBrowsableState.Never)]
-public static class SkillRuntimeMetadata
+internal static class SkillRuntimeMetadata
 {
     /// <summary>Identifies the immutable skill definition attached to an activation function.</summary>
     public const string SkillDefinitionKey = "HPD.SkillDefinition";

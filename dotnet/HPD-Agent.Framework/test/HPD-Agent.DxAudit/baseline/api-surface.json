@@ -1,11 +1,11 @@
 {
-  "TypeCount": 1589,
-  "MethodCount": 6157,
-  "ConstructorCount": 1034,
-  "PropertyCount": 5417,
-  "FieldCount": 1178,
+  "TypeCount": 1558,
+  "MethodCount": 6062,
+  "ConstructorCount": 1013,
+  "PropertyCount": 5374,
+  "FieldCount": 1170,
   "EventCount": 1,
-  "Fingerprint": "99197efdcf8784f28ac9d4e3425af91f917b0350ebd42c0a201e8c8d7a7cedd2",
+  "Fingerprint": "80196244fb2c27eadd692b41d172dd407436af3d21f84f0a94ae140bc6bec76e",
   "Types": [
     {
       "FullName": "AIDescriptionAttribute",
@@ -1372,23 +1372,6 @@
         "System.String[]HPD.Agent.TextToSpeechClientConfig? TextToSpeech { get; set; }",
         "System.String[]HPD.Agent.VoiceActivityClientConfig? VoiceActivity { get; set; }"
       ],
-      "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "HPD.Agent.AgentCommunicationRebaseSeedProvider",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [
-        "HPD.Agent.IThreadJournalRebaseSeedProvider"
-      ],
-      "Constructors": [
-        "System.String[].ctor(System.String[]HPD.Agent.ISessionStore store)"
-      ],
-      "Methods": [
-        "System.String[]System.String[]System.Threading.Tasks.ValueTask\u003CSystem.Collections.Generic.IReadOnlyList\u003CHPD.Agent.AgentEvent\u003E\u003E CreateSeedEventsAsync(System.String[]HPD.Agent.ThreadKey thread,System.String[]System.Threading.CancellationToken cancellationToken = null)"
-      ],
-      "Properties": [],
       "Fields": [],
       "Events": []
     },
@@ -9354,31 +9337,6 @@
       "Events": []
     },
     {
-      "FullName": "HPD.Agent.BoundSubAgentStartAction",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [
-        "System.IEquatable\u003CHPD.Agent.BoundSubAgentStartAction\u003E"
-      ],
-      "Constructors": [
-        "System.String[].ctor(System.String[]System.String Input,System.String[]System.String? Context)"
-      ],
-      "Methods": [
-        "System.String[]System.String[]HPD.Agent.BoundSubAgentStartAction \u003CClone\u003E$()",
-        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.BoundSubAgentStartAction? other)",
-        "System.String[]System.String[]System.Void Deconstruct(System.String[]out System.String Input,System.String[]out System.String? Context)",
-        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
-        "System.String[]System.String[]override System.Int32 GetHashCode()",
-        "System.String[]System.String[]override System.String ToString()"
-      ],
-      "Properties": [
-        "System.String[]System.String Input { get; init; }",
-        "System.String[]System.String? Context { get; init; }"
-      ],
-      "Fields": [],
-      "Events": []
-    },
-    {
       "FullName": "HPD.Agent.BoundedSubAgentClientPropagation",
       "Attributes": [],
       "BaseType": "HPD.Agent.SubAgentClientPropagation",
@@ -9457,19 +9415,16 @@
       "Interfaces": [
         "System.IEquatable\u003CHPD.Agent.CapabilityId\u003E"
       ],
-      "Constructors": [
-        "System.String[].ctor(System.String[]System.String Value)"
-      ],
+      "Constructors": [],
       "Methods": [
         "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.CapabilityId other)",
-        "System.String[]System.String[]System.Void Deconstruct(System.String[]out System.String Value)",
         "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object obj)",
         "System.String[]System.String[]override System.Int32 GetHashCode()",
         "System.String[]System.String[]override System.String ToString()",
         "System.String[]System.String[]static HPD.Agent.CapabilityId Create(System.String[]System.String value)"
       ],
       "Properties": [
-        "System.String[]System.String Value { get; init; }"
+        "System.String[]System.String Value { get; }"
       ],
       "Fields": [],
       "Events": []
@@ -13359,25 +13314,6 @@
       "Events": []
     },
     {
-      "FullName": "HPD.Agent.ContentStoreSkillSource",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [
-        "HPD.Agent.ISkillSource",
-        "HPD.Agent.IWatchableSkillSource"
-      ],
-      "Constructors": [
-        "System.String[].ctor(System.String[]HPD.Agent.ISkillStore skillStore,System.String[]HPD.Agent.IContentStore contentStore,System.String[]HPD.Agent.SkillQuery? query = null)"
-      ],
-      "Methods": [
-        "System.String[]System.String[]System.Collections.Generic.IAsyncEnumerable\u003CHPD.Agent.SkillSourceChange\u003E WatchAsync(System.String[]HPD.Agent.SkillSourceContext context,System.String[]System.Threading.CancellationToken cancellationToken = null)",
-        "System.String[]System.String[]System.Threading.Tasks.ValueTask\u003CSystem.Collections.Generic.IReadOnlyList\u003CSkill\u003E\u003E GetSkillsAsync(System.String[]HPD.Agent.SkillSourceContext context,System.String[]System.Threading.CancellationToken cancellationToken)"
-      ],
-      "Properties": [],
-      "Fields": [],
-      "Events": []
-    },
-    {
       "FullName": "HPD.Agent.ContentStoreSkillStore",
       "Attributes": [],
       "BaseType": "System.Object",
@@ -13704,21 +13640,6 @@
         "System.String[]System.String AgentName { get; init; }"
       ],
       "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "HPD.Agent.Diagnostics.SourceGeneratorDiagnostic",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [],
-      "Constructors": [],
-      "Methods": [],
-      "Properties": [],
-      "Fields": [
-        "System.String[]const System.Int32 ToolHarnessesFound = 5",
-        "System.String[]const System.String DetailedReport = \u0022\u0022",
-        "System.String[]const System.String Message = \u0022Source generator executed successfully\u0022"
-      ],
       "Events": []
     },
     {
@@ -14416,19 +14337,6 @@
         "System.String[]System.TimeSpan Delay { get; init; }"
       ],
       "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "HPD.Agent.Generated.MiddlewareStateRegistry",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [],
-      "Constructors": [],
-      "Methods": [],
-      "Properties": [],
-      "Fields": [
-        "System.String[]static readonly HPD.Agent.MiddlewareStateFactory[] All"
-      ],
       "Events": []
     },
     {
@@ -16126,7 +16034,9 @@
     },
     {
       "FullName": "HPD.Agent.HPDCapabilityKind",
-      "Attributes": [],
+      "Attributes": [
+        "[EditorBrowsableAttribute(1)]"
+      ],
       "BaseType": "System.Enum",
       "Interfaces": [
         "System.IComparable",
@@ -16154,7 +16064,9 @@
     },
     {
       "FullName": "HPD.Agent.HPDCapabilityMetadata",
-      "Attributes": [],
+      "Attributes": [
+        "[EditorBrowsableAttribute(1)]"
+      ],
       "BaseType": "System.Object",
       "Interfaces": [
         "System.IEquatable\u003CHPD.Agent.HPDCapabilityMetadata\u003E"
@@ -17130,23 +17042,6 @@
       "Events": []
     },
     {
-      "FullName": "HPD.Agent.ISubAgentCreationStore",
-      "Attributes": [],
-      "BaseType": null,
-      "Interfaces": [],
-      "Constructors": [],
-      "Methods": [
-        "System.String[]System.String[]abstract System.Collections.Generic.IAsyncEnumerable\u003CHPD.Agent.SubAgentCreationRecord\u003E ReadPendingSubAgentCreationsAsync(System.String[]HPD.Agent.ThreadKey parent,System.String[]System.Threading.CancellationToken cancellationToken = null)",
-        "System.String[]System.String[]abstract System.Collections.Generic.IAsyncEnumerable\u003CHPD.Agent.SubAgentCreationRecord\u003E ReadSubAgentCreationsAsync(System.String[]HPD.Agent.ThreadKey parent,System.String[]System.Threading.CancellationToken cancellationToken = null)",
-        "System.String[]System.String[]abstract System.Threading.Tasks.ValueTask WriteSubAgentCreationAsync(System.String[]HPD.Agent.SubAgentCreationRecord record,System.String[]HPD.Agent.SubAgentCreationWriteCondition condition,System.String[]System.Threading.CancellationToken cancellationToken = null)",
-        "System.String[]System.String[]abstract System.Threading.Tasks.ValueTask\u003CHPD.Agent.SubAgentCreationRecord\u003E GetSubAgentCreationAsync(System.String[]HPD.Agent.SubAgentCreationKey key,System.String[]System.Threading.CancellationToken cancellationToken = null)",
-        "System.String[]System.String[]abstract System.Threading.Tasks.ValueTask\u003CHPD.Agent.SubAgentCreationReservationResult\u003E TryReserveSubAgentCreationAsync(System.String[]HPD.Agent.SubAgentCreationKey key,System.String[]HPD.Agent.SubAgentCreationRequest request,System.String[]System.Threading.CancellationToken cancellationToken = null)"
-      ],
-      "Properties": [],
-      "Fields": [],
-      "Events": []
-    },
-    {
       "FullName": "HPD.Agent.ITextToSpeechProviderOptions",
       "Attributes": [],
       "BaseType": null,
@@ -17814,50 +17709,6 @@
       "Events": []
     },
     {
-      "FullName": "HPD.Agent.MCP.IMcpConfigurationActivator",
-      "Attributes": [],
-      "BaseType": null,
-      "Interfaces": [],
-      "Constructors": [],
-      "Methods": [
-        "System.String[]System.String[]abstract System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.AgentCapabilitySourceRegistration\u003E Create(System.String[]HPD.Agent.MCP.ResolvedAgentMcpConfig config,System.String[]HPD.Agent.MCP.McpConfigurationActivationContext context)"
-      ],
-      "Properties": [],
-      "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "HPD.Agent.MCP.McpConfigurationActivation",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [],
-      "Constructors": [],
-      "Methods": [
-        "System.String[]System.String[]static System.Void Register(System.String[]HPD.Agent.MCP.IMcpConfigurationActivator activator)"
-      ],
-      "Properties": [],
-      "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "HPD.Agent.MCP.McpConfigurationActivationContext",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [],
-      "Constructors": [
-        "System.String[].ctor()"
-      ],
-      "Methods": [],
-      "Properties": [
-        "System.String[]HPD.Agent.AgentBuilder Builder { get; init; }",
-        "System.String[]HPD.Agent.Secrets.ISecretResolver? SecretResolver { get; init; }",
-        "System.String[]Microsoft.Extensions.Logging.ILoggerFactory? LoggerFactory { get; init; }",
-        "System.String[]System.IServiceProvider? Services { get; init; }"
-      ],
-      "Fields": [],
-      "Events": []
-    },
-    {
       "FullName": "HPD.Agent.MCP.McpManifest",
       "Attributes": [],
       "BaseType": "System.Object",
@@ -18050,57 +17901,6 @@
       "Events": []
     },
     {
-      "FullName": "HPD.Agent.MCP.ResolvedAgentMcpConfig",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [
-        "System.IEquatable\u003CHPD.Agent.MCP.ResolvedAgentMcpConfig\u003E"
-      ],
-      "Constructors": [
-        "System.String[].ctor()"
-      ],
-      "Methods": [
-        "System.String[]System.String[]HPD.Agent.MCP.ResolvedAgentMcpConfig \u003CClone\u003E$()",
-        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.MCP.ResolvedAgentMcpConfig? other)",
-        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
-        "System.String[]System.String[]override System.Int32 GetHashCode()",
-        "System.String[]System.String[]override System.String ToString()"
-      ],
-      "Properties": [
-        "System.String[]System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.MCP.McpServerConfig\u003E Servers { get; init; }",
-        "System.String[]System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.MCP.ResolvedMcpManifestReference\u003E Manifests { get; init; }",
-        "System.String[]System.String AgentId { get; init; }"
-      ],
-      "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "HPD.Agent.MCP.ResolvedMcpManifestReference",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [
-        "System.IEquatable\u003CHPD.Agent.MCP.ResolvedMcpManifestReference\u003E"
-      ],
-      "Constructors": [
-        "System.String[].ctor()"
-      ],
-      "Methods": [
-        "System.String[]System.String[]HPD.Agent.MCP.ResolvedMcpManifestReference \u003CClone\u003E$()",
-        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.MCP.ResolvedMcpManifestReference? other)",
-        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
-        "System.String[]System.String[]override System.Int32 GetHashCode()",
-        "System.String[]System.String[]override System.String ToString()"
-      ],
-      "Properties": [
-        "System.String[]System.Collections.Generic.IReadOnlyDictionary\u003CSystem.String,HPD.Serialization.HpdConfigSourceLocation\u003E? SourceLocations { get; init; }",
-        "System.String[]System.String Path { get; init; }",
-        "System.String[]System.String SourceName { get; init; }",
-        "System.String[]System.String? SourcePath { get; init; }"
-      ],
-      "Fields": [],
-      "Events": []
-    },
-    {
       "FullName": "HPD.Agent.MaxConsecutiveErrorsExceededEvent",
       "Attributes": [
         "[DurableEventAttribute]",
@@ -18185,7 +17985,9 @@
     },
     {
       "FullName": "HPD.Agent.McpServerSource",
-      "Attributes": [],
+      "Attributes": [
+        "[EditorBrowsableAttribute(1)]"
+      ],
       "BaseType": "System.Object",
       "Interfaces": [
         "System.IEquatable\u003CHPD.Agent.McpServerSource\u003E"
@@ -31617,21 +31419,6 @@
       "Events": []
     },
     {
-      "FullName": "HPD.Agent.SkillCapabilityFunctionProjector",
-      "Attributes": [
-        "[EditorBrowsableAttribute(1)]"
-      ],
-      "BaseType": "System.Object",
-      "Interfaces": [],
-      "Constructors": [],
-      "Methods": [
-        "System.String[]System.String[]static System.Collections.Generic.IEnumerable\u003CMicrosoft.Extensions.AI.AIFunction\u003E CreateChildren(System.String[]Skill skill,System.String[]HPD.Agent.CapabilityId skillId,System.String[]HPD.Agent.HPDToolSerializationOptions? serialization = null)"
-      ],
-      "Properties": [],
-      "Fields": [],
-      "Events": []
-    },
-    {
       "FullName": "HPD.Agent.SkillDirectoryImportMode",
       "Attributes": [],
       "BaseType": "System.Enum",
@@ -31885,21 +31672,6 @@
         "System.String[]System.String Name { get; init; }"
       ],
       "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "HPD.Agent.SkillRuntimeMetadata",
-      "Attributes": [
-        "[EditorBrowsableAttribute(1)]"
-      ],
-      "BaseType": "System.Object",
-      "Interfaces": [],
-      "Constructors": [],
-      "Methods": [],
-      "Properties": [],
-      "Fields": [
-        "System.String[]const System.String SkillDefinitionKey = \u0022HPD.SkillDefinition\u0022"
-      ],
       "Events": []
     },
     {
@@ -32778,19 +32550,6 @@
       "Events": []
     },
     {
-      "FullName": "HPD.Agent.SubAgentActivityReader",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [],
-      "Constructors": [],
-      "Methods": [
-        "System.String[]System.String[]static System.Threading.Tasks.Task\u003CHPD.Agent.SubAgentActivity\u003E ReadAsync(System.String[]HPD.Agent.ISessionStore store,System.String[]HPD.Agent.ThreadKey child,System.String[]System.Threading.CancellationToken cancellationToken = null)"
-      ],
-      "Properties": [],
-      "Fields": [],
-      "Events": []
-    },
-    {
       "FullName": "HPD.Agent.SubAgentAnswerResult",
       "Attributes": [],
       "BaseType": "HPD.Agent.SubAgentActionResult",
@@ -33010,51 +32769,6 @@
       ],
       "Properties": [
         "System.String[]HPD.Agent.SubAgentChildReference Child { get; init; }"
-      ],
-      "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "HPD.Agent.SubAgentChildRegistry",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [],
-      "Constructors": [
-        "System.String[].ctor(System.String[]HPD.Agent.ISessionStore store)"
-      ],
-      "Methods": [
-        "System.String[]System.String[]System.Threading.Tasks.ValueTask\u003CHPD.Agent.SubAgentChildReference\u003E RegisterAsync(System.String[]HPD.Agent.ThreadKey parent,System.String[]HPD.Agent.SubAgentChildReference child,System.String[]System.Threading.CancellationToken cancellationToken = null)",
-        "System.String[]System.String[]System.Threading.Tasks.ValueTask\u003CHPD.Agent.SubAgentChildRegistryProjection\u003E ProjectAsync(System.String[]HPD.Agent.ThreadKey parent,System.String[]System.Nullable\u003CHPD.Agent.ThreadJournalCursor\u003E? through = null,System.String[]System.Threading.CancellationToken cancellationToken = null)"
-      ],
-      "Properties": [],
-      "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "HPD.Agent.SubAgentChildRegistryProjection",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [
-        "System.IEquatable\u003CHPD.Agent.SubAgentChildRegistryProjection\u003E"
-      ],
-      "Constructors": [
-        "System.String[].ctor(System.String[]HPD.Agent.ThreadKey Parent,System.String[]HPD.Agent.ThreadJournalCursor Cursor,System.String[]System.Collections.Generic.IReadOnlyDictionary\u003CHPD.Agent.SubAgentLocalId,HPD.Agent.SubAgentRegistryEntry\u003E Entries,System.String[]System.Collections.Generic.IReadOnlySet\u003CHPD.Agent.SubAgentLocalId\u003E ControllerGrants)"
-      ],
-      "Methods": [
-        "System.String[]System.String[]HPD.Agent.SubAgentChildRegistryProjection \u003CClone\u003E$()",
-        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.SubAgentChildRegistryProjection? other)",
-        "System.String[]System.String[]System.Boolean TryGetAvailable(System.String[]HPD.Agent.SubAgentLocalId localId,System.String[]out HPD.Agent.SubAgentChildReference child)",
-        "System.String[]System.String[]System.Void Deconstruct(System.String[]out HPD.Agent.ThreadKey Parent,System.String[]out HPD.Agent.ThreadJournalCursor Cursor,System.String[]out System.Collections.Generic.IReadOnlyDictionary\u003CHPD.Agent.SubAgentLocalId,HPD.Agent.SubAgentRegistryEntry\u003E Entries,System.String[]out System.Collections.Generic.IReadOnlySet\u003CHPD.Agent.SubAgentLocalId\u003E ControllerGrants)",
-        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
-        "System.String[]System.String[]override System.Int32 GetHashCode()",
-        "System.String[]System.String[]override System.String ToString()"
-      ],
-      "Properties": [
-        "System.String[]HPD.Agent.ThreadJournalCursor Cursor { get; init; }",
-        "System.String[]HPD.Agent.ThreadKey Parent { get; init; }",
-        "System.String[]System.Collections.Generic.IReadOnlyDictionary\u003CHPD.Agent.SubAgentLocalId,HPD.Agent.SubAgentChildReference\u003E AvailableChildren { get; }",
-        "System.String[]System.Collections.Generic.IReadOnlyDictionary\u003CHPD.Agent.SubAgentLocalId,HPD.Agent.SubAgentRegistryEntry\u003E Entries { get; init; }",
-        "System.String[]System.Collections.Generic.IReadOnlySet\u003CHPD.Agent.SubAgentLocalId\u003E ControllerGrants { get; init; }"
       ],
       "Fields": [],
       "Events": []
@@ -33325,78 +33039,6 @@
       "Events": []
     },
     {
-      "FullName": "HPD.Agent.SubAgentContexts",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [],
-      "Constructors": [],
-      "Methods": [
-        "System.String[]System.String[]static HPD.Agent.SubAgentContextPolicy Resolve(System.String[]HPD.Agent.SubAgentContextPolicy policy,System.String[]System.Nullable\u003CHPD.Agent.SubAgentContext\u003E? requestedContext)",
-        "System.String[]System.String[]static System.Nullable\u003CHPD.Agent.SubAgentContext\u003E? ReadRequestedContext(System.String[]System.Text.Json.JsonElement json)",
-        "System.String[]System.String[]static System.Text.Json.JsonElement CreateSchema(System.String[]System.Text.Json.JsonElement originalSchema,System.String[]HPD.Agent.SubAgentContextPolicy policy)"
-      ],
-      "Properties": [],
-      "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "HPD.Agent.SubAgentContinuationSubmission",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [
-        "System.IEquatable\u003CHPD.Agent.SubAgentContinuationSubmission\u003E"
-      ],
-      "Constructors": [
-        "System.String[].ctor(System.String[]HPD.Agent.AgentInputDisposition Disposition,System.String[]System.String? ThreadExecutionId)"
-      ],
-      "Methods": [
-        "System.String[]System.String[]HPD.Agent.SubAgentContinuationSubmission \u003CClone\u003E$()",
-        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.SubAgentContinuationSubmission? other)",
-        "System.String[]System.String[]System.Void Deconstruct(System.String[]out HPD.Agent.AgentInputDisposition Disposition,System.String[]out System.String? ThreadExecutionId)",
-        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
-        "System.String[]System.String[]override System.Int32 GetHashCode()",
-        "System.String[]System.String[]override System.String ToString()"
-      ],
-      "Properties": [
-        "System.String[]HPD.Agent.AgentInputDisposition Disposition { get; init; }",
-        "System.String[]System.String? ThreadExecutionId { get; init; }"
-      ],
-      "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "HPD.Agent.SubAgentControllerAuthority",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [],
-      "Constructors": [],
-      "Methods": [
-        "System.String[]System.String[]static System.Threading.Tasks.ValueTask GrantAsync(System.String[]HPD.Agent.ISessionStore store,System.String[]HPD.Agent.ThreadKey child,System.String[]HPD.Agent.ThreadKey controller,System.String[]HPD.Agent.SubAgentLocalId localId,System.String[]System.String forkOperationId,System.String[]HPD.Agent.ThreadKey forkOperationSource,System.String[]System.Threading.CancellationToken cancellationToken = null)",
-        "System.String[]System.String[]static System.Threading.Tasks.ValueTask RevokeAsync(System.String[]HPD.Agent.ISessionStore store,System.String[]HPD.Agent.ThreadKey child,System.String[]HPD.Agent.ThreadKey controller,System.String[]HPD.Agent.SubAgentLocalId localId,System.String[]System.String forkOperationId,System.String[]HPD.Agent.ThreadKey forkOperationSource,System.String[]System.Threading.CancellationToken cancellationToken = null)",
-        "System.String[]System.String[]static System.Threading.Tasks.ValueTask\u003CSystem.Boolean\u003E IsGrantedAsync(System.String[]HPD.Agent.ISessionStore store,System.String[]HPD.Agent.ThreadKey child,System.String[]HPD.Agent.ThreadKey controller,System.String[]HPD.Agent.SubAgentLocalId localId,System.String[]System.Threading.CancellationToken cancellationToken = null)"
-      ],
-      "Properties": [],
-      "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "HPD.Agent.SubAgentControllerAuthorityRebaseSeedProvider",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [
-        "HPD.Agent.IThreadJournalRebaseSeedProvider"
-      ],
-      "Constructors": [
-        "System.String[].ctor(System.String[]HPD.Agent.ISessionStore store)"
-      ],
-      "Methods": [
-        "System.String[]System.String[]System.Threading.Tasks.ValueTask\u003CSystem.Collections.Generic.IReadOnlyList\u003CHPD.Agent.AgentEvent\u003E\u003E CreateSeedEventsAsync(System.String[]HPD.Agent.ThreadKey thread,System.String[]System.Threading.CancellationToken cancellationToken = null)"
-      ],
-      "Properties": [],
-      "Fields": [],
-      "Events": []
-    },
-    {
       "FullName": "HPD.Agent.SubAgentControllerGrantedEvent",
       "Attributes": [
         "[DurableEventAttribute(Required=true)]",
@@ -33594,31 +33236,6 @@
       "Events": []
     },
     {
-      "FullName": "HPD.Agent.SubAgentCreationReservationResult",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [
-        "System.IEquatable\u003CHPD.Agent.SubAgentCreationReservationResult\u003E"
-      ],
-      "Constructors": [
-        "System.String[].ctor(System.String[]HPD.Agent.SubAgentCreationRecord Record,System.String[]System.Boolean Created)"
-      ],
-      "Methods": [
-        "System.String[]System.String[]HPD.Agent.SubAgentCreationReservationResult \u003CClone\u003E$()",
-        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.SubAgentCreationReservationResult? other)",
-        "System.String[]System.String[]System.Void Deconstruct(System.String[]out HPD.Agent.SubAgentCreationRecord Record,System.String[]out System.Boolean Created)",
-        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
-        "System.String[]System.String[]override System.Int32 GetHashCode()",
-        "System.String[]System.String[]override System.String ToString()"
-      ],
-      "Properties": [
-        "System.String[]HPD.Agent.SubAgentCreationRecord Record { get; init; }",
-        "System.String[]System.Boolean Created { get; init; }"
-      ],
-      "Fields": [],
-      "Events": []
-    },
-    {
       "FullName": "HPD.Agent.SubAgentCreationReservedEvent",
       "Attributes": [
         "[DurableEventAttribute(Required=true)]",
@@ -33645,54 +33262,6 @@
       ],
       "Properties": [
         "System.String[]HPD.Agent.SubAgentCreationRecord Record { get; init; }"
-      ],
-      "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "HPD.Agent.SubAgentCreationWriteCondition",
-      "Attributes": [],
-      "BaseType": "System.ValueType",
-      "Interfaces": [
-        "System.IEquatable\u003CHPD.Agent.SubAgentCreationWriteCondition\u003E"
-      ],
-      "Constructors": [
-        "System.String[].ctor(System.String[]System.Int64 ExpectedRevision)"
-      ],
-      "Methods": [
-        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.SubAgentCreationWriteCondition other)",
-        "System.String[]System.String[]System.Void Deconstruct(System.String[]out System.Int64 ExpectedRevision)",
-        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object obj)",
-        "System.String[]System.String[]override System.Int32 GetHashCode()",
-        "System.String[]System.String[]override System.String ToString()"
-      ],
-      "Properties": [
-        "System.String[]System.Int64 ExpectedRevision { get; init; }"
-      ],
-      "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "HPD.Agent.SubAgentDeclarationCatalog",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [
-        "System.IEquatable\u003CHPD.Agent.SubAgentDeclarationCatalog\u003E"
-      ],
-      "Constructors": [
-        "System.String[].ctor()"
-      ],
-      "Methods": [
-        "System.String[]System.String[]HPD.Agent.SubAgentDeclarationCatalog \u003CClone\u003E$()",
-        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.SubAgentDeclarationCatalog? other)",
-        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
-        "System.String[]System.String[]override System.Int32 GetHashCode()",
-        "System.String[]System.String[]override System.String ToString()",
-        "System.String[]System.String[]static HPD.Agent.SubAgentDeclarationCatalog Create(System.String[]System.Collections.Generic.IEnumerable\u003CHPD.Agent.SubAgentActionDescriptor\u003E declarations)"
-      ],
-      "Properties": [
-        "System.String[]System.Collections.Generic.IReadOnlyDictionary\u003CHPD.Agent.CapabilityId,HPD.Agent.SubAgentActionDescriptor\u003E Declarations { get; init; }",
-        "System.String[]System.String Revision { get; init; }"
       ],
       "Fields": [],
       "Events": []
@@ -34244,23 +33813,6 @@
       "Events": []
     },
     {
-      "FullName": "HPD.Agent.SubAgentRegistryRebaseSeedProvider",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [
-        "HPD.Agent.IThreadJournalRebaseSeedProvider"
-      ],
-      "Constructors": [
-        "System.String[].ctor(System.String[]HPD.Agent.SubAgentChildRegistry registry)"
-      ],
-      "Methods": [
-        "System.String[]System.String[]System.Threading.Tasks.ValueTask\u003CSystem.Collections.Generic.IReadOnlyList\u003CHPD.Agent.AgentEvent\u003E\u003E CreateSeedEventsAsync(System.String[]HPD.Agent.ThreadKey thread,System.String[]System.Threading.CancellationToken cancellationToken = null)"
-      ],
-      "Properties": [],
-      "Fields": [],
-      "Events": []
-    },
-    {
       "FullName": "HPD.Agent.SubAgentRegistrySeedEvent",
       "Attributes": [
         "[DurableEventAttribute(Required=true)]",
@@ -34375,109 +33927,6 @@
       "Events": []
     },
     {
-      "FullName": "HPD.Agent.SubAgentRuntime",
-      "Attributes": [
-        "[EditorBrowsableAttribute(1)]"
-      ],
-      "BaseType": "System.Object",
-      "Interfaces": [],
-      "Constructors": [],
-      "Methods": [
-        "System.String[]System.String[]static Microsoft.Extensions.AI.AIFunction CreateFrozenFunction(System.String[]HPD.Agent.SubAgent definition,System.String[]System.Func\u003CHPD.Agent.SubAgent,Microsoft.Extensions.AI.AIFunction\u003E factory)",
-        "System.String[]System.String[]static System.Threading.Tasks.Task\u003CHPD.Agent.AgentInvocationResult\u003E InvokeAsync(System.String[]HPD.Agent.SubAgentRuntime\u002BSubAgentInvocationRequest request,System.String[]System.Threading.CancellationToken cancellationToken)",
-        "System.String[]System.String[]static System.Threading.Tasks.Task\u003CHPD.Agent.SubAgentContinuationSubmission\u003E SubmitControlledInputAsync(System.String[]HPD.Agent.ISessionStore store,System.String[]HPD.Agent.IAgentRuntimeResolver resolver,System.String[]HPD.Agent.ThreadKey controllerThread,System.String[]HPD.Agent.SubAgentLocalId localId,System.String[]System.String childAgentId,System.String[]HPD.Agent.ThreadKey childThread,System.String[]HPD.Agent.AgentInputEvent input,System.String[]System.Threading.CancellationToken cancellationToken = null)",
-        "System.String[]System.String[]static System.Threading.Tasks.Task\u003CHPD.Agent.SubAgentRuntime\u002BSubAgentInvocationRoute\u003E ResolveInvocationRouteAsync(System.String[]HPD.Agent.Agent agent,System.String[]HPD.Agent.SubAgent subAgent,System.String[]HPD.Agent.Middleware.FunctionExecutionContext? functionContext,System.String[]System.String storageName,System.String[]System.Threading.CancellationToken cancellationToken)",
-        "System.String[]System.String[]static System.Threading.Tasks.Task\u003CSystem.Object\u003E ControlAsync(System.String[]System.String action,System.String[]System.Text.Json.JsonElement branch,System.String[]HPD.Agent.Middleware.FunctionExecutionContext functionContext,System.String[]System.Threading.CancellationToken cancellationToken)",
-        "System.String[]System.String[]static System.Void MarkCompleted(System.String[]HPD.Agent.Middleware.FunctionExecutionContext? functionContext,System.String[]HPD.Agent.SubAgentRuntime\u002BSubAgentInvocationRoute route,System.String[]System.Boolean hasResult = true)",
-        "System.String[]System.String[]static System.Void MarkFailed(System.String[]HPD.Agent.Middleware.FunctionExecutionContext? functionContext,System.String[]HPD.Agent.SubAgentRuntime\u002BSubAgentInvocationRoute route,System.String[]System.Exception exception)"
-      ],
-      "Properties": [],
-      "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "HPD.Agent.SubAgentRuntime\u002BSubAgentInvocationRequest",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [
-        "System.IEquatable\u003CHPD.Agent.SubAgentRuntime\u002BSubAgentInvocationRequest\u003E"
-      ],
-      "Constructors": [
-        "System.String[].ctor()"
-      ],
-      "Methods": [
-        "System.String[]System.String[]HPD.Agent.SubAgentRuntime\u002BSubAgentInvocationRequest \u003CClone\u003E$()",
-        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.SubAgentRuntime\u002BSubAgentInvocationRequest? other)",
-        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
-        "System.String[]System.String[]override System.Int32 GetHashCode()",
-        "System.String[]System.String[]override System.String ToString()"
-      ],
-      "Properties": [
-        "System.String[]HPD.Agent.CapabilityId CapabilityId { get; init; }",
-        "System.String[]HPD.Agent.Middleware.FunctionExecutionContext? ParentContext { get; init; }",
-        "System.String[]HPD.Agent.SubAgent Definition { get; init; }",
-        "System.String[]System.Nullable\u003CHPD.Agent.AgentInvocationMode\u003E? RequestedMode { get; init; }",
-        "System.String[]System.Nullable\u003CHPD.Agent.SubAgentContext\u003E? RequestedContext { get; init; }",
-        "System.String[]System.String Input { get; init; }"
-      ],
-      "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "HPD.Agent.SubAgentRuntime\u002BSubAgentInvocationResult",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [
-        "System.IEquatable\u003CHPD.Agent.SubAgentRuntime\u002BSubAgentInvocationResult\u003E"
-      ],
-      "Constructors": [
-        "System.String[].ctor()"
-      ],
-      "Methods": [
-        "System.String[]System.String[]HPD.Agent.SubAgentRuntime\u002BSubAgentInvocationResult \u003CClone\u003E$()",
-        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.SubAgentRuntime\u002BSubAgentInvocationResult? other)",
-        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
-        "System.String[]System.String[]override System.Int32 GetHashCode()",
-        "System.String[]System.String[]override System.String ToString()"
-      ],
-      "Properties": [
-        "System.String[]System.Nullable\u003CHPD.Agent.SubAgentLocalId\u003E? LocalId { get; init; }",
-        "System.String[]System.String AgentId { get; init; }",
-        "System.String[]System.String InvocationId { get; init; }",
-        "System.String[]System.String SessionId { get; init; }",
-        "System.String[]System.String ThreadId { get; init; }",
-        "System.String[]System.String? Text { get; init; }"
-      ],
-      "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "HPD.Agent.SubAgentRuntime\u002BSubAgentInvocationRoute",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [
-        "System.IEquatable\u003CHPD.Agent.SubAgentRuntime\u002BSubAgentInvocationRoute\u003E"
-      ],
-      "Constructors": [
-        "System.String[].ctor(System.String[]System.String SessionId,System.String[]System.String ThreadId,System.String[]System.String InvocationId)"
-      ],
-      "Methods": [
-        "System.String[]System.String[]HPD.Agent.SubAgentRuntime\u002BSubAgentInvocationRoute \u003CClone\u003E$()",
-        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.SubAgentRuntime\u002BSubAgentInvocationRoute? other)",
-        "System.String[]System.String[]System.Void Deconstruct(System.String[]out System.String SessionId,System.String[]out System.String ThreadId,System.String[]out System.String InvocationId)",
-        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
-        "System.String[]System.String[]override System.Int32 GetHashCode()",
-        "System.String[]System.String[]override System.String ToString()"
-      ],
-      "Properties": [
-        "System.String[]System.String InvocationId { get; init; }",
-        "System.String[]System.String SessionId { get; init; }",
-        "System.String[]System.String ThreadId { get; init; }"
-      ],
-      "Fields": [],
-      "Events": []
-    },
-    {
       "FullName": "HPD.Agent.SubAgentWaitItem",
       "Attributes": [],
       "BaseType": "System.Object",
@@ -34529,21 +33978,6 @@
         "System.String[]System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.SubAgentWaitItem\u003E Children { get; init; }"
       ],
       "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "HPD.Agent.SubAgentsFunctionFactory",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [],
-      "Constructors": [],
-      "Methods": [
-        "System.String[]System.String[]static Microsoft.Extensions.AI.AIFunction Create(System.String[]System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.SubAgentActionDescriptor\u003E descriptors)"
-      ],
-      "Properties": [],
-      "Fields": [
-        "System.String[]const System.String FunctionName = \u0022SubAgents\u0022"
-      ],
       "Events": []
     },
     {
@@ -35858,23 +35292,6 @@
       "Events": []
     },
     {
-      "FullName": "HPD.Agent.ThreadForkOperationRebaseSeedProvider",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [
-        "HPD.Agent.IThreadJournalRebaseSeedProvider"
-      ],
-      "Constructors": [
-        "System.String[].ctor(System.String[]HPD.Agent.ISessionStore store)"
-      ],
-      "Methods": [
-        "System.String[]System.String[]System.Threading.Tasks.ValueTask\u003CSystem.Collections.Generic.IReadOnlyList\u003CHPD.Agent.AgentEvent\u003E\u003E CreateSeedEventsAsync(System.String[]HPD.Agent.ThreadKey thread,System.String[]System.Threading.CancellationToken cancellationToken = null)"
-      ],
-      "Properties": [],
-      "Fields": [],
-      "Events": []
-    },
-    {
       "FullName": "HPD.Agent.ThreadForkOperationRecord",
       "Attributes": [],
       "BaseType": "System.Object",
@@ -36920,7 +36337,9 @@
     },
     {
       "FullName": "HPD.Agent.ToolHarnessFactory",
-      "Attributes": [],
+      "Attributes": [
+        "[EditorBrowsableAttribute(1)]"
+      ],
       "BaseType": "System.Object",
       "Interfaces": [
         "System.IEquatable\u003CHPD.Agent.ToolHarnessFactory\u003E"
@@ -38655,7 +38074,6 @@
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CMicrosoft.Extensions.AI.UsageDetails\u003E UsageDetails { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CMicrosoft.Extensions.AI.WebSearchToolCallContent\u003E WebSearchToolCallContent { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CMicrosoft.Extensions.AI.WebSearchToolResultContent\u003E WebSearchToolResultContent { get; }",
-        "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CSkillActivationLifetime\u003E SkillActivationLifetime { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CSkillInstructionDelivery\u003E SkillInstructionDelivery { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CSkillRuntimeOptions\u003E SkillRuntimeOptions { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CSystem.Boolean\u003E Boolean { get; }",
@@ -38987,17 +38405,17 @@
         "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
         "System.String[]System.String[]override System.Int32 GetHashCode()",
         "System.String[]System.String[]override System.String ToString()",
-        "System.String[]System.String[]static Skill Create(System.String[]System.String name,System.String[]System.String description,System.String[]SkillInstructionProvider instructions,System.String[]System.Collections.Generic.IReadOnlyList\u003CSkillCapability\u003E? capabilities = null,System.String[]SkillInstructionProvider? reinforcement = null,System.String[]SkillActivationLifetime lifetime = MessageTurn,System.String[]System.String? id = null,System.String[]SkillProvenance? provenance = null)"
+        "System.String[]System.String[]static Skill Create(System.String[]System.String name,System.String[]System.String description,System.String[]SkillInstructionProvider instructions,System.String[]System.Collections.Generic.IReadOnlyList\u003CSkillCapability\u003E? capabilities = null,System.String[]SkillInstructionProvider? reinforcement = null,System.String[]System.String? id = null,System.String[]SkillProvenance? provenance = null)"
       ],
       "Properties": [
-        "System.String[]SkillActivationLifetime Lifetime { get; init; }",
-        "System.String[]SkillInstructionProvider Instructions { get; init; }",
-        "System.String[]SkillInstructionProvider? Reinforcement { get; init; }",
-        "System.String[]SkillProvenance? Provenance { get; init; }",
-        "System.String[]System.Collections.Generic.IReadOnlyList\u003CSkillCapability\u003E Capabilities { get; init; }",
-        "System.String[]System.String Description { get; init; }",
-        "System.String[]System.String Id { get; init; }",
-        "System.String[]System.String Name { get; init; }"
+        "System.String[]SkillActivationLifetime Lifetime { get; internal set; }",
+        "System.String[]SkillInstructionProvider Instructions { get; internal set; }",
+        "System.String[]SkillInstructionProvider? Reinforcement { get; internal set; }",
+        "System.String[]SkillProvenance? Provenance { get; internal set; }",
+        "System.String[]System.Collections.Generic.IReadOnlyList\u003CSkillCapability\u003E Capabilities { get; internal set; }",
+        "System.String[]System.String Description { get; internal set; }",
+        "System.String[]System.String Id { get; internal set; }",
+        "System.String[]System.String Name { get; internal set; }"
       ],
       "Fields": [],
       "Events": []
@@ -39017,9 +38435,7 @@
       "Properties": [],
       "Fields": [
         "System.String[]System.Int32 value__",
-        "System.String[]const SkillActivationLifetime MessageTurn = 1",
-        "System.String[]const SkillActivationLifetime ModelIteration = 0",
-        "System.String[]const SkillActivationLifetime Session = 2"
+        "System.String[]const SkillActivationLifetime MessageTurn = 0"
       ],
       "Events": []
     },
@@ -39062,8 +38478,8 @@
       "Interfaces": [],
       "Constructors": [],
       "Methods": [
+        "System.String[]System.String[]static SkillCapability Function\u003CTToolHarness\u003E where TToolHarness : class(System.String[]System.String memberName)",
         "System.String[]System.String[]static SkillCapability OwnerFunction(System.String[]System.String memberName)",
-        "System.String[]System.String[]static SkillFunctionReference\u003CTToolHarness\u003E Function\u003CTToolHarness\u003E where TToolHarness : class(System.String[]System.String memberName)",
         "System.String[]System.String[]static SkillResource Resource(System.String[]SkillResource resource)",
         "System.String[]System.String[]static SkillResource Resource(System.String[]System.String name,System.String[]System.String description,System.String[]System.String content)",
         "System.String[]System.String[]static SkillScript Script(System.String[]System.String name,System.String[]System.String description,System.String[]SkillScriptReference reference,System.String[]SkillScriptInputContract input,System.String[]System.Boolean requiresPermission = true,System.String[]System.Nullable\u003CSystem.TimeSpan\u003E? timeout = null,System.String[]System.Int64 maximumOutputBytes = 1048576)",
@@ -39083,21 +38499,6 @@
       "Properties": [
         "System.String[]System.String Description { get; }",
         "System.String[]System.String Name { get; }"
-      ],
-      "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "SkillFunctionReference\u00601",
-      "Attributes": [],
-      "BaseType": "SkillCapability",
-      "Interfaces": [
-        "ISkillFunctionReference"
-      ],
-      "Constructors": [],
-      "Methods": [],
-      "Properties": [
-        "System.String[]System.String MemberName { get; }"
       ],
       "Fields": [],
       "Events": []
@@ -39312,7 +38713,6 @@
       ],
       "Methods": [],
       "Properties": [
-        "System.String[]SkillActivationLifetime ActivationLifetime { get; set; }",
         "System.String[]SkillInstructionDelivery InstructionDelivery { get; set; }"
       ],
       "Fields": [],
@@ -39323,16 +38723,14 @@
       "Attributes": [],
       "BaseType": "SkillCapability",
       "Interfaces": [],
-      "Constructors": [
-        "System.String[].ctor(System.String[]System.String name,System.String[]System.String description)"
-      ],
+      "Constructors": [],
       "Methods": [],
       "Properties": [
-        "System.String[]SkillScriptInputContract InputContract { get; init; }",
-        "System.String[]SkillScriptReference Reference { get; init; }",
-        "System.String[]System.Boolean RequiresPermission { get; init; }",
-        "System.String[]System.Int64 MaximumOutputBytes { get; init; }",
-        "System.String[]System.TimeSpan Timeout { get; init; }"
+        "System.String[]SkillScriptInputContract InputContract { get; internal set; }",
+        "System.String[]SkillScriptReference Reference { get; internal set; }",
+        "System.String[]System.Boolean RequiresPermission { get; internal set; }",
+        "System.String[]System.Int64 MaximumOutputBytes { get; internal set; }",
+        "System.String[]System.TimeSpan Timeout { get; internal set; }"
       ],
       "Fields": [],
       "Events": []
@@ -39342,9 +38740,7 @@
       "Attributes": [],
       "BaseType": "System.Object",
       "Interfaces": [],
-      "Constructors": [
-        "System.String[].ctor(System.String[]System.Text.Json.JsonElement json,System.String[]System.Object value,System.String[]System.Type? boundType,System.String[]System.String contractFingerprint)"
-      ],
+      "Constructors": [],
       "Methods": [
         "System.String[]System.String[]System.Boolean TryGet\u003CT\u003E(System.String[]out T? value)",
         "System.String[]System.String[]System.Threading.Tasks.ValueTask WriteJsonAsync(System.String[]System.IO.Stream destination,System.String[]System.Threading.CancellationToken cancellationToken = null)",
@@ -39471,7 +38867,6 @@
       ],
       "Constructors": [],
       "Methods": [
-        "System.String[]System.String[]System.Void Deconstruct(System.String[]out System.String Runtime)",
         "System.String[]System.String[]abstract SkillScriptReference \u003CClone\u003E$()",
         "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
         "System.String[]System.String[]override System.Int32 GetHashCode()",
@@ -39479,7 +38874,7 @@
         "System.String[]System.String[]virtual System.Boolean Equals(System.String[]SkillScriptReference? other)"
       ],
       "Properties": [
-        "System.String[]System.String Runtime { get; init; }"
+        "System.String[]System.String Runtime { get; }"
       ],
       "Fields": [],
       "Events": []

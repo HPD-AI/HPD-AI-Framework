@@ -24,12 +24,12 @@ public sealed class ChatShellModel
     /// <summary>Gets or sets application-owned content rendered below the prompt.</summary>
     public string FooterText { get; set; } = "";
 
-    public IHpdAgentTuiRuntime? Runtime { get; set; }
+    internal IHpdAgentTuiRuntime? Runtime { get; set; }
 
-    public Func<AgentTuiExecutionTarget, CancellationToken, ValueTask>? SwitchTargetAsync { get; set; }
+    internal Func<AgentTuiExecutionTarget, CancellationToken, ValueTask>? SwitchTargetAsync { get; set; }
 
     // Compatibility bridge for legacy console integrations.
-    public Func<AgentTuiRuntimeScope, CancellationToken, ValueTask>? SwitchScopeAsync
+    internal Func<AgentTuiRuntimeScope, CancellationToken, ValueTask>? SwitchScopeAsync
     {
         get => SwitchTargetAsync is null
             ? null
@@ -40,10 +40,10 @@ public sealed class ChatShellModel
             : (target, cancellationToken) => value(target.Scope, cancellationToken);
     }
 
-    public Func<string, CancellationToken, ValueTask>? SetPromptDraftAsync { get; set; }
+    internal Func<string, CancellationToken, ValueTask>? SetPromptDraftAsync { get; set; }
 
     /// <summary>Reopens live questions minimized in this conversation.</summary>
-    public Func<CancellationToken, ValueTask<int>>? ReopenQuestionsAsync { get; set; }
+    internal Func<CancellationToken, ValueTask<int>>? ReopenQuestionsAsync { get; set; }
 
     public AgentTuiNavigationModel Navigation { get; } = new();
 
@@ -56,7 +56,7 @@ public sealed class ChatShellModel
     public WidgetSlotModel BelowEditor { get; } = new();
 
     /// <summary>Focus order shared by registered widgets and the shell input controller.</summary>
-    public HPD.Agent.TUI.Composition.AgentTuiWidgetFocus WidgetFocus { get; } = new();
+    internal HPD.Agent.TUI.Composition.AgentTuiWidgetFocus WidgetFocus { get; } = new();
 
     internal Action? FocusPromptAction { get; set; }
 

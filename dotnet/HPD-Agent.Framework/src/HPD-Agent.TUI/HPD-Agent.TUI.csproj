@@ -9,6 +9,9 @@
     <Description>Terminal UI shell primitives for HPD agents.</Description>
     <PackageTags>ai;agent;tui;terminal;hpd</PackageTags>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- These optional-overload rules target post-release compatibility. The TUI
+         surface is pre-1.0; RS0016 remains enforced for API drift. -->
+    <NoWarn>$(NoWarn);RS0026;RS0027</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,5 +19,8 @@
     <ProjectReference Include="../HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../../HPD-TUI.Framework/src/HPD-TUI.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
     <PackageReference Include="HPD-TUI" Version="$(HPDTuiVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" Version="3.3.4" PrivateAssets="all" />
+    <AdditionalFiles Include="PublicAPI.Shipped.txt" />
+    <AdditionalFiles Include="PublicAPI.Unshipped.txt" />
   </ItemGroup>
 </Project>

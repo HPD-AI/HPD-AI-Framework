@@ -83,7 +83,7 @@ internal sealed record LiveEvaluationExecutionSnapshot(
 ///   AfterMessageTurnAsync → prepare an immutable turn capture without waiting
 ///   MessageTurnFinished  → complete the capture and schedule evaluators
 /// </summary>
-public sealed class LiveEvaluationMiddleware : IAgentMiddleware
+internal sealed class LiveEvaluationMiddleware : IAgentMiddleware
 {
     private const int MaxStoredConversationResponseLength = 4000;
 
@@ -91,15 +91,15 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
     private readonly Random _rng = new();
     private readonly EvalTurnCapture _capture = new();
 
-    public IScoreStore? ScoreStore { get; set; }
-    public EvaluationJudgeRunConfig? GlobalJudgeConfig { get; set; }
+    internal IScoreStore? ScoreStore { get; set; }
+    internal EvaluationJudgeRunConfig? GlobalJudgeConfig { get; set; }
 
     /// <summary>
     /// Optional annotation queue. When set, turns whose evaluator score falls below
     /// <see cref="AnnotationQueueOptions.AutoQueueBelowScore"/> are automatically
     /// enqueued and an <see cref="AnnotationRequestedEvent"/> is emitted.
     /// </summary>
-    public AnnotationQueue? AnnotationQueue { get; set; }
+    internal AnnotationQueue? AnnotationQueue { get; set; }
 
     internal void AddEvaluator(IEvaluator evaluator, double samplingRate, EvalPolicy policy, EvaluationJudgeRunConfig? judgeConfig)
         => _evaluators.Add(new EvaluatorRegistration(evaluator, samplingRate, policy, judgeConfig));
@@ -388,7 +388,15 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
             {
                 await ScoreStore.WriteScoreAsync(record, ct).ConfigureAwait(false);
             }
-            catch { /* store write failure is non-fatal */ }
+            catch (Exception ex)
+            {
+                await PublishPersistenceFailureAsync(
+                    runtime,
+                    evaluatorName,
+                    EvaluationSource.Live,
+                    turnCtx,
+                    ex).ConfigureAwait(false);
+            }
         }
 
         // Emit EvalScoreEvent
@@ -563,9 +571,40 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
         {
             await ScoreStore.WriteScoreAsync(record, ct).ConfigureAwait(false);
         }
+        catch (Exception ex)
+        {
+            await PublishPersistenceFailureAsync(
+                runtime,
+                evaluatorName,
+                EvaluationSource.Human,
+                turnCtx,
+                ex).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task PublishPersistenceFailureAsync(
+        LiveEvaluationExecutionSnapshot runtime,
+        string evaluatorName,
+        EvaluationSource source,
+        TurnEvaluationContext turnCtx,
+        Exception exception)
+    {
+        try
+        {
+            await runtime.PublishAsync(new EvalPersistenceFailedEvent
+            {
+                EvaluatorName = evaluatorName,
+                Source = source,
+                SessionId = turnCtx.SessionId,
+                ThreadId = turnCtx.ThreadId,
+                TurnIndex = turnCtx.TurnIndex,
+                ErrorMessage = exception.Message,
+                Exception = exception,
+            }, CancellationToken.None).ConfigureAwait(false);
+        }
         catch
         {
-            // Human annotation persistence should not affect the agent turn.
+            // Evaluation diagnostics must not fail the owning agent turn.
         }
     }
 

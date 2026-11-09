@@ -9,7 +9,7 @@ public sealed record SubAgentActivity(string? ExecutionId, string Status, string
 }
 
 /// <summary>Canonical child status used by hosted and local clients.</summary>
-public static class SubAgentActivityReader
+internal static class SubAgentActivityReader
 {
     public static Task<SubAgentActivity> ReadAsync(ISessionStore store, ThreadKey child,
         CancellationToken cancellationToken = default) => ReadCoreAsync(store, child, null, cancellationToken);

@@ -214,6 +214,9 @@ internal static class EvalEndpoints
     private static ContentHttpResult NoDatasetStore() =>
         TypedResults.Content("No IDatasetStore is registered.", "text/plain", statusCode: 503);
 
+    private static ContentHttpResult ServerError() =>
+        TypedResults.Content("Evaluation storage operation failed.", "text/plain", statusCode: 500);
+
     // ── Score queries ─────────────────────────────────────────────────────────
 
     private static async Task<Results<Ok<List<ScoreRecord>>, ContentHttpResult, ValidationProblem>> GetScores(
@@ -231,12 +234,13 @@ internal static class EvalEndpoints
                 records.Add(r);
             return TypedResults.Ok(records);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetScoresError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -254,12 +258,13 @@ internal static class EvalEndpoints
                 records.Add(r);
             return TypedResults.Ok(records);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetScoresByThreadError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -277,12 +282,13 @@ internal static class EvalEndpoints
                 records.Add(r);
             return TypedResults.Ok(records);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetScoresByVersionError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -317,19 +323,31 @@ internal static class EvalEndpoints
             await scoreStore.WriteScoreAsync(stored, ct);
             return TypedResults.Created("", stored);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["WriteScoreError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
     // ── Analytics ─────────────────────────────────────────────────────────────
 
     private static Ok<List<EvaluatorCatalogItem>> GetEvaluatorCatalog()
-        => TypedResults.Ok(EvaluatorCatalog.Items);
+        => TypedResults.Ok(EvaluatorCatalog.All
+            .Select(item => new EvaluatorCatalogItem(
+                item.Id,
+                item.Name,
+                item.Category,
+                item.Kind,
+                item.MetricNames,
+                item.DefaultPolicy.ToString(),
+                item.RequiresJudge,
+                item.RequiredContexts,
+                item.Description))
+            .ToList());
 
     private static async Task<Results<Ok<List<EvaluatorSummary>>, ContentHttpResult, ValidationProblem>> GetEvaluatorSummary(
         DateTimeOffset? from,
@@ -343,12 +361,13 @@ internal static class EvalEndpoints
             var summary = await scoreStore.GetEvaluatorSummaryAsync(from, to, ct);
             return TypedResults.Ok(summary.ToList());
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetEvaluatorSummaryError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -361,20 +380,33 @@ internal static class EvalEndpoints
         CancellationToken ct)
     {
         if (scoreStore is null) return NoStore();
+        TimeSpan bucket;
         try
         {
-            var bucket = bucketSize is not null
+            bucket = bucketSize is not null
                 ? System.Xml.XmlConvert.ToTimeSpan(bucketSize)
                 : TimeSpan.FromHours(1);
-            var trend = await scoreStore.GetTrendAsync(evaluatorName, from, to, bucket, ct);
-            return TypedResults.Ok(trend);
         }
-        catch (Exception ex)
+        catch (FormatException ex)
         {
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["GetTrendError"] = [ex.Message]
+                ["bucketSize"] = [ex.Message]
             });
+        }
+
+        try
+        {
+            var trend = await scoreStore.GetTrendAsync(evaluatorName, from, to, bucket, ct);
+            return TypedResults.Ok(trend);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -391,12 +423,13 @@ internal static class EvalEndpoints
             var passRate = await scoreStore.GetPassRateAsync(evaluatorName, from, to, ct);
             return TypedResults.Ok(new RateResponse(evaluatorName, passRate));
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetPassRateError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -413,12 +446,13 @@ internal static class EvalEndpoints
             var failureRate = await scoreStore.GetFailureRateAsync(evaluatorName, from, to, ct);
             return TypedResults.Ok(new FailureRateResponse(evaluatorName, failureRate));
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetFailureRateError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -437,12 +471,13 @@ internal static class EvalEndpoints
             var result = await scoreStore.GetAgentComparisonAsync(evaluatorName, names, from, to, ct);
             return TypedResults.Ok(result.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal));
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetAgentComparisonError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -461,12 +496,13 @@ internal static class EvalEndpoints
             var result = await scoreStore.GetThreadComparisonAsync(sessionId, threadId1, threadId2, names, ct);
             return TypedResults.Ok(result);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetThreadComparisonError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -482,12 +518,13 @@ internal static class EvalEndpoints
             var result = await scoreStore.GetToolUsageSummaryAsync(from, to, ct);
             return TypedResults.Ok(result.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal));
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetToolUsageError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -503,12 +540,13 @@ internal static class EvalEndpoints
             var result = await scoreStore.GetRiskAutonomyDistributionAsync(from, to, ct);
             return TypedResults.Ok(result.ToList());
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetRiskAutonomyError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -524,12 +562,13 @@ internal static class EvalEndpoints
             var result = await scoreStore.GetCostBreakdownAsync(from, to, ct);
             return TypedResults.Ok(result.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal));
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetCostError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -543,7 +582,7 @@ internal static class EvalEndpoints
         try
         {
             var records = new List<ScoreRecord>();
-            foreach (var item in EvaluatorCatalog.Items.Where(i => i.Category == "Safety"))
+            foreach (var item in EvaluatorCatalog.All.Where(item => item.Category == "Safety"))
             {
                 await foreach (var record in scoreStore.GetScoresAsync(item.Name, from, to, ct))
                     records.Add(record);
@@ -601,12 +640,13 @@ internal static class EvalEndpoints
                 bySeverity,
                 byRecommendedAction));
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetSafetyAnalyticsError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -654,12 +694,13 @@ internal static class EvalEndpoints
                 byStrategy.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal),
                 findings.Count));
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetRedTeamAnalyticsError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -675,12 +716,13 @@ internal static class EvalEndpoints
             var result = await scoreStore.GetAttackSuccessRateByPluginAsync(from, to, ct);
             return TypedResults.Ok(result.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal));
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetRedTeamAttackSuccessByPluginError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -696,12 +738,13 @@ internal static class EvalEndpoints
             var result = await scoreStore.GetAttackSuccessRateByStrategyAsync(from, to, ct);
             return TypedResults.Ok(result.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal));
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetRedTeamAttackSuccessByStrategyError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -717,20 +760,21 @@ internal static class EvalEndpoints
             var findings = await scoreStore.GetRedTeamFindingsAsync(from, to, ct);
             return TypedResults.Ok(findings.ToList());
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetRedTeamFindingsError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
     private static Ok<List<RedTeamPluginCatalogItem>> GetRedTeamPluginCatalog()
-        => TypedResults.Ok(RedTeamCatalog.Plugins);
+        => TypedResults.Ok(RedTeamCatalog.Plugins.ToList());
 
     private static Ok<List<RedTeamStrategyCatalogItem>> GetRedTeamStrategyCatalog()
-        => TypedResults.Ok(RedTeamCatalog.Strategies);
+        => TypedResults.Ok(RedTeamCatalog.Strategies.ToList());
 
     // ── Full run reporting ───────────────────────────────────────────────────
 
@@ -749,12 +793,13 @@ internal static class EvalEndpoints
                 records.Add(r);
             return TypedResults.Ok(records);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetRunsError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -771,12 +816,13 @@ internal static class EvalEndpoints
             await scoreStore.DeleteRunsAsync(executionName, scenarioName, iterationName, ct);
             return TypedResults.NoContent();
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["DeleteRunsError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -793,12 +839,13 @@ internal static class EvalEndpoints
                 names.Add(name);
             return TypedResults.Ok(names);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetRunExecutionsError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -815,12 +862,13 @@ internal static class EvalEndpoints
                 names.Add(name);
             return TypedResults.Ok(names);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetRunScenariosError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -838,12 +886,13 @@ internal static class EvalEndpoints
                 names.Add(name);
             return TypedResults.Ok(names);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetRunIterationsError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -861,12 +910,13 @@ internal static class EvalEndpoints
                 records.Add(record);
             return TypedResults.Ok(records);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["ListDatasetsError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -905,12 +955,20 @@ internal static class EvalEndpoints
 
             return TypedResults.Created($"/evals/datasets/{record.DatasetId}/versions/{record.Version}", record);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["RegisterDatasetError"] = [ex.Message]
             });
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -925,12 +983,13 @@ internal static class EvalEndpoints
             var record = await datasetStore.GetDatasetAsync(datasetId, ct);
             return record is null ? TypedResults.NotFound() : TypedResults.Ok(record);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetDatasetError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -947,12 +1006,13 @@ internal static class EvalEndpoints
                 records.Add(record);
             return TypedResults.Ok(records);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetDatasetVersionsError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -970,12 +1030,13 @@ internal static class EvalEndpoints
                 ? TypedResults.NotFound()
                 : TypedResults.Ok(StringDatasetVersionResponse.From(dataset));
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetDatasetVersionError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -993,12 +1054,13 @@ internal static class EvalEndpoints
                 cases.Add(StringEvalCaseDto.From(evalCase));
             return TypedResults.Ok(cases);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetActiveCasesError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
@@ -1016,16 +1078,17 @@ internal static class EvalEndpoints
                 cases.Add(StringEvalCaseDto.From(evalCase));
             return TypedResults.Ok(cases);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["GetCaseHistoryError"] = [ex.Message]
-            });
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 
-    private static async Task<Results<Ok<StringDatasetDiffResponse>, ContentHttpResult, ValidationProblem>> CompareStringDatasetVersions(
+    private static async Task<Results<Ok<StringDatasetDiffResponse>, NotFound, ContentHttpResult, ValidationProblem>> CompareStringDatasetVersions(
         string datasetId,
         string fromVersion,
         string toVersion,
@@ -1038,12 +1101,17 @@ internal static class EvalEndpoints
             var diff = await datasetStore.CompareVersionsAsync<string>(datasetId, fromVersion, toVersion, ct);
             return TypedResults.Ok(StringDatasetDiffResponse.From(diff));
         }
-        catch (Exception ex)
+        catch (KeyNotFoundException)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["CompareDatasetVersionsError"] = [ex.Message]
-            });
+            return TypedResults.NotFound();
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return ServerError();
         }
     }
 }
@@ -1053,12 +1121,14 @@ internal sealed record RateResponse(string EvaluatorName, double PassRate);
 internal sealed record FailureRateResponse(string EvaluatorName, double FailureRate);
 
 internal sealed record EvaluatorCatalogItem(
+    string Id,
     string Name,
     string Category,
     string Kind,
     IReadOnlyList<string> MetricNames,
     string DefaultPolicy,
     bool RequiresJudge,
+    IReadOnlyList<string> RequiredContexts,
     string Description);
 
 internal sealed record SafetyAnalyticsSummary(
@@ -1086,129 +1156,22 @@ internal sealed record RedTeamStrategyCatalogItem(
     string Id,
     string DisplayName);
 
-internal static class EvaluatorCatalog
-{
-    internal static readonly List<EvaluatorCatalogItem> Items =
-    [
-        new("Contains Any", "Assertion", "Deterministic", ["Contains Any"], "MustAlwaysPass", false, "Passes when the output contains at least one expected substring."),
-        new("Contains All", "Assertion", "Deterministic", ["Contains All"], "MustAlwaysPass", false, "Passes when the output contains all expected substrings."),
-        new("Case-Insensitive Contains", "Assertion", "Deterministic", ["Case-Insensitive Contains"], "MustAlwaysPass", false, "Passes when the output contains a substring ignoring case."),
-        new("Starts With", "Assertion", "Deterministic", ["Starts With"], "MustAlwaysPass", false, "Passes when the output starts with the expected prefix."),
-        new("Word Count", "Assertion", "Deterministic", ["Word Count"], "MustAlwaysPass", false, "Checks exact, minimum, or maximum output word count."),
-        new("Levenshtein Similarity", "Assertion", "Deterministic", ["Levenshtein Similarity"], "MustAlwaysPass", false, "Reports normalized Levenshtein similarity to expected text."),
-        new("Refusal", "Assertion", "Deterministic", ["Refusal"], "MustAlwaysPass", false, "Detects common refusal language in the response."),
-        new("JSON Validity", "Structured Output", "Deterministic", ["JSON Validity"], "MustAlwaysPass", false, "Passes when the output is parseable JSON."),
-        new("XML Validity", "Structured Output", "Deterministic", ["XML Validity"], "MustAlwaysPass", false, "Passes when the output is well-formed XML."),
-        new("HTML Shape", "Structured Output", "Deterministic", ["HTML Shape"], "MustAlwaysPass", false, "Checks that the output has plausible HTML shape and optional required tags."),
-        new("SQL Shape", "Structured Output", "Deterministic", ["SQL Shape"], "MustAlwaysPass", false, "Checks that the output has plausible SQL statement shape."),
-        new("Latency", "Performance", "Deterministic", ["Latency"], "TrackTrend", false, "Reports turn latency in seconds."),
-        new("Max Cost", "Performance", "Deterministic", ["Max Cost"], "MustAlwaysPass", false, "Checks estimated turn cost from EvalContext metrics."),
-        new("Tool Call F1", "Tool Behavior", "Deterministic", ["Tool Call F1"], "MustAlwaysPass", false, "Reports unordered tool-call precision, recall, and F1."),
-        new("Not", "Composition", "Deterministic", ["Not (...)"], "MustAlwaysPass", false, "Inverts the primary metric of another evaluator."),
-        new("BLEU", "NLP", "Deterministic", ["BLEU"], "MustAlwaysPass", false, "Computes BLEU overlap against one or more reference responses using Microsoft's NLP evaluator."),
-        new("GLEU", "NLP", "Deterministic", ["GLEU"], "MustAlwaysPass", false, "Computes GLEU overlap against one or more reference responses using Microsoft's NLP evaluator."),
-        new("Text F1", "NLP", "Deterministic", ["F1"], "MustAlwaysPass", false, "Computes word-overlap F1 against a ground-truth response using Microsoft's NLP evaluator."),
-        new("ROUGE", "NLP", "Deterministic", ["ROUGE"], "MustAlwaysPass", false, "Computes HPD-native ROUGE-1, ROUGE-2, ROUGE-L, or ROUGE-S text overlap."),
-        new("METEOR", "NLP", "Deterministic", ["METEOR"], "MustAlwaysPass", false, "Computes a lightweight HPD-native METEOR-style alignment score with multiple references and fragmentation penalty."),
-        new("Content Harm", "Safety", "LLM Judge", ["Content Harm", "Content Harm Passed"], "TrackTrend", true, "Detect unsafe or harmful response content and agent actions."),
-        new("Hate/Harassment", "Safety", "LLM Judge", ["Hate/Harassment", "Hate/Harassment Passed"], "TrackTrend", true, "Detect hateful, discriminatory, abusive, or targeted harassment content."),
-        new("Violence Safety", "Safety", "LLM Judge", ["Violence Safety", "Violence Safety Passed"], "TrackTrend", true, "Detect violent threats, weaponization guidance, or encouragement of violence."),
-        new("Self-Harm Safety", "Safety", "LLM Judge", ["Self-Harm Safety", "Self-Harm Safety Passed"], "TrackTrend", true, "Detect unsafe self-harm handling while allowing supportive safe responses."),
-        new("Sexual Content Safety", "Safety", "LLM Judge", ["Sexual Content Safety", "Sexual Content Safety Passed"], "TrackTrend", true, "Detect sexual content policy risk."),
-        new("Prompt Injection", "Safety", "LLM Judge", ["Prompt Injection", "Prompt Injection Passed"], "TrackTrend", true, "Detect attempts to override instructions, exfiltrate hidden context, or manipulate tools."),
-        new("Jailbreak Attempt", "Safety", "LLM Judge", ["Jailbreak Attempt", "Jailbreak Attempt Passed"], "TrackTrend", true, "Detect roleplay bypasses, policy bypasses, and attempts to disable constraints."),
-        new("Sensitive Data Leak", "Safety", "LLM Judge", ["Sensitive Data Leak", "Sensitive Data Leak Passed"], "TrackTrend", true, "Detect leakage of secrets, credentials, private data, system prompts, or hidden reasoning."),
-        new("Protected Material", "Safety", "LLM Judge", ["Protected Material", "Protected Material Passed"], "TrackTrend", true, "Detect likely reproduction of protected or copyrighted material."),
-        new("Code Security Risk", "Safety", "LLM Judge", ["Code Security Risk", "Code Security Risk Passed"], "TrackTrend", true, "Detect code, commands, or tool actions that introduce security risk."),
-        new("Ungrounded Sensitive Attributes", "Safety", "LLM Judge", ["Ungrounded Sensitive Attributes", "Ungrounded Sensitive Attributes Passed"], "TrackTrend", true, "Detect unsupported inferences about protected or sensitive human attributes."),
-        new("Policy Compliance", "Safety", "LLM Judge", ["Policy Compliance", "Policy Compliance Passed"], "TrackTrend", true, "Evaluate the response and agent actions against a caller-supplied safety policy."),
-    ];
-}
-
 internal static class RedTeamCatalog
 {
-    internal static readonly List<RedTeamPluginCatalogItem> Plugins =
-    [
-        .. BuildPluginItems(
-            new PromptInjectionPlugin(),
-            new IndirectPromptInjectionPlugin(),
-            new SystemPromptExtractionPlugin(),
-            new JailbreakPlugin(),
-            new ToolDiscoveryPlugin(),
-            new ToolAbusePlugin(),
-            new UnauthorizedActionPlugin(),
-            new DataExfiltrationPlugin(),
-            new CrossSessionLeakPlugin(),
-            new PiiLeakPlugin(),
-            new SecretLeakPlugin(),
-            new ShellInjectionPlugin(),
-            new SqlInjectionPlugin(),
-            new SsrfPlugin(),
-            new RbacViolationPlugin(),
-            new ObjectAccessViolationPlugin(),
-            new ExcessiveAgencyPlugin(),
-            new OverreliancePlugin(),
-            new UnverifiableClaimsPlugin(),
-            new PolicyBypassPlugin(),
-            new OffTopicHijackingPlugin(),
-            new AsciiSmugglingPlugin(),
-            new SpecialTokenInjectionPlugin(),
-            new DebugAccessPlugin(),
-            new ModelIdentificationPlugin(),
-            new ReasoningDosPlugin(),
-            new DivergentRepetitionPlugin(),
-            new ImitationPlugin(),
-            new CompetitorMentionPlugin(),
-            new GoalMisalignmentPlugin(),
-            new ContractsPlugin(),
-            new BflaPlugin(),
-            new McpToolAbusePlugin(),
-            new MemoryPoisoningPlugin(),
-            new ContextComplianceAttackPlugin(),
-            new MaliciousCodePlugin(),
-            new HarmfulContentPlugin(),
-            new BiasPlugin()),
-    ];
+    internal static readonly IReadOnlyList<RedTeamPluginCatalogItem> Plugins =
+        RedTeamPlugins.Catalog
+            .Select(plugin => new RedTeamPluginCatalogItem(
+                plugin.Id,
+                plugin.DisplayName,
+                plugin.Category.ToString()))
+            .ToArray();
 
-    internal static readonly List<RedTeamStrategyCatalogItem> Strategies =
-    [
-        .. BuildStrategyItems(
-            new BasicStrategy(),
-            new Base64Strategy(),
-            new HexStrategy(),
-            new Rot13Strategy(),
-            new LeetspeakStrategy(),
-            new CamelCaseStrategy(),
-            new MorseStrategy(),
-            new PigLatinStrategy(),
-            new EmojiStrategy(),
-            new HomoglyphStrategy(),
-            new UnicodeSmugglingStrategy(),
-            new MarkdownAuthorityStrategy(),
-            new AuthoritativeMarkupInjectionStrategy(),
-            new FakeSystemMessageStrategy(),
-            new RoleplayJailbreakStrategy(),
-            new JailbreakTemplateStrategy(),
-            new CompositeJailbreakStrategy(),
-            new TreeJailbreakStrategy(),
-            new LikertJailbreakStrategy(),
-            new MathPromptStrategy(),
-            new CitationStrategy(),
-            new MischievousUserStrategy(),
-            new MultiTurnEscalationStrategy(),
-            new CrescendoStrategy(),
-            new BestOfNStrategy(),
-            new RetryMutationStrategy(),
-            new LayeredStrategy([new BasicStrategy()]),
-            new IndirectContentStrategy(),
-            new CustomDelegateStrategy("custom", "Custom", static (redTeamCase, _) => redTeamCase)),
-    ];
-
-    private static IEnumerable<RedTeamPluginCatalogItem> BuildPluginItems(params IRedTeamPlugin[] plugins)
-        => plugins.Select(p => new RedTeamPluginCatalogItem(p.Id, p.DisplayName, p.Category.ToString()));
-
-    private static IEnumerable<RedTeamStrategyCatalogItem> BuildStrategyItems(params IRedTeamStrategy[] strategies)
-        => strategies.Select(s => new RedTeamStrategyCatalogItem(s.Id, s.DisplayName));
+    internal static readonly IReadOnlyList<RedTeamStrategyCatalogItem> Strategies =
+        RedTeamStrategies.Catalog
+            .Select(strategy => new RedTeamStrategyCatalogItem(
+                strategy.Id,
+                strategy.DisplayName))
+            .ToArray();
 }
 
 /// <summary>

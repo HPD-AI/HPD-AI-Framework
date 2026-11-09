@@ -3,7 +3,7 @@ using System.Text;
 namespace HPD.Agent;
 
 /// <summary>Discovers selected installed packages as runtime skill definitions.</summary>
-public sealed class ContentStoreSkillSource : IWatchableSkillSource
+internal sealed class ContentStoreSkillSource : IWatchableSkillSource
 {
     private readonly ISkillStore _skillStore;
     private readonly IContentStore _contentStore;

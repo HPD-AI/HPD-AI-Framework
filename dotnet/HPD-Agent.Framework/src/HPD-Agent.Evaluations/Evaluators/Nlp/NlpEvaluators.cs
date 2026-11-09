@@ -10,7 +10,7 @@ using HPD.Agent.Evaluations.Evaluators;
 namespace HPD.Agent.Evaluations.Evaluators.Nlp;
 
 /// <summary>HPD facade over Microsoft's BLEU evaluator.</summary>
-public sealed class BleuEvaluator(params string[] references) : HpdDeterministicEvaluatorBase
+internal sealed class BleuEvaluator(params string[] references) : HpdDeterministicEvaluatorBase
 {
     private readonly BLEUEvaluator _inner = new();
 
@@ -33,7 +33,7 @@ public sealed class BleuEvaluator(params string[] references) : HpdDeterministic
 }
 
 /// <summary>HPD facade over Microsoft's GLEU evaluator.</summary>
-public sealed class GleuEvaluator(params string[] references) : HpdDeterministicEvaluatorBase
+internal sealed class GleuEvaluator(params string[] references) : HpdDeterministicEvaluatorBase
 {
     private readonly GLEUEvaluator _inner = new();
 
@@ -56,7 +56,7 @@ public sealed class GleuEvaluator(params string[] references) : HpdDeterministic
 }
 
 /// <summary>HPD facade over Microsoft's word-overlap F1 evaluator.</summary>
-public sealed class TextF1Evaluator(string groundTruth) : HpdDeterministicEvaluatorBase
+internal sealed class TextF1Evaluator(string groundTruth) : HpdDeterministicEvaluatorBase
 {
     private readonly F1Evaluator _inner = new();
 
@@ -88,7 +88,7 @@ public enum RougeVariant
 }
 
 /// <summary>NumericMetric 0-1 — ROUGE-N, ROUGE-L, or ROUGE-S recall-oriented overlap.</summary>
-public sealed class RougeEvaluator(string reference, RougeVariant variant = RougeVariant.RougeL)
+internal sealed class RougeEvaluator(string reference, RougeVariant variant = RougeVariant.RougeL)
     : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["ROUGE"];
@@ -216,7 +216,7 @@ public sealed class MeteorEvaluatorOptions
 }
 
 /// <summary>NumericMetric 0-1 — lightweight METEOR-style unigram alignment score.</summary>
-public sealed class MeteorEvaluator : HpdDeterministicEvaluatorBase
+internal sealed class MeteorEvaluator : HpdDeterministicEvaluatorBase
 {
     private readonly string[] _references;
     private readonly MeteorEvaluatorOptions _options;

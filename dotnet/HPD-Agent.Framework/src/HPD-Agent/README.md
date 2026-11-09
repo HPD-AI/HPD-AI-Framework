@@ -42,7 +42,18 @@ dotnet add package HPD-Agent.Framework
 
 ## Use When
 
-Use this package when you need this HPD Agent capability in an agent application.
+Use `HPD-Agent.Framework` when building an agent with a model client,
+source-generated function and ToolHarness capabilities, sessions and threads,
+durable events, permissions, middleware, and provider-neutral hosting
+composition.
+
+Provider and integration packages stay optional:
+
+- use `HPD-Agent.Providers.*` for model clients;
+- use `HPD-Agent.MCP` for Model Context Protocol servers;
+- use `HPD-Agent.OpenApi` for external REST APIs described by OpenAPI;
+- use `HPD-Agent.AspNetCore` for hosted sessions, committed SSE, and uploads;
+- use `HPD-Agent.AspNetCore.OpenApi` to publish the hosted API contract.
 
 ## Middleware
 
@@ -97,6 +108,8 @@ The following packages target `net10.0` only:
 - `HPD-Agent.AspNetCore.OpenApi`
 - `HPD-Agent.MultiAgent.AspNetCore`
 - `HPD-Agent.MultiAgent.HpdBase`
+- `HPD-Agent.Stores.HpdBase` (`net10.0`)
+- `HPD-Agent.Evaluations.HpdBase` (`net10.0`)
 - `HPD-Agent.Providers.Cohere`
 - `HPD-Agent.Providers.DashScope`
 - `HPD-Agent.Providers.Fireworks`
@@ -178,15 +191,62 @@ var agent = await new AgentBuilder(agentConfig)
 See [ToolHarness construction](Tools/TOOL_HARNESS_CONSTRUCTION.md) for settings,
 run overrides, dependency ownership, supplied instances, and migration.
 
+## Skills
+
+Use a skill when the model needs focused workflow instructions plus a bounded
+set of functions, resources, or scripts that should remain hidden until the
+workflow is relevant.
+
+```csharp
+public sealed partial class DataTools
+{
+    [Skill]
+    public static Skill Analyze() => Skill.Create(
+        "data_analysis",
+        "Validates and analyzes datasets.",
+        SkillInstructions.FromText("Validate the dataset before analysis."));
+}
+
+await using var agent = await new AgentBuilder(new AgentConfig { Name = "data-agent" })
+    .WithToolHarness<DataTools>()
+    .BuildAsync();
+```
+
+Skills can be declared in C#, imported from `SKILL.md` directories, or installed
+through a versioned managed store. Package versions are immutable, invalid
+reloads retain the last valid capability epoch, and external scripts require a
+host-provided `ISkillScriptRunner`.
+
+See the [complete Skills guide](Skills/README.md) for directory metadata,
+resources, script contracts, store selection, and
+`RefreshCapabilitiesAsync()` reload instructions.
+
+## MCP and OpenAPI integrations
+
+HPD-Agent imports external capabilities through optional packages:
+
+- `HPD-Agent.MCP` consumes MCP servers using Streamable HTTP or stdio.
+- `HPD-Agent.OpenApi` turns OpenAPI-described REST operations into agent tools.
+- `HPD-Agent.AspNetCore.OpenApi` publishes the application's own ASP.NET Core API
+  as an OpenAPI 3.1 document.
+
+All three participate in the same capability catalog, permissions, tool
+visibility, and revision lifecycle. MCP tools require permission by default;
+OpenAPI tools do not.
+
+See [MCP and OpenAPI integrations](MCP_OPENAPI.md) for package selection,
+authentication boundaries, generated-code contracts, Native AOT behavior, and
+troubleshooting.
+
 For explicit native result offloading and the bounded `Content` retrieval tool,
 see [Native tool outputs and retrieval](Tools/TOOL_OUTPUTS.md).
 
 ## Compatibility
 
-HPD-Agent follows semantic versioning from `1.0.0`. Public APIs, serialized event
-contracts, and supported persistence formats are compatibility surfaces. Breaking
-changes require a new major version and an explicit migration path. The current
-conversation model is session-owned threads with event-sourced thread history.
+HPD-Agent `0.9.5` is pre-1.0 stabilization. Public APIs, serialized events, and
+persistence formats remain subject to breaking changes while further compatibility
+testing is completed. The 1.0 compatibility commitment begins with `1.0.0`. The
+current conversation model is session-owned threads with event-sourced thread history.
 
 ## Session Fork Graph
 

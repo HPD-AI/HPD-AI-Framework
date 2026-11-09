@@ -315,6 +315,15 @@ public sealed partial class AgentEventCodecTests
                     descriptor.RequiresDurable,
                     entry.ModuleId);
             }).ToArray());
+        var updatePath = System.Environment.GetEnvironmentVariable("HPD_UPDATE_EVENT_GOLDEN");
+        if (!string.IsNullOrWhiteSpace(updatePath))
+        {
+            File.WriteAllText(
+                updatePath,
+                JsonSerializer.Serialize(actual, new JsonSerializerOptions { WriteIndented = true }) +
+                System.Environment.NewLine);
+            return;
+        }
         expected.Should().BeEquivalentTo(actual, options => options.WithStrictOrdering());
     }
 

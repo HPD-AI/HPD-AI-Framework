@@ -5,7 +5,7 @@ using System.Globalization;
 
 namespace HPD.Agent.TUI.Commands;
 
-public static class AgentTuiModelConfigFlow
+internal static class AgentTuiModelConfigFlow
 {
     public static async ValueTask<AgentTuiSelectedModel?> ConfigureAsync(
         AgentTuiCommandContext context,

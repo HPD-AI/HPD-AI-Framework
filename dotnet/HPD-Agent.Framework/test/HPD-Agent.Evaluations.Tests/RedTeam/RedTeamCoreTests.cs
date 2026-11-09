@@ -9,6 +9,17 @@ namespace HPD.Agent.Evaluations.Tests.RedTeam;
 public sealed class RedTeamCoreTests
 {
     [Fact]
+    public void Factories_ExposeBuiltInsWithoutExposingImplementations()
+    {
+        RedTeamPlugins.Catalog.Should().HaveCount(38);
+        RedTeamStrategies.Catalog.Should().HaveCount(28);
+        RedTeamPlugins.Create("prompt-injection").Id.Should().Be("prompt-injection");
+        RedTeamStrategies.Create("base64").Id.Should().Be("base64");
+        typeof(PromptInjectionPlugin).IsPublic.Should().BeFalse();
+        typeof(Base64Strategy).IsPublic.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task PromptInjectionPlugin_GeneratesRequestedCaseCount()
     {
         var plugin = new PromptInjectionPlugin();

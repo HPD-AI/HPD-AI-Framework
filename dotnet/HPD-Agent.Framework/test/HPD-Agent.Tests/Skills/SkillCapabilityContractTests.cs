@@ -117,12 +117,12 @@ public sealed class SkillCapabilityContractTests
     [Fact]
     public async Task Script_EnforcesTimeoutThroughRunnerCancellation()
     {
-        var script = new SkillScript("slow", "Runs a deliberately slow operation.")
-        {
-            Reference = new FileScriptReference("slow.py", "python"),
-            InputContract = SkillScriptInput.Empty,
-            Timeout = TimeSpan.FromMilliseconds(25)
-        };
+        var script = SkillCapabilities.Script(
+            "slow",
+            "Runs a deliberately slow operation.",
+            new FileScriptReference("slow.py", "python"),
+            SkillScriptInput.Empty,
+            timeout: TimeSpan.FromMilliseconds(25));
         var runner = new DelegateRunner(async (_, cancellationToken) =>
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
@@ -141,12 +141,12 @@ public sealed class SkillCapabilityContractTests
     [Fact]
     public async Task Script_RejectsOversizedAndNonAotResultShapes()
     {
-        var script = new SkillScript("bounded", "Returns a bounded result.")
-        {
-            Reference = new FileScriptReference("bounded.py", "python"),
-            InputContract = SkillScriptInput.Empty,
-            MaximumOutputBytes = 3
-        };
+        var script = SkillCapabilities.Script(
+            "bounded",
+            "Returns a bounded result.",
+            new FileScriptReference("bounded.py", "python"),
+            SkillScriptInput.Empty,
+            maximumOutputBytes: 3);
         var context = new SkillScriptExecutionContext("test", script, EmptyArguments(), null!, null, null);
 
         var oversized = await Assert.ThrowsAsync<SkillScriptExecutionException>(() => SkillCapabilityFunctionProjector
@@ -157,6 +157,25 @@ public sealed class SkillCapabilityContractTests
             .ExecuteScriptAsync(new DelegateRunner((_, _) => ValueTask.FromResult<object?>(new object())), context, default)
             .AsTask());
         Assert.Equal(SkillScriptErrorCategory.UnsupportedResult, unsupported.Category);
+    }
+
+    [Fact]
+    public void ScriptFactory_RejectsInvalidExecutionBounds()
+    {
+        var reference = new FileScriptReference("check.py", "python");
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => SkillCapabilities.Script(
+            "check",
+            "Runs the check.",
+            reference,
+            SkillScriptInput.Empty,
+            timeout: TimeSpan.Zero));
+        Assert.Throws<ArgumentOutOfRangeException>(() => SkillCapabilities.Script(
+            "check",
+            "Runs the check.",
+            reference,
+            SkillScriptInput.Empty,
+            maximumOutputBytes: 0));
     }
 
     [Fact]

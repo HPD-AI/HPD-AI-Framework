@@ -13,6 +13,9 @@
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj" />
     <ProjectReference Include="../../HPD-Agent.TUI/HPD-Agent.TUI.csproj" />
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" Version="3.3.4" PrivateAssets="all" />
+    <AdditionalFiles Include="PublicAPI.Shipped.txt" />
+    <AdditionalFiles Include="PublicAPI.Unshipped.txt" />
   </ItemGroup>
 
 </Project>

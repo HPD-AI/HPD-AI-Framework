@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.ComponentModel;
 using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -9,7 +10,11 @@ using System.Threading.Channels;
 
 namespace HPD.Agent.MCP;
 
-/// <summary>Creates an independently owned MCP capability source from a final manifest.</summary>
+/// <summary>
+/// Source-generated integration surface for creating an MCP capability source.
+/// Application code should use <see cref="AgentBuilderMcpExtensions.WithMcp"/>.
+/// </summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
 public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
 {
     private readonly string? _manifestPath;
@@ -90,7 +95,7 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
             permissionOverride: permissionOverride);
 
     /// <summary>Creates a source factory from inline MCP server declarations.</summary>
-    public static McpCapabilitySourceFactory FromServers(
+    internal static McpCapabilitySourceFactory FromServers(
         string sourceId,
         IEnumerable<McpServerConfig> servers,
         McpOptions? options = null)

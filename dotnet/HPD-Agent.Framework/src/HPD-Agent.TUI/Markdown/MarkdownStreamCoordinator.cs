@@ -4,7 +4,7 @@ namespace HPD.Agent.TUI.Markdown;
 
 /// <summary>Owns Markdown stream lineages on the projection worker.</summary>
 /// <remarks>This type never dispatches UI work. Its immutable publications are committed by the UI actor.</remarks>
-public sealed class MarkdownStreamCoordinator
+internal sealed class MarkdownStreamCoordinator
 {
     private readonly Action<MarkdownStreamUpdate, MarkdownMessageProjection> _publish;
     private readonly Action<string>? _diagnostic;

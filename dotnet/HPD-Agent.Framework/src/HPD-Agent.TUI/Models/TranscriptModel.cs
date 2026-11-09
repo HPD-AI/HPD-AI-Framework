@@ -630,7 +630,7 @@ public sealed class TranscriptModel
 /// <param name="Version">The model version captured by the snapshot.</param>
 /// <param name="HistoryEpoch">The presentation epoch captured by the snapshot.</param>
 public sealed record TranscriptSnapshot(
-    TranscriptSequence Entries,
+    IReadOnlyList<TranscriptEntry> Entries,
     int Version,
     int HistoryEpoch,
     int CommittedCount);

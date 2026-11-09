@@ -13,7 +13,7 @@ namespace HPD.MultiAgent;
 /// Provides access to agents and workflow-specific state.
 /// Uses SharedData to make the original input available to all nodes.
 /// </summary>
-public class AgentGraphContext : GraphContext
+internal sealed class AgentGraphContext : GraphContext
 {
     public WorkflowHostBinding? HostBinding { get; init; }
 

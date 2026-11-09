@@ -320,17 +320,6 @@ internal static class CapabilityAnalyzer
             return null;
         }
 
-        if (namedArgs.TryGetValue("lifetime", out var lifetimeArgument) &&
-            semanticModel.GetConstantValue(lifetimeArgument.Expression) is { HasValue: true, Value: int lifetimeValue } &&
-            lifetimeValue != 0)
-        {
-            diagnostics.Add(Diagnostic.Create(
-                SkillDiagnostics.UnsupportedLifetime,
-                lifetimeArgument.GetLocation(),
-                methodName));
-            return null;
-        }
-
         // Check for [AIDescription] attribute override (supports dynamic descriptions like Functions)
         var attributeDescription = GetDescription(attrs);
         if (!string.IsNullOrWhiteSpace(attributeDescription))
@@ -346,6 +335,15 @@ internal static class CapabilityAnalyzer
                     : SkillDiagnostics.UnsupportedMetadata,
                 invocation.GetLocation(),
                 methodName));
+            return null;
+        }
+
+        if (!IsValidModelName(name))
+        {
+            diagnostics.Add(Diagnostic.Create(
+                SkillDiagnostics.InvalidName,
+                invocation.GetLocation(),
+                name));
             return null;
         }
 
@@ -1951,6 +1949,16 @@ internal static class CapabilityAnalyzer
         return symbol?.ContainingType?.Name == "Skill" &&
                symbol?.Name == "Create";
     }
+
+    internal static bool IsValidModelName(string? name) =>
+        name is { Length: > 0 and <= 64 } &&
+        name[0] is (>= 'A' and <= 'Z') or (>= 'a' and <= 'z') or '_' &&
+        name.All(static character =>
+            character is (>= 'A' and <= 'Z') or
+                (>= 'a' and <= 'z') or
+                (>= '0' and <= '9') or
+                '_' or
+                '-');
 
     /// <summary>
     /// Analyzes SkillCapabilities.Function&lt;TToolHarness&gt;(nameof(...)).

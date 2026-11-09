@@ -1010,7 +1010,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             .ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
-            throw new InvalidOperationException(
+            throw new AgentTuiThreadJournalNotFoundException(
                 $"Thread '{scope.SessionId}/{scope.ThreadId}' does not have a durable journal.");
         }
 

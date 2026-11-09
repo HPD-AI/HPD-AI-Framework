@@ -811,6 +811,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         sb.AppendLine();
         sb.AppendLine("namespace HPD.Agent.Serialization;");
         sb.AppendLine();
+        sb.AppendLine("#pragma warning disable RS0016 // Generated module identity is mechanical assembly metadata.");
         sb.AppendLine("/// <summary>Provides the immutable event fragment generated for this module.</summary>");
         sb.AppendLine($"public static class {providerTypeName}");
         sb.AppendLine("{");
@@ -842,6 +843,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         sb.AppendLine("        ])");
         sb.AppendLine("    };");
         sb.AppendLine("}");
+        sb.AppendLine("#pragma warning restore RS0016");
 
         if (isCoreModule)
         {
@@ -872,13 +874,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             return "CoreAgentEventModule";
 
         var sanitized = Regex.Replace(moduleId, "[^A-Za-z0-9_]", "_");
-        uint hash = 2166136261;
-        foreach (var value in moduleId)
-        {
-            hash ^= value;
-            hash *= 16777619;
-        }
-        return $"GeneratedAgentEventModule_{sanitized}_{hash:x8}";
+        return $"{sanitized}GeneratedAgentEventModule";
     }
 
     private static string EscapeString(string value) =>

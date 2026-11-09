@@ -146,6 +146,41 @@ public sealed class ReportAnalyzerTests
         analysis.Details!["skipped"].Should().Be(2);
     }
 
+    [Fact]
+    public void PassRate_ExplicitInterpretation_OverridesNumericFallback()
+    {
+        var risk = new NumericMetric("Content Harm")
+        {
+            Value = 1.0,
+            Interpretation = new EvaluationMetricInterpretation(
+                EvaluationRating.Exceptional,
+                failed: false),
+        };
+        var passed = BoolMetric("Content Harm Passed", true);
+        passed.Interpretation = new EvaluationMetricInterpretation(
+            EvaluationRating.Exceptional,
+            failed: false);
+        var report = new EvaluationReport("safety", [Case(risk, passed)]);
+
+        report.PassRate("Content Harm").Should().Be(1.0);
+        report.PassRate("Content Harm Passed").Should().Be(1.0);
+    }
+
+    [Fact]
+    public void ThrowIfPolicyViolations_ThrowsOnlyWhenViolationsExist()
+    {
+        var report = new EvaluationReport("policy", []);
+        report.ThrowIfPolicyViolations();
+
+        report.AddPolicyViolation(
+            new HPD.Agent.Evaluations.Evaluators.Deterministic.OutputContainsEvaluator("required"),
+            passRate: 0.5);
+
+        var act = report.ThrowIfPolicyViolations;
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*Output Contains*50.0%*");
+    }
+
     private static ReportCase Case(params EvaluationMetric[] metrics)
         => new(
             Name: null,

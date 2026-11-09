@@ -34,6 +34,20 @@ public sealed record EvalFailedEvent : AgentEvent, IErrorEvent
     Exception? IErrorEvent.Exception => Exception;
 }
 
+/// <summary>Emitted when a completed evaluation cannot be written to the configured score store.</summary>
+[DurableEvent]
+[EventType("EVAL_PERSISTENCE_FAILED")]
+public sealed record EvalPersistenceFailedEvent : AgentEvent, IErrorEvent
+{
+    public string EvaluatorName { get; init; } = string.Empty;
+    public EvaluationSource Source { get; init; }
+    public int TurnIndex { get; init; }
+    public string ErrorMessage { get; init; } = string.Empty;
+    internal Exception? Exception { get; init; }
+
+    Exception? IErrorEvent.Exception => Exception;
+}
+
 /// <summary>Emitted when a turn is flagged for human annotation.</summary>
 [DurableEvent]
 [EventType("ANNOTATION_REQUESTED")]

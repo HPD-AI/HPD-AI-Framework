@@ -97,9 +97,9 @@ public static class MultiAgentConversationPolicies
         };
 }
 
-public sealed record MultiAgentConversationRoute(string? SessionId, string? ThreadId);
+internal sealed record MultiAgentConversationRoute(string? SessionId, string? ThreadId);
 
-public sealed record MultiAgentConversationContext(
+internal sealed record MultiAgentConversationContext(
     string WorkflowExecutionId,
     string WorkflowName,
     string NodeId,
@@ -108,7 +108,7 @@ public sealed record MultiAgentConversationContext(
     AgentGraphContext GraphContext,
     AgentNodeOptions NodeOptions);
 
-public interface IMultiAgentConversationRuntime
+internal interface IMultiAgentConversationRuntime
 {
     ValueTask<MultiAgentConversationRoute> ResolveRouteAsync(
         MultiAgentConversationContext context,

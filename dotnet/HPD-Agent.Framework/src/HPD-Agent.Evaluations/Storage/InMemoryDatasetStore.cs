@@ -266,7 +266,7 @@ public sealed class InMemoryDatasetStore : IDatasetStore
         }
     }
 
-    private static Dataset<TInput> NormalizeDataset<TInput>(
+    internal static Dataset<TInput> NormalizeDataset<TInput>(
         Dataset<TInput> dataset,
         DatasetRegistrationOptions<TInput> options,
         DateTimeOffset registeredAt)
@@ -325,7 +325,7 @@ public sealed class InMemoryDatasetStore : IDatasetStore
             ReportEvaluators = evalCase.ReportEvaluators,
         };
 
-    private static string ComputeDatasetHash<TInput>(
+    internal static string ComputeDatasetHash<TInput>(
         Dataset<TInput> dataset,
         Func<EvalCase<TInput>, string>? fingerprintCase)
     {

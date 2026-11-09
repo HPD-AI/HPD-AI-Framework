@@ -57,7 +57,7 @@ public sealed record WorkflowResult
 /// <summary>
 /// Factory for creating reusable agents lazily; provider families are selected per run.
 /// </summary>
-public abstract class AgentFactory
+internal abstract class AgentFactory
 {
     /// <summary>
     /// Build the agent without binding an invocation-specific provider client.

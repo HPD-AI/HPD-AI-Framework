@@ -39,7 +39,9 @@ namespace HPD.Agent.Middleware.Function;
 public class RetryMiddleware : IAgentMiddleware
 {
     private readonly ErrorHandlingConfig _config;
-    private readonly IProviderErrorHandler _providerHandler;
+    private IProviderErrorHandler _providerHandler;
+
+    internal IProviderErrorHandler ProviderErrorHandler => _providerHandler;
 
     /// <summary>
     /// Creates retry middleware for model and function calls with the specified configuration and error handler.
@@ -107,6 +109,7 @@ public class RetryMiddleware : IAgentMiddleware
                     ex,
                     attempt,
                     policy,
+                    request.Function,
                     cancellationToken);
 
                 if (!delay.HasValue || attempt >= maxRetries)
@@ -212,6 +215,7 @@ public class RetryMiddleware : IAgentMiddleware
                             ex,
                             attempt,
                             policy,
+                            null,
                             cancellationToken);
 
                         if (!delay.HasValue || attempt >= maxRetries)
@@ -257,6 +261,7 @@ public class RetryMiddleware : IAgentMiddleware
         Exception ex,
         int attempt,
         RetryPolicyConfig policy,
+        AIFunction? function,
         CancellationToken cancellationToken)
     {
         //     
@@ -272,7 +277,8 @@ public class RetryMiddleware : IAgentMiddleware
         //     
         // PRIORITY 2: Provider-Aware Handling
         //     
-        var errorDetails = _providerHandler.ParseError(ex);
+        var handler = FunctionErrorHandlerRegistry.Resolve(function) ?? _providerHandler;
+        var errorDetails = handler.ParseError(ex);
         if (errorDetails != null)
         {
             // Check per-category retry limits
@@ -284,7 +290,7 @@ public class RetryMiddleware : IAgentMiddleware
             }
 
             // Get provider-calculated delay (respects Retry-After headers)
-            var providerDelay = _providerHandler.GetRetryDelay(
+            var providerDelay = handler.GetRetryDelay(
                 errorDetails,
                 attempt,
                 policy.RetryDelay,
@@ -303,6 +309,13 @@ public class RetryMiddleware : IAgentMiddleware
         // PRIORITY 3: Exponential Backoff (fallback - only if no provider)
         //     
         return CalculateExponentialBackoff(attempt, policy);
+    }
+
+    /// <summary>Replaces the generic fallback with the selected provider handler after construction.</summary>
+    internal void UseProviderErrorHandler(IProviderErrorHandler providerErrorHandler)
+    {
+        ArgumentNullException.ThrowIfNull(providerErrorHandler);
+        _providerHandler = providerErrorHandler;
     }
 
     /// <summary>

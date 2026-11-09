@@ -379,8 +379,7 @@ HPD.Agent.Audio.VoiceActivity.VoiceActivitySpeechContinuity
 HPD.Agent.Audio.VoiceActivity.VoiceActivityUpdateDisposition
 HPD.Agent.Audio.VoiceActivity.VoiceActivityUpdateRequest
 HPD.Agent.Audio.VoiceActivity.VoiceActivityUpdateResult
-HPD.Agent.Diagnostics.SourceGeneratorDiagnostic
 HPD.Agent.Providers.Audio.Meai.MeaiBatchSpeechToTextInteractionSession
 HPD.Agent.Providers.Audio.Meai.MeaiBatchSpeechToTextInteractionSessionFactory
 HPD.Agent.Providers.Audio.Meai.MeaiBatchSpeechToTextInteractionSessionOptions
-HPD.Agent.Serialization.GeneratedAgentEventModule_HPD_Agent_Audio_1448db00
+HPD.Agent.Serialization.HPD_Agent_AudioGeneratedAgentEventModule

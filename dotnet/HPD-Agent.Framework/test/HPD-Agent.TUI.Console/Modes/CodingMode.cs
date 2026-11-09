@@ -10,7 +10,7 @@ internal static class CodingMode
 {
     public static async Task RunAsync(string[] args)
     {
-        var options = ModeOptions.Parse(args);
+        var options = ModeOptions.Parse(args, "agent", "session", "thread", "model", "workspace", "list-tools");
         var agentId = options.Get("agent", "tui-coding-agent");
         var sessionId = options.Get("session", "local-session");
         var threadId = options.Get("thread", "main");
@@ -46,6 +46,7 @@ internal static class CodingMode
                     },
                 ],
             })
+            .WithPermissions()
             .WithToolHarness<CodingToolHarness>()
             .BuildAsync();
 
@@ -54,6 +55,7 @@ internal static class CodingMode
             var tools = agent.DefaultOptions?.Tools?
                 .OfType<AIFunction>()
                 .Select(tool => tool.Name)
+                .Distinct(StringComparer.Ordinal)
                 .Order(StringComparer.Ordinal)
                 .ToArray() ?? [];
 

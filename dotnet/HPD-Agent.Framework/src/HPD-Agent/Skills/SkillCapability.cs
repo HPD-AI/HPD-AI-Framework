@@ -6,9 +6,9 @@ public abstract class SkillCapability
     /// <summary>Initializes a skill capability.</summary>
     /// <param name="name">The model-visible capability name.</param>
     /// <param name="description">The model-visible capability description.</param>
-    protected SkillCapability(string name, string description)
+    private protected SkillCapability(string name, string description)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        SkillModelName.Validate(name, nameof(name));
         Name = name;
         Description = description ?? throw new ArgumentNullException(nameof(description));
     }
@@ -27,7 +27,7 @@ internal interface ISkillFunctionReference
     string MemberName { get; }
 }
 
-public sealed class SkillFunctionReference<TToolHarness> : SkillCapability, ISkillFunctionReference
+internal sealed class SkillFunctionReference<TToolHarness> : SkillCapability, ISkillFunctionReference
     where TToolHarness : class
 {
     internal SkillFunctionReference(string memberName)
@@ -60,9 +60,9 @@ public static partial class SkillCapabilities
     /// <typeparam name="TToolHarness">The owning tool harness type.</typeparam>
     /// <param name="memberName">The referenced C# member name, normally supplied with <see langword="nameof"/>.</param>
     /// <returns>A symbol-analyzable function reference.</returns>
-    public static SkillFunctionReference<TToolHarness> Function<TToolHarness>(string memberName)
+    public static SkillCapability Function<TToolHarness>(string memberName)
         where TToolHarness : class
-        => new(memberName);
+        => new SkillFunctionReference<TToolHarness>(memberName);
 
     /// <summary>Creates an inline text resource.</summary>
     public static SkillResource Resource(string name, string description, string content)
@@ -89,14 +89,22 @@ public static partial class SkillCapabilities
         bool requiresPermission = true,
         TimeSpan? timeout = null,
         long maximumOutputBytes = 1_048_576)
-        => new(name, description)
+    {
+        var effectiveTimeout = timeout ?? TimeSpan.FromMinutes(2);
+        if (effectiveTimeout <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(timeout), "A script timeout must be positive.");
+        if (maximumOutputBytes <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maximumOutputBytes), "A script output limit must be positive.");
+
+        return new(name, description)
         {
             Reference = reference ?? throw new ArgumentNullException(nameof(reference)),
             InputContract = input ?? throw new ArgumentNullException(nameof(input)),
             RequiresPermission = requiresPermission,
-            Timeout = timeout ?? TimeSpan.FromMinutes(2),
+            Timeout = effectiveTimeout,
             MaximumOutputBytes = maximumOutputBytes
         };
+    }
 
     /// <summary>Creates an external script capability from a reusable generated input contract.</summary>
     /// <typeparam name="T">The generated CLR input type.</typeparam>

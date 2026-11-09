@@ -68,7 +68,7 @@ public sealed class AgentTuiProjectionSet<T> : HashSet<T>, IAgentTuiProjectionSt
     }
 }
 
-public sealed class AgentTuiStateBag : IAgentTuiStateStore
+internal sealed class AgentTuiStateBag : IAgentTuiStateStore
 {
     private readonly Dictionary<string, object> _items = new(StringComparer.Ordinal);
     private readonly Dictionary<string, object> _services = new(StringComparer.Ordinal);

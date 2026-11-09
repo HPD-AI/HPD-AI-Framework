@@ -5,7 +5,7 @@ using HPD.TUI.Core;
 
 namespace HPD.Agent.TUI.Views;
 
-public sealed class ContributionWidgetSlotView : Component
+internal sealed class ContributionWidgetSlotView : Component
 {
     private readonly IComponent[] _components;
 

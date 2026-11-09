@@ -6,7 +6,7 @@ using HPD.TUI.Flows;
 namespace HPD.Agent.TUI.Interactions;
 
 /// <summary>Queued, paged questions using the shared form/dialog infrastructure.</summary>
-public sealed class UserQuestionInteractionHandler : AgentTuiInteractionHandler<UserQuestionRequestEvent>
+internal sealed class UserQuestionInteractionHandler : AgentTuiInteractionHandler<UserQuestionRequestEvent>
 {
     private readonly ConcurrentDictionary<string, Draft> _drafts = new(StringComparer.Ordinal);
     private static string Key(AgentEvent request, string id) => $"{request.SessionId}/{request.ThreadId}/{request.ThreadExecutionId}/{id}";

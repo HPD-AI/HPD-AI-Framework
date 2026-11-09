@@ -7,7 +7,7 @@ namespace HPD.Agent.OpenApi;
 /// Agent-specific OpenAPI configuration. Extends <see cref="OpenApiCoreConfig"/> with
 /// HPD-Agent concerns (collapsing, permissions, schema transforms, response optimization).
 /// </summary>
-public class OpenApiConfig : OpenApiCoreConfig
+public sealed class OpenApiConfig : OpenApiCoreConfig
 {
     /// <summary>
     /// Whether all generated functions require user permission before execution.
@@ -15,6 +15,13 @@ public class OpenApiConfig : OpenApiCoreConfig
     /// Use [RequiresPermission] on the [OpenApi] method to opt in.
     /// </summary>
     public bool RequiresPermission { get; set; } = false;
+
+    /// <summary>
+    /// Allows this source to produce zero operations without failing agent construction.
+    /// Disabled by default because an empty catalog usually indicates a filtering or
+    /// specification configuration error.
+    /// </summary>
+    public bool AllowEmptyCatalog { get; set; }
 
     /// <summary>
     /// When true, generated functions are grouped behind their own container nested
@@ -50,7 +57,7 @@ public class OpenApiConfig : OpenApiCoreConfig
 /// Inspired by n8n's "Optimize Tool Response" feature.
 /// Consumed by OpenApiFunctionFactory when it formats operation responses.
 /// </summary>
-public class ResponseOptimizationConfig
+public sealed class ResponseOptimizationConfig
 {
     /// <summary>
     /// Extract data from a nested field before applying other optimizations.

@@ -11,7 +11,7 @@ namespace HPD.Agent.Evaluations.Evaluators.Deterministic;
 /// BooleanMetric — asserts that the TurnTrace contains at least one span matching the query.
 /// Used for behavioral assertions: "SearchTool was called", "any tool took > 5 seconds", etc.
 /// </summary>
-public sealed class HasMatchingSpanEvaluator(SpanQuery query) : HpdDeterministicEvaluatorBase
+internal sealed class HasMatchingSpanEvaluator(SpanQuery query) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Has Matching Span"];
 

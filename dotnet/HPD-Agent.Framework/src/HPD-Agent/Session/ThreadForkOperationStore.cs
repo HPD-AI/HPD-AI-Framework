@@ -204,7 +204,7 @@ internal sealed class JournalThreadForkOperationStore(ISessionStore store, Threa
 public sealed record ThreadForkOperationChangedEvent(ThreadForkOperationRecord Operation) : AgentEvent;
 
 /// <summary>Preserves the latest durable fork-operation facts across a destructive journal rebase.</summary>
-public sealed class ThreadForkOperationRebaseSeedProvider(ISessionStore store)
+internal sealed class ThreadForkOperationRebaseSeedProvider(ISessionStore store)
     : IThreadJournalRebaseSeedProvider
 {
     private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));

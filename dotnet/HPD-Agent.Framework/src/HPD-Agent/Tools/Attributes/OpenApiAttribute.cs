@@ -19,7 +19,10 @@ namespace HPD.Agent;
 ///         SpecPath = "stripe.json",
 ///         AuthCallback = async (req, ct) =>
 ///         {
-///             var key = await secrets.RequireAsync("stripe:ApiKey", "Stripe", ct: ct);
+///             var key = await secrets.RequireAsync(
+///                 "stripe:ApiKey",
+///                 "Stripe",
+///                 cancellationToken: ct);
 ///             req.Headers.Authorization = new("Bearer", key);
 ///         }
 ///     };

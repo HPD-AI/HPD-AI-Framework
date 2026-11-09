@@ -1,4 +1,5 @@
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 using HPD.OpenApi.Core;
 
 namespace HPD.Agent.OpenApi;
@@ -14,6 +15,7 @@ internal sealed class OpenApiLoader : IOpenApiLoader
 {
     public async Task<OpenApiLoadResult> LoadAllAsync(
         IReadOnlyList<OpenApiSourceRegistration> sources,
+        ILogger logger,
         CancellationToken cancellationToken)
     {
         var allFunctions = new List<AIFunction>();
@@ -38,19 +40,34 @@ internal sealed class OpenApiLoader : IOpenApiLoader
             // Resolve HttpClient: user-provided clients are used as-is (never disposed by us).
             // Internally-created clients are added to ownedClients for disposal with the Agent.
             HttpClient httpClient;
+            HttpClient? ownedClient = null;
             if (config.HttpClient != null)
             {
                 httpClient = config.HttpClient;
             }
             else
             {
-                var owned = new HttpClient { Timeout = config.Timeout };
-                ownedClients.Add(owned);
-                httpClient = owned;
+                ownedClient = new HttpClient { Timeout = config.Timeout };
+                httpClient = ownedClient;
             }
 
-            var functions = await LoadSourceAsync(source, config, httpClient, cancellationToken);
-            allFunctions.AddRange(functions);
+            try
+            {
+                var functions = await LoadSourceAsync(
+                    source,
+                    config,
+                    httpClient,
+                    logger,
+                    cancellationToken);
+                if (ownedClient is not null)
+                    ownedClients.Add(ownedClient);
+                allFunctions.AddRange(functions);
+            }
+            catch
+            {
+                ownedClient?.Dispose();
+                throw;
+            }
         }
 
         return new OpenApiLoadResult
@@ -64,6 +81,7 @@ internal sealed class OpenApiLoader : IOpenApiLoader
         OpenApiSourceRegistration source,
         OpenApiConfig config,
         HttpClient httpClient,
+        ILogger logger,
         CancellationToken cancellationToken)
     {
         HPD.OpenApi.Core.Model.ParsedOpenApiSpec spec;
@@ -80,26 +98,58 @@ internal sealed class OpenApiLoader : IOpenApiLoader
         }
 
         if (spec.Operations.Count == 0)
-        {
-            // No operations matched — this is almost always a misconfigured predicate or
-            // exclude list. Return empty rather than failing so other sources still load.
-            System.Diagnostics.Debug.WriteLine(
-                $"[HPD-Agent.OpenApi] Warning: OpenAPI source '{source.Name}' produced no operations " +
-                $"after filtering. Check OperationSelectionPredicate / OperationsToExclude.");
-            return [];
-        }
+            return HandleEmptyCatalog(source, config, spec.Operations.Count, logger);
 
         var runner = OpenApiSpecLoader.CreateRunner(config, httpClient);
 
         // CollapseWithinToolHarness is read from config (authoritative) rather than from source.CollapseWithinToolHarness.
         // source.CollapseWithinToolHarness is a placeholder for registrations created by AgentBuilder
         // (which cannot cast config to OpenApiConfig), so the value in config takes precedence.
-        return OpenApiFunctionFactory.CreateFunctions(
+        var functions = OpenApiFunctionFactory.CreateFunctions(
             spec,
             config,
             runner,
             namePrefix: source.Name,
             parentContainer: source.ParentContainer,
-            collapseWithinToolHarness: config.CollapseWithinToolHarness);
+            collapseWithinToolHarness: config.CollapseWithinToolHarness,
+            logger: logger);
+        return functions.Count == 0
+            ? HandleEmptyCatalog(source, config, spec.Operations.Count, logger)
+            : functions;
+    }
+
+    private static List<AIFunction> HandleEmptyCatalog(
+        OpenApiSourceRegistration source,
+        OpenApiConfig config,
+        int remainingOperationCount,
+        ILogger logger)
+    {
+        var exclusions = config.OperationsToExclude is { Count: > 0 }
+            ? string.Join(", ", config.OperationsToExclude)
+            : "none";
+        var predicate = config.OperationSelectionPredicate is null
+            ? "none"
+            : "configured";
+
+        logger.LogWarning(
+            "OpenAPI source {SourceName} produced zero operations. " +
+            "Operations remaining after filtering {OperationCount}, exclusions {Exclusions}, " +
+            "selection predicate {SelectionPredicate}.",
+            source.Name,
+            remainingOperationCount,
+            exclusions,
+            predicate);
+
+        if (config.AllowEmptyCatalog)
+            return [];
+
+        throw new AgentRunConfigurationException(
+            "OpenApiSourceProducedNoOperations",
+            $"openapi.sources.{source.Name}",
+            $"OpenApiSourceProducedNoOperations: OpenAPI source '{source.Name}' produced no operations. " +
+            $"Operations remaining after filtering: {remainingOperationCount}. " +
+            $"Exclusions: {exclusions}. Selection predicate: {predicate}. " +
+            "Check the specification and filters, or set AllowEmptyCatalog=true " +
+            "when an empty source is intentional.");
     }
 }

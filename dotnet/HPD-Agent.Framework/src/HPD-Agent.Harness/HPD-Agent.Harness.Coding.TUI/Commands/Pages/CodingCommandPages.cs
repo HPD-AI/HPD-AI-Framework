@@ -24,13 +24,13 @@ internal static class CodingCommandPages
 
 internal abstract class CodingCommandPageComponentBase : HPD.TUI.Core.Component
 {
-    protected CodingCommandPageComponentBase(AgentTuiStateBag state, CodingHarnessTuiTheme theme)
+    protected CodingCommandPageComponentBase(IAgentTuiStateStore state, CodingHarnessTuiTheme theme)
     {
         State = state ?? throw new ArgumentNullException(nameof(state));
         Theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
-    protected AgentTuiStateBag State { get; }
+    protected IAgentTuiStateStore State { get; }
     protected CodingHarnessTuiTheme Theme { get; }
 
     public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
@@ -219,7 +219,7 @@ internal abstract class CodingCommandPageComponentBase : HPD.TUI.Core.Component
 
 internal sealed class CodingCommandsPageComponent : CodingCommandPageComponentBase
 {
-    public CodingCommandsPageComponent(AgentTuiStateBag state, CodingHarnessTuiTheme theme)
+    public CodingCommandsPageComponent(IAgentTuiStateStore state, CodingHarnessTuiTheme theme)
         : base(state, theme)
     {
     }
@@ -260,7 +260,7 @@ internal sealed class CodingCommandsPageComponent : CodingCommandPageComponentBa
 
 internal sealed class CodingBackgroundCommandsPageComponent : CodingCommandPageComponentBase
 {
-    public CodingBackgroundCommandsPageComponent(AgentTuiStateBag state, CodingHarnessTuiTheme theme)
+    public CodingBackgroundCommandsPageComponent(IAgentTuiStateStore state, CodingHarnessTuiTheme theme)
         : base(state, theme)
     {
     }

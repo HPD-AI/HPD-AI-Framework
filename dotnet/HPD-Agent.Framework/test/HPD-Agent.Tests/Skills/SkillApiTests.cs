@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPD.Agent.Tests.TestToolHarnesses;
 
 namespace HPD.Agent.Tests.Skills;
@@ -12,6 +13,28 @@ public sealed class SkillApiTests
         Assert.Throws<ArgumentException>(() => Skill.Create("", "Description.", instructions));
         Assert.Throws<ArgumentException>(() => Skill.Create("analysis", "", instructions));
         Assert.Throws<ArgumentNullException>(() => Skill.Create("analysis", "Description.", null!));
+    }
+
+    [Theory]
+    [InlineData("data analysis")]
+    [InlineData("-data_analysis")]
+    [InlineData("data.analysis")]
+    [InlineData("analysis/")]
+    public void Create_RejectsProviderUnsafeNames(string name)
+    {
+        Assert.Throws<ArgumentException>(() => Skill.Create(
+            name,
+            "Analyzes data.",
+            SkillInstructions.FromText("Analyze carefully.")));
+    }
+
+    [Fact]
+    public void Create_RejectsOverlongNames()
+    {
+        Assert.Throws<ArgumentException>(() => Skill.Create(
+            new string('a', 65),
+            "Analyzes data.",
+            SkillInstructions.FromText("Analyze carefully.")));
     }
 
     [Fact]
@@ -59,15 +82,27 @@ public sealed class SkillApiTests
         Assert.Single(skill.Capabilities);
     }
 
-    [Theory]
-    [InlineData(SkillActivationLifetime.ModelIteration)]
-    [InlineData(SkillActivationLifetime.Session)]
-    public void Create_RejectsUnsupportedLifetime(SkillActivationLifetime lifetime)
+    [Fact]
+    public void PublicSurface_DoesNotExposeImplementationConstructionPaths()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => Skill.Create(
-            "analysis",
-            "Analysis guidance.",
-            SkillInstructions.FromText("Analyze carefully."),
-            lifetime: lifetime));
+        Assert.NotNull(typeof(Skill).GetProperty(nameof(Skill.Name))?.SetMethod);
+        Assert.False(typeof(Skill).GetProperty(nameof(Skill.Name))!.SetMethod!.IsPublic);
+        Assert.Empty(typeof(SkillScript).GetConstructors());
+        Assert.Null(typeof(CapabilityId).GetConstructor([typeof(string)]));
+        Assert.Empty(typeof(SkillScriptArguments).GetConstructors());
+        Assert.True(typeof(SkillCapabilityFunctionProjector).IsNotPublic);
+        Assert.True(typeof(SkillFunctionReference<CombinedCapabilitiesTools>).IsNotPublic);
+        Assert.True(typeof(ContentStoreSkillSource).IsNotPublic);
     }
+
+    [Fact]
+    public void CapabilityId_RoundTripsThroughJsonAfterFactoryValidation()
+    {
+        var id = CapabilityId.Create("generated:test:skill");
+        var json = JsonSerializer.Serialize(id);
+
+        Assert.Equal(id, JsonSerializer.Deserialize<CapabilityId>(json));
+        Assert.Throws<ArgumentException>(() => CapabilityId.Create(""));
+    }
+
 }

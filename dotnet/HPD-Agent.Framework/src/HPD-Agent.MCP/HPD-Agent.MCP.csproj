@@ -15,6 +15,8 @@
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
     <OutputType>Library</OutputType>
+    <Description>Model Context Protocol client integration for HPD-Agent, with Streamable HTTP and stdio transports, tool/resource/prompt projection, OAuth, permissions, and bounded remote tasks.</Description>
+    <PackageTags>hpd;agent;mcp;model-context-protocol;tools</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

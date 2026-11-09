@@ -6,7 +6,7 @@ using HPD.Agent.Serialization;
 namespace HPD.MultiAgent.Serialization;
 
 /// <summary>Canonical JSON options for HPD multi-agent workflow config and runtime exchange types.</summary>
-public static class MultiAgentJsonUtilities
+internal static class MultiAgentJsonUtilities
 {
     public static JsonSerializerOptions DefaultOptions { get; } = CreateDefaultOptions(makeReadOnly: true);
 

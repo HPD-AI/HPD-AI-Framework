@@ -35,6 +35,10 @@ on:
         description: 'HPD-OpenApi.Core package version to validate against. Defaults to latest stable on NuGet.'
         required: false
         type: string
+      hpd_base_version:
+        description: 'HPD.Base package version to validate against. Defaults to latest stable on NuGet.'
+        required: false
+        type: string
   workflow_call:
     inputs:
       version:
@@ -68,6 +72,10 @@ on:
       hpd_openapi_core_version:
         description: 'Published HPD-OpenApi.Core version'
         required: false
+        type: string
+      hpd_base_version:
+        description: 'Published HPD.Base version'
+        required: true
         type: string
     secrets:
       NUGET_API_KEY:
@@ -150,6 +158,7 @@ jobs:
           INPUT_HPD_EVENTS_VERSION: ${{ inputs.hpd_events_version }}
           INPUT_HPD_SERIALIZATION_VERSION: ${{ inputs.hpd_serialization_version }}
           INPUT_HPD_OPENAPI_CORE_VERSION: ${{ inputs.hpd_openapi_core_version }}
+          INPUT_HPD_BASE_VERSION: ${{ inputs.hpd_base_version }}
         run: |
           mkdir -p ./nupkg
 
@@ -170,7 +179,10 @@ jobs:
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.HostContainers/HPD-Agent.Sandbox.HostContainers.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.VirtualMachine/HPD-Agent.Sandbox.VirtualMachine.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.MultiAgent.HpdBase/HPD-Agent.MultiAgent.HpdBase.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Evaluations/HPD-Agent.Evaluations.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Evaluations.HpdBase/HPD-Agent.Evaluations.HpdBase.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Stores.HpdBase/HPD-Agent.Stores.HpdBase.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.OpenApi/HPD-Agent.OpenApi.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.TUI/HPD-Agent.TUI.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.ModelsDev/HPD-Agent.ModelsDev.csproj"
@@ -229,9 +241,7 @@ jobs:
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Venice/HPD-Agent.Providers.Venice.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Xai/HPD-Agent.Providers.Xai.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Zai/HPD-Agent.Providers.Zai.csproj"
-            # HPD-Agent.MultiAgent.HpdBase remains blocked on publishing
-            # HPD-Base.AspNetCore and HPD-Graph.Base. HPD-Agent.Studio uses a
-            # separate Studio release path.
+            # HPD-Agent.Studio uses a separate Studio release path.
           )
 
           VERSION_PREFIX="${{ needs.determine-version.outputs.version_prefix }}"
@@ -266,6 +276,7 @@ jobs:
           HPD_EVENTS_VERSION="$(resolve_nuget_version "HPD-Events" "$INPUT_HPD_EVENTS_VERSION")"
           HPD_SERIALIZATION_VERSION="$(resolve_nuget_version "HPD-Serialization" "$INPUT_HPD_SERIALIZATION_VERSION")"
           HPD_OPENAPI_CORE_VERSION="$(resolve_nuget_version "HPD-OpenApi.Core" "$INPUT_HPD_OPENAPI_CORE_VERSION")"
+          HPD_BASE_VERSION="$(resolve_nuget_version "HPD.Base" "$INPUT_HPD_BASE_VERSION")"
 
           echo "Using published HPD dependency versions:"
           echo "  HPD-Environment.*: $HPD_ENVIRONMENT_VERSION"
@@ -275,6 +286,7 @@ jobs:
           echo "  HPD-Events: $HPD_EVENTS_VERSION"
           echo "  HPD-Serialization: $HPD_SERIALIZATION_VERSION"
           echo "  HPD-OpenApi.Core: $HPD_OPENAPI_CORE_VERSION"
+          echo "  HPD.Base: $HPD_BASE_VERSION"
 
           PUBLISHED_HPD_PROPS=(
             "-p:UsePublishedHpdDependencies=true"
@@ -285,6 +297,7 @@ jobs:
             "-p:HPDEventsVersion=$HPD_EVENTS_VERSION"
             "-p:HPDSerializationVersion=$HPD_SERIALIZATION_VERSION"
             "-p:HPDOpenApiCoreVersion=$HPD_OPENAPI_CORE_VERSION"
+            "-p:HPDBaseVersion=$HPD_BASE_VERSION"
           )
 
           echo "Validating Agent packages against published HPD dependencies..."

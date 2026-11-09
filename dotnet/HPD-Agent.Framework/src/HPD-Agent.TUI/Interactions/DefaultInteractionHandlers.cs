@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace HPD.Agent.TUI.Interactions;
 
-public sealed class PermissionRequestInteractionHandler :
+internal sealed class PermissionRequestInteractionHandler :
     AgentTuiInteractionHandler<PermissionRequestEvent>
 {
     private static readonly TimeSpan TurnGrantLifetime = TimeSpan.FromHours(24);
@@ -224,7 +224,7 @@ public sealed class PermissionRequestInteractionHandler :
         string GrantFamily);
 }
 
-public sealed class ContinuationRequestInteractionHandler :
+internal sealed class ContinuationRequestInteractionHandler :
     AgentTuiInteractionHandler<ContinuationRequestEvent>
 {
     protected override async Task<AgentTuiInteractionResult> HandleAsync(

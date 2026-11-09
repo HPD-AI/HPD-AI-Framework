@@ -3,13 +3,13 @@ using HPD.TUI.Core;
 namespace HPD.Agent.TUI.Composition;
 
 /// <summary>A registered interactive widget can opt out of traversal while hidden or disabled.</summary>
-public interface IAgentTuiFocusableWidget : IFocusable
+internal interface IAgentTuiFocusableWidget : IFocusable
 {
     bool CanFocus { get; }
 }
 
 /// <summary>Shell-owned focus order for registered widgets in both editor slots.</summary>
-public sealed class AgentTuiWidgetFocus
+internal sealed class AgentTuiWidgetFocus
 {
     private readonly List<(TuiSlot Slot, IFocusable Widget)> _widgets = [];
 

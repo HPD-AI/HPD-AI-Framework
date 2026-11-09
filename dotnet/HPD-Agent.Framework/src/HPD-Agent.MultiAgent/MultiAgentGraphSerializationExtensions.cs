@@ -24,7 +24,7 @@ public static class MultiAgentGraphSerializationExtensions
     }
 }
 
-public sealed class MultiAgentGraphJsonTypeInfoResolverContributor : IGraphJsonTypeInfoResolverContributor
+internal sealed class MultiAgentGraphJsonTypeInfoResolverContributor : IGraphJsonTypeInfoResolverContributor
 {
     public IJsonTypeInfoResolver Resolver => MultiAgentGraphConfigJsonContext.Default;
 }
@@ -54,6 +54,6 @@ public sealed class MultiAgentGraphJsonTypeInfoResolverContributor : IGraphJsonT
 [JsonSerializable(typeof(RemoteAgentFamilySelectionDto))]
 [JsonSerializable(typeof(AgentInvocationDeadline))]
 [JsonSerializable(typeof(JsonObject))]
-public partial class MultiAgentGraphConfigJsonContext : JsonSerializerContext
+internal partial class MultiAgentGraphConfigJsonContext : JsonSerializerContext
 {
 }

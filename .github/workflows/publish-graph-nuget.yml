@@ -7,10 +7,18 @@ on:
         description: 'Version to publish (e.g., 0.2.0 or 0.2.0-alpha)'
         required: true
         type: string
+      hpd_base_version:
+        description: 'Published HPD.Base version. Defaults to latest stable on NuGet.'
+        required: false
+        type: string
   workflow_call:
     inputs:
       version:
         description: 'Version to publish'
+        required: true
+        type: string
+      hpd_base_version:
+        description: 'Published HPD.Base version'
         required: true
         type: string
     secrets:
@@ -72,13 +80,17 @@ jobs:
             10.0.x
 
       - name: Pack HPD-Graph packages
+        env:
+          INPUT_HPD_BASE_VERSION: ${{ inputs.hpd_base_version }}
         run: |
+          set -euo pipefail
           mkdir -p ./nupkg-graph
 
           PROJECTS=(
             "dotnet/HPD-Graph.Framework/src/HPD-Graph.Abstractions/HPD-Graph.Abstractions.csproj"
             "dotnet/HPD-Graph.Framework/src/HPD-Graph.SourceGenerator/HPD-Graph.SourceGenerator.csproj"
             "dotnet/HPD-Graph.Framework/src/HPD-Graph.Core/HPD-Graph.Core.csproj"
+            "dotnet/HPD-Graph.Framework/src/HPD-Graph.Base/HPD-Graph.Base.csproj"
             "dotnet/HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.SourceGenerator/HPD-Graph.Connectors.SourceGenerator.csproj"
             "dotnet/HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.Abstractions/HPD-Graph.Connectors.Abstractions.csproj"
             "dotnet/HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.Core/HPD-Graph.Connectors.Core.csproj"
@@ -88,6 +100,18 @@ jobs:
 
           VERSION_PREFIX="${{ needs.determine-version.outputs.version_prefix }}"
           VERSION_SUFFIX="${{ needs.determine-version.outputs.version_suffix }}"
+          HPD_BASE_VERSION="$INPUT_HPD_BASE_VERSION"
+          if [[ -z "$HPD_BASE_VERSION" ]]; then
+            HPD_BASE_VERSION="$(
+              curl -fsSL "https://api.nuget.org/v3-flatcontainer/hpd.base/index.json" |
+                python3 -c 'import json,sys; versions=json.load(sys.stdin)["versions"]; stable=[v for v in versions if "-" not in v]; print((stable or versions)[-1])'
+            )"
+          fi
+
+          PUBLISHED_HPD_PROPS=(
+            "-p:UsePublishedHpdDependencies=true"
+            "-p:HPDBaseVersion=$HPD_BASE_VERSION"
+          )
 
           dotnet/eng/nuget/validate-package-identities.sh "${PROJECTS[@]}"
 
@@ -96,10 +120,12 @@ jobs:
             if [ -n "$VERSION_SUFFIX" ]; then
               dotnet pack "$PROJECT" -c Release -o ./nupkg-graph \
                 -p:VersionPrefix="$VERSION_PREFIX" \
-                -p:VersionSuffix="$VERSION_SUFFIX"
+                -p:VersionSuffix="$VERSION_SUFFIX" \
+                "${PUBLISHED_HPD_PROPS[@]}"
             else
               dotnet pack "$PROJECT" -c Release -o ./nupkg-graph \
-                -p:VersionPrefix="$VERSION_PREFIX"
+                -p:VersionPrefix="$VERSION_PREFIX" \
+                "${PUBLISHED_HPD_PROPS[@]}"
             fi
           done
 
@@ -128,6 +154,7 @@ jobs:
           PACKAGE_IDS=(
             "HPD-Graph.Abstractions"
             "HPD-Graph.Core"
+            "HPD-Graph.Base"
           )
           VERSION_LOWER="${PACKAGE_VERSION,,}"
 

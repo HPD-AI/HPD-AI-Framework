@@ -74,6 +74,7 @@ HPD.Agent.ContinuationResponseEvent
 HPD.Agent.Evaluations.Integration.AnnotationRequestedEvent
 HPD.Agent.Evaluations.Integration.AnnotationResponseEvent
 HPD.Agent.Evaluations.Integration.EvalFailedEvent
+HPD.Agent.Evaluations.Integration.EvalPersistenceFailedEvent
 HPD.Agent.Evaluations.Integration.EvalPolicyViolationEvent
 HPD.Agent.Evaluations.Integration.EvalScoreEvent
 HPD.Agent.InterruptionHandledEvent

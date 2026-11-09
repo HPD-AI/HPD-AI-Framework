@@ -55,6 +55,82 @@ public sealed class DirectorySkillSourceTests
         Assert.Contains("requires a description", exception.Message);
     }
 
+    [Theory]
+    [InlineData("{\"description\":\"Runs the script.\",\"runtime\":\"python\"}", "parameters")]
+    [InlineData("{\"description\":\"Runs the script.\",\"runtime\":\"python\",\"parameters\":[]}", "must be an object")]
+    [InlineData("{\"description\":\"\",\"runtime\":\"python\",\"parameters\":{}}", "description")]
+    [InlineData("{\"description\":\"Runs the script.\",\"runtime\":\"python\",\"parameters\":{},\"requiresPermission\":\"yes\"}", "requiresPermission")]
+    public async Task Import_RejectsMalformedScriptMetadataWithActionableDiagnostic(
+        string scriptMetadata,
+        string expected)
+    {
+        using var directory = new TemporaryDirectory();
+        Directory.CreateDirectory(Path.Combine(directory.Path, "scripts"));
+        await WriteSkillAsync(directory.Path, "malformed_skill");
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scripts", "run.py"), "print('ok')");
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "skill.json"), $$"""
+            {
+              "scripts": {
+                "scripts/run.py": {{scriptMetadata}}
+              }
+            }
+            """);
+        var source = new DirectorySkillSource(directory.Path);
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await source.GetSkillsAsync(Context(), default));
+
+        Assert.Contains("skill.json", exception.Message);
+        Assert.Contains("scripts/run.py", exception.Message);
+        Assert.Contains(expected, exception.Message);
+    }
+
+    [Fact]
+    public async Task Import_RejectsInvalidModelFacingSkillName()
+    {
+        using var directory = new TemporaryDirectory();
+        await WriteSkillAsync(directory.Path, "data analysis");
+        var source = new DirectorySkillSource(directory.Path);
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await source.GetSkillsAsync(Context(), default));
+
+        Assert.Contains("SKILL.md", exception.Message);
+        Assert.Contains("data analysis", exception.Message);
+    }
+
+    [Fact]
+    public async Task Import_RejectsScriptFilenameThatDerivesInvalidCapabilityName()
+    {
+        using var directory = new TemporaryDirectory();
+        Directory.CreateDirectory(Path.Combine(directory.Path, "scripts"));
+        await WriteSkillAsync(directory.Path, "valid_skill");
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scripts", "2fa.py"), "print('ok')");
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "skill.json"), """
+            {
+              "scripts": {
+                "scripts/2fa.py": {
+                  "description": "Runs the two-factor verification script.",
+                  "runtime": "python",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
+            """);
+        var source = new DirectorySkillSource(directory.Path);
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await source.GetSkillsAsync(Context(), default));
+
+        Assert.Contains("scripts/2fa.py", exception.Message);
+        Assert.Contains("invalid model-facing capability name", exception.Message);
+    }
+
     [Fact]
     public async Task CompatibilityImport_DerivesDescriptionsAndRuntimeWithoutExecutingScript()
     {

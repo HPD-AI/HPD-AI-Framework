@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks></TargetFrameworks>
+    <RootNamespace>HPD.Agent.Stores.HpdBase</RootNamespace>
+    <AssemblyName>HPD-Agent.Stores.HpdBase</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Agent.Stores.HpdBase</PackageId>
+    <Description>HPD Base-backed durable stores for HPD Agent definitions, sessions, and thread journals.</Description>
+    <PackageTags>ai;agent;storage;persistence;hpd-base;sqlite</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base/HPD.Base.csproj"
+                      Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
+    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base.Generators/HPD.Base.Generators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false"
+                      Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(UsePublishedHpdDependencies)' == 'true'">
+    <PackageReference Include="HPD.Base" Version="$(HPDBaseVersion)" />
+  </ItemGroup>
+
+</Project>

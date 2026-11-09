@@ -26,3 +26,6 @@ public enum AgentTuiEventDeliveryMode
     CatchUp,
     Live
 }
+
+internal sealed class AgentTuiThreadJournalNotFoundException(string message)
+    : InvalidOperationException(message);

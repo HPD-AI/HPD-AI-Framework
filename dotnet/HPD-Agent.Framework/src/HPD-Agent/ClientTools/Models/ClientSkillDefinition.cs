@@ -28,6 +28,7 @@ public record ClientSkillDefinition(
     {
         if (string.IsNullOrWhiteSpace(Name))
             throw new ArgumentException("Skill name is required", nameof(Name));
+        SkillModelName.Validate(Name, nameof(Name));
 
         if (string.IsNullOrWhiteSpace(Description))
             throw new ArgumentException("Skill description is required", nameof(Description));

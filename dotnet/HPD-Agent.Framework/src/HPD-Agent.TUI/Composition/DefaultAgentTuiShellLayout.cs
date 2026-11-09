@@ -3,7 +3,7 @@ using HPD.TUI.Core;
 
 namespace HPD.Agent.TUI.Composition;
 
-public sealed class DefaultAgentTuiShellLayout : IAgentTuiShellLayout
+internal sealed class DefaultAgentTuiShellLayout : IAgentTuiShellLayout
 {
     /// <inheritdoc />
     public IAgentTuiShellView Create(AgentTuiShellLayoutContext context)

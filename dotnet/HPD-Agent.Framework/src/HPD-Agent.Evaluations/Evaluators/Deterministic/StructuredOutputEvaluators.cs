@@ -13,7 +13,7 @@ namespace HPD.Agent.Evaluations.Evaluators.Deterministic;
 /// System.Text.Json. Returns false if the output cannot be parsed as valid JSON
 /// or if it fails the schema check.
 /// </summary>
-public sealed class SchemaConformanceEvaluator : HpdDeterministicEvaluatorBase
+internal sealed class SchemaConformanceEvaluator : HpdDeterministicEvaluatorBase
 {
     private readonly JsonElement _schema;
 
@@ -165,7 +165,7 @@ public sealed class SchemaConformanceEvaluator : HpdDeterministicEvaluatorBase
 /// in the JSON output. Returns 1.0 if all fields are present, 0.0 if none are.
 /// Empty field list vacuously returns 1.0.
 /// </summary>
-public sealed class FieldCompletenessEvaluator(string[] fields) : HpdDeterministicEvaluatorBase
+internal sealed class FieldCompletenessEvaluator(string[] fields) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Field Completeness"];
 
@@ -237,7 +237,7 @@ public sealed class FieldCompletenessEvaluator(string[] fields) : HpdDeterminist
 /// ordinal case-insensitive comparison. Returns false if the output is not valid JSON,
 /// not an object, the field is missing, or the value does not match.
 /// </summary>
-public sealed class FieldAccuracyEvaluator(string field, string expectedValue) : HpdDeterministicEvaluatorBase
+internal sealed class FieldAccuracyEvaluator(string field, string expectedValue) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Field Accuracy"];
 

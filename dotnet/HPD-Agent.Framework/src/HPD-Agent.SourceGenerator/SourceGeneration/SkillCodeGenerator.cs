@@ -217,7 +217,7 @@ internal static class SkillCodeGenerator
         sb.AppendLine("                                .Where(capability => capability is SkillResource or SkillScript)");
         sb.AppendLine($"                                .Select(capability => CapabilityId.Create(@\"{skillId.Replace("\"", "\"\"")}\" + \":\" + capability.Name)))");
         sb.AppendLine("                        }");
-        sb.AppendLine("                        , [SkillRuntimeMetadata.SkillDefinitionKey] = skillDefinition");
+        sb.AppendLine("                        , [\"HPD.SkillDefinition\"] = skillDefinition");
         sb.AppendLine("                    }");
         sb.AppendLine("                });");
         sb.AppendLine("        }");

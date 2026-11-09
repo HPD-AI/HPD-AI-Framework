@@ -120,7 +120,7 @@ public sealed record SubAgentChildTombstone : SubAgentRegistryEntry
 }
 
 /// <summary>Immutable projection of a parent thread's child registry at one journal cursor.</summary>
-public sealed record SubAgentChildRegistryProjection(
+internal sealed record SubAgentChildRegistryProjection(
     ThreadKey Parent,
     ThreadJournalCursor Cursor,
     IReadOnlyDictionary<SubAgentLocalId, SubAgentRegistryEntry> Entries,
@@ -198,7 +198,7 @@ public sealed record SubAgentChildControllerAuthorityEvent(
     bool Revoked) : AgentEvent;
 
 /// <summary>Conditional child-keyed authority for shared-subagent control.</summary>
-public static class SubAgentControllerAuthority
+internal static class SubAgentControllerAuthority
 {
     /// <summary>Idempotently grants one parent control through the owning fork operation.</summary>
     /// <param name="store">The durable session store.</param>
@@ -419,7 +419,7 @@ public static class SubAgentControllerAuthority
 }
 
 /// <summary>Projects and conditionally mutates a parent-local registry using its canonical thread journal.</summary>
-public sealed class SubAgentChildRegistry
+internal sealed class SubAgentChildRegistry
 {
     private readonly ISessionStore _store;
 
@@ -575,7 +575,7 @@ public sealed class SubAgentChildRegistry
 }
 
 /// <summary>Preserves the latest parent-local child registry through destructive compaction.</summary>
-public sealed class SubAgentRegistryRebaseSeedProvider(SubAgentChildRegistry registry)
+internal sealed class SubAgentRegistryRebaseSeedProvider(SubAgentChildRegistry registry)
     : IThreadJournalRebaseSeedProvider
 {
     /// <inheritdoc />

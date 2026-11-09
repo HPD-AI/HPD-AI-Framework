@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Collections.Immutable;
 
 namespace HPD.Agent;
@@ -5,6 +6,7 @@ namespace HPD.Agent;
 /// <summary>
 /// Classifies a capability in the HPD agent capability graph.
 /// </summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
 public enum HPDCapabilityKind
 {
     /// <summary>An ordinary callable function.</summary>
@@ -32,6 +34,7 @@ public enum HPDCapabilityKind
 /// <summary>
 /// Strongly typed metadata attached to every HPD-managed <c>AIFunction</c>.
 /// </summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
 public sealed record HPDCapabilityMetadata
 {
     /// <summary>The single additional-properties key used for HPD capability metadata.</summary>

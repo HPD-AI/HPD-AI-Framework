@@ -47,4 +47,4 @@ namespace HPD.Agent.MCP;
 [JsonSerializable(typeof(McpPromptContentSummary))]
 [JsonSerializable(typeof(SubscriptionsListenRequestParams))]
 [JsonSerializable(typeof(EmptyResult))]
-public partial class McpJsonSerializerContext : JsonSerializerContext;
+internal partial class McpJsonSerializerContext : JsonSerializerContext;

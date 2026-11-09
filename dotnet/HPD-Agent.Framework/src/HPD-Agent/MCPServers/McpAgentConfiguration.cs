@@ -32,7 +32,7 @@ public sealed record AgentMcpConfig
 }
 
 /// <summary>Runtime-only manifest reference with its resolved absolute path.</summary>
-public sealed record ResolvedMcpManifestReference
+internal sealed record ResolvedMcpManifestReference
 {
     /// <summary>Gets the resolved absolute manifest path.</summary>
     public required string Path { get; init; }
@@ -45,7 +45,7 @@ public sealed record ResolvedMcpManifestReference
 }
 
 /// <summary>Runtime-only MCP configuration resolved from the agent source document.</summary>
-public sealed record ResolvedAgentMcpConfig
+internal sealed record ResolvedAgentMcpConfig
 {
     /// <summary>Gets validated inline server declarations.</summary>
     public required IReadOnlyList<McpServerConfig> Servers { get; init; }
@@ -56,7 +56,7 @@ public sealed record ResolvedAgentMcpConfig
 }
 
 /// <summary>Runtime facilities available while an optional MCP package activates configured sources.</summary>
-public sealed class McpConfigurationActivationContext
+internal sealed class McpConfigurationActivationContext
 {
     /// <summary>Gets the builder requesting MCP source registration.</summary>
     public required AgentBuilder Builder { get; init; }
@@ -69,7 +69,7 @@ public sealed class McpConfigurationActivationContext
 }
 
 /// <summary>Creates capability-source registrations from portable AgentConfig MCP declarations.</summary>
-public interface IMcpConfigurationActivator
+internal interface IMcpConfigurationActivator
 {
     /// <summary>Creates capability-source registrations for the resolved declarations.</summary>
     /// <param name="config">The validated MCP declarations and resolved manifest paths.</param>
@@ -81,7 +81,7 @@ public interface IMcpConfigurationActivator
 }
 
 /// <summary>Registers the optional MCP implementation through generated application composition.</summary>
-public static class McpConfigurationActivation
+internal static class McpConfigurationActivation
 {
     private static readonly object s_gate = new();
     private static IMcpConfigurationActivator? s_activator;

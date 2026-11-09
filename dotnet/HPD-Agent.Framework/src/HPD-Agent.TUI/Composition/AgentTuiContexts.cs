@@ -75,6 +75,8 @@ public sealed class AgentTuiShellContext
 /// <summary>Provides session state to an application-owned footer item.</summary>
 public sealed class AgentTuiFooterContext
 {
+    private readonly AgentTuiStateBag _state;
+
     /// <summary>Initializes a footer context with isolated component state.</summary>
     public AgentTuiFooterContext(AgentTuiRuntimeScope scope, ChatShellModel shell)
         : this(scope, shell, new AgentTuiStateBag())
@@ -82,11 +84,11 @@ public sealed class AgentTuiFooterContext
     }
 
     /// <summary>Initializes a footer context with shared session state.</summary>
-    public AgentTuiFooterContext(AgentTuiRuntimeScope scope, ChatShellModel shell, AgentTuiStateBag state)
+    internal AgentTuiFooterContext(AgentTuiRuntimeScope scope, ChatShellModel shell, AgentTuiStateBag state)
     {
         Scope = scope ?? throw new ArgumentNullException(nameof(scope));
         Shell = shell ?? throw new ArgumentNullException(nameof(shell));
-        State = state ?? throw new ArgumentNullException(nameof(state));
+        _state = state ?? throw new ArgumentNullException(nameof(state));
     }
 
     /// <summary>Gets the active runtime scope.</summary>
@@ -96,22 +98,26 @@ public sealed class AgentTuiFooterContext
     public ChatShellModel Shell { get; }
 
     /// <summary>Gets shared TUI session state.</summary>
-    public AgentTuiStateBag State { get; }
+    public IAgentTuiStateStore State => _state;
+
+    internal AgentTuiStateBag StateBag => _state;
 }
 
 public sealed class AgentTuiWidgetContext
 {
+    private readonly AgentTuiStateBag _state;
+
     public AgentTuiWidgetContext(TuiSlot slot, AgentTuiRuntimeScope scope, ChatShellModel shell)
         : this(slot, scope, shell, new AgentTuiStateBag())
     {
     }
 
-    public AgentTuiWidgetContext(TuiSlot slot, AgentTuiRuntimeScope scope, ChatShellModel shell, AgentTuiStateBag state)
+    internal AgentTuiWidgetContext(TuiSlot slot, AgentTuiRuntimeScope scope, ChatShellModel shell, AgentTuiStateBag state)
     {
         Slot = slot;
         Scope = scope ?? throw new ArgumentNullException(nameof(scope));
         Shell = shell ?? throw new ArgumentNullException(nameof(shell));
-        State = state ?? throw new ArgumentNullException(nameof(state));
+        _state = state ?? throw new ArgumentNullException(nameof(state));
     }
 
     public TuiSlot Slot { get; }
@@ -120,7 +126,9 @@ public sealed class AgentTuiWidgetContext
 
     public ChatShellModel Shell { get; }
 
-    public AgentTuiStateBag State { get; }
+    public IAgentTuiStateStore State => _state;
+
+    internal AgentTuiStateBag StateBag => _state;
 }
 
 public sealed class AgentTuiAutocompleteContext

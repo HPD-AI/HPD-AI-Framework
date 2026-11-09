@@ -22,7 +22,7 @@ internal static class PreparedOutputExecutionTestFixture
 
     internal static AgentEventComposition EventComposition => AgentEventComposition.Create([
         CoreAgentEventModule.Fragment,
-        GeneratedAgentEventModule_HPD_Agent_Audio_1448db00.Fragment
+        HPD_Agent_AudioGeneratedAgentEventModule.Fragment
     ]);
 
     internal static PreparedOutputExecution Create()

@@ -68,6 +68,10 @@
     <AdditionalFiles Include="Authority/Generated/authority-capacity-governance-v1.txt" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Skills/README.md" Pack="true" PackagePath="Skills/" Visible="false" />
+  </ItemGroup>
+
   <!-- Pack source generator as analyzer in NuGet package -->
   <Target Name="IncludeAnalyzers" BeforeTargets="_GetPackageFiles">
     <ItemGroup>
@@ -102,6 +106,7 @@
     <InternalsVisibleTo Include="HPD-Agent.FFI" />
     <InternalsVisibleTo Include="HPD-Agent.MultiAgent" />
     <InternalsVisibleTo Include="HPD-Agent.Harness.Coding" />
+    <InternalsVisibleTo Include="HPD-Agent.Harness.Coding.TUI" />
     <InternalsVisibleTo Include="HPD-Agent.Evaluations.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Harness.Coding.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Harness.Coding.TUI.Tests" />
@@ -113,6 +118,8 @@
     <InternalsVisibleTo Include="HPD-Agent.Audio.VoiceActivity.AotSmoke" />
     <InternalsVisibleTo Include="HPD-Agent.Audio.VoiceActivity.CompositionExample" />
     <InternalsVisibleTo Include="HPD-Agent.EventComposition.AotSmoke" />
+    <InternalsVisibleTo Include="HPD-Agent.Stores.HpdBase" />
+    <InternalsVisibleTo Include="HPD-Agent.Stores.HpdBase.Tests" />
   </ItemGroup>
 
 </Project>

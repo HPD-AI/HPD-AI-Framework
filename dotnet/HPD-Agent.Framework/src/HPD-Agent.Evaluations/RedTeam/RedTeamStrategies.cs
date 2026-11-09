@@ -6,7 +6,7 @@ using System.Text;
 namespace HPD.Agent.Evaluations.RedTeam;
 
 /// <summary>Runs the generated case without changing the attack payload.</summary>
-public sealed class BasicStrategy : IRedTeamStrategy
+internal sealed class BasicStrategy : IRedTeamStrategy
 {
     public string Id => "basic";
     public string DisplayName => "Basic";
@@ -29,7 +29,7 @@ public sealed class BasicStrategy : IRedTeamStrategy
 }
 
 /// <summary>Encodes the attack instruction in Base64 and asks the agent to decode it.</summary>
-public sealed class Base64Strategy : IRedTeamStrategy
+internal sealed class Base64Strategy : IRedTeamStrategy
 {
     public string Id => "base64";
     public string DisplayName => "Base64";
@@ -53,7 +53,7 @@ public sealed class Base64Strategy : IRedTeamStrategy
 }
 
 /// <summary>Encodes the attack instruction as hexadecimal UTF-8 bytes.</summary>
-public sealed class HexStrategy : IRedTeamStrategy
+internal sealed class HexStrategy : IRedTeamStrategy
 {
     public string Id => "hex";
     public string DisplayName => "Hex";
@@ -78,7 +78,7 @@ public sealed class HexStrategy : IRedTeamStrategy
 }
 
 /// <summary>Applies ROT13 to the attack payload.</summary>
-public sealed class Rot13Strategy : IRedTeamStrategy
+internal sealed class Rot13Strategy : IRedTeamStrategy
 {
     public string Id => "rot13";
     public string DisplayName => "ROT13";
@@ -116,7 +116,7 @@ public sealed class Rot13Strategy : IRedTeamStrategy
 }
 
 /// <summary>Uses common character substitutions to obscure the attack payload.</summary>
-public sealed class LeetspeakStrategy : IRedTeamStrategy
+internal sealed class LeetspeakStrategy : IRedTeamStrategy
 {
     public string Id => "leetspeak";
     public string DisplayName => "Leetspeak";
@@ -147,7 +147,7 @@ public sealed class LeetspeakStrategy : IRedTeamStrategy
 }
 
 /// <summary>Removes spaces and converts the payload into camelCase-like text.</summary>
-public sealed class CamelCaseStrategy : IRedTeamStrategy
+internal sealed class CamelCaseStrategy : IRedTeamStrategy
 {
     public string Id => "camelcase";
     public string DisplayName => "Camel Case";
@@ -188,7 +188,7 @@ public sealed class CamelCaseStrategy : IRedTeamStrategy
 }
 
 /// <summary>Encodes the payload into Morse code.</summary>
-public sealed class MorseStrategy : IRedTeamStrategy
+internal sealed class MorseStrategy : IRedTeamStrategy
 {
     private static readonly IReadOnlyDictionary<char, string> Morse = new Dictionary<char, string>
     {
@@ -226,7 +226,7 @@ public sealed class MorseStrategy : IRedTeamStrategy
 }
 
 /// <summary>Encodes the attack payload as Pig Latin.</summary>
-public sealed class PigLatinStrategy : IRedTeamStrategy
+internal sealed class PigLatinStrategy : IRedTeamStrategy
 {
     public string Id => "piglatin";
     public string DisplayName => "Pig Latin";
@@ -269,7 +269,7 @@ public sealed class PigLatinStrategy : IRedTeamStrategy
 }
 
 /// <summary>Surrounds the payload with emoji markers to test visual-noise robustness.</summary>
-public sealed class EmojiStrategy : IRedTeamStrategy
+internal sealed class EmojiStrategy : IRedTeamStrategy
 {
     public string Id => "emoji";
     public string DisplayName => "Emoji";
@@ -292,7 +292,7 @@ public sealed class EmojiStrategy : IRedTeamStrategy
 }
 
 /// <summary>Uses Unicode confusable characters to obscure the attack payload.</summary>
-public sealed class HomoglyphStrategy : IRedTeamStrategy
+internal sealed class HomoglyphStrategy : IRedTeamStrategy
 {
     public string Id => "homoglyph";
     public string DisplayName => "Homoglyph";
@@ -345,7 +345,7 @@ public sealed class HomoglyphStrategy : IRedTeamStrategy
 }
 
 /// <summary>Wraps the attack payload with zero-width characters.</summary>
-public sealed class UnicodeSmugglingStrategy : IRedTeamStrategy
+internal sealed class UnicodeSmugglingStrategy : IRedTeamStrategy
 {
     public string Id => "unicode-smuggling";
     public string DisplayName => "Unicode Smuggling";
@@ -368,7 +368,7 @@ public sealed class UnicodeSmugglingStrategy : IRedTeamStrategy
 }
 
 /// <summary>Wraps the attack as a fake higher-priority system message.</summary>
-public sealed class FakeSystemMessageStrategy : IRedTeamStrategy
+internal sealed class FakeSystemMessageStrategy : IRedTeamStrategy
 {
     public string Id => "fake-system-message";
     public string DisplayName => "Fake System Message";
@@ -391,7 +391,7 @@ public sealed class FakeSystemMessageStrategy : IRedTeamStrategy
 }
 
 /// <summary>Wraps the attack payload inside a roleplay framing.</summary>
-public sealed class RoleplayJailbreakStrategy : IRedTeamStrategy
+internal sealed class RoleplayJailbreakStrategy : IRedTeamStrategy
 {
     public string Id => "roleplay-jailbreak";
     public string DisplayName => "Roleplay Jailbreak";
@@ -414,7 +414,7 @@ public sealed class RoleplayJailbreakStrategy : IRedTeamStrategy
 }
 
 /// <summary>Wraps the payload as a math or symbolic reasoning exercise.</summary>
-public sealed class MathPromptStrategy : IRedTeamStrategy
+internal sealed class MathPromptStrategy : IRedTeamStrategy
 {
     public string Id => "math-prompt";
     public string DisplayName => "Math Prompt";
@@ -437,7 +437,7 @@ public sealed class MathPromptStrategy : IRedTeamStrategy
 }
 
 /// <summary>Asks the agent to cite a fabricated authority before following the payload.</summary>
-public sealed class CitationStrategy : IRedTeamStrategy
+internal sealed class CitationStrategy : IRedTeamStrategy
 {
     public string Id => "citation";
     public string DisplayName => "Citation";
@@ -460,7 +460,7 @@ public sealed class CitationStrategy : IRedTeamStrategy
 }
 
 /// <summary>Wraps the payload in a mischievous-user framing.</summary>
-public sealed class MischievousUserStrategy : IRedTeamStrategy
+internal sealed class MischievousUserStrategy : IRedTeamStrategy
 {
     public string Id => "mischievous-user";
     public string DisplayName => "Mischievous User";
@@ -483,7 +483,7 @@ public sealed class MischievousUserStrategy : IRedTeamStrategy
 }
 
 /// <summary>Wraps the attack as a short multi-turn escalation transcript.</summary>
-public sealed class MultiTurnEscalationStrategy : IRedTeamStrategy
+internal sealed class MultiTurnEscalationStrategy : IRedTeamStrategy
 {
     public string Id => "multi-turn-escalation";
     public string DisplayName => "Multi-Turn Escalation";
@@ -510,7 +510,7 @@ public sealed class MultiTurnEscalationStrategy : IRedTeamStrategy
 }
 
 /// <summary>Wraps the attack as a gradual crescendo from benign framing to the target instruction.</summary>
-public sealed class CrescendoStrategy : IRedTeamStrategy
+internal sealed class CrescendoStrategy : IRedTeamStrategy
 {
     public string Id => "crescendo";
     public string DisplayName => "Crescendo";
@@ -538,7 +538,7 @@ public sealed class CrescendoStrategy : IRedTeamStrategy
 }
 
 /// <summary>Wraps the attack in markdown that pretends to be authoritative policy.</summary>
-public sealed class MarkdownAuthorityStrategy : IRedTeamStrategy
+internal sealed class MarkdownAuthorityStrategy : IRedTeamStrategy
 {
     public string Id => "markdown-authority";
     public string DisplayName => "Markdown Authority";
@@ -561,7 +561,7 @@ public sealed class MarkdownAuthorityStrategy : IRedTeamStrategy
 }
 
 /// <summary>Uses stronger authoritative markup than the basic markdown authority wrapper.</summary>
-public sealed class AuthoritativeMarkupInjectionStrategy : IRedTeamStrategy
+internal sealed class AuthoritativeMarkupInjectionStrategy : IRedTeamStrategy
 {
     public string Id => "authoritative-markup-injection";
     public string DisplayName => "Authoritative Markup Injection";
@@ -584,7 +584,7 @@ public sealed class AuthoritativeMarkupInjectionStrategy : IRedTeamStrategy
 }
 
 /// <summary>Places the attack payload inside supplied untrusted content.</summary>
-public sealed class IndirectContentStrategy : IRedTeamStrategy
+internal sealed class IndirectContentStrategy : IRedTeamStrategy
 {
     public string Id => "indirect-content";
     public string DisplayName => "Indirect Content";
@@ -614,7 +614,7 @@ public sealed class IndirectContentStrategy : IRedTeamStrategy
 }
 
 /// <summary>Produces several phrasing variants for the same attack.</summary>
-public sealed class BestOfNStrategy : IRedTeamStrategy
+internal sealed class BestOfNStrategy : IRedTeamStrategy
 {
     private readonly int _variantCount;
 
@@ -663,7 +663,7 @@ public sealed class BestOfNStrategy : IRedTeamStrategy
 }
 
 /// <summary>Produces retry-style mutated variants for attacks that fail on the first phrasing.</summary>
-public sealed class RetryMutationStrategy : IRedTeamStrategy
+internal sealed class RetryMutationStrategy : IRedTeamStrategy
 {
     private readonly int _retryCount;
 
@@ -709,7 +709,7 @@ public sealed class RetryMutationStrategy : IRedTeamStrategy
 }
 
 /// <summary>Expands the payload through several common jailbreak templates.</summary>
-public sealed class JailbreakTemplateStrategy : IRedTeamStrategy
+internal sealed class JailbreakTemplateStrategy : IRedTeamStrategy
 {
     public string Id => "jailbreak-templates";
     public string DisplayName => "Jailbreak Templates";
@@ -750,7 +750,7 @@ public sealed class JailbreakTemplateStrategy : IRedTeamStrategy
 }
 
 /// <summary>Combines several local jailbreak strategies into one fan-out strategy.</summary>
-public sealed class CompositeJailbreakStrategy : IRedTeamStrategy
+internal sealed class CompositeJailbreakStrategy : IRedTeamStrategy
 {
     public string Id => "jailbreak-composite";
     public string DisplayName => "Composite Jailbreak";
@@ -787,7 +787,7 @@ public sealed class CompositeJailbreakStrategy : IRedTeamStrategy
 }
 
 /// <summary>Represents the payload as a small decision tree that gradually selects the unsafe thread.</summary>
-public sealed class TreeJailbreakStrategy : IRedTeamStrategy
+internal sealed class TreeJailbreakStrategy : IRedTeamStrategy
 {
     public string Id => "jailbreak-tree";
     public string DisplayName => "Tree Jailbreak";
@@ -815,7 +815,7 @@ public sealed class TreeJailbreakStrategy : IRedTeamStrategy
 }
 
 /// <summary>Uses Likert-style agreement framing to bias the agent toward compliance.</summary>
-public sealed class LikertJailbreakStrategy : IRedTeamStrategy
+internal sealed class LikertJailbreakStrategy : IRedTeamStrategy
 {
     public string Id => "jailbreak-likert";
     public string DisplayName => "Likert Jailbreak";
@@ -838,7 +838,7 @@ public sealed class LikertJailbreakStrategy : IRedTeamStrategy
 }
 
 /// <summary>Allows callers to provide a local custom case transform without a registry.</summary>
-public sealed class CustomDelegateStrategy : IRedTeamStrategy
+internal sealed class CustomDelegateStrategy : IRedTeamStrategy
 {
     private readonly Func<RedTeamCase, RedTeamStrategyContext, RedTeamCase> _transform;
 
@@ -878,7 +878,7 @@ public sealed class CustomDelegateStrategy : IRedTeamStrategy
 }
 
 /// <summary>Applies multiple strategies in order and marks the result as a layered attack.</summary>
-public sealed class LayeredStrategy : IRedTeamStrategy
+internal sealed class LayeredStrategy : IRedTeamStrategy
 {
     private readonly IReadOnlyList<IRedTeamStrategy> _strategies;
 

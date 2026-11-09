@@ -1,6 +1,6 @@
 {
   "Version": "1.0",
-  "Digest": "923db075c7d4c1297e35bd5faa75a4ad43dbe09b536c3c2832495d0370af8134",
+  "Digest": "d9344c856232f2cac6881d721968b3d57f5538b9c0d1b957f0f05f1bae0bfe13",
   "BehaviorDigest": "a1de80c75efc508249133567c08f0810c27119303730619832f439cbaf9650f4",
   "EventCount": 145,
   "Events": [
@@ -629,7 +629,7 @@
     },
     {
       "Discriminator": "SKILL_ACTIVATED",
-      "ContractDigest": "d7c32bd5425e39256c4b9cbebdf0f019124230d253fe2fd058813d7906675b3b",
+      "ContractDigest": "89e5a915f864c8ecb3ae7aca658aa600bdda3bad12eecfe7315f62da5a6d5f79",
       "Durability": "LiveOnly",
       "RequiresDurable": false,
       "ModuleId": "hpd.agent.core"

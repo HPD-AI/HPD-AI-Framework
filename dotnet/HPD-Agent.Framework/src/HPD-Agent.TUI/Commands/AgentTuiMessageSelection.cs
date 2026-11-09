@@ -3,14 +3,14 @@ using HPD.Agent.TUI.Composition;
 
 namespace HPD.Agent.TUI.Commands;
 
-public enum AgentTuiMessageSelectionPolicy
+internal enum AgentTuiMessageSelectionPolicy
 {
     EffectiveContextOnly,
     IncludeCompactedWithBadge,
     RawTimeline
 }
 
-public sealed record AgentTuiSelectableMessage(
+internal sealed record AgentTuiSelectableMessage(
     string MessageId,
     string Text,
     int Index,
@@ -19,7 +19,7 @@ public sealed record AgentTuiSelectableMessage(
     bool IsModelVisible,
     DateTimeOffset? CreatedAt);
 
-public static class AgentTuiMessageSelection
+internal static class AgentTuiMessageSelection
 {
     public static async Task<IReadOnlyList<AgentTuiSelectableMessage>> GetUserMessagesAsync(
         AgentTuiCommandContext context,

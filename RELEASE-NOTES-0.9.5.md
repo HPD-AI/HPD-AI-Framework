@@ -1,10 +1,11 @@
-# HPD-Agent 1.0.0
+# HPD-Agent 0.9.5
 
-## Stability commitment
+## Release status
 
-HPD-Agent 1.0.0 establishes semantic versioning for the documented public API,
-serialized event contracts, supported persistence formats, hosted DTOs and route
-names, and TUI integration contracts.
+HPD-Agent 0.9.5 is a pre-1.0 stabilization release for additional compatibility
+testing. The documented public API, serialized event contracts, persistence
+formats, hosted DTOs and route names, and TUI integration contracts are candidates
+for 1.0, but breaking changes remain possible before 1.0.0 is released.
 
 ## Highlights
 
@@ -22,6 +23,10 @@ names, and TUI integration contracts.
 - Completed ToolHarness construction, middleware lifecycle, and retry contracts.
 - `OnErrorAsync` observes terminal model, function, iteration, turn, input,
   runtime, and thread-fork failures exactly once.
+- Skill instances and script capabilities use validated factories, while
+  projection, generated-reference, and content-source plumbing stays internal.
+- Skill activation lasts for the current message turn; unsupported lifetime
+  modes and configuration were removed before the planned 1.0 freeze.
 - Configured middleware fails agent construction when a registry entry,
   dependency, or constructor cannot be resolved.
 - Function, ToolHarness, and skill middleware scopes apply consistently to
@@ -38,8 +43,35 @@ names, and TUI integration contracts.
   and in-memory sinks is internal to `HPD-Agent.Audio`.
 - A test-gated NuGet release path covering the client, provider-neutral MultiAgent
   ASP.NET Core routes, and ASP.NET Core OpenAPI and evaluation integrations.
+- The coordinated package train releases HPD-Auth Core and ControlPlane before
+  HPD Base, then completes the remaining Auth, Base, Graph, and Agent packages
+  in dependency order.
+- Evaluation consumers get a reduced 1.0-candidate API surface, explicit structured-input
+  formatting, interpretation-aware pass rates, interpretation-aware CI policy
+  gates, factory-backed deterministic and red-team implementations, consistent
+  live evaluator policy defaults, persistence-failure diagnostics, stable
+  generated event-module names, and package-level quickstarts for batch, live,
+  storage, and hosted evaluation workflows.
+- MCP and OpenAPI packages expose only their documented consumer surfaces.
+  Generated-code bridges remain public for source generation but are hidden from
+  consumer IntelliSense; raw MCP runtimes and projection serializers are internal.
+- MCP and OpenAPI packages ship runnable setup, permission, authentication, and
+  response-shaping guidance instead of placeholder package documentation, plus a
+  central integration and public-API-boundary guide.
+- OpenAPI loading emits structured skipped-operation warnings and fails fast when
+  a source produces no operations, with explicit `AllowEmptyCatalog` opt-in.
+- Retry middleware now uses the selected provider's error handler for model
+  failures and package-owned handlers for function sources; OpenAPI responses use
+  their status and `Retry-After` classification automatically.
+- Native AOT MCP publish-and-run validation is a dedicated CI gate.
 - Bot adapters now preserve complete webhook responses, support mixed-host
   registry mapping, expose consistent logging, and ship package-level setup guides.
+- Skill names are validated against cross-provider function-name constraints,
+  and malformed directory metadata reports the exact script and field.
+- Optional `net10.0` HPD Base adapters provide restart-durable agent
+  definitions, session/thread journals, streaming-delta recovery, evaluation
+  scores and runs, immutable dataset versions, SCD-2 case history, and diffs.
+  Dataset persistence uses explicit AOT-safe codecs rather than reflection.
 
 ## Error detail visibility
 
@@ -51,9 +83,6 @@ option to `false`.
 
 ## Deliberate package exclusions
 
-- `HPD-Agent.MultiAgent.AspNetCore` is provider-neutral and ships without HPD
-  Base. The optional `HPD-Agent.MultiAgent.HpdBase` adapter requires
-  `HPD-Base.AspNetCore` and `HPD-Graph.Base` in the same published release.
 - `HPD-Agent.Studio` follows the separate Studio release process.
 - `HPD-Agent.Audio.LiveKit` currently supports only the qualified `osx-arm64`
   runtime. Unsupported runtime identifiers are packaged but fail closed.
@@ -66,8 +95,8 @@ provide the service-version and pipeline options exposed by these providers.
 `HPD-Agent.Evaluations` retains
 `Microsoft.Extensions.AI.Evaluation.NLP` `10.11.0-preview.1.26513.7` because no
 stable release of that package exists. These upstream prerelease dependencies
-are intentional for 1.0.0; HPD-owned public contracts remain covered by the
-1.0 stability commitment.
+are intentional for 0.9.5 and the planned 1.0.0 release. HPD-owned public
+contracts remain documented but pre-1.0.
 
 ## Deprecated packages
 

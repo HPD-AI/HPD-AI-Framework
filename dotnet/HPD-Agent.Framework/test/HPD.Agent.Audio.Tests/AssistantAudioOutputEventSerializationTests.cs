@@ -10,7 +10,7 @@ public sealed class AssistantAudioOutputEventSerializationTests
 {
     private static readonly AgentEventCodec Codec = AgentEventComposition.Create([
         CoreAgentEventModule.Fragment,
-        GeneratedAgentEventModule_HPD_Agent_Audio_1448db00.Fragment
+        HPD_Agent_AudioGeneratedAgentEventModule.Fragment
     ]).Codec;
     private const string SessionId = "session-audio";
     private const string OutputFlowId = "output-flow";

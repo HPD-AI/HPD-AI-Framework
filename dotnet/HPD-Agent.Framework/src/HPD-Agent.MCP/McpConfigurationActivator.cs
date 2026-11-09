@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.ComponentModel;
 using System.Text.Json;
 using HPD.Agent.Secrets;
 using Microsoft.Extensions.Logging;
@@ -132,7 +133,11 @@ internal static class McpConfigurationComposition
         => McpConfigurationPackage.Register();
 }
 
-/// <summary>Generated application composition entry point for MCP AgentConfig activation.</summary>
+/// <summary>
+/// Source-generated application composition entry point for MCP AgentConfig activation.
+/// Application code should not call this type directly.
+/// </summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
 public static class McpConfigurationPackage
 {
     /// <summary>Registers the MCP package activator with core agent construction.</summary>

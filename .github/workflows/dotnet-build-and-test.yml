@@ -131,6 +131,18 @@ jobs:
     - name: Build
       run: dotnet build dotnet/HPD-Agent.Framework/HPD-Agent.slnx -c ${{ matrix.configuration }} --no-restore
 
+    - name: Verify API surfaces
+      if: matrix.targetFramework == 'net10.0'
+      run: >
+        dotnet run
+        --project dotnet/HPD-Agent.Framework/test/HPD-Agent.DxAudit/HPD-Agent.DxAudit.csproj
+        -c ${{ matrix.configuration }}
+        -f net10.0
+        --no-build
+        --
+        --api-only
+        --strict
+
     - name: Smoke-test audio application composition
       if: matrix.targetFramework == 'net10.0'
       run: >

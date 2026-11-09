@@ -391,7 +391,7 @@ public enum SubAgentContext
 /// <summary>
 /// Resolves author policy and model-requested subagent context.
 /// </summary>
-public static class SubAgentContexts
+internal static class SubAgentContexts
 {
     /// <summary>
     /// Reads the optional model-facing <c>context</c> argument.

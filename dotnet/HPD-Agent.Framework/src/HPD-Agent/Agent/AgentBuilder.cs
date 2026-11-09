@@ -642,8 +642,10 @@ public class AgentBuilder
                 return;
             }
 
-            // Get the All field (static readonly array)
-            var allField = registryType.GetField("All", BindingFlags.Public | BindingFlags.Static);
+            // Get the internal All field (static readonly array)
+            var allField = registryType.GetField(
+                "All",
+                BindingFlags.NonPublic | BindingFlags.Static);
             if (allField == null)
             {
                 return;
@@ -2141,10 +2143,6 @@ public class AgentBuilder
             _contentStore = _implicitContentStoreFactory();
             _ownsContentStore = true;
         }
-        if (_config.Skills.ActivationLifetime != SkillActivationLifetime.MessageTurn)
-            throw new InvalidOperationException(
-                $"Skill activation lifetime '{_config.Skills.ActivationLifetime}' is not supported. " +
-                "Use MessageTurn until its persistence semantics are implemented.");
         await ResolveStoredAgentDefinitionAsync(cancellationToken).ConfigureAwait(false);
         EnsureAutoConfiguration();
         ValidateEventAuthority();
@@ -2823,6 +2821,8 @@ public class AgentBuilder
 
         // Retry behavior is explicit. Configuration supplies policy, but a positive budget
         // does not install middleware or grant replay eligibility.
+        foreach (var retryMiddleware in _middlewares.OfType<RetryMiddleware>())
+            retryMiddleware.UseProviderErrorHandler(buildData.ErrorHandler);
 
         // Register FunctionTimeoutMiddleware if timeout is configured
         if (_config.ErrorHandling?.SingleFunctionTimeout != null)
@@ -3086,7 +3086,7 @@ public class AgentBuilder
                 var sourceId = CapabilitySourceId.Create(
                     $"openapi:{source.ParentContainer ?? "standalone"}:{source.Name}");
                 AddCapabilitySource(new AgentCapabilitySourceRegistration(
-                    new OpenApiCapabilitySourceFactory(sourceId, source, s_openApiLoader),
+                    new OpenApiCapabilitySourceFactory(sourceId, source, s_openApiLoader, _logger),
                     CapabilitySourceInitialLoadPolicy.Required,
                     CapabilitySourceRefreshFailurePolicy.RetainLastKnownGood));
             }
@@ -3685,8 +3685,7 @@ public class AgentBuilder
         // This allows tests to inject fake clients without configuring a real provider
         if (_baseClient != null)
         {
-            // Use generic error handler for testing
-            var testErrorHandler = new HPD.Agent.ErrorHandling.GenericErrorHandler();
+            var testErrorHandler = ResolveSelectedProviderErrorHandler();
             var toolBuild = await BuildToolOptionsAsync(cancellationToken).ConfigureAwait(false);
             var chatConfig = _config.ResolveClientConfig(ProviderClientFamily.Chat);
             var executionIdentity = CreateHostOwnedChatClientIdentity(_baseClient, chatConfig);
@@ -3704,8 +3703,20 @@ public class AgentBuilder
         return new AgentBuildDependencies(
             CreateAuxiliaryClientSet(),
             runtimeToolBuild.MergedOptions,
-            new HPD.Agent.ErrorHandling.GenericErrorHandler(),
+            ResolveSelectedProviderErrorHandler(),
             OwnedHttpClients: runtimeToolBuild.OwnedHttpClients);
+    }
+
+    private ErrorHandling.IProviderErrorHandler ResolveSelectedProviderErrorHandler()
+    {
+        var providerKey = _config.ResolveClientConfig(ProviderClientFamily.Chat)?.Provider?.Key;
+        if (!string.IsNullOrWhiteSpace(providerKey) &&
+            _providerRegistry.GetProvider(providerKey) is { } provider)
+        {
+            return provider.CreateErrorHandler();
+        }
+
+        return new ErrorHandling.GenericErrorHandler();
     }
 
     private static ProviderClientExecutionIdentity CreateHostOwnedChatClientIdentity(
