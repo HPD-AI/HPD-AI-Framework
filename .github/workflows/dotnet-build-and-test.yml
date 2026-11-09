@@ -8,10 +8,20 @@ on:
         required: false
         type: boolean
         default: false
+      skip_macos_verification:
+        description: 'Emergency release only: skip the macOS verification leg when it has already passed for the same source revision.'
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       skip_tests:
         description: 'Emergency release only: skip test execution while retaining build and package verification.'
+        required: false
+        type: boolean
+        default: false
+      skip_macos_verification:
+        description: 'Emergency release only: skip the macOS verification leg when it has already passed for the same source revision.'
         required: false
         type: boolean
         default: false
@@ -65,7 +75,7 @@ jobs:
   # ============================================
   build-and-test:
     needs: paths-filter
-    if: github.event_name == 'workflow_call' || needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'workflow_call' || needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch') && (matrix.os != 'macos-latest' || !inputs.skip_macos_verification)
     strategy:
       fail-fast: false
       matrix:
@@ -295,6 +305,13 @@ jobs:
         dotnet/HPD-Environment.Framework/src/HPD-Environment.Search.Ripgrep/pack/prepare-ripgrep-binaries.cs
         -- --output-root
         dotnet/HPD-Environment.Framework/src/HPD-Environment.Search.Ripgrep/obj/RipgrepPack
+
+    - name: Build graph source generator for packing
+      run: >-
+        dotnet build
+        dotnet/HPD-Graph.Framework/src/HPD-Graph.SourceGenerator/HPD-Graph.SourceGenerator.csproj
+        -c Release
+        --nologo
 
     - name: Pack NuGet packages
       run: dotnet pack dotnet/HPD-Agent.Framework/HPD-Agent.slnx -c Release --output ./artifacts

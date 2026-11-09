@@ -44,6 +44,11 @@ on:
         required: false
         type: boolean
         default: false
+      skip_macos_verification:
+        description: 'Emergency release only: skip the macOS verification leg when it has already passed for the same source revision.'
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       version:
@@ -84,6 +89,11 @@ on:
         type: string
       skip_tests:
         description: 'Emergency release only: skip test execution while retaining build, API, and package verification.'
+        required: false
+        type: boolean
+        default: false
+      skip_macos_verification:
+        description: 'Emergency release only: skip the macOS verification leg when it has already passed for the same source revision.'
         required: false
         type: boolean
         default: false
@@ -137,6 +147,7 @@ jobs:
     uses: ./.github/workflows/dotnet-build-and-test.yml
     with:
       skip_tests: ${{ inputs.skip_tests }}
+      skip_macos_verification: ${{ inputs.skip_macos_verification }}
 
   publish:
     runs-on: ubuntu-latest
