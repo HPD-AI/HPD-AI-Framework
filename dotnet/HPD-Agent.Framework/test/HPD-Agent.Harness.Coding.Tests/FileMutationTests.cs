@@ -63,7 +63,8 @@ public sealed class FileMutationTests : IDisposable
     {
         var toolharness = CodingHarnessTestFactory.Create();
 
-        var act = () => toolharness.ApplyTextMutationAsync(CreateRequest("/dev/zero", "x"));
+        var blockedPath = OperatingSystem.IsWindows() ? "NUL" : "/dev/zero";
+        var act = () => toolharness.ApplyTextMutationAsync(CreateRequest(blockedPath, "x"));
 
         await act.Should().ThrowAsync<FileMutationException>()
             .Where(exception => exception.Kind == FileMutationErrorKind.BlockedDevicePath);

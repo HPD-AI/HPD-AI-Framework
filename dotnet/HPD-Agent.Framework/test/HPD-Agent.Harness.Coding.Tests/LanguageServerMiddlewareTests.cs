@@ -1103,7 +1103,12 @@ public sealed class LanguageServerMiddlewareTests
             var resolved = await new LanguageServerToolResolver()
                 .FindExecutableAsync("sample-lsp", tempRoot, CancellationToken.None);
 
-            resolved.Should().Be(executable);
+            string.Equals(
+                resolved,
+                executable,
+                OperatingSystem.IsWindows()
+                    ? StringComparison.OrdinalIgnoreCase
+                    : StringComparison.Ordinal).Should().BeTrue();
         }
         finally
         {

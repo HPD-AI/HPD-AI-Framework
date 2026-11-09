@@ -1520,7 +1520,7 @@ public partial class CodingToolHarness
         ExecuteCommandOutputHandle handle)
     {
         var bytes = handle.LocalPath is { } path && File.Exists(path)
-            ? File.ReadAllBytes(path)
+            ? ReadAllBytesShared(path)
             : stream.CapturedBytes.ToArray();
         if (bytes.Length == 0)
             return null;
@@ -1529,6 +1529,23 @@ public partial class CodingToolHarness
             handle.Binary ? "application/octet-stream" : "text/plain");
         capture.WriteAsync(bytes).AsTask().GetAwaiter().GetResult();
         return capture;
+    }
+
+    private static byte[] ReadAllBytesShared(string path)
+    {
+        using var input = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete,
+            bufferSize: 4096,
+            FileOptions.SequentialScan);
+        using var output = new MemoryStream(
+            input.CanSeek && input.Length <= int.MaxValue
+                ? checked((int)input.Length)
+                : 0);
+        input.CopyTo(output);
+        return output.ToArray();
     }
 
     private static string SanitizeTerminalOutputForXml(string value)

@@ -36,6 +36,9 @@ public partial class CodingToolHarness
 
     private static bool IsBlockedMutationPath(string fullPath)
     {
+        if (OperatingSystem.IsWindows() && HasWindowsDeviceName(fullPath))
+            return true;
+
         var normalized = fullPath.Replace('\\', '/');
         var blocked = new HashSet<string>(StringComparer.Ordinal)
         {
@@ -61,6 +64,20 @@ public partial class CodingToolHarness
                parts[0] == "proc" &&
                parts[2] == "fd" &&
                (parts[3] == "0" || parts[3] == "1" || parts[3] == "2");
+    }
+
+    private static bool HasWindowsDeviceName(string path)
+    {
+        var name = Path.GetFileNameWithoutExtension(path);
+        return name.Equals("CON", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("AUX", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("NUL", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("CLOCK$", StringComparison.OrdinalIgnoreCase) ||
+            (name.Length == 4 &&
+                (name.StartsWith("COM", StringComparison.OrdinalIgnoreCase) ||
+                 name.StartsWith("LPT", StringComparison.OrdinalIgnoreCase)) &&
+                name[3] is >= '1' and <= '9');
     }
 
     private static bool IsWindowsUncPath(string path)
