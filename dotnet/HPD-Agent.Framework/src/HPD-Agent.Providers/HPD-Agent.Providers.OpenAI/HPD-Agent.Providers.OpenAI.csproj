@@ -5,6 +5,8 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <LangVersion>latest</LangVersion>
+    <!-- Azure exposes the required service-version and pipeline options only in this prerelease SDK. -->
+    <NoWarn>$(NoWarn);NU5104</NoWarn>
 
     <!-- Native AOT Configuration -->
     <IsAotCompatible>true</IsAotCompatible>

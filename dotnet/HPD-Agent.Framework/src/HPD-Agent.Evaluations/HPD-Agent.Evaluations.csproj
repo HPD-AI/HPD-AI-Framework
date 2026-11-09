@@ -10,7 +10,9 @@
     <!-- System.Text.Json 9/10 reports Exception.TargetSite while traversing
          Microsoft.Extensions.AI content metadata. Live exceptions remain outside
          the durable evaluation event contract; the net8.0 build audits source code without it. -->
-    <NoWarn Condition="'$(TargetFramework)' != 'net8.0'">$(NoWarn);IL2026</NoWarn>
+    <!-- Microsoft has not shipped a stable release of the NLP evaluation package. -->
+    <NoWarn Condition="'$(TargetFramework)' != 'net8.0'">$(NoWarn);IL2026;NU5104</NoWarn>
+    <NoWarn Condition="'$(TargetFramework)' == 'net8.0'">$(NoWarn);NU5104</NoWarn>
   </PropertyGroup>
 
   <!-- NuGet Package Metadata -->
