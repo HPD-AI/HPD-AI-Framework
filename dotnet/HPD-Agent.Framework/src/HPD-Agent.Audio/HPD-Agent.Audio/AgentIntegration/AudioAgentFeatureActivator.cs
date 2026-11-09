@@ -4,7 +4,7 @@ using HPD.Agent.Middleware;
 
 namespace HPD.Agent.Audio.AgentIntegration;
 
-public static class AudioAgentFeatureActivator
+internal static class AudioAgentFeatureActivator
 {
 #pragma warning disable CA2255
     [ModuleInitializer]

@@ -204,8 +204,9 @@ public sealed class ProviderComposition
 
                     foreach (var pair in contribution.Backends)
                     {
-                        if (!backends.TryAdd(pair.Key, pair.Value))
-                            throw Error("HPDP014", $"Provider '{canonical}' contributes backend '{pair.Key}' more than once.");
+                        backends[pair.Key] = backends.TryGetValue(pair.Key, out var existingBackend)
+                            ? MergeBackend(canonical, existingBackend, pair.Value)
+                            : pair.Value;
                     }
 
                     foreach (var alias in contribution.Aliases)
@@ -233,6 +234,103 @@ public sealed class ProviderComposition
             string.Equals(left.DefaultModelId, right.DefaultModelId, StringComparison.Ordinal) &&
             SequenceEqual(left.SupportedModels, right.SupportedModels) &&
             DictionaryEqual(left.Capabilities, right.Capabilities);
+
+        /// <summary>
+        /// Merges compatible backend fragments. Provider packages may split one real
+        /// backend across assemblies when each contributes different client families.
+        /// </summary>
+        private static ProviderBackendDescriptor MergeBackend(
+            string providerKey,
+            ProviderBackendDescriptor left,
+            ProviderBackendDescriptor right)
+        {
+            if (!string.Equals(left.BackendKey, right.BackendKey, StringComparison.Ordinal))
+            {
+                throw Error(
+                    "HPDP014",
+                    $"Provider '{providerKey}' has backend descriptors with inconsistent keys '{left.BackendKey}' and '{right.BackendKey}'.");
+            }
+
+            var families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>(left.Families);
+            foreach (var pair in right.Families)
+            {
+                if (families.TryGetValue(pair.Key, out var existing))
+                {
+                    if (!Equivalent(existing, pair.Value))
+                    {
+                        throw Error(
+                            "HPDP010",
+                            $"Provider '{providerKey}' backend '{left.BackendKey}' has conflicting contributions for client family '{pair.Key}'.");
+                    }
+                }
+                else
+                {
+                    families.Add(pair.Key, pair.Value);
+                }
+            }
+
+            var authentication = new Dictionary<ProviderAuthenticationKind, ProviderAuthenticationDescriptor>();
+            foreach (var item in left.Authentication)
+            {
+                if (!authentication.TryAdd(item.Kind, item))
+                {
+                    throw Error(
+                        "HPDP014",
+                        $"Provider '{providerKey}' backend '{left.BackendKey}' declares authentication kind '{item.Kind}' more than once.");
+                }
+            }
+            foreach (var item in right.Authentication)
+            {
+                authentication[item.Kind] = authentication.TryGetValue(item.Kind, out var existing)
+                    ? MergeAuthentication(providerKey, left.BackendKey, existing, item)
+                    : item;
+            }
+
+            return new ProviderBackendDescriptor
+            {
+                BackendKey = left.BackendKey,
+                IsDefault = left.IsDefault || right.IsDefault,
+                Families = new ReadOnlyDictionary<ProviderClientFamily, ProviderFamilyDescriptor>(families),
+                Authentication = Array.AsReadOnly(authentication.Values
+                    .OrderBy(static item => item.Kind)
+                    .ToArray())
+            };
+        }
+
+        private static ProviderAuthenticationDescriptor MergeAuthentication(
+            string providerKey,
+            string backendKey,
+            ProviderAuthenticationDescriptor left,
+            ProviderAuthenticationDescriptor right)
+        {
+            if (!CompatibleOptionalString(left.DefaultSecretKey, right.DefaultSecretKey) ||
+                !CompatibleOptionalSequence(left.DefaultScopes, right.DefaultScopes))
+            {
+                throw Error(
+                    "HPDP014",
+                    $"Provider '{providerKey}' backend '{backendKey}' has conflicting '{left.Kind}' authentication descriptors.");
+            }
+
+            var families = new HashSet<ProviderClientFamily>(left.SupportedFamilies);
+            families.UnionWith(right.SupportedFamilies);
+            return left with
+            {
+                IsDefault = left.IsDefault || right.IsDefault,
+                IsInteractive = left.IsInteractive || right.IsInteractive,
+                SupportsRefresh = left.SupportsRefresh || right.SupportsRefresh,
+                DefaultSecretKey = left.DefaultSecretKey ?? right.DefaultSecretKey,
+                DefaultScopes = left.DefaultScopes ?? right.DefaultScopes,
+                SupportedFamilies = families
+            };
+        }
+
+        private static bool CompatibleOptionalString(string? left, string? right) =>
+            left is null || right is null || string.Equals(left, right, StringComparison.Ordinal);
+
+        private static bool CompatibleOptionalSequence(IReadOnlyList<string>? left, IReadOnlyList<string>? right) =>
+            left is null || right is null
+                ? true
+                : SequenceEqual(left, right);
 
         private static bool SequenceEqual(IReadOnlyList<string>? left, IReadOnlyList<string>? right) =>
             ReferenceEquals(left, right) ||

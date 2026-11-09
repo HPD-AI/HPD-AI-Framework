@@ -17,7 +17,7 @@ public static class ManagedLiveKitBuilderExtensions
     public static AgentBuilder WithLiveKitAudioTransport(
         this AgentBuilder builder,
         string endpoint,
-        Func<ManagedAudioSessionStartRequestV1, CancellationToken, ValueTask<char[]>> credentialResolver,
+        Func<ManagedAudioSessionStartRequest, CancellationToken, ValueTask<char[]>> credentialResolver,
         Action<AudioConfig>? configureAudio = null,
         LiveKitTransportProviderConfig? providerConfig = null)
     {
@@ -50,7 +50,7 @@ public static class ManagedLiveKitBuilderExtensions
             ProviderConfig = providerConfigElement
         };
         builder.Config.Audio = audio;
-        AudioRuntimeCompositionRegistryV1.Register(builder, new LiveKitRuntimeComposition(
+        AudioRuntimeCompositionRegistry.Register(builder, new LiveKitRuntimeComposition(
             endpoint,
             credentialResolver,
             ownedProviderConfig,
@@ -69,7 +69,7 @@ public static class ManagedLiveKitBuilderExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(options);
-        var authority = new ManagedAudioSessionAuthorityV1(
+        var authority = new ManagedAudioSessionAuthority(
             new LiveKitManagedAudioSessionBackend(options));
         var runtime = new AudioRuntimeAttachmentOptions
         {
@@ -88,21 +88,21 @@ public static class ManagedLiveKitBuilderExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(options);
         services.AddSingleton(options);
-        services.AddSingleton<IManagedAudioSessionBackendV1, LiveKitManagedAudioSessionBackend>();
-        services.AddSingleton<ManagedAudioSessionAuthorityV1>();
-        services.AddSingleton<IAudioSessionControlAuthorityV1>(provider =>
-            provider.GetRequiredService<ManagedAudioSessionAuthorityV1>());
+        services.AddSingleton<IManagedAudioSessionBackend, LiveKitManagedAudioSessionBackend>();
+        services.AddSingleton<ManagedAudioSessionAuthority>();
+        services.AddSingleton<IAudioSessionControlAuthority>(provider =>
+            provider.GetRequiredService<ManagedAudioSessionAuthority>());
         return services;
     }
 
     private sealed class LiveKitRuntimeComposition(
         string endpoint,
-        Func<ManagedAudioSessionStartRequestV1, CancellationToken, ValueTask<char[]>> credentialResolver,
+        Func<ManagedAudioSessionStartRequest, CancellationToken, ValueTask<char[]>> credentialResolver,
         LiveKitTransportProviderConfig providerConfig,
         string speechModel,
         string? speechLanguage,
         int sampleRate,
-        ISpeechToTextClient? borrowedSpeechToText) : IAudioRuntimeCompositionV1
+        ISpeechToTextClient? borrowedSpeechToText) : IAudioRuntimeComposition
     {
         private int _applied;
 
@@ -112,15 +112,15 @@ public static class ManagedLiveKitBuilderExtensions
         {
             if (Interlocked.Exchange(ref _applied, 1) != 0)
                 throw new InvalidOperationException("The LiveKit Audio runtime composition was already compiled.");
-            var transcriptSource = new ConfiguredManagedStreamingSpeechToTextSourceV1(
+            var transcriptSource = new ConfiguredManagedStreamingSpeechToTextSource(
                 cancellationToken => AcquireSpeechToTextAsync(builder, borrowedSpeechToText, cancellationToken),
-                new ManagedStreamingSpeechToTextOptionsV1
+                new ManagedStreamingSpeechToTextOptions
                 {
                     ModelId = speechModel,
                     LanguageCode = speechLanguage,
                     UseProviderVoiceActivityDetection = true
                 });
-            options.SessionControlAuthority = new ManagedAudioSessionAuthorityV1(
+            options.SessionControlAuthority = new ManagedAudioSessionAuthority(
                 new LiveKitManagedAudioSessionBackend(new LiveKitManagedAudioSessionBackendOptions
                 {
                     Endpoint = endpoint,

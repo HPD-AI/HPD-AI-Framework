@@ -15,7 +15,7 @@ internal interface IProgressiveTextToSpeechEngine
 {
     OutputFlowId OutputFlowId { get; }
 
-    IOutputProjectionSinkV2 Flow { get; }
+    IOutputProjectionSink Flow { get; }
 
     ValueTask StartAsync(CancellationToken cancellationToken = default);
 
@@ -45,8 +45,8 @@ internal sealed record ProgressiveTextToSpeechEngineCompletion
 internal sealed class ProgressiveTextToSpeechEngineFactory
 {
     public IProgressiveTextToSpeechEngine Create(
-        S6ProgressiveOutputParticipantOptionsV2 options,
-        IOutputProjectionSinkV2 flow)
+        S6ProgressiveOutputParticipantOptions options,
+        IOutputProjectionSink flow)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(flow);
@@ -76,8 +76,8 @@ internal sealed class ProgressiveTextToSpeechEngineFactory
     }
 
     private static IProgressiveTextToSpeechEngine CreateSegment(
-        S6ProgressiveOutputParticipantOptionsV2 options,
-        IOutputProjectionSinkV2 flow) =>
+        S6ProgressiveOutputParticipantOptions options,
+        IOutputProjectionSink flow) =>
         new SegmentTextToSpeechEngine(
             options,
             flow,
@@ -88,8 +88,8 @@ internal sealed class ProgressiveTextToSpeechEngineFactory
 
 internal abstract class ProgressiveTextToSpeechEngineBase : IProgressiveTextToSpeechEngine
 {
-    protected readonly S6ProgressiveOutputParticipantOptionsV2 Options;
-    protected readonly IOutputProjectionSinkV2 OutputFlow;
+    protected readonly S6ProgressiveOutputParticipantOptions Options;
+    protected readonly IOutputProjectionSink OutputFlow;
     protected readonly OutputLedgerTraceWriter LedgerTraceWriter = new();
     private readonly List<AssistantTextToSpeechOutputResult> _results = [];
     private readonly List<OutputPlaybackFailedEvent> _playbackStartFailures = [];
@@ -97,8 +97,8 @@ internal abstract class ProgressiveTextToSpeechEngineBase : IProgressiveTextToSp
     private bool _started;
 
     protected ProgressiveTextToSpeechEngineBase(
-        S6ProgressiveOutputParticipantOptionsV2 options,
-        IOutputProjectionSinkV2 outputFlow)
+        S6ProgressiveOutputParticipantOptions options,
+        IOutputProjectionSink outputFlow)
     {
         Options = options ?? throw new ArgumentNullException(nameof(options));
         OutputFlow = outputFlow ?? throw new ArgumentNullException(nameof(outputFlow));
@@ -106,7 +106,7 @@ internal abstract class ProgressiveTextToSpeechEngineBase : IProgressiveTextToSp
 
     public OutputFlowId OutputFlowId => OutputFlow.Id;
 
-    public IOutputProjectionSinkV2 Flow => OutputFlow;
+    public IOutputProjectionSink Flow => OutputFlow;
 
     public abstract ValueTask StartAsync(CancellationToken cancellationToken = default);
 
@@ -261,16 +261,8 @@ internal abstract class ProgressiveTextToSpeechEngineBase : IProgressiveTextToSp
         return string.IsNullOrWhiteSpace(metadata?.ProviderName) ? "unknown" : metadata!.ProviderName!;
     }
 
-    protected static AudioErrorInfo ToErrorInfo(Exception exception)
-    {
-        return new AudioErrorInfo
-        {
-            Code = exception.GetType().Name,
-            Message = exception.Message,
-            Category = "TextToSpeech",
-            IsRetryable = false
-        };
-    }
+    protected static AudioErrorInfo ToErrorInfo(Exception exception) =>
+        AudioErrorInfo.FromException(exception, exception.GetType().Name, "TextToSpeech");
 }
 
 internal sealed class SegmentTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
@@ -291,8 +283,8 @@ internal sealed class SegmentTextToSpeechEngine : ProgressiveTextToSpeechEngineB
     private int _generatedTextLength;
 
     public SegmentTextToSpeechEngine(
-        S6ProgressiveOutputParticipantOptionsV2 options,
-        IOutputProjectionSinkV2 outputFlow,
+        S6ProgressiveOutputParticipantOptions options,
+        IOutputProjectionSink outputFlow,
         ITtsPacer pacer,
         TextToSpeechTextSanitizer sanitizer,
         ITextToSpeechSegmentSynthesizer synthesizer,
@@ -559,8 +551,8 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
     private int _generatedTextLength;
 
     public PushTextToSpeechEngine(
-        S6ProgressiveOutputParticipantOptionsV2 options,
-        IOutputProjectionSinkV2 outputFlow,
+        S6ProgressiveOutputParticipantOptions options,
+        IOutputProjectionSink outputFlow,
         IPushTextToSpeechStreamFactory streamFactory)
         : base(options, outputFlow)
     {
@@ -1327,8 +1319,8 @@ internal sealed class UnsupportedPushTextToSpeechEngine : ProgressiveTextToSpeec
     private readonly bool _hasFactory;
 
     public UnsupportedPushTextToSpeechEngine(
-        S6ProgressiveOutputParticipantOptionsV2 options,
-        IOutputProjectionSinkV2 outputFlow,
+        S6ProgressiveOutputParticipantOptions options,
+        IOutputProjectionSink outputFlow,
         TextToSpeechCapabilityProfile profile,
         bool hasFactory)
         : base(options, outputFlow)

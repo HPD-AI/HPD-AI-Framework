@@ -117,8 +117,8 @@ public sealed class LiveKitManagedSessionContractsTests
             .BuildServiceProvider();
 
         Assert.Same(
-            services.GetRequiredService<ManagedAudioSessionAuthorityV1>(),
-            services.GetRequiredService<IAudioSessionControlAuthorityV1>());
+            services.GetRequiredService<ManagedAudioSessionAuthority>(),
+            services.GetRequiredService<IAudioSessionControlAuthority>());
     }
 
     [Fact]
@@ -156,7 +156,7 @@ public sealed class LiveKitManagedSessionContractsTests
         Assert.Equal("livekit", audio.Transport?.ComponentInstance);
         Assert.Equal("wss://livekit.example.test", audio.Transport?.Endpoint);
         Assert.Single(builder.Middlewares.OfType<HPD.Agent.Audio.AgentIntegration.Middleware.AudioRuntimeAttachment>());
-        Assert.Null(typeof(ManagedStreamingSpeechToTextSourceV1).GetMethod("CaptureFrom"));
+        Assert.Null(typeof(ManagedStreamingSpeechToTextSource).GetMethod("CaptureFrom"));
 
         var retained = HpdAgentConfigSerializer.Deserialize(
             HpdAgentConfigSerializer.Serialize(builder.Config));
@@ -189,9 +189,9 @@ public sealed class LiveKitManagedSessionContractsTests
         VerifyNativeArtifact = false
     };
 
-    private sealed class EmptyTranscriptSource : IManagedAudioTranscriptSourceV1
+    private sealed class EmptyTranscriptSource : IManagedAudioTranscriptSource
     {
-        public async IAsyncEnumerable<ManagedAudioInputObservationV1> RunAsync(
+        public async IAsyncEnumerable<ManagedAudioInputObservation> RunAsync(
             IAudioSource source,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {

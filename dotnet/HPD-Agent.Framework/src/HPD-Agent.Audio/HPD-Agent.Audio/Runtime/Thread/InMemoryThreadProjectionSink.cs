@@ -2,7 +2,7 @@ using HPD.Agent.Audio.Ledger;
 
 namespace HPD.Agent.Audio.Runtime.Thread;
 
-public sealed class InMemoryThreadProjectionSink : IThreadProjectionSink
+internal sealed class InMemoryThreadProjectionSink : IThreadProjectionSink
 {
     private readonly List<ProjectedThreadTurn> _projectedTurns = [];
     private readonly object _gate = new();
@@ -41,7 +41,7 @@ public sealed class InMemoryThreadProjectionSink : IThreadProjectionSink
     }
 }
 
-public sealed record ProjectedThreadTurn(
+internal sealed record ProjectedThreadTurn(
     ThreadRef Thread,
     ThreadProjectionRecord Record,
     ThreadProjectedEventRef ProjectedEvent);

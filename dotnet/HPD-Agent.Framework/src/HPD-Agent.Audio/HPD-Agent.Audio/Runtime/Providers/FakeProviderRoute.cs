@@ -5,7 +5,7 @@ using HPD.Agent.Audio.Providers;
 
 namespace HPD.Agent.Audio.Runtime.Providers;
 
-public sealed class FakeProviderRoute : IProviderRoute
+internal sealed class FakeProviderRoute : IProviderRoute
 {
     private readonly List<ProviderRouteDecision> _decisions = [];
     private readonly RuntimeClock _clock;

@@ -16,9 +16,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="HPD.Agent.Audio.V2.Tests" />
+    <InternalsVisibleTo Include="HPD.Agent.Audio.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.LiveAudio.Contracts.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.Audio.LiveKit.SourceGenerator.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Audio.VoiceActivity.CompositionExample" />
+    <InternalsVisibleTo Include="HPD-Agent.AudioCli" />
     <InternalsVisibleTo Include="HPD.Agent.Providers.Audio.ElevenLabs" />
     <InternalsVisibleTo Include="HPD.Agent.Providers.Audio.OpenAI" />
     <InternalsVisibleTo Include="HPD-Agent.Audio.LiveKit" />

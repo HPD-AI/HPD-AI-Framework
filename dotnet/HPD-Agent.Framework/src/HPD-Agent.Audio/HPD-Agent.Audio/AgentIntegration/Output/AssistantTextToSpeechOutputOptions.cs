@@ -7,7 +7,7 @@ namespace HPD.Agent.Audio.AgentIntegration.Output;
 
 #pragma warning disable MEAI001
 
-public sealed record AssistantTextToSpeechOutputOptions
+internal sealed record AssistantTextToSpeechOutputOptions
 {
     public required ITextToSpeechClient TextToSpeechClient { get; init; }
 

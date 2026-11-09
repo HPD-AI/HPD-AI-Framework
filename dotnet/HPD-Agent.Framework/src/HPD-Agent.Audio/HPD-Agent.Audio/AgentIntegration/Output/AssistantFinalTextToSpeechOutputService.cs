@@ -11,7 +11,7 @@ namespace HPD.Agent.Audio.AgentIntegration.Output;
 
 #pragma warning disable MEAI001
 
-public sealed class AssistantFinalTextToSpeechOutputService
+internal sealed class AssistantFinalTextToSpeechOutputService
 {
     private readonly ITextToSpeechSegmentSynthesizer _synthesizer;
     private readonly OutputLedgerTraceWriter _ledgerTraceWriter;
@@ -47,7 +47,7 @@ public sealed class AssistantFinalTextToSpeechOutputService
         };
         var ledger = new List<RealtimeLedgerRecord>();
         var trace = new List<RealtimeAudioTraceRecord>();
-        var flow = new InMemoryOutputProjectionSinkV2(outputFlowId);
+        var flow = new InMemoryOutputProjectionSink(outputFlowId);
 
         if (string.IsNullOrWhiteSpace(request.Text))
         {
@@ -134,12 +134,12 @@ public sealed class AssistantFinalTextToSpeechOutputService
             if (request.AuthorityController.Read().GeneratedUntil == 0)
             {
                 var generatedUnits = System.Text.Encoding.UTF8.GetByteCount(request.Text);
-                var authority = request.AuthorityController.Generate(new OutputSynthesisEvidenceV2(
+                var authority = request.AuthorityController.Generate(new OutputSynthesisEvidence(
                     request.AuthorityOperation.Value,
-                    OutputSynthesisFamilyV2.SegmentedPcm,
+                    OutputSynthesisFamily.SegmentedPcm,
                     generatedUnits,
                     Hash256.Compute(System.Text.Encoding.UTF8.GetBytes(request.Text))));
-                if (authority is not OutputPipelineResultV2.Applied)
+                if (authority is not OutputPipelineResult.Applied)
                     throw new InvalidOperationException("S6 rejected synthesized output evidence.");
             }
             var commit = await flow.CompleteSynthesizedNotPlayedAsync(cancellationToken)
@@ -221,7 +221,7 @@ public sealed class AssistantFinalTextToSpeechOutputService
     }
 }
 
-public sealed record AssistantFinalTextToSpeechOutputRequest
+internal sealed record AssistantFinalTextToSpeechOutputRequest
 {
     public required string MessageTurnId { get; init; }
 
@@ -241,7 +241,7 @@ public sealed record AssistantFinalTextToSpeechOutputRequest
 
     public Func<AgentEvent, CancellationToken, ValueTask<AgentEvent>>? PublishEventAsync { get; init; }
 
-    internal InMemoryOutputControllerV2? AuthorityController { get; init; }
+    internal InMemoryOutputController? AuthorityController { get; init; }
 
     internal OperationId? AuthorityOperation { get; init; }
 

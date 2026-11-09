@@ -22,7 +22,7 @@ namespace HPD.Agent.Audio.AgentIntegration.Middleware;
 
 #pragma warning disable MEAI001
 
-public sealed class AudioRuntimeAttachment : IAgentMiddleware
+internal sealed class AudioRuntimeAttachment : IAgentMiddleware
 {
     private const long ProgressiveOutputMaximumUnits = 64L * 1024 * 1024;
     public const string AudioInteractionInputsMetadataKey = "hpd.audio.inputs";
@@ -75,11 +75,11 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
     {
         cancellationToken.ThrowIfCancellationRequested();
         var authority = _options.SessionControlAuthority
-            ?? context.Services?.GetService(typeof(IAudioSessionControlAuthorityV1)) as IAudioSessionControlAuthorityV1;
+            ?? context.Services?.GetService(typeof(IAudioSessionControlAuthority)) as IAudioSessionControlAuthority;
         if (authority is null)
             return Task.CompletedTask;
 
-        if (authority is ManagedAudioSessionAuthorityV1 managed)
+        if (authority is ManagedAudioSessionAuthority managed)
         {
             managed.AttachInputDispatcher(context.RunAsync);
             _options.AssistantAudioOutputSink ??= managed.OutputSink;
@@ -302,8 +302,8 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             Hash256.Compute(outputBytes));
         var controller = activation switch
         {
-            LiveAudioOutputActivationResultV2.Activated value => value.Controller,
-            LiveAudioOutputActivationResultV2.Duplicate value => value.Controller,
+            LiveAudioOutputActivationResult.Activated value => value.Controller,
+            LiveAudioOutputActivationResult.Duplicate value => value.Controller,
             _ => null
         };
         if (controller is null)
@@ -312,8 +312,8 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
         }
         IAudioOutputSink? outputSink = options.AssistantAudioOutputSink;
         if (outputSink is not null)
-            outputSink = new S6AuthoritativeAudioOutputSinkV2(
-                outputSink, controller, OutputSynthesisFamilyV2.SegmentedPcm);
+            outputSink = new S6AuthoritativeAudioOutputSink(
+                outputSink, controller, OutputSynthesisFamily.SegmentedPcm);
         var result = await _assistantOutputService.RunAsync(
             new AssistantFinalTextToSpeechOutputRequest
             {
@@ -355,7 +355,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
     private async IAsyncEnumerable<AgentModelUpdate> WrapProgressiveOutputAsync(
         AgentModelTurnRequest request,
         AudioRuntimeAttachmentOptions options,
-        PreparedOutputExecutionV2 preparedOutput,
+        PreparedOutputExecution preparedOutput,
         Func<AgentModelTurnRequest, IAsyncEnumerable<AgentModelUpdate>> handler,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -378,8 +378,8 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             Hash256.Compute(descriptor));
         var authorityController = activation switch
         {
-            LiveAudioOutputActivationResultV2.Activated value => value.Controller,
-            LiveAudioOutputActivationResultV2.Duplicate value => value.Controller,
+            LiveAudioOutputActivationResult.Activated value => value.Controller,
+            LiveAudioOutputActivationResult.Duplicate value => value.Controller,
             _ => null
         };
         if (authorityController is null)
@@ -389,12 +389,12 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             yield break;
         }
         if (outputSink is not null)
-            outputSink = new S6AuthoritativeAudioOutputSinkV2(
-                outputSink, authorityController, OutputSynthesisFamilyV2.PushPcm);
+            outputSink = new S6AuthoritativeAudioOutputSink(
+                outputSink, authorityController, OutputSynthesisFamily.PushPcm);
         var eventFlowHandle = options.EnableAssistantOutputPlayback
             ? request.EventFlows?.Create(outputFlowId.Value)
             : null;
-        var coordinator = new S6ProgressiveOutputParticipantV2(new S6ProgressiveOutputParticipantOptionsV2
+        var coordinator = new S6ProgressiveOutputParticipant(new S6ProgressiveOutputParticipantOptions
         {
             MessageTurnId = request.State.RunId!,
             SessionId = sessionId,
@@ -818,7 +818,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             ledger.Count,
             trace.Count,
             ledger.OfType<ThreadProjectionLedgerRecord>().Count(),
-            result.EndpointDecisionProjectionV1?.Commit?.Text,
+            result.EndpointDecisionProjection?.Commit?.Text,
             plan?.RouteEpoch.ProviderKey ?? result.RouteDecision?.Epoch.ProviderKey,
             result.RouteDecision?.Kind.ToString(),
             plan?.Topology.ToString(),
@@ -831,7 +831,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
         IReadOnlyList<AudioInteractionRuntimeResult> results)
     {
         var transcripts = results
-            .Select(r => r.EndpointDecisionProjectionV1?.Commit?.Text)
+            .Select(r => r.EndpointDecisionProjection?.Commit?.Text)
             .Where(text => !string.IsNullOrWhiteSpace(text))
             .Select(text => text!)
             .Distinct(StringComparer.Ordinal)

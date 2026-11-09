@@ -4,7 +4,7 @@ using HPD.Agent.Audio.Policies;
 
 namespace HPD.Agent.Audio.AgentIntegration;
 
-public static class AudioRuntimeOptionsCompiler
+internal static class AudioRuntimeOptionsCompiler
 {
     public static AudioRuntimeAttachmentOptions Compile(
         AudioRuntimeAttachmentOptions baseOptions,

@@ -13,7 +13,7 @@ namespace HPD.Agent.Audio.AgentIntegration.Output;
 internal interface ITextToSpeechSegmentSynthesizer
 {
     ValueTask<TextToSpeechSegmentSynthesisResult> SynthesizeAsync(
-        IOutputProjectionSinkV2 outputFlow,
+        IOutputProjectionSink outputFlow,
         TextToSpeechSegmentRequest request,
         TextToSpeechSynthesisContext context,
         CancellationToken cancellationToken = default);
@@ -38,7 +38,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
     }
 
     public async ValueTask<TextToSpeechSegmentSynthesisResult> SynthesizeAsync(
-        IOutputProjectionSinkV2 outputFlow,
+        IOutputProjectionSink outputFlow,
         TextToSpeechSegmentRequest request,
         TextToSpeechSynthesisContext context,
         CancellationToken cancellationToken = default)
@@ -399,7 +399,13 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
         }
         catch (Exception ex) when (ex is not OperationCanceledException && !terminalPublicationStarted)
         {
-            var error = ToErrorInfo(ex);
+            var error = AudioErrorInfo.FromException(
+                ex,
+                ex.GetType().Name,
+                "TextToSpeech",
+                errorHandler: context.Options.TextToSpeechClient.GetService(
+                    typeof(HPD.Agent.ErrorHandling.IProviderErrorHandler))
+                    as HPD.Agent.ErrorHandling.IProviderErrorHandler);
             _ledgerTraceWriter.AppendTtsResult(
                 ledger,
                 trace,
@@ -495,17 +501,6 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
             await context.PublishAsync(terminalEvent, cancellationToken).ConfigureAwait(false);
     }
 
-    private static AudioErrorInfo ToErrorInfo(Exception exception)
-    {
-        return new AudioErrorInfo
-        {
-            Code = exception.GetType().Name,
-            Message = exception.Message,
-            Category = "TextToSpeech",
-            IsRetryable = false
-        };
-    }
-
     private static string? FirstNonWhiteSpace(params string?[] values)
     {
         foreach (var value in values)
@@ -539,7 +534,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
     }
 
     private async ValueTask<TextToSpeechSegmentSynthesisResult> SynthesizeStreamingAudioAsync(
-        IOutputProjectionSinkV2 outputFlow,
+        IOutputProjectionSink outputFlow,
         TextToSpeechSegmentRequest request,
         TextToSpeechSynthesisContext context,
         string providerKey,
@@ -763,7 +758,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
     }
 
     private static async ValueTask<OutputAudioStreamStart> StartAudioStreamAsync(
-        IOutputProjectionSinkV2 outputFlow,
+        IOutputProjectionSink outputFlow,
         TextToSpeechSegmentRequest request,
         TextToSpeechSynthesisContext context,
         OutputSegmentId segmentId,

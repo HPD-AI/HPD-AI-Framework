@@ -167,7 +167,7 @@
     <Project Path="test/HPD-Agent.Providers.Tests/HPD-Agent.Providers.Tests.csproj" />
     <Project Path="test/HPD-Agent.Hosting.Tests/HPD-Agent.Hosting.Tests.csproj" />
     <Project Path="test/HPD-Agent.Bots.Tests/HPD-Agent.Bots.Tests.csproj" />
-    <Project Path="test/HPD.Agent.Audio.V2.Tests/HPD.Agent.Audio.V2.Tests.csproj" />
+    <Project Path="test/HPD.Agent.Audio.Tests/HPD.Agent.Audio.Tests.csproj" />
     <Project Path="../HPD-Environment.Framework/test/HPD-Environment.Contracts.Tests/HPD-Environment.Contracts.Tests.csproj" />
     <Project Path="../HPD-Environment.Framework/test/HPD-Environment.Runtime.Tests/HPD-Environment.Runtime.Tests.csproj" />
     <Project Path="../HPD-Environment.Framework/test/HPD-Environment.Virtualization.Apple.Tests/HPD-Environment.Virtualization.Apple.Tests.csproj" />

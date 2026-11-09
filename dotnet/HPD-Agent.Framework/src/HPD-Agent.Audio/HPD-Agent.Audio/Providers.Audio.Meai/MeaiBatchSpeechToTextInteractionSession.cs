@@ -254,7 +254,7 @@ public sealed class MeaiBatchSpeechToTextInteractionSession : IAudioInteractionS
                 SessionId = Id,
                 ObservedAt = DateTimeOffset.UtcNow,
                 RouteEpochId = Plan.RouteEpoch.Id,
-                Stage = TranscriptProjectionStageV1.Final,
+                Stage = TranscriptProjectionStage.Final,
                 Text = transcript,
                 InputContentId = inputContent.Id,
                 Correlation = correlation,

@@ -10,61 +10,61 @@ public sealed class TurnGenerationAuthorityPayloadCodecV1Tests
     public void Remaining_typed_generation_transitions_round_trip_and_bind_exact_schema_domains()
     {
         var (session, _) = Authority();
-        var graph = new GraphGenerationChangedV1(session, GraphGenerationId.FromValue(Id(20)), GraphGenerationId.FromValue(Id(21)), OwnerSliceId.S2);
-        var activity = new ActivityGenerationChangedV1(session, ActivityGenerationId.FromValue(Id(22)), ActivityGenerationId.FromValue(Id(23)), OwnerSliceId.S3);
-        var turn = new TurnGenerationChangedV1(session, TurnGenerationId.FromValue(Id(24)), TurnGenerationId.FromValue(Id(25)), OwnerSliceId.S4);
-        var output = new OutputGenerationChangedV1(session, OutputGenerationId.FromValue(Id(26)), OutputGenerationId.FromValue(Id(27)), OwnerSliceId.S6);
-        var sink = new SinkGenerationChangedV1(session, SinkGenerationId.FromValue(Id(28)), SinkGenerationId.FromValue(Id(29)), OwnerSliceId.S6);
-        var tool = new ToolGenerationChangedV1(session, ToolGenerationId.FromValue(Id(30)), ToolGenerationId.FromValue(Id(31)), OwnerSliceId.S7);
-        var privacy = new PrivacyGenerationChangedV1(session, PrivacyGenerationId.FromValue(Id(32)), PrivacyGenerationId.FromValue(Id(33)), OwnerSliceId.S9);
-        var graphBytes = TurnGenerationRecordCodecsV1.Encode(graph); var activityBytes = TurnGenerationRecordCodecsV1.Encode(activity);
-        var turnBytes = TurnGenerationRecordCodecsV1.Encode(turn); var outputBytes = TurnGenerationRecordCodecsV1.Encode(output);
-        var sinkBytes = TurnGenerationRecordCodecsV1.Encode(sink); var toolBytes = TurnGenerationRecordCodecsV1.Encode(tool);
-        var privacyBytes = TurnGenerationRecordCodecsV1.Encode(privacy);
-        Assert.True(TurnGenerationRecordCodecsV1.TryDecodeGraph(graphBytes, out var decodedGraph));
-        Assert.True(TurnGenerationRecordCodecsV1.TryDecodeActivity(activityBytes, out var decodedActivity));
-        Assert.True(TurnGenerationRecordCodecsV1.TryDecodeTurnGeneration(turnBytes, out var decodedTurn));
-        Assert.True(TurnGenerationRecordCodecsV1.TryDecodeOutput(outputBytes, out var decodedOutput));
-        Assert.True(TurnGenerationRecordCodecsV1.TryDecodeSink(sinkBytes, out var decodedSink));
-        Assert.True(TurnGenerationRecordCodecsV1.TryDecodeTool(toolBytes, out var decodedTool));
-        Assert.True(TurnGenerationRecordCodecsV1.TryDecodePrivacy(privacyBytes, out var decodedPrivacy));
+        var graph = new GraphGenerationChanged(session, GraphGenerationId.FromValue(Id(20)), GraphGenerationId.FromValue(Id(21)), OwnerSliceId.S2);
+        var activity = new ActivityGenerationChanged(session, ActivityGenerationId.FromValue(Id(22)), ActivityGenerationId.FromValue(Id(23)), OwnerSliceId.S3);
+        var turn = new TurnGenerationChanged(session, TurnGenerationId.FromValue(Id(24)), TurnGenerationId.FromValue(Id(25)), OwnerSliceId.S4);
+        var output = new OutputGenerationChanged(session, OutputGenerationId.FromValue(Id(26)), OutputGenerationId.FromValue(Id(27)), OwnerSliceId.S6);
+        var sink = new SinkGenerationChanged(session, SinkGenerationId.FromValue(Id(28)), SinkGenerationId.FromValue(Id(29)), OwnerSliceId.S6);
+        var tool = new ToolGenerationChanged(session, ToolGenerationId.FromValue(Id(30)), ToolGenerationId.FromValue(Id(31)), OwnerSliceId.S7);
+        var privacy = new PrivacyGenerationChanged(session, PrivacyGenerationId.FromValue(Id(32)), PrivacyGenerationId.FromValue(Id(33)), OwnerSliceId.S9);
+        var graphBytes = TurnGenerationRecordCodecs.Encode(graph); var activityBytes = TurnGenerationRecordCodecs.Encode(activity);
+        var turnBytes = TurnGenerationRecordCodecs.Encode(turn); var outputBytes = TurnGenerationRecordCodecs.Encode(output);
+        var sinkBytes = TurnGenerationRecordCodecs.Encode(sink); var toolBytes = TurnGenerationRecordCodecs.Encode(tool);
+        var privacyBytes = TurnGenerationRecordCodecs.Encode(privacy);
+        Assert.True(TurnGenerationRecordCodecs.TryDecodeGraph(graphBytes, out var decodedGraph));
+        Assert.True(TurnGenerationRecordCodecs.TryDecodeActivity(activityBytes, out var decodedActivity));
+        Assert.True(TurnGenerationRecordCodecs.TryDecodeTurnGeneration(turnBytes, out var decodedTurn));
+        Assert.True(TurnGenerationRecordCodecs.TryDecodeOutput(outputBytes, out var decodedOutput));
+        Assert.True(TurnGenerationRecordCodecs.TryDecodeSink(sinkBytes, out var decodedSink));
+        Assert.True(TurnGenerationRecordCodecs.TryDecodeTool(toolBytes, out var decodedTool));
+        Assert.True(TurnGenerationRecordCodecs.TryDecodePrivacy(privacyBytes, out var decodedPrivacy));
         Assert.Equal(graph, decodedGraph); Assert.Equal(activity, decodedActivity); Assert.Equal(turn, decodedTurn);
         Assert.Equal(output, decodedOutput); Assert.Equal(sink, decodedSink); Assert.Equal(tool, decodedTool); Assert.Equal(privacy, decodedPrivacy);
-        Assert.Equal(7, new[] { TurnGenerationRecordCodecsV1.ComputeHash(graph), TurnGenerationRecordCodecsV1.ComputeHash(activity),
-            TurnGenerationRecordCodecsV1.ComputeHash(turn), TurnGenerationRecordCodecsV1.ComputeHash(output), TurnGenerationRecordCodecsV1.ComputeHash(sink),
-            TurnGenerationRecordCodecsV1.ComputeHash(tool), TurnGenerationRecordCodecsV1.ComputeHash(privacy) }.Distinct().Count());
+        Assert.Equal(7, new[] { TurnGenerationRecordCodecs.ComputeHash(graph), TurnGenerationRecordCodecs.ComputeHash(activity),
+            TurnGenerationRecordCodecs.ComputeHash(turn), TurnGenerationRecordCodecs.ComputeHash(output), TurnGenerationRecordCodecs.ComputeHash(sink),
+            TurnGenerationRecordCodecs.ComputeHash(tool), TurnGenerationRecordCodecs.ComputeHash(privacy) }.Distinct().Count());
     }
 
     [Fact]
     public void Typed_turn_and_generation_records_round_trip_and_hash_by_schema()
     {
         var (session, authority) = Authority();
-        var turn = new TurnDecisionFinalizedV1(OperationId.FromValue(Id(3)), new JournalPositionV1(session, 7), authority, 2);
-        var provider = new ProviderGenerationChangedV1(session, ProviderGenerationId.FromValue(Id(4)), ProviderGenerationId.FromValue(Id(5)), OwnerSliceId.S5);
-        var route = new RouteGenerationChangedV1(session, RouteGenerationId.FromValue(Id(6)), RouteGenerationId.FromValue(Id(7)), OwnerSliceId.S8);
-        var transport = new TransportGenerationChangedV1(session, TransportGenerationId.FromValue(Id(8)), TransportGenerationId.FromValue(Id(9)), OwnerSliceId.S11);
+        var turn = new TurnDecisionFinalized(OperationId.FromValue(Id(3)), new JournalPositionV1(session, 7), authority, 2);
+        var provider = new ProviderGenerationChanged(session, ProviderGenerationId.FromValue(Id(4)), ProviderGenerationId.FromValue(Id(5)), OwnerSliceId.S5);
+        var route = new RouteGenerationChanged(session, RouteGenerationId.FromValue(Id(6)), RouteGenerationId.FromValue(Id(7)), OwnerSliceId.S8);
+        var transport = new TransportGenerationChanged(session, TransportGenerationId.FromValue(Id(8)), TransportGenerationId.FromValue(Id(9)), OwnerSliceId.S11);
 
-        var turnBytes = TurnGenerationRecordCodecsV1.Encode(turn);
-        var providerBytes = TurnGenerationRecordCodecsV1.Encode(provider);
-        var routeBytes = TurnGenerationRecordCodecsV1.Encode(route);
-        var transportBytes = TurnGenerationRecordCodecsV1.Encode(transport);
-        Assert.True(TurnGenerationRecordCodecsV1.TryDecodeTurn(turnBytes, out var decodedTurn));
-        Assert.True(TurnGenerationRecordCodecsV1.TryDecodeProvider(providerBytes, out var decodedProvider));
-        Assert.True(TurnGenerationRecordCodecsV1.TryDecodeRoute(routeBytes, out var decodedRoute));
-        Assert.True(TurnGenerationRecordCodecsV1.TryDecodeTransport(transportBytes, out var decodedTransport));
-        Assert.Equal(turnBytes, TurnGenerationRecordCodecsV1.Encode(decodedTurn!));
-        Assert.Equal(providerBytes, TurnGenerationRecordCodecsV1.Encode(decodedProvider!));
-        Assert.Equal(routeBytes, TurnGenerationRecordCodecsV1.Encode(decodedRoute!));
-        Assert.Equal(transportBytes, TurnGenerationRecordCodecsV1.Encode(decodedTransport!));
+        var turnBytes = TurnGenerationRecordCodecs.Encode(turn);
+        var providerBytes = TurnGenerationRecordCodecs.Encode(provider);
+        var routeBytes = TurnGenerationRecordCodecs.Encode(route);
+        var transportBytes = TurnGenerationRecordCodecs.Encode(transport);
+        Assert.True(TurnGenerationRecordCodecs.TryDecodeTurn(turnBytes, out var decodedTurn));
+        Assert.True(TurnGenerationRecordCodecs.TryDecodeProvider(providerBytes, out var decodedProvider));
+        Assert.True(TurnGenerationRecordCodecs.TryDecodeRoute(routeBytes, out var decodedRoute));
+        Assert.True(TurnGenerationRecordCodecs.TryDecodeTransport(transportBytes, out var decodedTransport));
+        Assert.Equal(turnBytes, TurnGenerationRecordCodecs.Encode(decodedTurn!));
+        Assert.Equal(providerBytes, TurnGenerationRecordCodecs.Encode(decodedProvider!));
+        Assert.Equal(routeBytes, TurnGenerationRecordCodecs.Encode(decodedRoute!));
+        Assert.Equal(transportBytes, TurnGenerationRecordCodecs.Encode(decodedTransport!));
         Assert.Equal(OwnerSliceId.S5, decodedProvider!.Owner);
         Assert.Equal(OwnerSliceId.S8, decodedRoute!.Owner);
         Assert.Equal(OwnerSliceId.S11, decodedTransport!.Owner);
         Assert.Equal(4, new[]
         {
-            TurnGenerationRecordCodecsV1.ComputeHash(turn),
-            TurnGenerationRecordCodecsV1.ComputeHash(provider),
-            TurnGenerationRecordCodecsV1.ComputeHash(route),
-            TurnGenerationRecordCodecsV1.ComputeHash(transport)
+            TurnGenerationRecordCodecs.ComputeHash(turn),
+            TurnGenerationRecordCodecs.ComputeHash(provider),
+            TurnGenerationRecordCodecs.ComputeHash(route),
+            TurnGenerationRecordCodecs.ComputeHash(transport)
         }.Distinct().Count());
     }
 
@@ -73,36 +73,36 @@ public sealed class TurnGenerationAuthorityPayloadCodecV1Tests
     {
         var (session, authority) = Authority();
         byte[] source = [1, 2, 3, 4];
-        var turn = new TurnDecisionFinalizedOuterV1(session, authority, source);
-        var graph = new GraphGenerationChangedOuterV1(session, authority, source);
-        var provider = new ProviderGenerationChangedOuterV1(session, authority, source);
-        var route = new RouteGenerationChangedOuterV1(session, authority, source);
-        var transport = new TransportGenerationChangedOuterV1(session, authority, source);
+        var turn = new TurnDecisionFinalizedOuter(session, authority, source);
+        var graph = new GraphGenerationChangedOuter(session, authority, source);
+        var provider = new ProviderGenerationChangedOuter(session, authority, source);
+        var route = new RouteGenerationChangedOuter(session, authority, source);
+        var transport = new TransportGenerationChangedOuter(session, authority, source);
         source[0] = 99;
 
-        var turnBytes = TurnGenerationAuthorityOuterCodecV1.Encode(turn);
-        var graphBytes = TurnGenerationAuthorityOuterCodecV1.Encode(graph);
-        var providerBytes = TurnGenerationAuthorityOuterCodecV1.Encode(provider);
-        var routeBytes = TurnGenerationAuthorityOuterCodecV1.Encode(route);
-        var transportBytes = TurnGenerationAuthorityOuterCodecV1.Encode(transport);
-        Assert.True(TurnGenerationAuthorityOuterCodecV1.TryDecodeTurn(turnBytes, out var decodedTurn));
-        Assert.True(TurnGenerationAuthorityOuterCodecV1.TryDecodeGraph(graphBytes, out var decodedGraph));
-        Assert.True(TurnGenerationAuthorityOuterCodecV1.TryDecodeProvider(providerBytes, out var decodedProvider));
-        Assert.True(TurnGenerationAuthorityOuterCodecV1.TryDecodeRoute(routeBytes, out var decodedRoute));
-        Assert.True(TurnGenerationAuthorityOuterCodecV1.TryDecodeTransport(transportBytes, out var decodedTransport));
+        var turnBytes = TurnGenerationAuthorityOuterCodec.Encode(turn);
+        var graphBytes = TurnGenerationAuthorityOuterCodec.Encode(graph);
+        var providerBytes = TurnGenerationAuthorityOuterCodec.Encode(provider);
+        var routeBytes = TurnGenerationAuthorityOuterCodec.Encode(route);
+        var transportBytes = TurnGenerationAuthorityOuterCodec.Encode(transport);
+        Assert.True(TurnGenerationAuthorityOuterCodec.TryDecodeTurn(turnBytes, out var decodedTurn));
+        Assert.True(TurnGenerationAuthorityOuterCodec.TryDecodeGraph(graphBytes, out var decodedGraph));
+        Assert.True(TurnGenerationAuthorityOuterCodec.TryDecodeProvider(providerBytes, out var decodedProvider));
+        Assert.True(TurnGenerationAuthorityOuterCodec.TryDecodeRoute(routeBytes, out var decodedRoute));
+        Assert.True(TurnGenerationAuthorityOuterCodec.TryDecodeTransport(transportBytes, out var decodedTransport));
         Assert.Equal(new byte[] { 1, 2, 3, 4 }, decodedTurn!.Body);
-        Assert.Equal(turnBytes, TurnGenerationAuthorityOuterCodecV1.Encode(decodedTurn));
-        Assert.Equal(graphBytes, TurnGenerationAuthorityOuterCodecV1.Encode(decodedGraph!));
-        Assert.Equal(providerBytes, TurnGenerationAuthorityOuterCodecV1.Encode(decodedProvider!));
-        Assert.Equal(routeBytes, TurnGenerationAuthorityOuterCodecV1.Encode(decodedRoute!));
-        Assert.Equal(transportBytes, TurnGenerationAuthorityOuterCodecV1.Encode(decodedTransport!));
+        Assert.Equal(turnBytes, TurnGenerationAuthorityOuterCodec.Encode(decodedTurn));
+        Assert.Equal(graphBytes, TurnGenerationAuthorityOuterCodec.Encode(decodedGraph!));
+        Assert.Equal(providerBytes, TurnGenerationAuthorityOuterCodec.Encode(decodedProvider!));
+        Assert.Equal(routeBytes, TurnGenerationAuthorityOuterCodec.Encode(decodedRoute!));
+        Assert.Equal(transportBytes, TurnGenerationAuthorityOuterCodec.Encode(decodedTransport!));
         Assert.Equal(5, new[]
         {
-            TurnGenerationAuthorityOuterCodecV1.ComputeHash(turn),
-            TurnGenerationAuthorityOuterCodecV1.ComputeHash(graph),
-            TurnGenerationAuthorityOuterCodecV1.ComputeHash(provider),
-            TurnGenerationAuthorityOuterCodecV1.ComputeHash(route),
-            TurnGenerationAuthorityOuterCodecV1.ComputeHash(transport)
+            TurnGenerationAuthorityOuterCodec.ComputeHash(turn),
+            TurnGenerationAuthorityOuterCodec.ComputeHash(graph),
+            TurnGenerationAuthorityOuterCodec.ComputeHash(provider),
+            TurnGenerationAuthorityOuterCodec.ComputeHash(route),
+            TurnGenerationAuthorityOuterCodec.ComputeHash(transport)
         }.Distinct().Count());
     }
 
@@ -111,21 +111,21 @@ public sealed class TurnGenerationAuthorityPayloadCodecV1Tests
     {
         var (session, authority) = Authority();
         var other = new SessionAuthorityStampV1(RuntimeGenerationId.FromValue(Id(10)), LiveSessionId.FromValue(Id(11)));
-        Assert.Throws<ArgumentException>(() => new TurnDecisionFinalizedV1(OperationId.FromValue(Id(3)), new JournalPositionV1(session, 7), ExpectedAuthorityVectorV1.Create(other, []), 2));
-        Assert.Throws<ArgumentException>(() => new ProviderGenerationChangedV1(session, ProviderGenerationId.FromValue(Id(4)), ProviderGenerationId.FromValue(Id(4)), OwnerSliceId.S5));
-        Assert.Throws<ArgumentException>(() => new RouteGenerationChangedV1(session, RouteGenerationId.FromValue(Id(4)), RouteGenerationId.FromValue(Id(5)), OwnerSliceId.S5));
-        Assert.Throws<ArgumentException>(() => new TransportGenerationChangedOuterV1(session, authority, new byte[65_537]));
+        Assert.Throws<ArgumentException>(() => new TurnDecisionFinalized(OperationId.FromValue(Id(3)), new JournalPositionV1(session, 7), ExpectedAuthorityVectorV1.Create(other, []), 2));
+        Assert.Throws<ArgumentException>(() => new ProviderGenerationChanged(session, ProviderGenerationId.FromValue(Id(4)), ProviderGenerationId.FromValue(Id(4)), OwnerSliceId.S5));
+        Assert.Throws<ArgumentException>(() => new RouteGenerationChanged(session, RouteGenerationId.FromValue(Id(4)), RouteGenerationId.FromValue(Id(5)), OwnerSliceId.S5));
+        Assert.Throws<ArgumentException>(() => new TransportGenerationChangedOuter(session, authority, new byte[65_537]));
 
-        var typed = TurnGenerationRecordCodecsV1.Encode(new TurnDecisionFinalizedV1(OperationId.FromValue(Id(3)), new JournalPositionV1(session, 7), authority, 2));
-        Assert.False(TurnGenerationRecordCodecsV1.TryDecodeTurn(typed.Concat(new byte[] { 0 }).ToArray(), out _));
-        var canonical = TurnGenerationAuthorityOuterCodecV1.Encode(new TurnDecisionFinalizedOuterV1(session, authority, [7]));
-        Assert.False(TurnGenerationAuthorityOuterCodecV1.TryDecodeTurn(canonical.Concat(new byte[] { 0 }).ToArray(), out _));
+        var typed = TurnGenerationRecordCodecs.Encode(new TurnDecisionFinalized(OperationId.FromValue(Id(3)), new JournalPositionV1(session, 7), authority, 2));
+        Assert.False(TurnGenerationRecordCodecs.TryDecodeTurn(typed.Concat(new byte[] { 0 }).ToArray(), out _));
+        var canonical = TurnGenerationAuthorityOuterCodec.Encode(new TurnDecisionFinalizedOuter(session, authority, [7]));
+        Assert.False(TurnGenerationAuthorityOuterCodec.TryDecodeTurn(canonical.Concat(new byte[] { 0 }).ToArray(), out _));
         var reordered = new CborWriter(CborConformanceMode.Lax); reordered.WriteStartMap(3);
         reordered.WriteUInt64(2); reordered.WriteEncodedValue(AuthorityVectorCodecsV1.Encode(authority));
         reordered.WriteUInt64(1); reordered.WriteEncodedValue(SessionAuthorityStampV1Codec.Encode(session));
         reordered.WriteUInt64(3); reordered.WriteByteString([7]); reordered.WriteEndMap();
-        Assert.False(TurnGenerationAuthorityOuterCodecV1.TryDecodeProvider(reordered.Encode(), out _));
-        Assert.False(TurnGenerationAuthorityOuterCodecV1.TryDecodeRoute(new byte[66_561], out _));
+        Assert.False(TurnGenerationAuthorityOuterCodec.TryDecodeProvider(reordered.Encode(), out _));
+        Assert.False(TurnGenerationAuthorityOuterCodec.TryDecodeRoute(new byte[66_561], out _));
     }
 
     [Fact]
@@ -135,17 +135,17 @@ public sealed class TurnGenerationAuthorityPayloadCodecV1Tests
         var other = new SessionAuthorityStampV1(RuntimeGenerationId.FromValue(Id(10)), LiveSessionId.FromValue(Id(11)));
         var values = new (ushort Discriminator, AuthorityPayloadRegistrationV1 Registration, byte[] Payload, OwnerSliceId Owner)[]
         {
-            (4, TurnGenerationAuthorityPayloadRegistrationsV1.GraphGenerationChanged, TurnGenerationAuthorityOuterCodecV1.Encode(new GraphGenerationChangedOuterV1(session, authority, [])), OwnerSliceId.S2),
-            (10, TurnGenerationAuthorityPayloadRegistrationsV1.TurnDecisionFinalized, TurnGenerationAuthorityOuterCodecV1.Encode(new TurnDecisionFinalizedOuterV1(session, authority, [])), OwnerSliceId.S4),
-            (15, TurnGenerationAuthorityPayloadRegistrationsV1.ProviderGenerationChanged, TurnGenerationAuthorityOuterCodecV1.Encode(new ProviderGenerationChangedOuterV1(session, authority, [])), OwnerSliceId.S5),
-            (24, TurnGenerationAuthorityPayloadRegistrationsV1.RouteGenerationChanged, TurnGenerationAuthorityOuterCodecV1.Encode(new RouteGenerationChangedOuterV1(session, authority, [])), OwnerSliceId.S8),
-            (33, TurnGenerationAuthorityPayloadRegistrationsV1.TransportGenerationChanged, TurnGenerationAuthorityOuterCodecV1.Encode(new TransportGenerationChangedOuterV1(session, authority, [])), OwnerSliceId.S11)
+            (4, TurnGenerationAuthorityPayloadRegistrations.GraphGenerationChanged, TurnGenerationAuthorityOuterCodec.Encode(new GraphGenerationChangedOuter(session, authority, [])), OwnerSliceId.S2),
+            (10, TurnGenerationAuthorityPayloadRegistrations.TurnDecisionFinalized, TurnGenerationAuthorityOuterCodec.Encode(new TurnDecisionFinalizedOuter(session, authority, [])), OwnerSliceId.S4),
+            (15, TurnGenerationAuthorityPayloadRegistrations.ProviderGenerationChanged, TurnGenerationAuthorityOuterCodec.Encode(new ProviderGenerationChangedOuter(session, authority, [])), OwnerSliceId.S5),
+            (24, TurnGenerationAuthorityPayloadRegistrations.RouteGenerationChanged, TurnGenerationAuthorityOuterCodec.Encode(new RouteGenerationChangedOuter(session, authority, [])), OwnerSliceId.S8),
+            (33, TurnGenerationAuthorityPayloadRegistrations.TransportGenerationChanged, TurnGenerationAuthorityOuterCodec.Encode(new TransportGenerationChangedOuter(session, authority, [])), OwnerSliceId.S11)
         };
-        Assert.Equal((ushort)4, TurnGenerationAuthorityPayloadRegistrationsV1.GraphGenerationChangedDiscriminator);
-        Assert.Equal((ushort)10, TurnGenerationAuthorityPayloadRegistrationsV1.TurnDecisionFinalizedDiscriminator);
-        Assert.Equal((ushort)15, TurnGenerationAuthorityPayloadRegistrationsV1.ProviderGenerationChangedDiscriminator);
-        Assert.Equal((ushort)24, TurnGenerationAuthorityPayloadRegistrationsV1.RouteGenerationChangedDiscriminator);
-        Assert.Equal((ushort)33, TurnGenerationAuthorityPayloadRegistrationsV1.TransportGenerationChangedDiscriminator);
+        Assert.Equal((ushort)4, TurnGenerationAuthorityPayloadRegistrations.GraphGenerationChangedDiscriminator);
+        Assert.Equal((ushort)10, TurnGenerationAuthorityPayloadRegistrations.TurnDecisionFinalizedDiscriminator);
+        Assert.Equal((ushort)15, TurnGenerationAuthorityPayloadRegistrations.ProviderGenerationChangedDiscriminator);
+        Assert.Equal((ushort)24, TurnGenerationAuthorityPayloadRegistrations.RouteGenerationChangedDiscriminator);
+        Assert.Equal((ushort)33, TurnGenerationAuthorityPayloadRegistrations.TransportGenerationChangedDiscriminator);
         foreach (var value in values)
         {
             Assert.Equal(value.Owner, value.Registration.Owner);

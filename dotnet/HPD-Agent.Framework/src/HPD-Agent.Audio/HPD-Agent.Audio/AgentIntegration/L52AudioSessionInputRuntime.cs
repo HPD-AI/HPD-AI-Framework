@@ -5,9 +5,9 @@ namespace HPD.Agent.Audio;
 /// Audio authority. It deliberately retains no parallel session state.
 /// </summary>
 internal sealed class L52AudioSessionInputRuntime(
-    IAudioSessionControlAuthorityV1 authority) : IAudioSessionInputRuntime
+    IAudioSessionControlAuthority authority) : IAudioSessionInputRuntime
 {
-    private readonly IAudioSessionControlAuthorityV1 _authority =
+    private readonly IAudioSessionControlAuthority _authority =
         authority ?? throw new ArgumentNullException(nameof(authority));
 
     public ValueTask<AudioSessionInputResult> ExecuteAsync(
@@ -28,8 +28,8 @@ internal sealed class L52AudioSessionInputRuntime(
         string audioSessionId, string candidateId, CancellationToken cancellationToken) =>
         Semantic().WithdrawSemanticAsync(audioSessionId, candidateId, cancellationToken);
 
-    private IAudioSemanticTurnAuthorityV1 Semantic() =>
-        _authority as IAudioSemanticTurnAuthorityV1
+    private IAudioSemanticTurnAuthority Semantic() =>
+        _authority as IAudioSemanticTurnAuthority
         ?? throw new InvalidOperationException(
             "The installed Audio-session authority does not support semantic turn admission.");
 }
@@ -38,7 +38,7 @@ internal sealed class L52AudioSessionInputRuntime(
 /// Current-authority SPI for retained Audio-session commands. Implementations
 /// own lifecycle truth, revisions, effects, reconciliation, and typed results.
 /// </summary>
-public interface IAudioSessionControlAuthorityV1
+public interface IAudioSessionControlAuthority
 {
     ValueTask<AudioSessionInputResult> ExecuteAsync(
         AudioSessionInputEvent input,
@@ -47,7 +47,7 @@ public interface IAudioSessionControlAuthorityV1
 }
 
 /// <summary>Optional S4 semantic admission surface implemented by a session authority.</summary>
-public interface IAudioSemanticTurnAuthorityV1
+public interface IAudioSemanticTurnAuthority
 {
     ValueTask<AudioSemanticAdmissionResult> AcceptSemanticAsync(
         string audioSessionId, string candidateId, CancellationToken cancellationToken = default);

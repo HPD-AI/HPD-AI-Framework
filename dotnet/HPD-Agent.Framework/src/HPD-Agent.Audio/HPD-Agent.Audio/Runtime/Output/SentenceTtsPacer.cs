@@ -4,7 +4,7 @@ using HPD.Agent.Audio.Output;
 
 namespace HPD.Agent.Audio.Runtime.Output;
 
-public sealed class SentenceTtsPacer : ITtsPacer
+internal sealed class SentenceTtsPacer : ITtsPacer
 {
     private readonly StringBuilder _buffer = new();
     private static readonly HashSet<string> Abbreviations = new(StringComparer.OrdinalIgnoreCase)

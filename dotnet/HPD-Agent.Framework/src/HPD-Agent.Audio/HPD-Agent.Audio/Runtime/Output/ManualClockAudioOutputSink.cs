@@ -4,7 +4,7 @@ using HPD.Audio.Primitives;
 
 namespace HPD.Agent.Audio.Runtime.Output;
 
-public sealed class ManualClockAudioOutputSink : IAudioOutputSink
+internal sealed class ManualClockAudioOutputSink : IAudioOutputSink
 {
     private readonly object _gate = new();
     private readonly Dictionary<OutputFlowId, FlowState> _flows = [];

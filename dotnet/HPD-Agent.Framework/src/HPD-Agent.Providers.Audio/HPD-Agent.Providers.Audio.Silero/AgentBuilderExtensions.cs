@@ -28,7 +28,7 @@ public static class AgentBuilderExtensions
         var options = new SileroVadOptions
         {
             ModelPath = modelPath,
-            ModelSha256 = modelSha256 ?? SileroModelArtifactV1.OfficialSha256
+            ModelSha256 = modelSha256 ?? SileroModelArtifact.OfficialSha256
         };
         configure?.Invoke(options);
 

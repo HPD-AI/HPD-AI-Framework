@@ -12,14 +12,14 @@ public sealed class SileroVadOptions : global::HPD.Agent.IProviderConfig
     public string? ModelPath { get; set; }
 
     /// <summary>Gets or sets the required lowercase SHA-256 digest.</summary>
-    public string ModelSha256 { get; set; } = SileroModelArtifactV1.OfficialSha256;
+    public string ModelSha256 { get; set; } = SileroModelArtifact.OfficialSha256;
 
     /// <summary>Gets or sets the bounded ONNX Runtime intra-operation thread count.</summary>
     public int IntraOpThreads { get; set; } = 1;
 }
 
 /// <summary>Describes the exact upstream artifact accepted by default.</summary>
-public static class SileroModelArtifactV1
+public static class SileroModelArtifact
 {
     public const string Version = "6.2";
     public const string UpstreamCommit = "be95df9152c0d7618fa1edfeb296fc3dae32376f";

@@ -38,9 +38,9 @@ public sealed record AudioInteractionUpdateTraceRecord : RealtimeAudioTraceRecor
     public required AudioInteractionUpdate Update { get; init; }
 }
 
-public sealed record AudioEndpointDecisionProjectionV1TraceRecord : RealtimeAudioTraceRecord
+public sealed record AudioEndpointDecisionProjectionTraceRecord : RealtimeAudioTraceRecord
 {
-    public required EndpointDecisionProjectionV1 Decision { get; init; }
+    public required EndpointDecisionProjection Decision { get; init; }
 }
 
 public sealed record AudioLedgerTraceRecord : RealtimeAudioTraceRecord

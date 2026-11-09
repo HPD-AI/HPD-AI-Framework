@@ -5,7 +5,7 @@ using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Audio.AgentIntegration.SourceResolution;
 
-public sealed class AgentInputContentSourceResolver : IInputContentSourceResolver
+internal sealed class AgentInputContentSourceResolver : IInputContentSourceResolver
 {
     private const string DefaultMediaType = "application/octet-stream";
 

@@ -883,7 +883,7 @@ static async Task PrintAudioInteractionRuntimeAsync(AudioRuntimeAttachment audio
         var transcript = result.LedgerRecords
             .OfType<TranscriptLedgerRecord>()
             .LastOrDefault()?.Text;
-        var committed = result.EndpointDecisionProjectionV1?.Commit?.Text;
+        var committed = result.EndpointDecisionProjection?.Commit?.Text;
 
         Console.ForegroundColor = ConsoleColor.DarkCyan;
         Console.WriteLine($"[audio-runtime:{i}] envelopes={result.Envelopes.Count} route={result.RouteDecision?.Plan?.Topology.ToString() ?? result.RouteDecision?.Kind.ToString() ?? "-"} ledger={result.LedgerRecords.Count}");
@@ -933,11 +933,17 @@ static async Task PrintAudioInteractionRuntimeAsync(AudioRuntimeAttachment audio
     }
 }
 
-static IReadOnlyList<AIFunction> CreateRealtimeMathTools() =>
+static IReadOnlyList<HPDAIFunctionFactory.HPDAIFunction> CreateRealtimeMathTools() =>
 [
-    AIFunctionFactory.Create((Func<int, int, int>)Add, name: "Add", description: "Adds two integers."),
-    AIFunctionFactory.Create((Func<int, int, int>)Multiply, name: "Multiply", description: "Multiplies two integers."),
-    AIFunctionFactory.Create((Func<int, int, int>)Subtract, name: "Subtract", description: "Subtracts right from left.")
+    HPDAIFunctionFactory.Import(
+        AIFunctionFactory.Create((Func<int, int, int>)Add, name: "Add", description: "Adds two integers."),
+        explicitlyUngoverned: true),
+    HPDAIFunctionFactory.Import(
+        AIFunctionFactory.Create((Func<int, int, int>)Multiply, name: "Multiply", description: "Multiplies two integers."),
+        explicitlyUngoverned: true),
+    HPDAIFunctionFactory.Import(
+        AIFunctionFactory.Create((Func<int, int, int>)Subtract, name: "Subtract", description: "Subtracts right from left."),
+        explicitlyUngoverned: true)
 ];
 
 static int Add(int left, int right) => left + right;
@@ -2279,7 +2285,7 @@ file sealed class AudioCliBenchmarkCollector(bool enabled)
             ["format"] = state.OutputFormat,
             ["max_segment_chars"] = state.MaxSegmentChars,
             ["transcript_chars"] = attachment.LastResults
-                .Select(result => result.EndpointDecisionProjectionV1?.Commit?.Text)
+                .Select(result => result.EndpointDecisionProjection?.Commit?.Text)
                 .FirstOrDefault(text => !string.IsNullOrWhiteSpace(text))?.Length,
             ["assistant_text_chars"] = state.AssistantTextChars,
             ["tts_source_text_chars"] = sourceTextChars,

@@ -11,7 +11,7 @@ using HPD.Audio.Primitives;
 namespace HPD.Agent.Audio.LiveKit;
 
 /// <summary>Concrete managed-session backend over the qualified LiveKit FFI leaf.</summary>
-public sealed class LiveKitManagedAudioSessionBackend : IManagedAudioSessionBackendV1
+public sealed class LiveKitManagedAudioSessionBackend : IManagedAudioSessionBackend
 {
     private readonly LiveKitManagedAudioSessionBackendOptions _options;
     private readonly Func<LiveKitFfiHost> _host;
@@ -35,8 +35,8 @@ public sealed class LiveKitManagedAudioSessionBackend : IManagedAudioSessionBack
                 "Managed LiveKit audio sample rate must be between 8 kHz and 192 kHz.");
     }
 
-    public async ValueTask<IManagedAudioSessionV1> StartAsync(
-        ManagedAudioSessionStartRequestV1 request,
+    public async ValueTask<IManagedAudioSession> StartAsync(
+        ManagedAudioSessionStartRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -73,9 +73,9 @@ public sealed class LiveKitManagedAudioSessionBackend : IManagedAudioSessionBack
         }
     }
 
-    private async ValueTask<IManagedAudioSessionV1> ConnectAsync(
+    private async ValueTask<IManagedAudioSession> ConnectAsync(
         LiveKitFfiHost host,
-        ManagedAudioSessionStartRequestV1 request,
+        ManagedAudioSessionStartRequest request,
         LiveKitAudioSessionBinding binding,
         char[] token,
         AudioFormat format,
@@ -348,10 +348,10 @@ public sealed class LiveKitManagedAudioSessionBackend : IManagedAudioSessionBack
     }
 }
 
-internal sealed class LiveKitManagedAudioSession : IManagedAudioSessionV1
+internal sealed class LiveKitManagedAudioSession : IManagedAudioSession
 {
     private readonly LiveKitTransportSessionRuntime _runtime;
-    private readonly IManagedAudioTranscriptSourceV1 _transcriptSource;
+    private readonly IManagedAudioTranscriptSource _transcriptSource;
     private readonly GatedAudioSource _input;
     private readonly LiveKitAudioOutputSinkAdapter _output;
     private readonly GatedAudioOutputSink _gatedOutput;
@@ -361,7 +361,7 @@ internal sealed class LiveKitManagedAudioSession : IManagedAudioSessionV1
 
     internal LiveKitManagedAudioSession(
         LiveKitTransportSessionRuntime runtime,
-        IManagedAudioTranscriptSourceV1 transcriptSource)
+        IManagedAudioTranscriptSource transcriptSource)
     {
         _runtime = runtime;
         _transcriptSource = transcriptSource;
@@ -373,7 +373,7 @@ internal sealed class LiveKitManagedAudioSession : IManagedAudioSessionV1
     public string AudioSessionId => _runtime.AudioSessionId;
     public IAudioOutputSink? OutputSink => _gatedOutput;
 
-    public IAsyncEnumerable<ManagedAudioInputObservationV1> ReadInputObservationsAsync(
+    public IAsyncEnumerable<ManagedAudioInputObservation> ReadInputObservationsAsync(
         CancellationToken cancellationToken = default) =>
         _transcriptSource.RunAsync(_input, cancellationToken);
 
@@ -389,15 +389,15 @@ internal sealed class LiveKitManagedAudioSession : IManagedAudioSessionV1
         if (!enabled) await _runtime.Outbound.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    public async ValueTask<ManagedAudioOutputInterruptionV1> InterruptOutputAsync(
+    public async ValueTask<ManagedAudioOutputInterruption> InterruptOutputAsync(
         string operationId, CancellationToken cancellationToken = default)
     {
         return await _gatedOutput.InterruptActiveAsync(cancellationToken).ConfigureAwait(false)
-            ? ManagedAudioOutputInterruptionV1.Interrupted
-            : ManagedAudioOutputInterruptionV1.AlreadyIdle;
+            ? ManagedAudioOutputInterruption.Interrupted
+            : ManagedAudioOutputInterruption.AlreadyIdle;
     }
 
-    public async ValueTask<ManagedAudioSessionStopResultV1> StopAsync(
+    public async ValueTask<ManagedAudioSessionStopResult> StopAsync(
         AudioSessionStopReason reason, CancellationToken cancellationToken = default)
     {
         var stopped = _unknownStopOperation is { } unknownOperation
@@ -407,13 +407,13 @@ internal sealed class LiveKitManagedAudioSession : IManagedAudioSessionV1
         {
             _unknownStopOperation = stopped.OperationId
                 ?? throw new InvalidDataException("LiveKit unknown stop omitted its operation identity.");
-            return new ManagedAudioSessionStopResultV1.OutcomeUnknown(_unknownStopOperation);
+            return new ManagedAudioSessionStopResult.OutcomeUnknown(_unknownStopOperation);
         }
         _unknownStopOperation = null;
         Interlocked.Exchange(ref _terminal, 1);
         return stopped.Disposition == LiveKitSessionStopDisposition.AlreadyStopped
-            ? new ManagedAudioSessionStopResultV1.AlreadyStopped()
-            : new ManagedAudioSessionStopResultV1.Stopped();
+            ? new ManagedAudioSessionStopResult.AlreadyStopped()
+            : new ManagedAudioSessionStopResult.Stopped();
     }
 
     public async ValueTask DisposeAsync()

@@ -1,6 +1,6 @@
 namespace HPD.Agent.Audio.Runtime;
 
-public sealed class RuntimeIdFactory
+internal sealed class RuntimeIdFactory
 {
     private long _threadProjection;
     private long _interactionSession;
@@ -35,7 +35,7 @@ public sealed class RuntimeIdFactory
 
     public AudioTurnId NextTurnId() => new($"turn-{Interlocked.Increment(ref _turn):D4}");
 
-    public EndpointEvidenceIdV1 NextEndpointEvidenceIdV1() => new($"endpoint-evidence-{Interlocked.Increment(ref _turnEvidence):D4}");
+    public EndpointEvidenceId NextEndpointEvidenceId() => new($"endpoint-evidence-{Interlocked.Increment(ref _turnEvidence):D4}");
 
     public TransportAdapterId NextTransportAdapterId() => new($"transport-{Interlocked.Increment(ref _transportAdapter):D4}");
 }
