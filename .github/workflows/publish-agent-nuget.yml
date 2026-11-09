@@ -81,6 +81,10 @@ on:
       NUGET_API_KEY:
         required: true
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   determine-version:
     runs-on: ubuntu-latest
