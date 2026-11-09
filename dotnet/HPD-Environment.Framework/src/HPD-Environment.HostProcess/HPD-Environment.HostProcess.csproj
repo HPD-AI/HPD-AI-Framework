@@ -35,7 +35,7 @@
 
   <Target Name="AddSeccompHelpersToPackage"
           DependsOnTargets="BuildSeccompHelpersForLinux"
-          Condition="$([MSBuild]::IsOSPlatform('Linux')) and '$(BuildSeccompHelpers)' == 'true'">
+          Condition="$([MSBuild]::IsOSPlatform('Linux')) and '$(BuildSeccompHelpers)' == 'true' and '$(TargetFramework)' == 'net10.0'">
     <ItemGroup>
       <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-x64"
                               Condition="Exists('$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-x64')">
