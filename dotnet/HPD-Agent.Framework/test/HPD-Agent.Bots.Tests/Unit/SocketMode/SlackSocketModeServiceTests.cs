@@ -154,6 +154,20 @@ public class SlackSocketModeServiceTests
             WebSocketMessageType.Text, endOfMessage: true, ct);
     }
 
+    private static async Task WaitUntilAsync(
+        Func<bool> condition,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (!condition())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (DateTime.UtcNow >= deadline)
+                throw new TimeoutException();
+            await Task.Delay(10, cancellationToken);
+        }
+    }
+
     private static string MakeEnvelope(string envelopeId, string type = "events_api") =>
         $"{{\"envelope_id\":\"{envelopeId}\",\"type\":\"{type}\"}}";
 
@@ -171,7 +185,9 @@ public class SlackSocketModeServiceTests
         var sessionTask = svc.RunTestSessionAsync(client, cts.Token);
 
         await SendTextFrameAsync(server, MakeEnvelope("env-1"));
-        await Task.Delay(100); // let the loop process it
+        await WaitUntilAsync(
+            () => svc.CallOrder.Contains("dispatch:env-1"),
+            cts.Token);
 
         // Send close to exit the loop
         await server.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", cts.Token);
@@ -195,7 +211,7 @@ public class SlackSocketModeServiceTests
         await SendTextFrameAsync(server, MakeEnvelope("env-1"));
         await SendTextFrameAsync(server, MakeEnvelope("env-2"));
         await SendTextFrameAsync(server, MakeEnvelope("env-3"));
-        await Task.Delay(200);
+        await WaitUntilAsync(() => svc.AcksSent.Count == 3, cts.Token);
 
         await server.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", cts.Token);
         await sessionTask;
@@ -218,7 +234,10 @@ public class SlackSocketModeServiceTests
         // Send disconnect_warning — should be ACKed like any other frame
         await SendTextFrameAsync(server, MakeEnvelope("disc-001", "disconnect"));
         await SendTextFrameAsync(server, MakeEnvelope("env-after-disc"));
-        await Task.Delay(200);
+        await WaitUntilAsync(
+            () => svc.AcksSent.Contains("disc-001") &&
+                svc.AcksSent.Contains("env-after-disc"),
+            cts.Token);
 
         await server.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", cts.Token);
         await sessionTask;
@@ -250,7 +269,9 @@ public class SlackSocketModeServiceTests
         await server.SendAsync(new ArraySegment<byte>(part2),
             WebSocketMessageType.Text, endOfMessage: true, cts.Token);
 
-        await Task.Delay(200);
+        await WaitUntilAsync(
+            () => adapter.ReceivedEnvelopes.Count == 1,
+            cts.Token);
         await server.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", cts.Token);
         await sessionTask;
 

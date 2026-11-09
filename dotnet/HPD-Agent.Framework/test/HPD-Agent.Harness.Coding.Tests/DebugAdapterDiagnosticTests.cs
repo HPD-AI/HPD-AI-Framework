@@ -16,7 +16,11 @@ public sealed class DebugAdapterDiagnosticTests
         transport.Complete(new DebugTransportExit(
             ProcessCompletionKind.Exited, 17, "ADAPTER_FAILED"));
 
-        await WaitUntilAsync(() => client.AdapterDiagnostics.Exit is not null);
+        await WaitUntilAsync(() => client.AdapterDiagnostics is
+        {
+            Exit: not null,
+            StandardError: "adapter stderr"
+        });
         var snapshot = client.AdapterDiagnostics;
         snapshot.StandardError.Should().Be("adapter stderr");
         snapshot.Exit!.ExitCode.Should().Be(17);

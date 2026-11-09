@@ -2319,10 +2319,34 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
         if (!File.Exists(path))
             return "";
 
-        var lines = await File.ReadAllLinesAsync(path, cancellationToken).ConfigureAwait(false);
+        var lines = await ReadAllLinesSharedAsync(path, cancellationToken).ConfigureAwait(false);
         return string.Join(
             System.Environment.NewLine,
             lines.Length <= tailLines ? lines : lines[^tailLines..]);
+    }
+
+    private static async ValueTask<string[]> ReadAllLinesSharedAsync(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete,
+            bufferSize: 4096,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        using var reader = new StreamReader(
+            stream,
+            Encoding.UTF8,
+            detectEncodingFromByteOrderMarks: true,
+            bufferSize: 4096,
+            leaveOpen: false);
+
+        var lines = new List<string>();
+        while (await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
+            lines.Add(line);
+        return lines.ToArray();
     }
 
     public async ValueTask<ExecuteCommandOutputStoreMetadata> CompleteAsync(
