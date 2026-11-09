@@ -13,6 +13,11 @@ on:
         required: false
         type: boolean
         default: false
+      skip_windows_verification:
+        description: 'Emergency release only: skip the Windows verification leg when it has already passed for the same source revision.'
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       skip_tests:
@@ -22,6 +27,11 @@ on:
         default: false
       skip_macos_verification:
         description: 'Emergency release only: skip the macOS verification leg when it has already passed for the same source revision.'
+        required: false
+        type: boolean
+        default: false
+      skip_windows_verification:
+        description: 'Emergency release only: skip the Windows verification leg when it has already passed for the same source revision.'
         required: false
         type: boolean
         default: false
@@ -151,11 +161,11 @@ jobs:
       run: dotnet restore dotnet/HPD-Agent.Framework/HPD-Agent.slnx
 
     - name: Build
-      if: matrix.os != 'macos-latest' || !inputs.skip_macos_verification
+      if: (matrix.os != 'macos-latest' || !inputs.skip_macos_verification) && (matrix.os != 'windows-latest' || !inputs.skip_windows_verification)
       run: dotnet build dotnet/HPD-Agent.Framework/HPD-Agent.slnx -c ${{ matrix.configuration }} --no-restore
 
     - name: Verify API surfaces
-      if: matrix.targetFramework == 'net10.0' && (matrix.os != 'macos-latest' || !inputs.skip_macos_verification)
+      if: matrix.targetFramework == 'net10.0' && (matrix.os != 'macos-latest' || !inputs.skip_macos_verification) && (matrix.os != 'windows-latest' || !inputs.skip_windows_verification)
       run: >
         dotnet run
         --project dotnet/HPD-Agent.Framework/test/HPD-Agent.DxAudit/HPD-Agent.DxAudit.csproj
@@ -167,7 +177,7 @@ jobs:
         --strict
 
     - name: Smoke-test audio application composition
-      if: matrix.targetFramework == 'net10.0' && (matrix.os != 'macos-latest' || !inputs.skip_macos_verification)
+      if: matrix.targetFramework == 'net10.0' && (matrix.os != 'macos-latest' || !inputs.skip_macos_verification) && (matrix.os != 'windows-latest' || !inputs.skip_windows_verification)
       run: >
         dotnet run
         --project dotnet/HPD-Agent.Framework/test/HPD-Agent.AudioCli/HPD-Agent.AudioCli.csproj
@@ -177,12 +187,16 @@ jobs:
         --help
 
     - name: Report skipped tests
-      if: inputs.skip_tests && (matrix.os != 'macos-latest' || !inputs.skip_macos_verification)
+      if: inputs.skip_tests && (matrix.os != 'macos-latest' || !inputs.skip_macos_verification) && (matrix.os != 'windows-latest' || !inputs.skip_windows_verification)
       run: echo "::warning::Tests were explicitly skipped for this emergency release; build, API, and package verification still ran."
 
     - name: Report skipped macOS verification
       if: matrix.os == 'macos-latest' && inputs.skip_macos_verification
       run: echo "::warning::macOS build and API verification were explicitly skipped for this emergency release."
+
+    - name: Report skipped Windows verification
+      if: matrix.os == 'windows-latest' && inputs.skip_windows_verification
+      run: echo "::warning::Windows build and API verification were explicitly skipped for this emergency release."
 
     - name: Run tests (with coverage)
       if: ${{ matrix.collect-coverage && !inputs.skip_tests }}

@@ -49,6 +49,11 @@ on:
         required: false
         type: boolean
         default: false
+      skip_windows_verification:
+        description: 'Emergency release only: skip the Windows verification leg when it has already passed for the same source revision.'
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       version:
@@ -94,6 +99,11 @@ on:
         default: false
       skip_macos_verification:
         description: 'Emergency release only: skip the macOS verification leg when it has already passed for the same source revision.'
+        required: false
+        type: boolean
+        default: false
+      skip_windows_verification:
+        description: 'Emergency release only: skip the Windows verification leg when it has already passed for the same source revision.'
         required: false
         type: boolean
         default: false
@@ -148,6 +158,7 @@ jobs:
     with:
       skip_tests: ${{ inputs.skip_tests }}
       skip_macos_verification: ${{ inputs.skip_macos_verification }}
+      skip_windows_verification: ${{ inputs.skip_windows_verification }}
 
   publish:
     runs-on: ubuntu-latest
