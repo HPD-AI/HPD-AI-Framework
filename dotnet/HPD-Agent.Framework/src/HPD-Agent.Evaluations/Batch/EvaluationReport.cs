@@ -1,6 +1,7 @@
 // Copyright 2026 Einstein Essibu
 // SPDX-License-Identifier: FSL-1.1-ALv2
 
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -173,8 +174,14 @@ public sealed class EvaluationReport
     {
         if (!HasPolicyViolations) return "(no policy violations)";
         return string.Join("\n", _policyViolations.Select(v =>
-            $"POLICY VIOLATION: '{v.EvaluatorName}' pass rate = {v.PassRate:P1} (expected 100%)"));
+            $"POLICY VIOLATION: '{v.EvaluatorName}' pass rate = {FormatPercent(v.PassRate)} (expected 100%)"));
     }
+
+    internal static string FormatPercent(double value) =>
+        (value * 100).ToString("0.0", CultureInfo.InvariantCulture) + "%";
+
+    private static string FormatPercentDelta(double value) =>
+        (value * 100).ToString("+0.0;-0.0;0.0", CultureInfo.InvariantCulture) + "%";
 
     /// <summary>
     /// Throws when one or more <see cref="EvalPolicy.MustAlwaysPass"/> evaluators
@@ -204,12 +211,12 @@ public sealed class EvaluationReport
             var rate = PassRate(name);
             var avg = AverageScore(name);
             var baselineRate = baseline?.PassRate(name);
-            var delta = baselineRate.HasValue ? $" (Δ{rate - baselineRate.Value:+0.0%;-0.0%})" : "";
-            sb.AppendLine($"  {name}: pass={rate:P1}{delta}  avg={avg:F3}");
+            var delta = baselineRate.HasValue ? $" (Δ{FormatPercentDelta(rate - baselineRate.Value)})" : "";
+            sb.AppendLine($"  {name}: pass={FormatPercent(rate)}{delta}  avg={avg:F3}");
         }
 
         if (Failures.Count > 0)
-            sb.AppendLine($"  Failures: {Failures.Count} ({InfrastructureErrorRate:P1} infrastructure)");
+            sb.AppendLine($"  Failures: {Failures.Count} ({FormatPercent(InfrastructureErrorRate)} infrastructure)");
 
         if (HasPolicyViolations)
             sb.AppendLine(FormatPolicyViolations());
@@ -302,7 +309,7 @@ public sealed class EvaluationReport
         if (InfrastructureErrorRate > 0.02)
         {
             sb.AppendLine($"<div style=\"background:#fff3cd;border:1px solid #ffc107;padding:.5rem .75rem;border-radius:.3rem;margin-bottom:1rem\">");
-            sb.AppendLine($"<strong class=\"warn\">&#9888; Infrastructure error rate: {InfrastructureErrorRate:P1}</strong> — " +
+            sb.AppendLine($"<strong class=\"warn\">&#9888; Infrastructure error rate: {FormatPercent(InfrastructureErrorRate)}</strong> — " +
                           "results may be unreliable; consider re-running affected cases.</div>");
         }
 
@@ -317,7 +324,7 @@ public sealed class EvaluationReport
                 var avg = AverageScore(name);
                 var cls = rate >= 1.0 ? "pass" : rate >= 0.8 ? "" : "fail";
                 sb.AppendLine($"<tr><td>{HtmlEncode(name)}</td>" +
-                              $"<td class=\"{cls}\">{rate:P1}</td>" +
+                              $"<td class=\"{cls}\">{FormatPercent(rate)}</td>" +
                               $"<td>{avg:F3}</td></tr>");
             }
             sb.AppendLine("</tbody></table>");
@@ -415,7 +422,7 @@ public sealed class PassRateThresholdAnalyzer : IReportEvaluator
         return [new ReportAnalysis(
             GetType().Name,
             rate >= _threshold,
-            $"'{_evaluatorName}' pass rate {rate:P1} {(rate >= _threshold ? ">=" : "<")} threshold {_threshold:P1}")];
+            $"'{_evaluatorName}' pass rate {EvaluationReport.FormatPercent(rate)} {(rate >= _threshold ? ">=" : "<")} threshold {EvaluationReport.FormatPercent(_threshold)}")];
     }
 }
 

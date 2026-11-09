@@ -178,7 +178,7 @@ public sealed class ReportAnalyzerTests
 
         var act = report.ThrowIfPolicyViolations;
         act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*Output Contains*50.0%*");
+            .WithMessage("*Output Contains*pass rate = 50.0% (expected 100%)*");
     }
 
     private static ReportCase Case(params EvaluationMetric[] metrics)
