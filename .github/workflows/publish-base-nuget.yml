@@ -70,7 +70,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     needs: determine-version
-    timeout-minutes: 40
+    timeout-minutes: 60
     permissions:
       contents: read
       id-token: write
@@ -231,13 +231,21 @@ jobs:
           )
           VERSION_LOWER="${PACKAGE_VERSION,,}"
 
-          for attempt in {1..60}; do
+          index_contains_version() {
+            local package_index
+            package_index="$(curl -fsSL "https://api.nuget.org/v3-flatcontainer/$1/index.json" 2>/dev/null)" || return 1
+            jq -e --arg version "$VERSION_LOWER" '.versions | index($version) != null' \
+              <<<"$package_index" >/dev/null
+          }
+
+          for attempt in {1..180}; do
             all_available=true
+            pending=()
             for PACKAGE_ID in "${PACKAGE_IDS[@]}"; do
               PACKAGE_ID_LOWER="${PACKAGE_ID,,}"
-              PACKAGE_URL="https://api.nuget.org/v3-flatcontainer/$PACKAGE_ID_LOWER/$VERSION_LOWER/$PACKAGE_ID_LOWER.$VERSION_LOWER.nupkg"
-              if ! curl -fsSL -o /dev/null "$PACKAGE_URL"; then
+              if ! index_contains_version "$PACKAGE_ID_LOWER"; then
                 all_available=false
+                pending+=("$PACKAGE_ID")
               fi
             done
 
@@ -245,11 +253,16 @@ jobs:
               echo "All HPD Base $PACKAGE_VERSION packages are available from NuGet."
               exit 0
             fi
-            echo "Waiting for HPD Base $PACKAGE_VERSION to become available (attempt $attempt/60)..."
+
+            if (( attempt == 1 || attempt % 12 == 0 )); then
+              printf 'Waiting for HPD Base %s to become available (attempt %d/180): %s\n' \
+                "$PACKAGE_VERSION" "$attempt" "${pending[*]}"
+            fi
             sleep 10
           done
 
-          echo "::error::HPD Base $PACKAGE_VERSION did not become available within 10 minutes."
+          echo "::error::HPD Base $PACKAGE_VERSION did not become available within 30 minutes."
+          echo "Check validation status at https://www.nuget.org/account/Packages. A successful push followed by missing feed entries usually means NuGet validation is still pending or failed."
           exit 1
 
       - name: Summary
