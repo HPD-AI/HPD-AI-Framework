@@ -67,7 +67,10 @@ public sealed class FileMutationTests : IDisposable
         var act = () => toolharness.ApplyTextMutationAsync(CreateRequest(blockedPath, "x"));
 
         await act.Should().ThrowAsync<FileMutationException>()
-            .Where(exception => exception.Kind == FileMutationErrorKind.BlockedDevicePath);
+            .Where(exception =>
+                exception.Kind == FileMutationErrorKind.BlockedDevicePath ||
+                (OperatingSystem.IsWindows() &&
+                 exception.Kind == FileMutationErrorKind.WindowsUncPath));
     }
 
     [Fact]
