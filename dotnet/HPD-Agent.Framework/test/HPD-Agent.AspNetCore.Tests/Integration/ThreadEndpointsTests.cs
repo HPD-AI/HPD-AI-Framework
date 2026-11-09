@@ -487,7 +487,7 @@ public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task DeleteThread_Returns400_WhenDeletingMainThread()
+    public async Task DeleteThread_DeletesMainThread()
     {
         // Arrange
         var sessionId = await CreateTestSession();
@@ -496,7 +496,9 @@ public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
         var response = await _client.DeleteAsync($"/sessions/{sessionId}/threads/main");
 
         // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await _client.GetAsync($"/sessions/{sessionId}/threads/main"))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     #endregion

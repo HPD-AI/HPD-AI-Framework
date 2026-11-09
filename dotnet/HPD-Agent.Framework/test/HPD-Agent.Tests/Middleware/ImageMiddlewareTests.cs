@@ -62,33 +62,27 @@ public class ImageMiddlewareTests
     }
 
     [Fact]
-    public void AgentBuilderExtension_WithOcrStrategy_ThrowsNotImplementedException()
+    public void AgentBuilderExtension_WithNullOptions_ThrowsBeforeMutatingBuilder()
     {
-        // Arrange
         var builder = new AgentBuilder();
-        var options = new ImageMiddlewareOptions
-        {
-            ProcessingStrategy = ImageProcessingStrategy.OCR
-        };
+        var middleware = new MarkerMiddleware();
+        builder.WithMiddleware(middleware);
 
-        // Act & Assert
-        Assert.Throws<NotImplementedException>(() =>
-            builder.WithImageHandling(options));
+        Assert.Throws<ArgumentNullException>(() =>
+            builder.WithImageHandling((ImageMiddlewareOptions)null!));
+        Assert.Contains(middleware, builder.Middlewares);
     }
 
     [Fact]
-    public void AgentBuilderExtension_WithDescriptionStrategy_ThrowsNotImplementedException()
+    public void AgentBuilderExtension_WithNullStrategy_ThrowsBeforeMutatingBuilder()
     {
-        // Arrange
         var builder = new AgentBuilder();
-        var options = new ImageMiddlewareOptions
-        {
-            ProcessingStrategy = ImageProcessingStrategy.Description
-        };
+        var middleware = new MarkerMiddleware();
+        builder.WithMiddleware(middleware);
 
-        // Act & Assert
-        Assert.Throws<NotImplementedException>(() =>
-            builder.WithImageHandling(options));
+        Assert.Throws<ArgumentNullException>(() =>
+            builder.WithImageHandling((IImageStrategy)null!));
+        Assert.Contains(middleware, builder.Middlewares);
     }
 
     [Fact]
@@ -131,11 +125,19 @@ public class ImageMiddlewareTests
     }
 
     [Fact]
-    public void ImageProcessingStrategy_Constants_AreCorrect()
+    public void ImageProcessingStrategy_ExportsOnlyImplementedStrategies()
     {
         // Assert
         Assert.Equal("PassThrough", ImageProcessingStrategy.PassThrough);
-        Assert.Equal("OCR", ImageProcessingStrategy.OCR);
-        Assert.Equal("Description", ImageProcessingStrategy.Description);
+        Assert.Equal(
+            ["PassThrough"],
+            typeof(ImageProcessingStrategy)
+                .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+                .Select(field => field.Name)
+                .Order());
+    }
+
+    private sealed class MarkerMiddleware : IAgentMiddleware
+    {
     }
 }

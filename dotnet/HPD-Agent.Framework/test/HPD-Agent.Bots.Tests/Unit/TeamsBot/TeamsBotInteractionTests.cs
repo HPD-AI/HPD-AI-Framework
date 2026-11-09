@@ -87,7 +87,7 @@ public class TeamsBotInteractionTests
         {
             Values = new Dictionary<string, string>
             {
-                ["actionId"] = "hpd.permission.approve",
+                ["actionId"] = "hpd.permission.select",
                 ["permissionId"] = "permission-1"
             }
         }, CancellationToken.None);

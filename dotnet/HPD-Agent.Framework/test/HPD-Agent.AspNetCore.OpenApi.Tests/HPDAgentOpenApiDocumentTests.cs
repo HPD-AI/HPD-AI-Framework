@@ -38,7 +38,7 @@ public sealed class HPDAgentOpenApiDocumentTests
             document.Paths["/event-catalog"].Operations.Values.Select(operation => operation.OperationId));
 
         var stream = document.Paths[
-            "/agents/{agentId}/sessions/{sid}/threads/{bid}/events"]
+            "/agents/{agentId}/sessions/{sessionId}/threads/{threadId}/events"]
             .Operations[HttpMethod.Get];
         Assert.Contains("text/event-stream", stream.Responses["200"].Content.Keys);
         Assert.Contains(stream.Parameters!, parameter =>
@@ -60,9 +60,11 @@ public sealed class HPDAgentOpenApiDocumentTests
         Assert.Contains(typeof(AotFixtureEvent).FullName, eventComponentNames);
 
         var input = document.Paths[
-            "/agents/{agentId}/sessions/{sid}/threads/{bid}/inputs"]
+            "/agents/{agentId}/sessions/{sessionId}/threads/{threadId}/inputs"]
             .Operations[HttpMethod.Post];
         Assert.Contains("202", input.Responses.Keys);
+        Assert.Contains("400", input.Responses.Keys);
+        Assert.Contains("409", input.Responses.Keys);
         Assert.Contains("application/json", input.RequestBody!.Content!.Keys);
         Assert.Equal(
             7,
@@ -71,7 +73,7 @@ public sealed class HPDAgentOpenApiDocumentTests
         Assert.Contains("AgentRunConfig", document.Components!.Schemas!.Keys);
 
         var runtimeState = document.Paths[
-            "/agents/{agentId}/sessions/{sid}/threads/{bid}/state"]
+            "/agents/{agentId}/sessions/{sessionId}/threads/{threadId}/state"]
             .Operations[HttpMethod.Get];
         var runtimeStateSchema = Assert.IsType<OpenApiSchema>(
             runtimeState.Responses["200"].Content["application/json"].Schema);
@@ -79,13 +81,14 @@ public sealed class HPDAgentOpenApiDocumentTests
             runtimeStateSchema.Properties!["activeExecution"]);
         Assert.True(activeExecution.Type!.Value.HasFlag(JsonSchemaType.Null));
 
-        var upload = document.Paths["/sessions/{sid}/threads/{bid}/content"]
+        var upload = document.Paths["/sessions/{sessionId}/threads/{threadId}/content"]
             .Operations[HttpMethod.Post];
         Assert.Contains("multipart/form-data", upload.RequestBody!.Content!.Keys);
 
-        var download = document.Paths["/sessions/{sid}/threads/{bid}/content/{contentId}"]
+        var download = document.Paths["/sessions/{sessionId}/threads/{threadId}/content/{contentId}"]
             .Operations[HttpMethod.Get];
         Assert.Contains("application/octet-stream", download.Responses["200"].Content.Keys);
+
     }
 
     [Fact]
@@ -101,7 +104,7 @@ public sealed class HPDAgentOpenApiDocumentTests
         Assert.Equal("3.1.1", json.GetProperty("openapi").GetString());
         Assert.Equal("hpd-agent-v1", json.GetProperty("x-hpd-document-name").GetString());
         Assert.True(json.GetProperty("paths").TryGetProperty(
-            "/agents/{agentId}/sessions/{sid}/threads/{bid}/events",
+            "/agents/{agentId}/sessions/{sessionId}/threads/{threadId}/events",
             out _));
     }
 
@@ -124,6 +127,26 @@ public sealed class HPDAgentOpenApiDocumentTests
         var connect = document.Paths["/client-tool-providers/connect"].Operations[HttpMethod.Get];
         Assert.Contains("101", connect.Responses.Keys);
         Assert.True(connect.Extensions!.ContainsKey("x-hpd-websocket-protocol"));
+
+        var cancel = document.Paths[
+            "/agents/{agentId}/sessions/{sessionId}/threads/{threadId}/executions/{threadExecutionId}/cancel"]
+            .Operations[HttpMethod.Post];
+        Assert.Contains("409", cancel.Responses.Keys);
+
+        var queueStart = document.Paths[
+            "/agents/{agentId}/sessions/{sessionId}/threads/{threadId}/queue/start"]
+            .Operations[HttpMethod.Post];
+        Assert.Contains("409", queueStart.Responses.Keys);
+
+        Assert.Contains("/storage", document.Paths.Keys);
+        Assert.DoesNotContain(document.Paths.Keys, static path =>
+            path.Contains("{sid}", StringComparison.Ordinal) ||
+            path.Contains("{bid}", StringComparison.Ordinal));
+
+        var createAgent = document.Paths["/agents"].Operations[HttpMethod.Post];
+        Assert.Contains("409", createAgent.Responses.Keys);
+        var createAgentSchema = document.Components.Schemas["CreateAgentRequest"];
+        Assert.Contains("agentId", createAgentSchema.Required);
     }
 
     [Fact]
@@ -216,20 +239,20 @@ public sealed class HPDAgentOpenApiDocumentTests
             .WithSummary("Get the immutable agent event compatibility catalog");
 
         endpoints.MapGet(
-                "/agents/{agentId}/sessions/{sid}/threads/{bid}/events",
+                "/agents/{agentId}/sessions/{sessionId}/threads/{threadId}/events",
                 () => TypedResults.Empty)
             .WithName("ObserveLiveEventsWithSse")
             .WithSummary("Replay durable thread events and observe all live runtime events using SSE");
 
         endpoints.MapPost(
-                "/agents/{agentId}/sessions/{sid}/threads/{bid}/inputs",
+                "/agents/{agentId}/sessions/{sessionId}/threads/{threadId}/inputs",
                 (System.Text.Json.JsonElement input) =>
                     TypedResults.Accepted(string.Empty, new InputSubmissionDto("started")))
             .WithName("SubmitAgentInput")
             .WithSummary("Submit an agent input event to the runtime");
 
         endpoints.MapGet(
-                "/agents/{agentId}/sessions/{sid}/threads/{bid}/state",
+                "/agents/{agentId}/sessions/{sessionId}/threads/{threadId}/state",
                 () => TypedResults.Ok(
                     new ThreadRuntimeStateDto(
                         new HPD.Agent.ThreadJournalCursor(1, 0),
@@ -239,7 +262,7 @@ public sealed class HPDAgentOpenApiDocumentTests
             .WithSummary("Get one authoritative thread history and active-run snapshot");
 
         endpoints.MapPost(
-                "/sessions/{sid}/threads/{bid}/content",
+                "/sessions/{sessionId}/threads/{threadId}/content",
                 () => TypedResults.Created(
                     "/sessions/s/threads/t/content/c",
                     new ContentDto("c", "v1", "text/plain", 1, DateTimeOffset.UnixEpoch.ToString("O"))))
@@ -247,7 +270,7 @@ public sealed class HPDAgentOpenApiDocumentTests
             .WithSummary("Upload content (multipart/form-data)");
 
         endpoints.MapGet(
-                "/sessions/{sid}/threads/{bid}/content/{contentId}",
+                "/sessions/{sessionId}/threads/{threadId}/content/{contentId}",
                 () => TypedResults.File([1], "application/octet-stream", "file.bin"))
             .WithName("DownloadContent")
             .WithSummary("Download content (returns binary content)");

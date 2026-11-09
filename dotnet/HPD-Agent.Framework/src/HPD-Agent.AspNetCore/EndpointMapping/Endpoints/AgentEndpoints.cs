@@ -20,8 +20,11 @@ internal static class AgentEndpoints
         string endpointName)
     {
         // POST /agents — create definition
-        endpoints.MapPost("/agents", (CreateAgentRequest request, CancellationToken ct) =>
-                CreateAgent(request, agents, ct))
+        endpoints.MapPost("/agents", (
+                CreateAgentRequest request,
+                LinkGenerator links,
+                CancellationToken ct) =>
+                CreateAgent(request, agents, links, endpointName, ct))
             .WithHostName(endpointName, "CreateAgent")
             .WithSummary("Create a new agent definition");
 
@@ -50,17 +53,25 @@ internal static class AgentEndpoints
             .WithSummary("Delete an agent definition and evict the cached instance");
     }
 
-    private static async Task<Results<Created<StoredAgentDto>, ValidationProblem>> CreateAgent(
+    private static async Task<Results<Created<StoredAgentDto>, Conflict, ValidationProblem>> CreateAgent(
         CreateAgentRequest request,
         IAgentDefinitionService agents,
-        CancellationToken ct)
+        LinkGenerator links,
+        string endpointName,
+        CancellationToken ct = default)
     {
         try
         {
             var result = await agents.CreateAgentAsync(request, ct);
             return result.Status switch
             {
-                AgentServiceStatus.Success => TypedResults.Created($"/agents/{result.Value!.Id}", result.Value),
+                AgentServiceStatus.Success => TypedResults.Created(
+                    CreatedLocation.Resolve(
+                        links,
+                        $"{endpointName}.GetAgent",
+                        ("agentId", result.Value!.Id)),
+                    result.Value),
+                AgentServiceStatus.Conflict => TypedResults.Conflict(),
                 _ => ToValidation(result, "CreateAgentError")
             };
         }

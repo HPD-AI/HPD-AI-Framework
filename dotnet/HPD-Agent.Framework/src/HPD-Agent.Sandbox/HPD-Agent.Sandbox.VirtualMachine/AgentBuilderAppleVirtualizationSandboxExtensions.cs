@@ -16,8 +16,7 @@ public static class AgentBuilderAppleVirtualizationSandboxExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        builder.Middlewares.RemoveAll(static middleware => middleware is AppleVirtualizationSandboxMiddleware);
-        builder.Middlewares.Add(new AppleVirtualizationSandboxMiddleware(options, logger));
-        return builder;
+        return builder.ReplaceMiddleware<AppleVirtualizationSandboxMiddleware>(
+            new AppleVirtualizationSandboxMiddleware(options, logger));
     }
 }

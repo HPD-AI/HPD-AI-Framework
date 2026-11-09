@@ -52,7 +52,8 @@ public sealed class PlatformSessionMapper
     /// </param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>
-    /// The <c>sessionId</c> and <c>threadId</c> ("main") for this platform key.
+    /// The <c>sessionId</c> and the mapped thread. When the matched session has no threads,
+    /// a default <c>main</c> thread is created.
     /// </returns>
     public async Task<(string SessionId, string ThreadId)> ResolveAsync(
         string platformKey,
@@ -67,11 +68,24 @@ public sealed class PlatformSessionMapper
             var session = await _manager.Store.LoadSessionAsync(sessionId, ct);
             if (session?.Metadata != null && MetadataContainsPlatformKey(session.Metadata, platformKey))
             {
-                // Return the first thread (always "main" for adapter-created sessions)
-                var threads = await _manager.Store.CollectThreadDescriptorsAsync(
+                var threadId = await _manager.WithSessionLockAsync(
                     sessionId,
-                    cancellationToken: ct);
-                var threadId = threads.Count > 0 ? threads[0].Key.ThreadId : "main";
+                    async () =>
+                    {
+                        var threads = await _manager.Store.CollectThreadDescriptorsAsync(
+                            sessionId,
+                            cancellationToken: ct);
+                        if (threads.Count > 0)
+                            return threads[0].Key.ThreadId;
+
+                        var thread = await _manager.Store.CreateThreadAsync(
+                            sessionId,
+                            _defaultAgentId,
+                            "main",
+                            cancellationToken: ct);
+                        return thread.Id;
+                    },
+                    ct);
                 return (sessionId, threadId);
             }
         }

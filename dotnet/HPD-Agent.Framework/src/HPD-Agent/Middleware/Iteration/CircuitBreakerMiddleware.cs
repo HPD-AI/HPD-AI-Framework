@@ -43,9 +43,9 @@ namespace HPD.Agent;
 /// <example>
 /// <code>
 /// // Register via AgentBuilder
-/// var agent = new AgentBuilder()
+/// await using var agent = await new AgentBuilder()
 ///     .WithMiddleware(new CircuitBreakerMiddleware { MaxConsecutiveCalls = 3 })
-///     .Build();
+///     .BuildAsync();
 /// </code>
 /// </example>
 public class CircuitBreakerMiddleware : IAgentMiddleware

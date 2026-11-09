@@ -89,7 +89,7 @@ public class TavilyConfig
 /// <summary>
 /// Configuration container for Brave web search settings
 /// </summary>
-public class BraveConfig
+internal class BraveConfig
 {
     public string ApiKey { get; set; } = string.Empty;
     public TimeSpan? Timeout { get; set; }
@@ -115,7 +115,7 @@ public class BraveConfig
 /// <summary>
 /// Configuration container for Bing web search settings
 /// </summary>
-public class BingConfig
+internal class BingConfig
 {
     public string ApiKey { get; set; } = string.Empty;
     public TimeSpan? Timeout { get; set; }

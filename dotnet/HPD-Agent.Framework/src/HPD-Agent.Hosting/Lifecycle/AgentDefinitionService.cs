@@ -17,16 +17,39 @@ public sealed class AgentDefinitionService : IAgentDefinitionService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.AgentId);
 
         var errors = AgentConfigValidator.Validate(request.Config);
         if (errors.Count > 0)
             return AgentServiceResult<StoredAgentDto>.Validation("config", errors);
 
-        var stored = await _agentManager.CreateDefinitionAsync(
-            request.Config,
-            request.Name,
-            request.Metadata,
-            cancellationToken);
+        if (await _agentManager.GetDefinitionAsync(request.AgentId, cancellationToken).ConfigureAwait(false) is not null)
+        {
+            return AgentServiceResult<StoredAgentDto>.ConflictWith(
+                "AgentAlreadyExists",
+                $"Agent definition '{request.AgentId}' already exists.");
+        }
+
+        StoredAgent stored;
+        try
+        {
+            stored = await _agentManager.CreateDefinitionAsync(
+                request.Config,
+                request.Name,
+                request.Metadata,
+                request.AgentId,
+                cancellationToken);
+        }
+        catch (InvalidOperationException)
+        {
+            if (await _agentManager.GetDefinitionAsync(request.AgentId, cancellationToken)
+                    .ConfigureAwait(false) is null)
+                throw;
+
+            return AgentServiceResult<StoredAgentDto>.ConflictWith(
+                "AgentAlreadyExists",
+                $"Agent definition '{request.AgentId}' already exists.");
+        }
 
         return AgentServiceResult<StoredAgentDto>.Success(ToDto(stored));
     }

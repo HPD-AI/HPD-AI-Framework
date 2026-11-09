@@ -25,6 +25,10 @@ public interface ISessionStore
     /// <summary>Gets the immutable codec authority used for every journal operation.</summary>
     AgentEventCodec EventCodec { get; }
 
+    /// <summary>Gets whether persisted sessions and thread journals survive process restart.</summary>
+    StorePersistenceCapability PersistenceCapability =>
+        StorePersistenceCapability.Ephemeral;
+
     // ═══════════════════════════════════════════════════════════════════
     // SESSION PERSISTENCE ( Metadata only, no messages)
     // ═══════════════════════════════════════════════════════════════════

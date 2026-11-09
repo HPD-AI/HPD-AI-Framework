@@ -26,10 +26,10 @@ public static class AgentBuilderImageExtensions
     /// <para>
     /// <b>Example (unnecessary but explicit):</b>
     /// <code>
-    /// var agent = new AgentBuilder()
+    /// await using var agent = await new AgentBuilder()
     ///     .WithChatClient(visionClient)
     ///     .WithImageHandling()  // Redundant - already auto-registered
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </para>
     /// </remarks>
@@ -50,15 +50,15 @@ public static class AgentBuilderImageExtensions
     /// This method removes the auto-registered instance and replaces it with your custom configuration.
     /// </para>
     /// <para>
-    /// <b>Example with custom strategy (future):</b>
+    /// <b>Example:</b>
     /// <code>
-    /// var agent = new AgentBuilder()
+    /// await using var agent = await new AgentBuilder()
     ///     .WithChatClient(client)
     ///     .WithImageHandling(new ImageMiddlewareOptions
     ///     {
-    ///         ProcessingStrategy = ImageProcessingStrategy.OCR
+    ///         ProcessingStrategy = ImageProcessingStrategy.PassThrough
     ///     })
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </para>
     /// </remarks>
@@ -66,24 +66,22 @@ public static class AgentBuilderImageExtensions
         this AgentBuilder builder,
         ImageMiddlewareOptions options)
     {
-        // Remove auto-registered ImageMiddleware
-        builder.Middlewares.RemoveAll(m => m is ImageMiddleware);
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(options);
 
         // Create strategy based on options
         IImageStrategy strategy = options.ProcessingStrategy switch
         {
             ImageProcessingStrategy.PassThrough => new PassThroughImageStrategy(),
-            ImageProcessingStrategy.OCR => throw new NotImplementedException(
-                "OCR strategy is not yet implemented. Use PassThrough for now."),
-            ImageProcessingStrategy.Description => throw new NotImplementedException(
-                "Description strategy is not yet implemented. Use PassThrough for now."),
             _ => throw new ArgumentException(
-                $"Unknown image processing strategy: {options.ProcessingStrategy}",
+                $"Unsupported image processing strategy: {options.ProcessingStrategy}. " +
+                $"Use {ImageProcessingStrategy.PassThrough} or supply a custom IImageStrategy.",
                 nameof(options))
         };
 
+        // Replace auto-registered ImageMiddleware only after the replacement is valid.
         var middleware = new ImageMiddleware(strategy, options);
-        return builder.WithMiddleware(middleware);
+        return builder.ReplaceMiddleware<ImageMiddleware>(middleware);
     }
 
     /// <summary>
@@ -101,7 +99,7 @@ public static class AgentBuilderImageExtensions
     /// </para>
     /// <para>
     /// Use this overload to implement custom image processing strategies
-    /// beyond the built-in PassThrough/OCR/Description options.
+    /// beyond the built-in PassThrough option.
     /// </para>
     /// </remarks>
     public static AgentBuilder WithImageHandling(
@@ -109,10 +107,11 @@ public static class AgentBuilderImageExtensions
         IImageStrategy strategy,
         ImageMiddlewareOptions? options = null)
     {
-        // Remove auto-registered ImageMiddleware
-        builder.Middlewares.RemoveAll(m => m is ImageMiddleware);
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(strategy);
 
+        // Replace auto-registered ImageMiddleware only after the replacement is valid.
         var middleware = new ImageMiddleware(strategy, options);
-        return builder.WithMiddleware(middleware);
+        return builder.ReplaceMiddleware<ImageMiddleware>(middleware);
     }
 }

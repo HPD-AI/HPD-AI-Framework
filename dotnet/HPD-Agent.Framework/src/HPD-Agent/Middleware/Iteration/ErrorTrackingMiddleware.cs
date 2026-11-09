@@ -27,9 +27,9 @@ namespace HPD.Agent;
 /// <example>
 /// <code>
 /// // Register via AgentBuilder
-/// var agent = new AgentBuilder()
+/// await using var agent = await new AgentBuilder()
 ///     .WithMiddleware(new ErrorTrackingMiddleware { MaxConsecutiveErrors = 3 })
-///     .Build();
+///     .BuildAsync();
 /// </code>
 /// </example>
 public class ErrorTrackingMiddleware : IAgentMiddleware
@@ -188,5 +188,6 @@ public record MaxConsecutiveErrorsExceededEvent(
     public string ErrorMessage => $"Maximum consecutive errors ({ConsecutiveErrors}/{MaxConsecutiveErrors}) exceeded";
 
     /// <inheritdoc />
+    [System.Text.Json.Serialization.JsonIgnore]
     public Exception? Exception => null;
 }

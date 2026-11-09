@@ -44,16 +44,16 @@ namespace HPD.Agent;
 /// <example>
 /// <code>
 /// // Register via AgentBuilder
-/// var agent = new AgentBuilder().Build(); // ContainerMiddleware is registered automatically.
+/// await using var agent = await new AgentBuilder().BuildAsync(); // ContainerMiddleware is registered automatically.
 ///
 /// // Or with custom configuration
-/// var agent = new AgentBuilder()
+/// await using var customAgent = await new AgentBuilder()
 ///     .ConfigureHarnessCollapsing(config =>
 ///     {
 ///         config.Enabled = true;
 ///         config.PersistSystemPromptInjections = false;
 ///     })
-///     .Build();
+///     .BuildAsync();
 /// </code>
 /// </example>
 public class ContainerMiddleware : IAgentMiddleware
@@ -84,7 +84,7 @@ public class ContainerMiddleware : IAgentMiddleware
     /// Creates a new ContainerMiddleware instance.
     /// </summary>
     /// <param name="initialTools">All available tools for the agent</param>
-    /// <param name="explicitlyRegisteredToolHarnesses">ToolHarnesses explicitly registered via WithTools (always visible)</param>
+    /// <param name="explicitlyRegisteredToolHarnesses">ToolHarnesses explicitly registered via WithToolHarness (always visible)</param>
     /// <param name="toolharnessFactories">Selected ToolHarness factual metadata used for visibility validation.</param>
     /// <param name="execution">Neutral owner of accepted-input ToolHarness execution.</param>
     /// <param name="config">Container configuration (optional, defaults to enabled)</param>

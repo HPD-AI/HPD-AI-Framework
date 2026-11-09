@@ -48,13 +48,19 @@ public abstract class AgentManager : IAsyncDisposable
         AgentConfig config,
         string? name = null,
         Dictionary<string, object>? metadata = null,
+        string? agentId = null,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(config);
+        var id = string.IsNullOrWhiteSpace(agentId)
+            ? Guid.NewGuid().ToString()
+            : agentId;
+        if (await _store.LoadAsync(id, ct).ConfigureAwait(false) is not null)
+            throw new InvalidOperationException($"Agent definition '{id}' already exists.");
 
         var stored = new StoredAgent
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = id,
             Name = name ?? config.Name,
             Config = config,
             CreatedAt = DateTime.UtcNow,
@@ -71,6 +77,18 @@ public abstract class AgentManager : IAsyncDisposable
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         return _store.LoadAsync(agentId, ct);
+    }
+
+    /// <summary>
+    /// Determines whether this manager can resolve an agent with the supplied identity.
+    /// Hosted default managers resolve only explicit stored definitions.
+    /// </summary>
+    public virtual async Task<bool> CanResolveAgentAsync(
+        string agentId,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        return await _store.LoadAsync(agentId, ct).ConfigureAwait(false) is not null;
     }
 
     /// <summary>List all stored agent definitions.</summary>

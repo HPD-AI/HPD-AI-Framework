@@ -32,7 +32,10 @@ pack_project() {
   fi
 
   echo "Packing ${project#$REPO_ROOT/}"
-  MSBUILDDISABLENODEREUSE=1 dotnet pack "${args[@]}"
+  # A preceding framework-specific test/build can leave the shared assets file
+  # with only that target. Re-evaluate all target frameworks before packing.
+  MSBUILDDISABLENODEREUSE=1 dotnet restore "$project" --force-evaluate --nologo
+  MSBUILDDISABLENODEREUSE=1 dotnet pack "${args[@]}" --no-restore
 }
 
 rewrite_cookbook() {

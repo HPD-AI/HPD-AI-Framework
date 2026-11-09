@@ -9,6 +9,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using System.Text.Json.Nodes;
 
@@ -103,6 +104,7 @@ public static class HPDAgentHostServiceCollectionExtensions
         // Generated provider/event/input composition is application-wide. Host profiles extend
         // that baseline without requiring consumers to repeat provider registration.
         services.AddHPD();
+        services.AddSingleton(new DependencyInjection.HPDAgentHostRegistration(name));
 
         // Register named options (each host profile gets its own HPDAgentHostOptions)
         if (configure != null)
@@ -111,6 +113,8 @@ public static class HPDAgentHostServiceCollectionExtensions
         // Register the host registry (one per app, manages all named host pairs)
         services.TryAddSingleton<DependencyInjection.HPDAgentRegistry>();
         services.TryAddSingleton<IHPDAgentHostingServicesProvider, DependencyInjection.HPDAgentHostingServicesProvider>();
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IHostedService, Lifecycle.HPDAgentDefinitionBootstrapHostedService>());
         services.TryAddSingleton<IClientToolProviderRegistry, InMemoryClientToolProviderRegistry>();
         services.TryAddSingleton(sp =>
             sp.GetRequiredService<HPDApplicationComposition>().Providers);

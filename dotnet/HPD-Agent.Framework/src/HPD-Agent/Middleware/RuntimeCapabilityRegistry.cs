@@ -24,7 +24,7 @@ public interface IRuntimeCapabilityRegistry
 /// <summary>
 /// Thread-safe runtime capability registry keyed by capability type.
 /// </summary>
-public sealed class RuntimeCapabilityRegistry : IRuntimeCapabilityRegistry
+internal sealed class RuntimeCapabilityRegistry : IRuntimeCapabilityRegistry
 {
     private readonly ConcurrentDictionary<Type, object> _capabilities = new();
     private int _sealed;

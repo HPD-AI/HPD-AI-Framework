@@ -4,8 +4,11 @@ using System.Text;
 using System.Text.Json;
 using FluentAssertions;
 using HPD.Agent;
+using HPD.Agent.AspNetCore.Serialization;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Data;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 
 namespace HPD.Agent.AspNetCore.Tests.Integration;
 
@@ -29,6 +32,16 @@ public class ErrorHandlingTests : IClassFixture<TestWebApplicationFactory>
         _client.PostAsync(url, new StringContent(json, Encoding.UTF8, "application/json"));
 
     #region Consistent Error Format
+
+    [Theory]
+    [InlineData(typeof(ProblemDetails))]
+    [InlineData(typeof(HttpValidationProblemDetails))]
+    public void JsonContext_ProvidesProblemMetadata(Type type)
+    {
+        HPDAgentAspNetCoreJsonSerializerContext.Default
+            .GetTypeInfo(type)
+            .Should().NotBeNull();
+    }
 
     [Fact]
     public async Task AllEndpoints_Return404_WithValidationProblemShape()

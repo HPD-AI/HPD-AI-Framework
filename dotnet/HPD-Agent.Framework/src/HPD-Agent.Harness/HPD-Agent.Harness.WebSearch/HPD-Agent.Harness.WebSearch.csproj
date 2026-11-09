@@ -14,8 +14,8 @@
 
     <!-- Package Metadata (inherits Version, Authors, License from Directory.Build.props) -->
     <PackageId>HPD-Agent.ToolHarness.WebSearch</PackageId>
-    <Description>Web search toolharness for HPD-Agent. Provides AI functions for searching the web using Tavily, Brave, and Bing search APIs.</Description>
-    <PackageTags>ai;agent;websearch;search;toolharness;hpd-agent;tavily;brave;bing</PackageTags>
+    <Description>Web search toolharness for HPD-Agent. Provides AI functions for searching the web using Tavily.</Description>
+    <PackageTags>ai;agent;websearch;search;toolharness;hpd-agent;tavily</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

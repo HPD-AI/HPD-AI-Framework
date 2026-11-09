@@ -44,21 +44,22 @@ namespace HPD.Agent.Middleware.Function;
 /// <para><b>Example Usage:</b></para>
 /// <code>
 /// // Default - sanitized errors for security
-/// var agent = new AgentBuilder(config)
+/// var config = new AgentConfig();
+/// await using var secureAgent = await new AgentBuilder(config)
 ///     .WithErrorFormatting()
-///     .Build();
+///     .BuildAsync();
 ///
 /// // Allow detailed errors (use only in trusted environments)
-/// var config = new AgentConfig
+/// var detailedConfig = new AgentConfig
 /// {
 ///     ErrorHandling = new ErrorHandlingConfig
 ///     {
 ///         IncludeDetailedErrorsInChat = true
 ///     }
 /// };
-/// var agent = new AgentBuilder(config)
+/// await using var detailedAgent = await new AgentBuilder(detailedConfig)
 ///     .WithErrorFormatting()
-///     .Build();
+///     .BuildAsync();
 /// </code>
 /// </remarks>
 public class ErrorFormattingMiddleware : IAgentMiddleware

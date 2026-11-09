@@ -7,12 +7,17 @@ namespace HPD.Agent.Hosting.Lifecycle;
 public sealed class AgentSessionService : IAgentSessionService
 {
     private readonly SessionManager _sessionManager;
+    private readonly AgentManager _agentManager;
     private readonly string _defaultAgentId;
 
     /// <summary>Creates session lifecycle services with a stable default agent.</summary>
-    public AgentSessionService(SessionManager sessionManager, string defaultAgentId = "default")
+    public AgentSessionService(
+        SessionManager sessionManager,
+        AgentManager agentManager,
+        string defaultAgentId = "default")
     {
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
+        _agentManager = agentManager ?? throw new ArgumentNullException(nameof(agentManager));
         ArgumentException.ThrowIfNullOrWhiteSpace(defaultAgentId);
         _defaultAgentId = defaultAgentId;
     }
@@ -21,8 +26,12 @@ public sealed class AgentSessionService : IAgentSessionService
         CreateSessionRequest? request = null,
         CancellationToken cancellationToken = default)
     {
+        var agentId = request?.AgentId ?? _defaultAgentId;
+        if (!await _agentManager.CanResolveAgentAsync(agentId, cancellationToken).ConfigureAwait(false))
+            throw new KeyNotFoundException($"Agent definition '{agentId}' was not found.");
+
         var (sessionId, _) = await _sessionManager.CreateSessionAsync(
-            request?.AgentId ?? _defaultAgentId,
+            agentId,
             request?.SessionId,
             request?.Metadata,
             cancellationToken);

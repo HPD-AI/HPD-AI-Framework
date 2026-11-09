@@ -107,6 +107,8 @@ public sealed class AgentThreadService : IAgentThreadService
     {
         if (await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken) == null)
             return AgentServiceResult<ThreadDto>.NotFound;
+        if (!await _agentManager.CanResolveAgentAsync(agentId, cancellationToken).ConfigureAwait(false))
+            return AgentServiceResult<ThreadDto>.NotFound;
 
         var threadId = string.IsNullOrWhiteSpace(request.ThreadId)
             ? Guid.NewGuid().ToString()
@@ -180,9 +182,6 @@ public sealed class AgentThreadService : IAgentThreadService
         bool recursive = false,
         CancellationToken cancellationToken = default)
     {
-        if (threadId == "main")
-            return AgentServiceResult.Validation("ProtectedThread", "Cannot delete the 'main' thread.");
-
         var thread = await _sessionManager.Store.ProjectThreadAsync(sessionId, threadId, ThreadProjectionPurpose.ThreadHistory, cancellationToken);
         if (thread == null)
             return AgentServiceResult.NotFound;
@@ -232,6 +231,8 @@ public sealed class AgentThreadService : IAgentThreadService
         CancellationToken cancellationToken)
     {
         if (await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken) == null)
+            return AgentServiceResult<ThreadForkResultDto>.NotFound;
+        if (!await _agentManager.CanResolveAgentAsync(agentId, cancellationToken).ConfigureAwait(false))
             return AgentServiceResult<ThreadForkResultDto>.NotFound;
 
         if (await _sessionManager.Store.GetThreadAsync(

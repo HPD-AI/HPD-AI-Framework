@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using HPD.Agent;
 using HPD.Agent.AspNetCore.Lifecycle;
 using HPD.Agent.Hosting.Configuration;
+using HPD.Agent.Hosting.Data;
 using HPD.Agent.Hosting.Lifecycle;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -39,6 +40,10 @@ internal sealed class HPDAgentRegistry
         var eventComposition = options.EventComposition ?? applicationComposition.Events;
         var inputComposition = options.InputComposition ?? applicationComposition.Inputs;
 
+        var sessionConfigured = options.SessionStore is not null || options.SessionStorePath is not null;
+        var agentConfigured = options.AgentStore is not null;
+        var contentConfigured = options.ContentStore is not null;
+
         ISessionStore sessionStore = options.SessionStore
             ?? (options.SessionStorePath != null
                 ? new FileSessionStore(options.SessionStorePath, eventComposition.Codec)
@@ -48,6 +53,21 @@ internal sealed class HPDAgentRegistry
                 $"Hosted store codec '{sessionStore.EventCodec.Digest}' differs from application codec '{eventComposition.Digest}'.");
         IAgentStore agentStore = options.AgentStore ?? new InMemoryAgentStore();
         IContentStore contentStore = options.ContentStore ??= new InMemoryContentStore();
+        var storage = new HPDAgentStorageInfo(
+            new HPDAgentStoreInfo(
+                sessionStore.PersistenceCapability,
+                sessionConfigured,
+                UsingDefaultFallback: !sessionConfigured),
+            new HPDAgentStoreInfo(
+                agentStore.PersistenceCapability,
+                agentConfigured,
+                UsingDefaultFallback: !agentConfigured),
+            new HPDAgentStoreInfo(
+                contentStore.PersistenceCapability == ContentStorePersistenceCapability.RestartDurable
+                    ? StorePersistenceCapability.RestartDurable
+                    : StorePersistenceCapability.Ephemeral,
+                contentConfigured,
+                UsingDefaultFallback: !contentConfigured));
 
         var agentFactory = _serviceProvider.GetService<HostingAgentFactory>();
 
@@ -63,7 +83,12 @@ internal sealed class HPDAgentRegistry
             eventComposition);
 
         var hostingServices = new HPDAgentHostingServices(
-            new AgentSessionService(sessionManager, string.IsNullOrWhiteSpace(name) ? "default" : name),
+            new AgentSessionService(
+                sessionManager,
+                agentManager,
+                string.IsNullOrWhiteSpace(options.DefaultAgentId)
+                    ? string.IsNullOrWhiteSpace(name) ? "default" : name
+                    : options.DefaultAgentId),
             new AgentThreadService(sessionManager, agentManager),
             new AgentThreadExecutionService(sessionManager, agentManager),
             new AgentContentService(sessionManager, contentStore),
@@ -76,7 +101,8 @@ internal sealed class HPDAgentRegistry
             sessionManager,
             hostingServices,
             eventComposition,
-            inputComposition);
+            inputComposition,
+            storage);
     }
 }
 
@@ -86,4 +112,5 @@ internal record HPDAgentPair(
     AspNetCoreSessionManager SessionManager,
     HPDAgentHostingServices HostingServices,
     AgentEventComposition EventComposition,
-    AgentInputComposition InputComposition);
+    AgentInputComposition InputComposition,
+    HPDAgentStorageInfo Storage);

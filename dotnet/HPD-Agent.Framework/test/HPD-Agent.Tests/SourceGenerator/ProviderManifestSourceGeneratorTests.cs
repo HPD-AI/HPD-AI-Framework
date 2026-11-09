@@ -8,7 +8,7 @@ namespace HPD.Agent.Tests.SourceGenerator;
 public sealed class ProviderManifestSourceGeneratorTests
 {
     [Fact]
-    public void ProviderDeclaration_EmitsImmutableManifestWithoutModuleInitializer()
+    public void ProviderDeclaration_EmitsImmutableManifestWithRegistration()
     {
         const string source = """
             using System;
@@ -52,7 +52,8 @@ public sealed class ProviderManifestSourceGeneratorTests
         Assert.Contains("ProviderSecretAliasRegistration", generated);
         Assert.Contains("SAMPLE_API_KEY", generated);
         Assert.Contains("GeneratedProviders", generated);
-        Assert.DoesNotContain("ModuleInitializer", generated);
+        Assert.Contains("ModuleInitializer", generated);
+        Assert.Contains("ProviderCompositionHost.RegisterFragments", generated);
         Assert.DoesNotContain("ProviderDiscovery", generated);
     }
 

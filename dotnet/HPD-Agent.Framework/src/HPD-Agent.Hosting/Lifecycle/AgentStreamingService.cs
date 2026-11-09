@@ -601,6 +601,8 @@ public sealed class AgentStreamingService : IAgentStreamingService
         if (await _sessionManager.Store.GetThreadAsync(new ThreadKey(sessionId, threadId), cancellationToken)
                 .ConfigureAwait(false) == null)
             return AgentServiceResult<Agent>.NotFound;
+        if (!await _agentManager.CanResolveAgentAsync(agentId, cancellationToken).ConfigureAwait(false))
+            return AgentServiceResult<Agent>.NotFound;
         var agent = await _agentManager.GetOrBuildAgentRuntimeAsync(agentId, sessionId, threadId, cancellationToken)
             .ConfigureAwait(false);
         return AgentServiceResult<Agent>.Success(agent);

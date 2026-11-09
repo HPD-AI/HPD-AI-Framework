@@ -29,10 +29,10 @@ namespace HPD.Agent.Middleware.Image;
 /// <para>
 /// <b>Usage:</b>
 /// <code>
-/// var agent = new AgentBuilder()
+/// await using var agent = await new AgentBuilder()
 ///     .WithChatClient(client)
 ///     .WithImageHandling()  // Default: PassThrough strategy
-///     .Build();
+///     .BuildAsync();
 /// </code>
 /// </para>
 /// </remarks>

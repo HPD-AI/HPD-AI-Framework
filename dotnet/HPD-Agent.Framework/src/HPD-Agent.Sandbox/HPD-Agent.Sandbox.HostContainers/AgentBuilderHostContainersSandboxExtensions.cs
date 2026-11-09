@@ -14,13 +14,9 @@ public static class AgentBuilderHostContainersSandboxExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(options);
-        builder.Middlewares.RemoveAll(
-            static middleware =>
-                middleware is HostContainersSandboxMiddleware);
-        builder.Middlewares.Add(
+        return builder.ReplaceMiddleware<HostContainersSandboxMiddleware>(
             new HostContainersSandboxMiddleware(
                 options,
                 logger));
-        return builder;
     }
 }

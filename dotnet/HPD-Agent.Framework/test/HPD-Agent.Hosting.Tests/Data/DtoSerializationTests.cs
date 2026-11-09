@@ -1,6 +1,7 @@
 using System.Text.Json;
 using FluentAssertions;
 using HPD.Agent;
+using HPD.Agent.ClientTools;
 using HPD.Agent.Hosting.Data;
 using HPD.Agent.Hosting.Serialization;
 using HPD.Agent.Providers;
@@ -28,6 +29,22 @@ public class DtoSerializationTests
         };
         _options.TypeInfoResolverChain.Add(HPDAgentApiJsonSerializerContext.Default);
         _options.TypeInfoResolverChain.Add(AgentEventJsonContext.Default);
+    }
+
+    [Theory]
+    [InlineData(typeof(ThreadGraphDto))]
+    [InlineData(typeof(SubAgentDto))]
+    [InlineData(typeof(List<SubAgentDto>))]
+    [InlineData(typeof(ThreadRuntimeStateDto))]
+    [InlineData(typeof(InputSubmissionDto))]
+    [InlineData(typeof(ThreadForkResultDto))]
+    [InlineData(typeof(ThreadExecutionCancellationDto))]
+    [InlineData(typeof(ClientToolProviderSnapshot))]
+    [InlineData(typeof(IReadOnlyList<ClientToolProviderSnapshot>))]
+    public void ApiJsonContext_ProvidesMetadataForHttpResponseDtos(Type type)
+    {
+        HPDAgentApiJsonSerializerContext.Default.GetTypeInfo(type)
+            .Should().NotBeNull();
     }
 
     #region Serialization Round-Trip Tests

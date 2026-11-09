@@ -25,6 +25,10 @@ public sealed record FileSessionStoreDiagnostics(
 /// </summary>
 public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
 {
+    /// <inheritdoc />
+    public StorePersistenceCapability PersistenceCapability =>
+        StorePersistenceCapability.RestartDurable;
+
     private const string DescriptorSchema = "hpd.agent.thread-descriptor";
     private const int DescriptorVersion = 2;
 
@@ -566,11 +570,15 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
         => Directory.Exists(GetThreadPath(key));
 
     private string GetSessionsPath() => Path.Combine(_basePath, "sessions");
-    private string GetSessionPath(string sessionId) => Path.Combine(GetSessionsPath(), sessionId);
+    private string GetSessionPath(string sessionId) =>
+        Path.Combine(GetSessionsPath(), StoragePathSegment.ValidateSegment(sessionId, nameof(sessionId)));
     private string GetSessionMetadataPath(string sessionId) => Path.Combine(GetSessionPath(sessionId), "session.meta.json");
     private string GetThreadsPath(string sessionId) => Path.Combine(GetSessionPath(sessionId), "threads");
 
-    private string GetThreadPath(ThreadKey key) => Path.Combine(GetThreadsPath(key.SessionId), key.ThreadId);
+    private string GetThreadPath(ThreadKey key) =>
+        Path.Combine(
+            GetThreadsPath(key.SessionId),
+            StoragePathSegment.ValidateRelativePath(key.ThreadId, nameof(key)));
     private string GetJournalPath(ThreadKey key) => Path.Combine(GetThreadPath(key), "journal");
     private string GetJournalGenerationPath(ThreadKey key) => Path.Combine(GetJournalPath(key), "generation");
     private string GetDescriptorPath(ThreadKey key) => Path.Combine(GetThreadPath(key), "thread.descriptor.json");
@@ -669,8 +677,8 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
 
     private static void ValidateThreadKey(ThreadKey key)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(key.SessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(key.ThreadId);
+        StoragePathSegment.ValidateSegment(key.SessionId, nameof(key));
+        StoragePathSegment.ValidateRelativePath(key.ThreadId, nameof(key));
     }
 
     private static void ValidateReadRequest(ThreadEventReadRequest request)

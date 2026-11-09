@@ -19,15 +19,15 @@ public static class AgentBuilderExtensions
     /// <remarks>The canonical <c>huggingface:ApiKey</c> secret reference is resolved at acquisition time.</remarks>
     /// <example>
     /// <code>
-    /// var agent = new AgentBuilder()
+    /// await using var agent = await new AgentBuilder()
     ///     .WithHuggingFace(
     ///         model: "meta-llama/Meta-Llama-3-8B-Instruct")
-    ///     .Build();
+    ///     .BuildAsync();
     ///
-    /// var agent = new AgentBuilder()
+    /// await using var configuredAgent = await new AgentBuilder()
     ///     .WithHuggingFace(model: "mistralai/Mistral-7B-Instruct-v0.2")
     ///     .WithHuggingFaceChatRequestOptions(options => options.Logprobs = true)
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithHuggingFace(

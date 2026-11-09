@@ -79,7 +79,7 @@ public class AgentBuilder
     /// Instance-based registrations for DI-required ToolHarnesses (e.g., AgentPlanToolHarness, DynamicMemoryToolHarness).
     /// These ToolHarnesses cannot be instantiated via the catalog because they require constructor parameters.
     /// </summary>
-    public readonly List<ToolInstanceRegistration> _instanceRegistrations = new();
+    internal readonly List<ToolInstanceRegistration> _instanceRegistrations = new();
     // store individual ToolHarness contexts
     internal readonly Dictionary<string, IToolMetadata?> _toolharnessContexts = new();
     //  Unified content store for all agent content (skills, knowledge, memory, uploads, artifacts)
@@ -399,10 +399,10 @@ public class AgentBuilder
     }
 
     /// <summary>
-    /// Creates a builder with custom provider registry (for testing).
-    /// Optionally accepts an assembly hint for ToolHarness registry discovery.
+    /// Creates a builder with a custom provider registry for framework and test composition.
+    /// Applications configure a registry through <see cref="WithProviderRegistry"/>.
     /// </summary>
-    public AgentBuilder(AgentConfig config, IProviderRegistry providerRegistry)
+    internal AgentBuilder(AgentConfig config, IProviderRegistry providerRegistry)
     {
         _config = config;
         _providerRegistry = providerRegistry;
@@ -690,8 +690,6 @@ public class AgentBuilder
             if (owners.Any(owner => owner.ActivationIdentity == registered.ActivationIdentity))
                 throw new InvalidOperationException($"Harness '{registered.ActivationIdentity}' is registered as both generated and supplied.");
             owners.Add(registered);
-            if (registration.FunctionFilter is not null)
-                _toolFunctionFilters[registered.ActivationIdentity] = registration.FunctionFilter;
         }
         foreach (var factory in owners)
         {
@@ -3868,7 +3866,7 @@ public class AgentBuilder
     /// <summary>
     /// Public access to ToolHarness contexts for extension methods and external configuration
     /// </summary>
-    public Dictionary<string, IToolMetadata?> ToolHarnessContexts => _toolharnessContexts;
+    internal Dictionary<string, IToolMetadata?> ToolHarnessContexts => _toolharnessContexts;
 
     /// <summary>
     /// Configures serializer options used to marshal tool return values into event-safe JSON payloads.
@@ -3890,9 +3888,9 @@ public class AgentBuilder
     }
 
     /// <summary>
-    /// Public access to unified middlewares for extension methods and external configuration
+    /// Gets the configured middleware pipeline in execution order.
     /// </summary>
-    public List<Middleware.IAgentMiddleware> Middlewares => _middlewares;
+    public IReadOnlyList<Middleware.IAgentMiddleware> Middlewares => _middlewares;
 
     /// <summary>
     /// Internal access to permission Middlewares for extension methods
@@ -3929,10 +3927,9 @@ public static class AgentBuilderMiddlewareExtensions
     /// <returns>The builder for chaining</returns>
     public static AgentBuilder WithMiddleware(this AgentBuilder builder, Middleware.IAgentMiddleware middleware)
     {
-        if (middleware != null)
-        {
-            builder.Middlewares.Add(middleware);
-        }
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(middleware);
+        builder._middlewares.Add(middleware);
         return builder;
     }
 
@@ -3954,13 +3951,114 @@ public static class AgentBuilderMiddlewareExtensions
     /// <returns>The builder for chaining</returns>
     public static AgentBuilder WithMiddlewares(this AgentBuilder builder, params Middleware.IAgentMiddleware[] middlewares)
     {
-        if (middlewares != null)
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(middlewares);
+        foreach (var middleware in middlewares)
+            builder.WithMiddleware(middleware);
+        return builder;
+    }
+
+    /// <summary>
+    /// Replaces the first middleware assignable to <typeparamref name="TExisting"/> while
+    /// preserving its pipeline position. Additional matching middleware is removed.
+    /// When no match exists, <paramref name="replacement"/> is appended.
+    /// </summary>
+    /// <typeparam name="TExisting">The concrete middleware type being replaced.</typeparam>
+    /// <param name="builder">The agent builder.</param>
+    /// <param name="replacement">The replacement middleware.</param>
+    /// <returns>The same builder for chaining.</returns>
+    public static AgentBuilder ReplaceMiddleware<TExisting>(
+        this AgentBuilder builder,
+        Middleware.IAgentMiddleware replacement)
+        where TExisting : Middleware.IAgentMiddleware
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(replacement);
+        if (replacement is not TExisting)
         {
-            foreach (var middleware in middlewares)
-            {
-                builder.WithMiddleware(middleware);
-            }
+            throw new ArgumentException(
+                $"Replacement middleware must be assignable to '{typeof(TExisting).FullName}'.",
+                nameof(replacement));
         }
+
+        var firstIndex = builder._middlewares.FindIndex(
+            middleware => middleware is TExisting);
+        if (firstIndex < 0)
+        {
+            builder._middlewares.Add(replacement);
+            return builder;
+        }
+
+        builder._middlewares[firstIndex] = replacement;
+        for (var index = builder._middlewares.Count - 1; index > firstIndex; index--)
+        {
+            if (builder._middlewares[index] is TExisting)
+                builder._middlewares.RemoveAt(index);
+        }
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Inserts middleware before the first middleware assignable to
+    /// <typeparamref name="TAnchor"/>. When no anchor exists, the middleware is appended
+    /// so it remains before an anchor registered later during automatic composition.
+    /// </summary>
+    /// <typeparam name="TAnchor">The middleware type used as the ordering anchor.</typeparam>
+    /// <param name="builder">The agent builder.</param>
+    /// <param name="middleware">The middleware to insert.</param>
+    /// <returns>The same builder for chaining.</returns>
+    public static AgentBuilder InsertMiddlewareBefore<TAnchor>(
+        this AgentBuilder builder,
+        Middleware.IAgentMiddleware middleware)
+        where TAnchor : Middleware.IAgentMiddleware
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(middleware);
+        var anchorIndex = builder._middlewares.FindIndex(
+            existing => existing is TAnchor);
+        if (anchorIndex < 0)
+            builder._middlewares.Add(middleware);
+        else
+            builder._middlewares.Insert(anchorIndex, middleware);
+        return builder;
+    }
+
+    /// <summary>
+    /// Moves the first middleware assignable to <typeparamref name="TMiddleware"/>
+    /// to the start of the pipeline. The operation is a no-op when no match exists.
+    /// </summary>
+    /// <typeparam name="TMiddleware">The concrete middleware type to move.</typeparam>
+    /// <param name="builder">The agent builder.</param>
+    /// <returns>The same builder for chaining.</returns>
+    public static AgentBuilder MoveMiddlewareToStart<TMiddleware>(this AgentBuilder builder)
+        where TMiddleware : Middleware.IAgentMiddleware
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        var index = builder._middlewares.FindIndex(
+            middleware => middleware is TMiddleware);
+        if (index <= 0)
+            return builder;
+
+        var middleware = builder._middlewares[index];
+        builder._middlewares.RemoveAt(index);
+        builder._middlewares.Insert(0, middleware);
+        return builder;
+    }
+
+    /// <summary>
+    /// Removes every middleware assignable to <typeparamref name="TMiddleware"/>.
+    /// The operation is a no-op when no match exists.
+    /// </summary>
+    /// <typeparam name="TMiddleware">The concrete middleware type to remove.</typeparam>
+    /// <param name="builder">The agent builder.</param>
+    /// <returns>The same builder for chaining.</returns>
+    public static AgentBuilder RemoveMiddleware<TMiddleware>(this AgentBuilder builder)
+        where TMiddleware : Middleware.IAgentMiddleware
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        builder._middlewares.RemoveAll(
+            middleware => middleware is TMiddleware);
         return builder;
     }
 
@@ -3977,9 +4075,9 @@ public static class AgentBuilderMiddlewareExtensions
     /// </remarks>
     /// <example>
     /// <code>
-    /// var agent = new AgentBuilder()
+    /// await using var agent = await new AgentBuilder()
     ///     .WithCircuitBreaker(maxConsecutiveCalls: 3)
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithCircuitBreaker(this AgentBuilder builder, int maxConsecutiveCalls = 3)
@@ -3988,8 +4086,7 @@ public static class AgentBuilderMiddlewareExtensions
         {
             MaxConsecutiveCalls = maxConsecutiveCalls
         };
-        builder.Middlewares.Add(middleware);
-        return builder;
+        return builder.WithMiddleware(middleware);
     }
 
     /// <summary>
@@ -4000,21 +4097,20 @@ public static class AgentBuilderMiddlewareExtensions
     /// <returns>The builder for chaining</returns>
     /// <example>
     /// <code>
-    /// var agent = new AgentBuilder()
+    /// await using var agent = await new AgentBuilder()
     ///     .WithCircuitBreaker(config =>
     ///     {
     ///         config.MaxConsecutiveCalls = 5;
     ///         config.TerminationMessageTemplate = "Loop detected for {toolName}. Stopping.";
     ///     })
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithCircuitBreaker(this AgentBuilder builder, Action<CircuitBreakerMiddleware> configure)
     {
         var middleware = new CircuitBreakerMiddleware();
         configure(middleware);
-        builder.Middlewares.Add(middleware);
-        return builder;
+        return builder.WithMiddleware(middleware);
     }
 
     /// <summary>
@@ -4026,9 +4122,9 @@ public static class AgentBuilderMiddlewareExtensions
     /// <returns>The builder for chaining</returns>
     /// <example>
     /// <code>
-    /// var agent = new AgentBuilder()
+    /// await using var agent = await new AgentBuilder()
     ///     .WithErrorTracking(maxConsecutiveErrors: 5)
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithErrorTracking(this AgentBuilder builder, int maxConsecutiveErrors = 3)
@@ -4037,8 +4133,7 @@ public static class AgentBuilderMiddlewareExtensions
         {
             MaxConsecutiveErrors = maxConsecutiveErrors
         };
-        builder.Middlewares.Add(middleware);
-        return builder;
+        return builder.WithMiddleware(middleware);
     }
 
     /// <summary>
@@ -4049,7 +4144,7 @@ public static class AgentBuilderMiddlewareExtensions
     /// <returns>The builder for chaining</returns>
     /// <example>
     /// <code>
-    /// var agent = new AgentBuilder()
+    /// await using var agent = await new AgentBuilder()
     ///     .WithErrorTracking(config =>
     ///     {
     ///         config.MaxConsecutiveErrors = 5;
@@ -4057,15 +4152,14 @@ public static class AgentBuilderMiddlewareExtensions
     ///             result.Exception != null ||
     ///             result.Result?.ToString()?.Contains("FATAL") == true;
     ///     })
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithErrorTracking(this AgentBuilder builder, Action<ErrorTrackingMiddleware> configure)
     {
         var middleware = new ErrorTrackingMiddleware();
         configure(middleware);
-        builder.Middlewares.Add(middleware);
-        return builder;
+        return builder.WithMiddleware(middleware);
     }
 
     /// <summary>
@@ -4084,11 +4178,11 @@ public static class AgentBuilderMiddlewareExtensions
     /// </remarks>
     /// <example>
     /// <code>
-    /// var agent = new AgentBuilder()
+    /// await using var agent = await new AgentBuilder()
     ///     .WithErrorTracking(maxConsecutiveErrors: 3)           // 3 consecutive same errors
     ///     .WithCircuitBreaker(maxConsecutiveCalls: 3)           // 3 identical tool calls
     ///     .WithTotalErrorThreshold(maxTotalErrors: 10)          // 10 total errors (any type)
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithTotalErrorThreshold(this AgentBuilder builder, int maxTotalErrors = 10)
@@ -4097,8 +4191,7 @@ public static class AgentBuilderMiddlewareExtensions
         {
             MaxTotalErrors = maxTotalErrors
         };
-        builder.Middlewares.Add(middleware);
-        return builder;
+        return builder.WithMiddleware(middleware);
     }
 
     /// <summary>
@@ -4109,7 +4202,7 @@ public static class AgentBuilderMiddlewareExtensions
     /// <returns>The builder for chaining</returns>
     /// <example>
     /// <code>
-    /// var agent = new AgentBuilder()
+    /// await using var agent = await new AgentBuilder()
     ///     .WithTotalErrorThreshold(config =>
     ///     {
     ///         config.MaxTotalErrors = 15;
@@ -4117,15 +4210,14 @@ public static class AgentBuilderMiddlewareExtensions
     ///             result.Exception != null ||
     ///             result.Result?.ToString()?.Contains("CRITICAL") == true;
     ///     })
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithTotalErrorThreshold(this AgentBuilder builder, Action<TotalErrorThresholdMiddleware> configure)
     {
         var middleware = new TotalErrorThresholdMiddleware();
         configure(middleware);
-        builder.Middlewares.Add(middleware);
-        return builder;
+        return builder.WithMiddleware(middleware);
     }
 
     //
@@ -4176,9 +4268,9 @@ public static class AgentBuilderMiddlewareExtensions
     ///     }
     /// };
     ///
-    /// var agent = new AgentBuilder(config)
+    /// await using var agent = await new AgentBuilder(config)
     ///     .WithRetry()  // Uses config.ErrorHandling settings
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithRetry(this AgentBuilder builder)
@@ -4188,8 +4280,7 @@ public static class AgentBuilderMiddlewareExtensions
         // This convenience overload uses GenericErrorHandler. Hosts that need provider-specific
         // classification construct RetryMiddleware with their provider error handler.
         var middleware = new RetryMiddleware(config);
-        builder.Middlewares.Add(middleware);
-        return builder;
+        return builder.WithMiddleware(middleware);
     }
 
     /// <summary>
@@ -4200,7 +4291,7 @@ public static class AgentBuilderMiddlewareExtensions
     /// <returns>The builder for chaining</returns>
     /// <example>
     /// <code>
-    /// var agent = new AgentBuilder()
+    /// await using var agent = await new AgentBuilder()
     ///     .WithRetry(config =>
     ///     {
     ///         config.FunctionRetries.MaxRetries = 5;
@@ -4212,7 +4303,7 @@ public static class AgentBuilderMiddlewareExtensions
     ///                 [ErrorCategory.ServerError] = 3
     ///             };
     ///     })
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithRetry(this AgentBuilder builder, Action<ErrorHandlingConfig> configure)
@@ -4223,8 +4314,7 @@ public static class AgentBuilderMiddlewareExtensions
         // This convenience overload uses GenericErrorHandler. Hosts that need provider-specific
         // classification construct RetryMiddleware with their provider error handler.
         var middleware = new RetryMiddleware(config);
-        builder.Middlewares.Add(middleware);
-        return builder;
+        return builder.WithMiddleware(middleware);
     }
 
     private static void EnsureRetryMiddlewareNotRegistered(AgentBuilder builder)
@@ -4272,17 +4362,16 @@ public static class AgentBuilderMiddlewareExtensions
     ///     }
     /// };
     ///
-    /// var agent = new AgentBuilder(config)
+    /// await using var agent = await new AgentBuilder(config)
     ///     .WithFunctionTimeout()  // Uses config.ErrorHandling.SingleFunctionTimeout
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithFunctionTimeout(this AgentBuilder builder)
     {
         var timeout = builder.Config.ErrorHandling?.SingleFunctionTimeout ?? TimeSpan.FromSeconds(30);
         var middleware = new FunctionTimeoutMiddleware(timeout);
-        builder.Middlewares.Add(middleware);
-        return builder;
+        return builder.WithMiddleware(middleware);
     }
 
     /// <summary>
@@ -4293,16 +4382,15 @@ public static class AgentBuilderMiddlewareExtensions
     /// <returns>The builder for chaining</returns>
     /// <example>
     /// <code>
-    /// var agent = new AgentBuilder()
+    /// await using var agent = await new AgentBuilder()
     ///     .WithFunctionTimeout(TimeSpan.FromMinutes(5))
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithFunctionTimeout(this AgentBuilder builder, TimeSpan timeout)
     {
         var middleware = new FunctionTimeoutMiddleware(timeout);
-        builder.Middlewares.Add(middleware);
-        return builder;
+        return builder.WithMiddleware(middleware);
     }
 
     /// <summary>
@@ -4338,29 +4426,29 @@ public static class AgentBuilderMiddlewareExtensions
     /// <example>
     /// <code>
     /// // Default - sanitized errors (secure)
-    /// var agent = new AgentBuilder(config)
+    /// var config = new AgentConfig();
+    /// await using var secureAgent = await new AgentBuilder(config)
     ///     .WithErrorFormatting()
-    ///     .Build();
+    ///     .BuildAsync();
     ///
     /// // Allow detailed errors (only for trusted environments)
-    /// var config = new AgentConfig
+    /// var detailedConfig = new AgentConfig
     /// {
     ///     ErrorHandling = new ErrorHandlingConfig
     ///     {
     ///         IncludeDetailedErrorsInChat = true
     ///     }
     /// };
-    /// var agent = new AgentBuilder(config)
+    /// await using var detailedAgent = await new AgentBuilder(detailedConfig)
     ///     .WithErrorFormatting()
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithErrorFormatting(this AgentBuilder builder)
     {
         var config = builder.Config.ErrorHandling ?? new ErrorHandlingConfig();
         var middleware = new ErrorFormattingMiddleware(config);
-        builder.Middlewares.Add(middleware);
-        return builder;
+        return builder.WithMiddleware(middleware);
     }
 
     /// <summary>
@@ -4378,14 +4466,14 @@ public static class AgentBuilderMiddlewareExtensions
     /// <example>
     /// <code>
     /// // Debugging/development - include detailed errors
-    /// var agent = new AgentBuilder()
+    /// await using var debugAgent = await new AgentBuilder()
     ///     .WithErrorFormatting(includeDetailedErrors: true)
-    ///     .Build();
+    ///     .BuildAsync();
     ///
     /// // Production - sanitized errors (recommended)
-    /// var agent = new AgentBuilder()
+    /// await using var productionAgent = await new AgentBuilder()
     ///     .WithErrorFormatting(includeDetailedErrors: false)
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithErrorFormatting(this AgentBuilder builder, bool includeDetailedErrors)
@@ -4394,8 +4482,7 @@ public static class AgentBuilderMiddlewareExtensions
         {
             IncludeDetailedErrorsInChat = includeDetailedErrors
         };
-        builder.Middlewares.Add(middleware);
-        return builder;
+        return builder.WithMiddleware(middleware);
     }
 
     /// <summary>
@@ -4435,17 +4522,18 @@ public static class AgentBuilderMiddlewareExtensions
     /// <example>
     /// <code>
     /// // Simple usage with defaults
-    /// var agent = new AgentBuilder(config)
+    /// var config = new AgentConfig();
+    /// await using var defaultAgent = await new AgentBuilder(config)
     ///     .WithErrorHandling()
-    ///     .Build();
+    ///     .BuildAsync();
     ///
     /// // Custom thresholds
-    /// var agent = new AgentBuilder(config)
+    /// await using var customAgent = await new AgentBuilder(config)
     ///     .WithErrorHandling(
     ///         maxConsecutiveCalls: 3,
     ///         maxConsecutiveErrors: 5,
     ///         maxTotalErrors: 15)
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithErrorHandling(
@@ -4493,7 +4581,8 @@ public static class AgentBuilderMiddlewareExtensions
     /// </remarks>
     /// <example>
     /// <code>
-    /// var agent = new AgentBuilder(config)
+    /// var config = new AgentConfig();
+    /// await using var agent = await new AgentBuilder(config)
     ///     .WithErrorHandling(
     ///         configureCircuitBreaker: cb =>
     ///         {
@@ -4512,7 +4601,7 @@ public static class AgentBuilderMiddlewareExtensions
     ///         },
     ///         configureFunctionTimeout: TimeSpan.FromMinutes(2),
     ///         includeDetailedErrorsInChat: false)  // Secure by default
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithErrorHandling(
@@ -4581,17 +4670,18 @@ public static class AgentBuilderMiddlewareExtensions
     /// </remarks>
     /// <example>
     /// <code>
-    /// var agent = new AgentBuilder()
+    /// await using var agent = await new AgentBuilder()
     ///     .WithPIIProtection()
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithPIIProtection(this AgentBuilder builder)
     {
         var middleware = new PIIMiddleware();
-        // Insert at the beginning so PII is sanitized before other middlewares see the messages
-        builder.Middlewares.Insert(0, middleware);
-        return builder;
+        // PII must run before other middleware observes the message.
+        return builder
+            .WithMiddleware(middleware)
+            .MoveMiddlewareToStart<PIIMiddleware>();
     }
 
     /// <summary>
@@ -4603,7 +4693,7 @@ public static class AgentBuilderMiddlewareExtensions
     /// <returns>The builder for chaining</returns>
     /// <example>
     /// <code>
-    /// var agent = new AgentBuilder()
+    /// await using var agent = await new AgentBuilder()
     ///     .WithPIIProtection(config =>
     ///     {
     ///         // Configure strategies per PII type
@@ -4622,16 +4712,17 @@ public static class AgentBuilderMiddlewareExtensions
     ///             pattern: @"EMP-\d{6}",
     ///             strategy: PIIStrategy.Redact);
     ///     })
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithPIIProtection(this AgentBuilder builder, Action<PIIMiddleware> configure)
     {
         var middleware = new PIIMiddleware();
         configure(middleware);
-        // Insert at the beginning so PII is sanitized before other middlewares see the messages
-        builder.Middlewares.Insert(0, middleware);
-        return builder;
+        // PII must run before other middleware observes the message.
+        return builder
+            .WithMiddleware(middleware)
+            .MoveMiddlewareToStart<PIIMiddleware>();
     }
 
     //
@@ -4660,14 +4751,14 @@ public static class AgentBuilderMiddlewareExtensions
     /// </remarks>
     /// <example>
     /// <code>
-    /// var agent = new AgentBuilder()
-    ///     .WithTools&lt;FinancialToolHarness&gt;()
+    /// await using var agent = await new AgentBuilder()
+    ///     .WithToolHarness&lt;FinancialToolHarness&gt;()
     ///     .ConfigureHarnessCollapsing(config =>
     ///     {
     ///         config.CollapseClientTools = true;
     ///         config.MaxFunctionNamesInDescription = 5;
     ///     })
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder ConfigureHarnessCollapsing(this AgentBuilder builder, Action<CollapsingConfig> configure)
@@ -4690,10 +4781,10 @@ public static class AgentBuilderMiddlewareExtensions
     /// </remarks>
     /// <example>
     /// <code>
-    /// var agent = new AgentBuilder()
-    ///     .WithTools&lt;FinancialToolHarness&gt;()
+    /// await using var agent = await new AgentBuilder()
+    ///     .WithToolHarness&lt;FinancialToolHarness&gt;()
     ///     .WithoutHarnessCollapsing()  // All tools always visible
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithoutHarnessCollapsing(this AgentBuilder builder)
@@ -5050,6 +5141,8 @@ public static class AgentBuilderToolHarnessExtensions
     /// </summary>
     public static AgentBuilder WithToolHarness<T>(this AgentBuilder builder, T instance, IToolMetadata? context = null) where T : class
     {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(instance);
         RuntimeHelpers.RunModuleConstructor(typeof(T).Assembly.ManifestModule.ModuleHandle);
         builder.LoadGeneratedRegistries();
         var toolharnessName = typeof(T).Name;
@@ -5059,6 +5152,14 @@ public static class AgentBuilderToolHarnessExtensions
             throw new InvalidOperationException(
                 $"ToolHarness '{toolharnessName}' not found in ToolHarnessRegistry.All. " +
                 $"Ensure the toolharness class has [AIFunction], [Skill], or [SubAgent] attributes and the source generator ran successfully.");
+        }
+
+        if (builder._instanceRegistrations.Any(registration =>
+                registration.ToolTypeName == factory.ActivationIdentity ||
+                registration.ToolTypeName == factory.Name))
+        {
+            throw new InvalidOperationException(
+                $"Harness '{factory.ActivationIdentity}' is already registered by instance.");
         }
 
         // Register as instance registration (will use the generated ToolHarnessFactory delegate for function creation)
@@ -5206,14 +5307,15 @@ public static class AgentBuilderConfigExtensions
     ///
     /// Example (custom configuration):
     /// <code>
+    /// var config = new AgentConfig();
     /// var customConfig = new ConfigurationBuilder()
     ///     .AddJsonFile("custom.json")
     ///     .AddEnvironmentVariables("MY_APP_")
     ///     .Build();
     ///
-    /// var agent = new AgentBuilder(config)
+    /// await using var agent = await new AgentBuilder(config)
     ///     .WithAPIConfiguration(customConfig)  // Override default
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </summary>
     /// <param name="builder">The agent builder.</param>
@@ -5233,9 +5335,10 @@ public static class AgentBuilderConfigExtensions
     ///
     /// Example:
     /// <code>
-    /// var agent = new AgentBuilder(config)
+    /// var config = new AgentConfig();
+    /// await using var agent = await new AgentBuilder(config)
     ///     .WithAPIConfiguration("config/production.json")
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </summary>
     /// <param name="builder">The agent builder.</param>

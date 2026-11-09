@@ -181,7 +181,7 @@ public interface ITavilyWebSearchBuilder : IWebSearchProviderBuilder<ITavilyWebS
 /// Builder interface for Brave web search provider
 /// Focuses on privacy-respecting search with comprehensive filtering options
 /// </summary>
-public interface IBraveWebSearchBuilder : IWebSearchProviderBuilder<IBraveWebSearchBuilder>
+internal interface IBraveWebSearchBuilder : IWebSearchProviderBuilder<IBraveWebSearchBuilder>
 {
     /// <summary>
     /// Sets the safe search level
@@ -245,7 +245,7 @@ public interface IBraveWebSearchBuilder : IWebSearchProviderBuilder<IBraveWebSea
 /// Builder interface for Bing web search provider
 /// Focuses on comprehensive search with shopping and enterprise features
 /// </summary>
-public interface IBingWebSearchBuilder : IWebSearchProviderBuilder<IBingWebSearchBuilder>
+internal interface IBingWebSearchBuilder : IWebSearchProviderBuilder<IBingWebSearchBuilder>
 {
     /// <summary>
     /// Sets the Bing Search API endpoint
@@ -321,7 +321,7 @@ public enum TavilySearchDepth
 /// <summary>
 /// Brave safe search levels
 /// </summary>
-public enum BraveSafeSearch
+internal enum BraveSafeSearch
 {
     /// <summary>No safe search filtering</summary>
     Off,
@@ -334,7 +334,7 @@ public enum BraveSafeSearch
 /// <summary>
 /// Brave measurement unit preferences
 /// </summary>
-public enum BraveUnits
+internal enum BraveUnits
 {
     /// <summary>Metric units (meters, celsius, etc.)</summary>
     Metric,
@@ -345,7 +345,7 @@ public enum BraveUnits
 /// <summary>
 /// Bing safe search levels
 /// </summary>
-public enum BingSafeSearch
+internal enum BingSafeSearch
 {
     /// <summary>No safe search filtering</summary>
     Off,
@@ -358,7 +358,7 @@ public enum BingSafeSearch
 /// <summary>
 /// Bing content freshness requirements
 /// </summary>
-public enum BingFreshness
+internal enum BingFreshness
 {
     /// <summary>Content from the last day</summary>
     Day,
@@ -371,7 +371,7 @@ public enum BingFreshness
 /// <summary>
 /// Bing text format preferences
 /// </summary>
-public enum BingTextFormat
+internal enum BingTextFormat
 {
     /// <summary>Plain text format</summary>
     Raw,

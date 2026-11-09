@@ -2,6 +2,7 @@ using HPD.Agent.AspNetCore.DependencyInjection;
 using HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
 using HPD.Agent.ClientTools;
 using HPD.Agent.Hosting.Lifecycle;
+using HPD.Agent.Hosting.Serialization;
 using HPD.Agent.AspNetCore.Serialization;
 using HPD.Agent.AspNetCore.RuntimeExtensions;
 using HPD.Agent.Serialization;
@@ -71,15 +72,99 @@ public static class HPDAgentHostEndpointRouteBuilderExtensions
 
         var routeGroup = endpoints.MapGroup(options.RoutePrefix);
 
+        MapRuntimeEndpoints(endpoints, routeGroup, name, options);
+        if (options.MapClientToolProviders)
+            MapClientToolProviderEndpoints(endpoints, routeGroup, ResolveEndpointName(name));
+        if (options.MapAgents || options.MapRuntimeExtensionManagement)
+            MapAdministrationEndpoints(
+                endpoints,
+                routeGroup,
+                name,
+                mapAgentDefinitions: options.MapAgents,
+                mapRuntimeExtensionManagement: options.MapRuntimeExtensionManagement);
+        options.ConfigureRoutes?.Invoke(routeGroup);
+
+        return routeGroup;
+    }
+
+    /// <summary>Maps the application-facing session, thread, streaming, and content API.</summary>
+    /// <remarks>The returned group can receive authorization or other endpoint conventions.</remarks>
+    public static RouteGroupBuilder MapHPDAgentRuntimeApi(
+        this IEndpointRouteBuilder endpoints)
+        => endpoints.MapHPDAgentRuntimeApi(Options.DefaultName);
+
+    /// <summary>Maps the application-facing API for a named host profile.</summary>
+    public static RouteGroupBuilder MapHPDAgentRuntimeApi(
+        this IEndpointRouteBuilder endpoints,
+        string name)
+    {
+        ArgumentNullException.ThrowIfNull(endpoints);
+        ArgumentNullException.ThrowIfNull(name);
+
+        var routeGroup = endpoints.MapGroup("");
+        MapRuntimeEndpoints(endpoints, routeGroup, name, new HPDAgentEndpointOptions());
+        return routeGroup;
+    }
+
+    /// <summary>Maps connected client-tool provider inspection and attachment routes.</summary>
+    public static RouteGroupBuilder MapHPDAgentClientToolProvidersApi(
+        this IEndpointRouteBuilder endpoints)
+    {
+        ArgumentNullException.ThrowIfNull(endpoints);
+
+        var routeGroup = endpoints.MapGroup("");
+        MapClientToolProviderEndpoints(endpoints, routeGroup, "ClientTools");
+        return routeGroup;
+    }
+
+    /// <summary>Maps stored-definition and runtime-extension administration routes.</summary>
+    /// <remarks>
+    /// These routes should normally receive a stricter authorization policy than the runtime API.
+    /// </remarks>
+    public static RouteGroupBuilder MapHPDAgentAdministrationApi(
+        this IEndpointRouteBuilder endpoints)
+        => endpoints.MapHPDAgentAdministrationApi(Options.DefaultName);
+
+    /// <summary>Maps administration routes for a named host profile.</summary>
+    public static RouteGroupBuilder MapHPDAgentAdministrationApi(
+        this IEndpointRouteBuilder endpoints,
+        string name)
+        => endpoints.MapHPDAgentAdministrationApi(name, null);
+
+    /// <summary>Maps selected administration routes for a named host profile.</summary>
+    public static RouteGroupBuilder MapHPDAgentAdministrationApi(
+        this IEndpointRouteBuilder endpoints,
+        string name,
+        Action<HPDAgentAdministrationEndpointOptions>? configure)
+    {
+        ArgumentNullException.ThrowIfNull(endpoints);
+        ArgumentNullException.ThrowIfNull(name);
+
+        var options = new HPDAgentAdministrationEndpointOptions();
+        configure?.Invoke(options);
+        var routeGroup = endpoints.MapGroup("");
+        MapAdministrationEndpoints(
+            endpoints,
+            routeGroup,
+            name,
+            options.MapAgentDefinitions,
+            options.MapRuntimeExtensionManagement);
+        return routeGroup;
+    }
+
+    private static void MapRuntimeEndpoints(
+        IEndpointRouteBuilder endpoints,
+        RouteGroupBuilder routeGroup,
+        string name,
+        HPDAgentEndpointOptions options)
+    {
         var pair = endpoints.ServiceProvider.GetRequiredService<HPDAgentRegistry>().Get(name);
         var hostingServices = endpoints.ServiceProvider
             .GetRequiredService<IHPDAgentHostingServicesProvider>()
             .Get(name);
         var eventComposition = pair.EventComposition;
         var inputComposition = pair.InputComposition;
-        var endpointName = string.IsNullOrWhiteSpace(name)
-            ? "DefaultHost"
-            : name;
+        var endpointName = ResolveEndpointName(name);
 
         routeGroup.MapGet("/event-catalog", () => Results.Json(
             eventComposition.Catalog,
@@ -91,6 +176,11 @@ public static class HPDAgentHostEndpointRouteBuilderExtensions
             HPDAgentAspNetCoreJsonSerializerContext.Default.AgentInputCatalog))
             .WithName($"{endpointName}.GetAgentInputCatalog")
             .WithSummary("Get the immutable public and internal agent input compatibility catalog");
+        routeGroup.MapGet("/storage", () => Results.Json(
+            pair.Storage,
+            HPDAgentApiJsonSerializerContext.Default.HPDAgentStorageInfo))
+            .WithName($"{endpointName}.GetAgentStorageInfo")
+            .WithSummary("Get hosting storage configuration and restart durability capabilities");
         if (options.MapRuntimeExtensions)
         {
             routeGroup.MapGet(
@@ -102,8 +192,6 @@ public static class HPDAgentHostEndpointRouteBuilderExtensions
                 .WithName($"{endpointName}.GetRuntimeAgentExtensionCatalog")
                 .WithSummary("Get the current tenant-scoped runtime extension schema catalog");
         }
-        if (options.MapRuntimeExtensionManagement)
-            routeGroup.MapRuntimeAgentExtensionManagement();
 
         // Map all endpoint groups
         if (options.MapSessions)
@@ -129,15 +217,37 @@ public static class HPDAgentHostEndpointRouteBuilderExtensions
                 hostingServices.MiddlewareResponses,
                 eventComposition.Codec,
                 endpointName);
-        if (options.MapClientToolProviders)
-            ClientToolProviderEndpoints.Map(
-                routeGroup,
-                endpoints.ServiceProvider.GetRequiredService<IClientToolProviderRegistry>(),
-                endpointName);
-        if (options.MapAgents)
-            AgentEndpoints.Map(routeGroup, hostingServices.Agents, endpointName);
-        options.ConfigureRoutes?.Invoke(routeGroup);
-
-        return routeGroup;
     }
+
+    private static void MapClientToolProviderEndpoints(
+        IEndpointRouteBuilder endpoints,
+        RouteGroupBuilder routeGroup,
+        string endpointName)
+    {
+        ClientToolProviderEndpoints.Map(
+            routeGroup,
+            endpoints.ServiceProvider.GetRequiredService<IClientToolProviderRegistry>(),
+            endpointName);
+    }
+
+    private static void MapAdministrationEndpoints(
+        IEndpointRouteBuilder endpoints,
+        RouteGroupBuilder routeGroup,
+        string name,
+        bool mapAgentDefinitions,
+        bool mapRuntimeExtensionManagement)
+    {
+        if (mapRuntimeExtensionManagement)
+            routeGroup.MapRuntimeAgentExtensionManagement();
+        if (mapAgentDefinitions)
+        {
+            var hostingServices = endpoints.ServiceProvider
+                .GetRequiredService<IHPDAgentHostingServicesProvider>()
+                .Get(name);
+            AgentEndpoints.Map(routeGroup, hostingServices.Agents, ResolveEndpointName(name));
+        }
+    }
+
+    private static string ResolveEndpointName(string name) =>
+        string.IsNullOrWhiteSpace(name) ? "DefaultHost" : name;
 }

@@ -21,8 +21,11 @@ internal static class SessionEndpoints
         string endpointName)
     {
         // POST /sessions - Create new session
-        endpoints.MapPost("/sessions", (CreateSessionRequest? request, CancellationToken ct) =>
-                CreateSession(sessions, request, ct))
+        endpoints.MapPost("/sessions", (
+                CreateSessionRequest? request,
+                LinkGenerator links,
+                CancellationToken ct) =>
+                CreateSession(sessions, request, links, endpointName, ct))
             .WithHostName(endpointName, "CreateSession")
             .WithSummary("Create a new session with a default 'main' thread");
 
@@ -57,15 +60,27 @@ internal static class SessionEndpoints
             .WithSummary("Delete a session and all its threads");
     }
 
-    private static async Task<Results<Created<SessionDto>, ValidationProblem>> CreateSession(
+    private static async Task<Results<Created<SessionDto>, NotFound, ValidationProblem>> CreateSession(
         IAgentSessionService sessions,
         CreateSessionRequest? request = null,
+        LinkGenerator? links = null,
+        string? endpointName = null,
         CancellationToken ct = default)
     {
         try
         {
             var dto = await sessions.CreateSessionAsync(request, ct);
-            return TypedResults.Created($"/sessions/{dto.Id}", dto);
+            var location = links is null || endpointName is null
+                ? $"/sessions/{dto.Id}"
+                : CreatedLocation.Resolve(
+                    links,
+                    $"{endpointName}.GetSession",
+                    ("sessionId", dto.Id));
+            return TypedResults.Created(location, dto);
+        }
+        catch (KeyNotFoundException)
+        {
+            return TypedResults.NotFound();
         }
         catch (Exception ex)
         {

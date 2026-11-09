@@ -8,7 +8,7 @@ namespace HPD.Agent.ToolHarness.WebSearch;
 /// Bing web search connector (placeholder implementation)
 /// TODO: Implement full Bing Search API integration
 /// </summary>
-public class BingConnector : IWebSearchConnector
+internal class BingConnector : IWebSearchConnector
 {
     /// <inheritdoc />
     public string ProviderName => "bing";

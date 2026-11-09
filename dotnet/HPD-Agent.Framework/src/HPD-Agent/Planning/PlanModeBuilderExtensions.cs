@@ -19,9 +19,9 @@ public static class PlanModeBuilderExtensions
     /// </summary>
     /// <example>
     /// <code>
-    /// var agent = await new AgentBuilder()
+    /// await using var agent = await new AgentBuilder()
     ///     .WithPlanMode()
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     [RequiresUnreferencedCode("Plan mode loads the assembly's generated middleware-state registry at runtime.")]
@@ -47,7 +47,7 @@ public static class PlanModeBuilderExtensions
         // WithToolHarness loads the MiddlewareStateRegistry from this assembly,
         // registering PlanModePersistentStateData for session persistence.
         builder.WithToolHarness(toolharness);
-        builder.Middlewares.Add(middleware);
+        builder.WithMiddleware(middleware);
 
         return builder;
     }

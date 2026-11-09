@@ -31,17 +31,17 @@ public static class AgentBuilderExtensions
     /// <example>
     /// <code>
     /// // Option 1: Simple configuration with API key
-    /// var agent = new AgentBuilder()
+    /// await using var agent = await new AgentBuilder()
     ///     .WithMistral(
     ///         model: "mistral-large-latest",
     ///         apiKey: "your-api-key")
-    ///     .Build();
+    ///     .BuildAsync();
     ///
     /// // Option 2: Auto-resolve API key from environment
     /// // Set MISTRAL_API_KEY environment variable first
-    /// var agent = new AgentBuilder()
+    /// await using var autoConfiguredAgent = await new AgentBuilder()
     ///     .WithMistral(model: "mistral-large-latest")
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithMistral(

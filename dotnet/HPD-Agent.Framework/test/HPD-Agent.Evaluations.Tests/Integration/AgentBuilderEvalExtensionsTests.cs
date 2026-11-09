@@ -107,7 +107,9 @@ public sealed class AgentBuilderEvalExtensionsTests
         var builder = MakeBuilder();
         builder.AddEvaluator(new StubDeterministicEvaluator("Score"));
         var insertedLater = new NoopMiddleware();
-        builder.Middlewares.Insert(0, insertedLater);
+        builder
+            .WithMiddleware(insertedLater)
+            .MoveMiddlewareToStart<NoopMiddleware>();
 
         builder.UseScoreStore(new InMemoryScoreStore());
 

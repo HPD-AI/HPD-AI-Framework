@@ -15,9 +15,9 @@ public static class AgentBuilderClientToolsExtensions
     /// <returns>The builder for chaining</returns>
     /// <example>
     /// <code>
-    /// var agent = new AgentBuilder()
+    /// await using var agent = await new AgentBuilder()
     ///     .WithClientTools()
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithClientTools(this AgentBuilder builder)
@@ -33,13 +33,13 @@ public static class AgentBuilderClientToolsExtensions
     /// <returns>The builder for chaining</returns>
     /// <example>
     /// <code>
-    /// var agent = new AgentBuilder()
+    /// await using var agent = await new AgentBuilder()
     ///     .WithClientTools(new ClientToolConfig
     ///     {
     ///         InvokeTimeout = TimeSpan.FromSeconds(60),
     ///         ValidateSchemaOnRegistration = true
     ///     })
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithClientTools(this AgentBuilder builder, ClientToolConfig config)
@@ -60,13 +60,13 @@ public static class AgentBuilderClientToolsExtensions
     /// <returns>The builder for chaining</returns>
     /// <example>
     /// <code>
-    /// var agent = new AgentBuilder()
+    /// await using var agent = await new AgentBuilder()
     ///     .WithClientTools(config =>
     ///     {
     ///         config.InvokeTimeout = TimeSpan.FromSeconds(60);
     ///         config.DisconnectionStrategy = ClientDisconnectionStrategy.RetryWithBackoff;
     ///     })
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithClientTools(

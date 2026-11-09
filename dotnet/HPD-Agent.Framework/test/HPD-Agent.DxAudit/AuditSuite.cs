@@ -53,6 +53,8 @@ internal static class AuditSuite
             PortableProviderSelection(),
             ExplicitSecretSerialization(),
             await StoreLifecycleObservationAsync(cancellationToken),
+            await StorageBoundaryObservationAsync(cancellationToken),
+            SupportedImageStrategySurface(),
             HostingVocabularySurface(),
             ExplicitHostingCompositionSurface(),
             AutomaticHostingCompositionSurface()
@@ -630,6 +632,73 @@ internal static class AuditSuite
         }
     }
 
+    private static async Task<ProbeResult> StorageBoundaryObservationAsync(
+        CancellationToken cancellationToken)
+    {
+        const string id = "DX-PROBE-032";
+        const string area = "storage";
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            $"hpd-agent-dx-storage-{Guid.NewGuid():N}");
+
+        try
+        {
+            if (!AgentEventCompositionHost.TryComposeRegisteredModules(out var composition))
+                return Gap(id, area, "No generated event module was available for file-store validation.");
+
+            var sessionStore = new FileSessionStore(
+                Path.Combine(root, "sessions"),
+                composition.Codec);
+            await AssertThrowsArgumentExceptionAsync(
+                () => sessionStore.CreateSessionAsync("../escape").AsTask());
+            var session = await sessionStore.CreateSessionAsync("safe-session");
+            await AssertThrowsArgumentExceptionAsync(
+                () => sessionStore.CreateThreadAsync(
+                    session.Id,
+                    "dx-agent",
+                    "../escape").AsTask());
+            var nested = await sessionStore.CreateThreadAsync(
+                session.Id,
+                "dx-agent",
+                "subagent/explore/invocation-1");
+            Require(
+                nested.Id == "subagent/explore/invocation-1",
+                $"Nested thread identity changed to '{nested.Id}'.");
+            await AssertThrowsArgumentExceptionAsync(
+                () => sessionStore.DeleteSessionAsync("../escape"));
+
+            var agentStore = new JsonAgentStore(Path.Combine(root, "agents"));
+            await AssertThrowsArgumentExceptionAsync(
+                () => agentStore.SaveAsync(new StoredAgent
+                {
+                    Id = "../escape",
+                    Name = "Unsafe",
+                    Config = new AgentConfig { Name = "Unsafe" }
+                }));
+
+            Require(
+                !Directory.Exists(Path.Combine(root, "escape")),
+                "A rejected identifier created a directory outside its storage scope.");
+            return Pass(
+                id,
+                area,
+                "File-backed stores isolate caller identifiers while preserving safe nested thread paths.");
+        }
+        catch (Exception exception)
+        {
+            return Failure(
+                id,
+                area,
+                "Caller-supplied store identifiers must remain within their configured roots.",
+                exception);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static ProbeResult HostingVocabularySurface()
     {
         const string id = "DX-PROBE-029";
@@ -684,6 +753,35 @@ internal static class AuditSuite
                 id,
                 area,
                 "ASP.NET hosting should expose unambiguous host-profile vocabulary.",
+                exception);
+        }
+    }
+
+    private static ProbeResult SupportedImageStrategySurface()
+    {
+        const string id = "DX-PROBE-033";
+        const string area = "middleware";
+
+        try
+        {
+            var strategyNames = typeof(HPD.Agent.Middleware.Image.ImageProcessingStrategy)
+                .GetFields(BindingFlags.Public | BindingFlags.Static)
+                .Select(field => field.Name)
+                .ToArray();
+            Require(
+                strategyNames.SequenceEqual(["PassThrough"], StringComparer.Ordinal),
+                $"Unexpected image strategies: {string.Join(", ", strategyNames)}.");
+            return Pass(
+                id,
+                area,
+                "Image configuration exports only the implemented built-in strategy.");
+        }
+        catch (Exception exception)
+        {
+            return Failure(
+                id,
+                area,
+                "Public image strategy names must correspond to working implementations.",
                 exception);
         }
     }
@@ -1456,6 +1554,20 @@ internal static class AuditSuite
         }
 
         throw new AuditRequirementException("Expected InvalidOperationException.");
+    }
+
+    private static async Task AssertThrowsArgumentExceptionAsync(Func<Task> action)
+    {
+        try
+        {
+            await action();
+        }
+        catch (ArgumentException)
+        {
+            return;
+        }
+
+        throw new AuditRequirementException("Expected ArgumentException.");
     }
 
     private static ProbeResult Pass(string id, string area, string summary) =>

@@ -17,56 +17,82 @@ internal static class ThreadEndpoints
         IAgentThreadService threads,
         string endpointName)
     {
-        endpoints.MapGet("/sessions/{sid}/threads", (string sid, CancellationToken ct) =>
-                ListThreads(RouteValue.Decode(sid), threads, ct))
+        endpoints.MapGet("/sessions/{sessionId}/threads", (string sessionId, CancellationToken ct) =>
+                ListThreads(RouteValue.Decode(sessionId), threads, ct))
             .WithHostName(endpointName, "ListThreads")
             .WithSummary("List all threads in a session");
 
-        endpoints.MapGet("/sessions/{sid}/thread-graph", (string sid, CancellationToken ct) =>
-                GetThreadGraph(RouteValue.Decode(sid), threads, ct))
+        endpoints.MapGet("/sessions/{sessionId}/thread-graph", (string sessionId, CancellationToken ct) =>
+                GetThreadGraph(RouteValue.Decode(sessionId), threads, ct))
             .WithHostName(endpointName, "GetThreadGraph")
             .WithSummary("Get threads and fork groups for a session");
 
-        endpoints.MapGet("/sessions/{sid}/threads/{bid}", (string sid, string bid, CancellationToken ct) =>
-                GetThread(RouteValue.Decode(sid), RouteValue.Decode(bid), threads, ct))
+        endpoints.MapGet("/sessions/{sessionId}/threads/{threadId}", (string sessionId, string threadId, CancellationToken ct) =>
+                GetThread(RouteValue.Decode(sessionId), RouteValue.Decode(threadId), threads, ct))
             .WithHostName(endpointName, "GetThread")
             .WithSummary("Get thread metadata by ID");
 
-        endpoints.MapGet("/sessions/{sid}/threads/{bid}/subagents", (string sid, string bid, CancellationToken ct) =>
-                ListSubAgents(RouteValue.Decode(sid), RouteValue.Decode(bid), threads, ct))
+        endpoints.MapGet("/sessions/{sessionId}/threads/{threadId}/subagents", (string sessionId, string threadId, CancellationToken ct) =>
+                ListSubAgents(RouteValue.Decode(sessionId), RouteValue.Decode(threadId), threads, ct))
             .WithHostName(endpointName, "ListThreadSubAgents")
             .WithSummary("List durable subagents owned by a parent thread");
 
-        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads", (string agentId, string sid, CreateThreadRequest request, CancellationToken ct) =>
-                CreateThread(RouteValue.Decode(agentId), RouteValue.Decode(sid), request, threads, ct))
+        endpoints.MapPost("/agents/{agentId}/sessions/{sessionId}/threads", (
+                string agentId,
+                string sessionId,
+                CreateThreadRequest request,
+                LinkGenerator links,
+                CancellationToken ct) =>
+                CreateThread(
+                    RouteValue.Decode(agentId),
+                    RouteValue.Decode(sessionId),
+                    request,
+                    threads,
+                    links,
+                    endpointName,
+                    ct))
             .WithHostName(endpointName, "CreateThread")
             .WithSummary("Create a new thread in a session");
 
-        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/fork", (string agentId, string sid, string bid, ForkThreadRequest request, CancellationToken ct) =>
-                ForkThread(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), request, threads, ct))
+        endpoints.MapPost("/agents/{agentId}/sessions/{sessionId}/threads/{threadId}/fork", (
+                string agentId,
+                string sessionId,
+                string threadId,
+                ForkThreadRequest request,
+                LinkGenerator links,
+                CancellationToken ct) =>
+                ForkThread(
+                    RouteValue.Decode(agentId),
+                    RouteValue.Decode(sessionId),
+                    RouteValue.Decode(threadId),
+                    request,
+                    threads,
+                    links,
+                    endpointName,
+                    ct))
             .WithHostName(endpointName, "ForkThread")
             .WithSummary("Fork an existing thread at a specific message id");
 
-        endpoints.MapPatch("/sessions/{sid}/threads/{bid}", (string sid, string bid, UpdateThreadRequest request, CancellationToken ct) =>
-                UpdateThread(RouteValue.Decode(sid), RouteValue.Decode(bid), request, threads, ct))
+        endpoints.MapPatch("/sessions/{sessionId}/threads/{threadId}", (string sessionId, string threadId, UpdateThreadRequest request, CancellationToken ct) =>
+                UpdateThread(RouteValue.Decode(sessionId), RouteValue.Decode(threadId), request, threads, ct))
             .WithHostName(endpointName, "UpdateThread")
             .WithSummary("Update thread name, description, or tags");
 
-        endpoints.MapDelete("/sessions/{sid}/threads/{bid}", (string sid, string bid, bool recursive = false, CancellationToken ct = default) =>
-                DeleteThread(RouteValue.Decode(sid), RouteValue.Decode(bid), recursive, threads, ct))
+        endpoints.MapDelete("/sessions/{sessionId}/threads/{threadId}", (string sessionId, string threadId, bool recursive = false, CancellationToken ct = default) =>
+                DeleteThread(RouteValue.Decode(sessionId), RouteValue.Decode(threadId), recursive, threads, ct))
             .WithHostName(endpointName, "DeleteThread")
             .WithSummary("Delete a thread");
 
     }
 
     private static async Task<Results<Ok<List<ThreadDto>>, NotFound, ValidationProblem>> ListThreads(
-        string sid,
+        string sessionId,
         IAgentThreadService threads,
         CancellationToken ct = default)
     {
         try
         {
-            var result = await threads.ListThreadsAsync(sid, ct);
+            var result = await threads.ListThreadsAsync(sessionId, ct);
             return result.Status == AgentServiceStatus.NotFound
                 ? TypedResults.NotFound()
                 : TypedResults.Ok(result.Value!.ToList());
@@ -78,13 +104,13 @@ internal static class ThreadEndpoints
     }
 
     private static async Task<Results<Ok<ThreadGraphDto>, NotFound, ValidationProblem>> GetThreadGraph(
-        string sid,
+        string sessionId,
         IAgentThreadService threads,
         CancellationToken ct = default)
     {
         try
         {
-            var result = await threads.GetThreadGraphAsync(sid, ct);
+            var result = await threads.GetThreadGraphAsync(sessionId, ct);
             return result.Status == AgentServiceStatus.NotFound
                 ? TypedResults.NotFound()
                 : TypedResults.Ok(result.Value!);
@@ -96,14 +122,14 @@ internal static class ThreadEndpoints
     }
 
     private static async Task<Results<Ok<ThreadDto>, NotFound, ValidationProblem>> GetThread(
-        string sid,
-        string bid,
+        string sessionId,
+        string threadId,
         IAgentThreadService threads,
         CancellationToken ct = default)
     {
         try
         {
-            return ToOkNotFoundValidation(await threads.GetThreadAsync(sid, bid, ct), "GetThreadError");
+            return ToOkNotFoundValidation(await threads.GetThreadAsync(sessionId, threadId, ct), "GetThreadError");
         }
         catch (Exception ex)
         {
@@ -112,11 +138,11 @@ internal static class ThreadEndpoints
     }
 
     private static async Task<Results<Ok<List<SubAgentDto>>, NotFound, ValidationProblem>> ListSubAgents(
-        string sid, string bid, IAgentThreadService threads, CancellationToken ct = default)
+        string sessionId, string threadId, IAgentThreadService threads, CancellationToken ct = default)
     {
         try
         {
-            var result = await threads.ListSubAgentsAsync(sid, bid, ct);
+            var result = await threads.ListSubAgentsAsync(sessionId, threadId, ct);
             return result.Status == AgentServiceStatus.NotFound
                 ? TypedResults.NotFound()
                 : TypedResults.Ok(result.Value!.ToList());
@@ -126,17 +152,25 @@ internal static class ThreadEndpoints
 
     private static async Task<Results<Created<ThreadDto>, NotFound, Conflict, ValidationProblem>> CreateThread(
         string agentId,
-        string sid,
+        string sessionId,
         CreateThreadRequest request,
         IAgentThreadService threads,
+        LinkGenerator links,
+        string endpointName,
         CancellationToken ct = default)
     {
         try
         {
-            var result = await threads.CreateThreadAsync(agentId, sid, request, ct);
+            var result = await threads.CreateThreadAsync(agentId, sessionId, request, ct);
             return result.Status switch
             {
-                AgentServiceStatus.Success => TypedResults.Created($"/sessions/{sid}/threads/{result.Value!.Id}", result.Value),
+                AgentServiceStatus.Success => TypedResults.Created(
+                    CreatedLocation.Resolve(
+                        links,
+                        $"{endpointName}.GetThread",
+                        ("sessionId", sessionId),
+                        ("threadId", result.Value!.Id)),
+                    result.Value),
                 AgentServiceStatus.NotFound => TypedResults.NotFound(),
                 AgentServiceStatus.Conflict => TypedResults.Conflict(),
                 _ => Validation(result, "CreateThreadError", "Create thread failed.")
@@ -150,19 +184,26 @@ internal static class ThreadEndpoints
 
     private static async Task<Results<Created<ThreadForkResultDto>, NotFound, ValidationProblem>> ForkThread(
         string agentId,
-        string sid,
-        string bid,
+        string sessionId,
+        string threadId,
         ForkThreadRequest request,
         IAgentThreadService threads,
+        LinkGenerator links,
+        string endpointName,
         CancellationToken ct = default)
     {
         try
         {
-            var result = await threads.ForkThreadAsync(agentId, sid, bid, request, ct);
+            var result = await threads.ForkThreadAsync(agentId, sessionId, threadId, request, ct);
             return result.Status switch
             {
                 AgentServiceStatus.Success => TypedResults.Created(
-                    $"/sessions/{sid}/threads/{result.Value!.Target.Id}", result.Value),
+                    CreatedLocation.Resolve(
+                        links,
+                        $"{endpointName}.GetThread",
+                        ("sessionId", sessionId),
+                        ("threadId", result.Value!.Target.Id)),
+                    result.Value),
                 AgentServiceStatus.NotFound => TypedResults.NotFound(),
                 _ => Validation(result, "ForkThreadError", "Fork thread failed.")
             };
@@ -174,15 +215,15 @@ internal static class ThreadEndpoints
     }
 
     private static async Task<Results<Ok<ThreadDto>, NotFound, ValidationProblem>> UpdateThread(
-        string sid,
-        string bid,
+        string sessionId,
+        string threadId,
         UpdateThreadRequest request,
         IAgentThreadService threads,
         CancellationToken ct = default)
     {
         try
         {
-            return ToOkNotFoundValidation(await threads.UpdateThreadAsync(sid, bid, request, ct), "UpdateThreadError");
+            return ToOkNotFoundValidation(await threads.UpdateThreadAsync(sessionId, threadId, request, ct), "UpdateThreadError");
         }
         catch (Exception ex)
         {
@@ -191,15 +232,15 @@ internal static class ThreadEndpoints
     }
 
     private static async Task<Results<NoContent, NotFound, Conflict, ValidationProblem>> DeleteThread(
-        string sid,
-        string bid,
+        string sessionId,
+        string threadId,
         bool recursive,
         IAgentThreadService threads,
         CancellationToken ct = default)
     {
         try
         {
-            var result = await threads.DeleteThreadAsync(sid, bid, recursive, ct);
+            var result = await threads.DeleteThreadAsync(sessionId, threadId, recursive, ct);
             return result.Status switch
             {
                 AgentServiceStatus.Success => TypedResults.NoContent(),

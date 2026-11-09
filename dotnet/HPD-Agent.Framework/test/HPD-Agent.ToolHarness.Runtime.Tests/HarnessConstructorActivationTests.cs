@@ -57,6 +57,26 @@ public sealed class HarnessConstructorActivationTests
     }
 
     [Fact]
+    public void ExplicitInstance_Null_ThrowsImmediately()
+    {
+        ConstructorActivationHarness instance = null!;
+
+        Assert.Throws<ArgumentNullException>(() =>
+            Builder().WithToolHarness(instance));
+    }
+
+    [Fact]
+    public void ExplicitInstance_Duplicate_ThrowsImmediately()
+    {
+        using var instance = new ConstructorActivationHarness(
+            new ActivationProbe("duplicate"));
+        var builder = Builder().WithToolHarness(instance);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            builder.WithToolHarness(instance));
+    }
+
+    [Fact]
     public async Task ConfigurableExplicitInstance_WithoutFrameworkConfiguration_UsesSuppliedState()
     {
         var instance = new ConfigurableExplicitHarness(

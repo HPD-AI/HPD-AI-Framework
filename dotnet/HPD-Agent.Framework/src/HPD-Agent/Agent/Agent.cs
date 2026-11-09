@@ -303,9 +303,10 @@ public sealed partial class Agent : IAsyncDisposable
         new(store, coordinator, _eventContentArchiver);
 
     /// <summary>
-    /// Initializes a new Agent instance from an AgentConfig object
+    /// Initializes a new Agent instance from a prepared runtime configuration.
+    /// Applications create agents through <see cref="AgentBuilder"/>.
     /// </summary>
-    public Agent(
+    internal Agent(
         AgentConfig config,
         IChatClient? baseClient,
         ChatOptions? mergedOptions,
@@ -2847,7 +2848,10 @@ public sealed partial class Agent : IAsyncDisposable
     /// </summary>
     /// <param name="userMessage">The user message to process.</param>
     /// <param name="sessionId">Optional durable session identifier.</param>
-    /// <param name="threadId">Optional durable thread identifier.</param>
+    /// <param name="threadId">
+    /// Optional durable thread identifier. When omitted, the session's sole thread is selected.
+    /// If the session has no threads, a default <c>main</c> thread is created. Multiple threads are ambiguous.
+    /// </param>
     /// <param name="runConfig">Per-invocation configuration for this agent.</param>
     /// <param name="subAgentRunConfig">Per-invocation configuration for every direct child invoked by this input.</param>
     /// <param name="cancellationToken">Cancels input admission or execution.</param>
@@ -2855,7 +2859,7 @@ public sealed partial class Agent : IAsyncDisposable
     public Task<AgentTurnResult> RunAsync(
         string userMessage,
         string? sessionId = null,
-        string? threadId = "main",
+        string? threadId = null,
         AgentRunConfig? runConfig = null,
         SubAgentRunConfig? subAgentRunConfig = null,
         CancellationToken cancellationToken = default)
@@ -6077,7 +6081,7 @@ public sealed partial class Agent : IAsyncDisposable
     public Task<T> RunStructuredAsync<T>(
         string userMessage,
         string? sessionId = null,
-        string? threadId = "main",
+        string? threadId = null,
         AgentRunConfig? runConfig = null,
         CancellationToken cancellationToken = default) where T : class
     {
@@ -7073,7 +7077,10 @@ public sealed partial class Agent : IAsyncDisposable
     /// Use <see cref="CreateSessionAsync"/> to create a session before calling this or RunAsync.
     /// </summary>
     /// <param name="sessionId">Session identifier</param>
-    /// <param name="threadId">Thread identifier. Defaults to "main" if the session has only one thread.</param>
+    /// <param name="threadId">
+    /// Thread identifier. When omitted, selects the session's sole thread or creates a default
+    /// <c>main</c> thread when the session has no threads.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>The loaded session and thread</returns>
     /// <exception cref="InvalidOperationException">Thrown if no session store is configured</exception>
@@ -7090,7 +7097,10 @@ public sealed partial class Agent : IAsyncDisposable
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
-        // If threadId was not specified, check for ambiguity
+        var session = await store.LoadSessionAsync(sessionId, cancellationToken)
+            ?? throw new SessionNotFoundException(sessionId);
+        session.Store = store;
+
         if (threadId is null)
         {
             var threadIds = (await store.CollectThreadDescriptorsAsync(
@@ -7101,12 +7111,36 @@ public sealed partial class Agent : IAsyncDisposable
             {
                 throw new AmbiguousThreadException(sessionId, threadIds);
             }
-            threadId = "main";
-        }
 
-        var session = await store.LoadSessionAsync(sessionId, cancellationToken)
-            ?? throw new SessionNotFoundException(sessionId);
-        session.Store = store;
+            if (threadIds.Count == 1)
+            {
+                threadId = threadIds[0];
+            }
+            else
+            {
+                threadId = "main";
+                var defaultThread = session.CreateThread(AgentId, threadId);
+                try
+                {
+                    await store.SaveInitialThreadAsync(sessionId, defaultThread, cancellationToken)
+                        .ConfigureAwait(false);
+                    session.LastActivity = defaultThread.LastActivity;
+                    await store.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
+                }
+                catch (ThreadAppendConflictException)
+                {
+                    var racedThreads = (await store.CollectThreadDescriptorsAsync(
+                            sessionId, cancellationToken: cancellationToken).ConfigureAwait(false))
+                        .Select(descriptor => descriptor.Key.ThreadId)
+                        .ToList();
+                    if (racedThreads.Count > 1)
+                        throw new AmbiguousThreadException(sessionId, racedThreads);
+                    threadId = racedThreads.SingleOrDefault()
+                        ?? throw new InvalidOperationException(
+                            $"Session '{sessionId}' lost its concurrently-created thread during resolution.");
+                }
+            }
+        }
 
         var thread = await store.ProjectThreadAsync(
                 sessionId,
@@ -8958,12 +8992,6 @@ public sealed partial class Agent : IAsyncDisposable
         var store = RequireConfig().SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
-
-        //  Protect "main" thread from deletion
-        if (threadId == "main")
-        {
-            throw new InvalidOperationException("Cannot delete the 'main' thread.");
-        }
 
         // Load the thread to delete
         var thread = await store.ProjectThreadAsync(

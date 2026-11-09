@@ -13,7 +13,7 @@ public class AgentSessionServiceTests : IDisposable
     public AgentSessionServiceTests()
     {
         _manager = new TestSessionManager(_store);
-        _service = new AgentSessionService(_manager);
+        _service = new AgentSessionService(_manager, new TestAgentManager());
     }
 
     public void Dispose() => _manager.Dispose();
@@ -92,8 +92,38 @@ public class AgentSessionServiceTests : IDisposable
         _manager.TryAcquireThreadOperationLock(created.Id, "main").Should().BeTrue();
     }
 
+    [Fact]
+    public async Task CreateSessionAsync_RejectsMissingAgentDefinition()
+    {
+        var service = new AgentSessionService(
+            _manager,
+            new TestAgentManager(canResolveAgent: false));
+
+        var action = () => service.CreateSessionAsync(
+            new CreateSessionRequest("missing-agent", "missing-agent-session"));
+
+        await action.Should().ThrowAsync<KeyNotFoundException>();
+        (await _store.LoadSessionAsync("missing-agent-session")).Should().BeNull();
+    }
+
     private sealed class TestSessionManager : SessionManager
     {
         public TestSessionManager(ISessionStore store) : base(store) { }
+    }
+
+    private sealed class TestAgentManager(bool canResolveAgent = true)
+        : AgentManager(new InMemoryAgentStore())
+    {
+        public override Task<bool> CanResolveAgentAsync(
+            string agentId,
+            CancellationToken ct = default)
+            => Task.FromResult(canResolveAgent);
+
+        protected override Task<Agent> BuildAgentAsync(
+            string agentId,
+            CancellationToken ct)
+            => throw new NotSupportedException();
+
+        protected override TimeSpan GetIdleTimeout() => TimeSpan.FromMinutes(30);
     }
 }

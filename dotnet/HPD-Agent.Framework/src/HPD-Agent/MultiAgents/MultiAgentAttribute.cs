@@ -7,7 +7,8 @@ namespace HPD.Agent;
 /// The method must return AgentWorkflowInstance (sync) or Task&lt;AgentWorkflowInstance&gt; (async).
 /// </summary>
 /// <remarks>
-/// Pattern: [MultiAgent("Description")] public AgentWorkflowInstance WorkflowName() => builder.Build();
+/// Pattern: [MultiAgent("Description")] public Task&lt;AgentWorkflowInstance&gt; WorkflowName()
+///     =&gt; AgentWorkflow.Create()....BuildAsync();
 /// The source generator will:
 /// 1. Detect methods marked with [MultiAgent]
 /// 2. Generate AIFunction wrapper that invokes the workflow

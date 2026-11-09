@@ -91,6 +91,7 @@
     <InternalsVisibleTo Include="HPD-Agent.EventRouting.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.TUI.Benchmarks" />
     <InternalsVisibleTo Include="HPD-Agent.AspNetCore.Tests" />
+    <InternalsVisibleTo Include="HPDOS.Tui.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.AspNetCore" />
     <InternalsVisibleTo Include="HPD-Agent.ToolHarness.Runtime.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Authority.Tests" />
@@ -108,6 +109,7 @@
     <InternalsVisibleTo Include="HPD-Agent.AIFunctionContracts.AotSmoke" />
     <InternalsVisibleTo Include="HPD-Agent.ToolHarness.AotSmoke" />
     <InternalsVisibleTo Include="HPD-Agent.ProviderAuthentication.AotSmoke" />
+    <InternalsVisibleTo Include="HPD-Agent.Providers.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Audio.VoiceActivity.AotSmoke" />
     <InternalsVisibleTo Include="HPD-Agent.Audio.VoiceActivity.CompositionExample" />
     <InternalsVisibleTo Include="HPD-Agent.EventComposition.AotSmoke" />

@@ -13,9 +13,9 @@ public static class AgentBuilderPermissionExtensions
     /// <returns>The agent builder for chaining</returns>
     /// <example>
     /// // In your Program.cs:
-    /// var agent = new AgentBuilder()
+    /// await using var agent = await new AgentBuilder()
     ///     .WithPermissions()  // Permissions automatically persist in session
-    ///     .Build();
+    ///     .BuildAsync();
     ///
     /// // Then handle events in your event loop (see Middleware_EVENTS_USAGE.md)
     /// </example>
@@ -49,10 +49,10 @@ public static class AgentBuilderPermissionExtensions
     /// <param name="functionName">The name of the function to require permission for</param>
     /// <returns>The agent builder for chaining</returns>
     /// <example>
-    /// var agent = new AgentBuilder()
-    ///     .WithTools&lt;ThirdPartyDatabaseToolHarness&gt;()
+    /// await using var agent = await new AgentBuilder()
+    ///     .WithToolHarness&lt;ThirdPartyDatabaseToolHarness&gt;()
     ///     .RequirePermissionFor("DeleteAllData")  // Force permission even if attribute says no
-    ///     .Build();
+    ///     .BuildAsync();
     /// </example>
     public static AgentBuilder RequirePermissionFor(this AgentBuilder builder, string functionName)
     {
@@ -68,10 +68,10 @@ public static class AgentBuilderPermissionExtensions
     /// <param name="functionName">The name of the function to disable permission for</param>
     /// <returns>The agent builder for chaining</returns>
     /// <example>
-    /// var agent = new AgentBuilder()
-    ///     .WithTools&lt;FileSystemToolHarness&gt;()
+    /// await using var agent = await new AgentBuilder()
+    ///     .WithToolHarness&lt;FileSystemToolHarness&gt;()
     ///     .DisablePermissionFor("ReadFile")  // Remove permission requirement
-    ///     .Build();
+    ///     .BuildAsync();
     /// </example>
     public static AgentBuilder DisablePermissionFor(this AgentBuilder builder, string functionName)
     {

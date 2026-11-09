@@ -28,11 +28,7 @@ public static class AgentBuilderHostProcessSandboxExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(options);
 
-        builder.Middlewares.RemoveAll(
-            static middleware =>
-                middleware is HostProcessSandboxMiddleware);
-        builder.Middlewares.Add(
+        return builder.ReplaceMiddleware<HostProcessSandboxMiddleware>(
             new HostProcessSandboxMiddleware(logger, options));
-        return builder;
     }
 }

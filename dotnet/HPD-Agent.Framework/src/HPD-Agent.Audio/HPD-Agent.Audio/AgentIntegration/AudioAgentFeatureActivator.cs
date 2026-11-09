@@ -28,12 +28,7 @@ public static class AudioAgentFeatureActivator
             builder.Config.Audio,
             textToSpeech: builder.Config.ResolveClientConfig(global::HPD.Agent.Providers.ProviderClientFamily.TextToSpeech)
                 as TextToSpeechClientConfig);
-        var middleware = new AudioRuntimeAttachment(options);
-        var contentLifecycle = builder.Middlewares.FindIndex(
-            static item => item is ContentLifecycleMiddleware);
-        if (contentLifecycle >= 0)
-            builder.Middlewares.Insert(contentLifecycle, middleware);
-        else
-            builder.Middlewares.Add(middleware);
+        builder.InsertMiddlewareBefore<ContentLifecycleMiddleware>(
+            new AudioRuntimeAttachment(options));
     }
 }

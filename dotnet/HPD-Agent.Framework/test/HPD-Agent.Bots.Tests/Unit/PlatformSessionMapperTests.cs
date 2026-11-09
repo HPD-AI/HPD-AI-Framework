@@ -154,7 +154,7 @@ public class PlatformSessionMapperTests : IDisposable
     }
 
     [Fact]
-    public async Task ResolveAsync_MatchedSession_NoThreads_FallsBackToMain()
+    public async Task ResolveAsync_MatchedSession_NoThreads_CreatesMainThread()
     {
         // Create a session via the mapper (which creates the "main" thread)
         const string key = "slack:C5:500.000";
@@ -167,10 +167,12 @@ public class PlatformSessionMapperTests : IDisposable
         foreach (var b in threadIds)
             await _store.DeleteThreadAsync(sessionId, b);
 
-        // Resolve again — no threads means fallback to "main"
-        var (_, threadId) = await _mapper.ResolveAsync(key);
+        // Resolve again — no threads means create the default thread.
+        var (resolvedSessionId, threadId) = await _mapper.ResolveAsync(key);
 
         threadId.Should().Be("main");
+        resolvedSessionId.Should().Be(sessionId);
+        (await _store.GetThreadAsync(new ThreadKey(sessionId, threadId))).Should().NotBeNull();
     }
 
     // ── BindThreadAsync ──────────────────────────────────────────────

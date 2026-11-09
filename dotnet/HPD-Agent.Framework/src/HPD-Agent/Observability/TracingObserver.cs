@@ -19,9 +19,9 @@ namespace HPD.Agent;
 /// as events on the currently-open Activity rather than becoming their own spans.
 ///
 /// Usage:
-///   var agent = new AgentBuilder()
+///   await using var agent = await new AgentBuilder()
 ///       .WithTracing()          // registers this observer
-///       .Build();
+///       .BuildAsync();
 ///
 /// The host application is responsible for wiring an OTLP exporter:
 ///   builder.Services.AddOpenTelemetry()

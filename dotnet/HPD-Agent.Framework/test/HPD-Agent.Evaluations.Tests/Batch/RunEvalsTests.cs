@@ -729,7 +729,9 @@ public sealed class RunEvalsTests
             {
                 Tools =
                 [
-                    AIFunctionFactory.Create((string path) => "contents", "ReadFile"),
+                    HPDAIFunctionFactory.Import(
+                        AIFunctionFactory.Create((string path) => "contents", "ReadFile"),
+                        explicitlyUngoverned: true),
                 ],
             };
 

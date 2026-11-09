@@ -23,12 +23,12 @@ public static class AgentBuilderExtensions
     /// <example>
     /// <code>
     /// // Resolve anthropic:ApiKey from ANTHROPIC_API_KEY or another host secret source.
-    /// var agent = new AgentBuilder()
+    /// await using var agent = await new AgentBuilder()
     ///     .WithAnthropic("claude-sonnet-4-5-20250929")
-    ///     .Build();
+    ///     .BuildAsync();
     ///
     /// // Configure Anthropic-specific request options as chat defaults.
-    /// var agent = new AgentBuilder()
+    /// await using var configuredAgent = await new AgentBuilder()
     ///     .WithAnthropic("claude-sonnet-4-5-20250929")
     ///     .WithAnthropicChatRequestOptions(opts =>
     ///     {
@@ -40,7 +40,7 @@ public static class AgentBuilderExtensions
     ///             LastUserMessage = AnthropicCacheTtl.FiveMinutes
     ///         };
     ///     })
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithAnthropic(

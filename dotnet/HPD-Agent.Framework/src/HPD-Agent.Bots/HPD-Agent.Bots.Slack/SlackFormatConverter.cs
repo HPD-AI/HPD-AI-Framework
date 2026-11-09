@@ -189,16 +189,4 @@ public partial class SlackFormatConverter
         return result.Trim();
     }
 
-    /// <summary>
-    /// Parses inbound Slack mrkdwn to a markdown AST.
-    /// Used when round-tripping message text for history reconstruction.
-    /// (~40 lines of Slack-specific parsing logic.)
-    /// </summary>
-    public object ToAst(string mrkdwn)
-    {
-        // Slack-specific AST parsing — converts mrkdwn back to a generic AST
-        // for uniform downstream processing. Implementation left as a stub;
-        // the full ~40-line parser handles links, mentions, formatting, code blocks.
-        throw new NotImplementedException();
-    }
 }

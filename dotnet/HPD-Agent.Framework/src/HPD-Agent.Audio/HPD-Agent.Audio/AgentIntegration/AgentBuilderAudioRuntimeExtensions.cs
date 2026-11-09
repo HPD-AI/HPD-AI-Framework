@@ -67,14 +67,8 @@ public static class AgentBuilderAudioRuntimeExtensions
         ArgumentNullException.ThrowIfNull(options);
 
         options = AudioRuntimeCompositionRegistryV1.Apply(builder, options);
-        var middleware = new AudioRuntimeAttachment(options);
-        var contentLifecycle = builder.Middlewares.FindIndex(
-            static item => item is ContentLifecycleMiddleware);
-        if (contentLifecycle >= 0)
-            builder.Middlewares.Insert(contentLifecycle, middleware);
-        else
-            builder.Middlewares.Add(middleware);
-        return builder;
+        return builder.InsertMiddlewareBefore<ContentLifecycleMiddleware>(
+            new AudioRuntimeAttachment(options));
     }
 
     public static AgentBuilder WithAudioRuntimeAttachment(

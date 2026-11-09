@@ -22,8 +22,9 @@ public record StoredAgentDto(
     DateTime UpdatedAt,
     Dictionary<string, object>? Metadata);
 
-/// <summary>Request body for creating a new agent definition.</summary>
+/// <summary>Request body for explicitly creating a new agent definition.</summary>
 public record CreateAgentRequest(
+    string AgentId,
     string Name,
     AgentConfig Config,
     Dictionary<string, object>? Metadata = null);

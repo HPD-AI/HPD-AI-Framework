@@ -114,7 +114,9 @@ public static class AgentBuilderEvalExtensions
         if (middleware is null)
         {
             middleware = new LiveEvaluationMiddleware();
-            builder.Middlewares.Insert(0, middleware);
+            builder
+                .WithMiddleware(middleware)
+                .MoveMiddlewareToStart<LiveEvaluationMiddleware>();
             builder.WithEventSubscription(coordinator =>
                 coordinator.Subscribe<AgentEvent>(middleware.HandleAsync));
         }
@@ -130,12 +132,7 @@ public static class AgentBuilderEvalExtensions
         AgentBuilder builder,
         LiveEvaluationMiddleware middleware)
     {
-        var index = builder.Middlewares.IndexOf(middleware);
-        if (index <= 0)
-            return;
-
-        builder.Middlewares.RemoveAt(index);
-        builder.Middlewares.Insert(0, middleware);
+        builder.MoveMiddlewareToStart<LiveEvaluationMiddleware>();
     }
 
 }

@@ -311,24 +311,20 @@ public class RecursiveThreadDeleteTests : IClassFixture<RecursiveDeleteEnabledFa
         (await GetThread(sid, "fork-1")).Should().BeNull();
     }
 
-    // ──────────────────────────────────────────────────────────────────
-    // Guard: main thread always protected
-    // ──────────────────────────────────────────────────────────────────
-
     [Fact]
-    public async Task RecursiveDelete_MainThread_IsAlwaysRejected()
+    public async Task RecursiveDelete_MainThread_DeletesSubtree()
     {
-        // Even with recursive=true and AllowRecursiveThreadDelete=true,
-        // main is always protected
         var sid = await CreateSession();
         await ForkThread(sid, "main", "fork-1");
-        await ForkThread(sid, "fork-1", "fork-1a"); // give main a child subtree too
+        await ForkThread(sid, "fork-1", "fork-1a");
 
         var response = await _client.DeleteAsync($"/sessions/{sid}/threads/main?recursive=true");
 
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        var body = await response.Content.ReadAsStringAsync();
-        body.ToLowerInvariant().Should().Contain("main");
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await GetThread(sid, "main")).Should().BeNull();
+        (await GetThread(sid, "fork-1")).Should().BeNull();
+        (await GetThread(sid, "fork-1a")).Should().BeNull();
+        (await _client.GetAsync($"/sessions/{sid}")).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 }
 

@@ -472,7 +472,7 @@ public sealed class TypeScriptSdkGenerator
     {
         var supported = new HashSet<string>(StringComparer.Ordinal)
         {
-            "agents", "audio", "client-tools", "collapsing", "content",
+            "agents", "audio", "collapsing", "content",
             "evaluations", "executions", "forking", "goals", "interactions",
             "json", "middleware", "multimodal-content", "provider-authentication",
             "runtime-extensions", "server-sent-events", "sessions", "threads",

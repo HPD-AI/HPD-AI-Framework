@@ -26,14 +26,14 @@ public class AgentEndpointsTests : IClassFixture<TestWebApplicationFactory>
     [Fact]
     public async Task POST_agents_Creates_StoredAgent()
     {
-        var request = MakeCreateRequest("My Agent");
+        var request = MakeCreateRequest("my-agent", "My Agent");
 
         var response = await _client.PostAsJsonAsync("/agents", request);
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var dto = await response.Content.ReadFromJsonAsync<StoredAgentDto>();
         dto.Should().NotBeNull();
-        dto!.Id.Should().NotBeNullOrWhiteSpace();
+        dto!.Id.Should().Be("my-agent");
         dto.Name.Should().Be("My Agent");
         dto.CreatedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(5));
     }
@@ -42,7 +42,7 @@ public class AgentEndpointsTests : IClassFixture<TestWebApplicationFactory>
     public async Task POST_agents_NoName_Uses_ConfigName()
     {
         var config = new AgentConfig { Name = "FromConfig", Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" }, ModelName = "test-model" } } };
-        var request = new CreateAgentRequest("FromConfig", config);
+        var request = new CreateAgentRequest("from-config", "FromConfig", config);
 
         var response = await _client.PostAsJsonAsync("/agents", request);
 
@@ -54,7 +54,7 @@ public class AgentEndpointsTests : IClassFixture<TestWebApplicationFactory>
     [Fact]
     public async Task POST_agents_Returns_LocationHeader()
     {
-        var request = MakeCreateRequest("Located Agent");
+        var request = MakeCreateRequest("located-agent", "Located Agent");
 
         var response = await _client.PostAsJsonAsync("/agents", request);
 
@@ -66,11 +66,25 @@ public class AgentEndpointsTests : IClassFixture<TestWebApplicationFactory>
     public async Task POST_agents_Returns400_WhenConfigInvalid()
     {
         // MaxAgenticIterations = 0 is invalid
-        var request = new CreateAgentRequest("Bad Agent", new AgentConfig { Name = "Bad Agent", MaxAgenticIterations = 0 });
+        var request = new CreateAgentRequest(
+            "bad-agent",
+            "Bad Agent",
+            new AgentConfig { Name = "Bad Agent", MaxAgenticIterations = 0 });
 
         var response = await _client.PostAsJsonAsync("/agents", request);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task POST_agents_Returns409_WhenIdAlreadyExists()
+    {
+        var request = MakeCreateRequest("duplicate-agent", "Duplicate Agent");
+        (await _client.PostAsJsonAsync("/agents", request)).EnsureSuccessStatusCode();
+
+        var response = await _client.PostAsJsonAsync("/agents", request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -81,8 +95,8 @@ public class AgentEndpointsTests : IClassFixture<TestWebApplicationFactory>
     public async Task GET_agents_Returns_AllDefinitions()
     {
         // Arrange — create two agents to ensure at least some exist
-        await _client.PostAsJsonAsync("/agents", MakeCreateRequest("List Agent A"));
-        await _client.PostAsJsonAsync("/agents", MakeCreateRequest("List Agent B"));
+        await _client.PostAsJsonAsync("/agents", MakeCreateRequest("list-agent-a", "List Agent A"));
+        await _client.PostAsJsonAsync("/agents", MakeCreateRequest("list-agent-b", "List Agent B"));
 
         // Act
         var response = await _client.GetAsync("/agents");
@@ -97,7 +111,7 @@ public class AgentEndpointsTests : IClassFixture<TestWebApplicationFactory>
     [Fact]
     public async Task GET_agents_Returns_SummaryDto_WithoutConfigBody()
     {
-        await _client.PostAsJsonAsync("/agents", MakeCreateRequest("Summary Shape Agent"));
+        await _client.PostAsJsonAsync("/agents", MakeCreateRequest("summary-agent", "Summary Shape Agent"));
 
         var response = await _client.GetAsync("/agents");
         var json = await response.Content.ReadAsStringAsync();
@@ -109,6 +123,16 @@ public class AgentEndpointsTests : IClassFixture<TestWebApplicationFactory>
         json.Should().Contain("\"name\"");
         json.Should().Contain("\"createdAt\"");
         json.Should().Contain("\"updatedAt\"");
+    }
+
+    [Fact]
+    public async Task GET_agents_Includes_Definition_Declared_By_Host_Registration()
+    {
+        var response = await _client.GetAsync("/agents/test-agent");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var dto = await response.Content.ReadFromJsonAsync<StoredAgentDto>();
+        dto!.Id.Should().Be("test-agent");
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -206,8 +230,8 @@ public class AgentEndpointsTests : IClassFixture<TestWebApplicationFactory>
     // Helpers
     // ──────────────────────────────────────────────────────────────────────────
 
-    private static CreateAgentRequest MakeCreateRequest(string name) =>
-        new(name, new AgentConfig
+    private static CreateAgentRequest MakeCreateRequest(string agentId, string name) =>
+        new(agentId, name, new AgentConfig
         {
             Name = name,
             MaxAgenticIterations = 10,
@@ -216,7 +240,8 @@ public class AgentEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
     private async Task<StoredAgentDto> CreateAgentAsync(string name)
     {
-        var response = await _client.PostAsJsonAsync("/agents", MakeCreateRequest(name));
+        var agentId = $"agent-{Guid.NewGuid():N}";
+        var response = await _client.PostAsJsonAsync("/agents", MakeCreateRequest(agentId, name));
         response.EnsureSuccessStatusCode();
         var dto = await response.Content.ReadFromJsonAsync<StoredAgentDto>();
         return dto ?? throw new InvalidOperationException("CreateAgent returned null DTO");

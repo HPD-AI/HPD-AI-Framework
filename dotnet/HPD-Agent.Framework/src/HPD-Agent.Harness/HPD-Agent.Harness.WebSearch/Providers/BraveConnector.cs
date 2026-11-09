@@ -8,7 +8,7 @@ namespace HPD.Agent.ToolHarness.WebSearch;
 /// Brave web search connector (placeholder implementation)
 /// TODO: Implement full Brave API integration
 /// </summary>
-public class BraveConnector : IWebSearchConnector
+internal class BraveConnector : IWebSearchConnector
 {
     /// <inheritdoc />
     public string ProviderName => "brave";

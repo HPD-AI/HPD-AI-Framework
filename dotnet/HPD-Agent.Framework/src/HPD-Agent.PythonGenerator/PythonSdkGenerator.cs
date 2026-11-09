@@ -734,7 +734,6 @@ public sealed class PythonSdkGenerator
         {
             "agents",
             "audio",
-            "client-tools",
             "collapsing",
             "content",
             "evaluations",

@@ -12,7 +12,7 @@ namespace HPD.Agent;
 /// <para><b>Storage Layout:</b></para>
 /// <code>
 /// basePath/
-///   {scope}/
+///   scope-{sha256(scope)}/
 ///     {contentId}.{generation}.bin (immutable content generation)
 ///     {contentId}.meta             (atomically replaced current-generation pointer)
 ///     .hpd-store.lock              (cross-process scope mutation lock)
@@ -603,27 +603,16 @@ public class LocalFileContentStore : IContentStore, IContentStoreLifecycle
     private string GetScopePath(ContentScope scope)
     {
         ValidateScope(scope);
-        return Path.Combine(_basePath, scope.Value);
+        return Path.Combine(_basePath, StoragePathSegment.EncodeScope(scope.Value, nameof(scope)));
     }
 
-    private static void ValidateScope(ContentScope scope) => ValidateSegment(scope.Value, nameof(scope));
+    private static void ValidateScope(ContentScope scope) =>
+        StoragePathSegment.EncodeScope(scope.Value, nameof(scope));
 
     private static void ValidateAddress(ContentAddress address)
     {
         ValidateScope(address.Scope);
-        ValidateSegment(address.ContentId, nameof(address));
-    }
-
-    private static void ValidateSegment(string value, string parameterName)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
-        if (value is "." or ".." ||
-            value.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
-            value.Contains(Path.DirectorySeparatorChar) ||
-            value.Contains(Path.AltDirectorySeparatorChar))
-        {
-            throw new ArgumentException("Content scope and identifier values must be single, unmodified path segments.", parameterName);
-        }
+        StoragePathSegment.ValidateSegment(address.ContentId, nameof(address));
     }
 
     private static void EnsureAddressMatches(ContentAddress expected, ContentAddress actual)

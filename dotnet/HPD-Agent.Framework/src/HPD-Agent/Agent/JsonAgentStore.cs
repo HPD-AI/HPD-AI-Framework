@@ -16,6 +16,10 @@ namespace HPD.Agent;
 /// </remarks>
 public class JsonAgentStore : IAgentStore
 {
+    /// <inheritdoc />
+    public StorePersistenceCapability PersistenceCapability =>
+        StorePersistenceCapability.RestartDurable;
+
     private readonly string _basePath;
 
     public JsonAgentStore(string basePath)
@@ -26,7 +30,7 @@ public class JsonAgentStore : IAgentStore
 
     public async Task<StoredAgent?> LoadAsync(string agentId, CancellationToken ct = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        StoragePathSegment.ValidateSegment(agentId, nameof(agentId));
         var path = GetAgentFilePath(agentId);
         if (!File.Exists(path))
             return null;
@@ -68,7 +72,7 @@ public class JsonAgentStore : IAgentStore
     public async Task SaveAsync(StoredAgent agent, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(agent);
-        ArgumentException.ThrowIfNullOrWhiteSpace(agent.Id);
+        StoragePathSegment.ValidateSegment(agent.Id, nameof(agent));
 
         var dir = GetAgentDirectory(agent.Id);
         Directory.CreateDirectory(dir);
@@ -79,7 +83,7 @@ public class JsonAgentStore : IAgentStore
 
     public Task DeleteAsync(string agentId, CancellationToken ct = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        StoragePathSegment.ValidateSegment(agentId, nameof(agentId));
         var dir = GetAgentDirectory(agentId);
         if (Directory.Exists(dir))
             Directory.Delete(dir, recursive: true);

@@ -644,6 +644,92 @@ public class ThreadOperationTests : AgentTestBase
     }
 
     [Fact]
+    public async Task LoadSessionAndThread_SingleCustomThread_UsesActualThreadId()
+    {
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
+        var session = new HPD.Agent.Session("test-session");
+        await store.SaveSessionAsync(session);
+        await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "customer-support"));
+
+        var agent = await new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
+            .WithSessionStore(store)
+            .BuildAsync(CancellationToken.None);
+
+        var (loadedSession, thread) = await agent.LoadSessionAndThreadAsync("test-session");
+
+        Assert.Equal("test-session", loadedSession.Id);
+        Assert.Equal("customer-support", thread.Id);
+    }
+
+    [Fact]
+    public async Task LoadSessionAndThread_NoThreads_CreatesMainThread()
+    {
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
+        var session = new HPD.Agent.Session("test-session");
+        await store.SaveSessionAsync(session);
+
+        var agent = await new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
+            .WithSessionStore(store)
+            .BuildAsync(CancellationToken.None);
+
+        var (loadedSession, thread) = await agent.LoadSessionAndThreadAsync("test-session");
+
+        Assert.Equal("test-session", loadedSession.Id);
+        Assert.Equal("main", thread.Id);
+        Assert.NotNull(await store.GetThreadAsync(new ThreadKey("test-session", "main")));
+    }
+
+    [Fact]
+    public async Task RunAsync_NoThreadId_UsesSoleCustomThread()
+    {
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
+        var config = DefaultConfig();
+        config.SessionStore = store;
+        var client = new FakeChatClient();
+        client.EnqueueTextResponse("hello human");
+        var agent = CreateAgent(config, client);
+        var session = new HPD.Agent.Session("test-session");
+        await store.SaveSessionAsync(session);
+        await store.SaveInitialThreadAsync(
+            session.Id,
+            session.CreateThread("test-agent", "customer-support"));
+
+        await agent.RunAsync("who are you", "test-session", cancellationToken: TestCancellationToken);
+
+        var thread = await store.ProjectThreadAsync(
+            session.Id,
+            "customer-support",
+            ThreadProjectionPurpose.ThreadHistory,
+            TestCancellationToken);
+        Assert.NotNull(thread);
+        Assert.Equal(2, thread.Messages.Count);
+        Assert.Null(await store.GetThreadAsync(new ThreadKey(session.Id, "main")));
+    }
+
+    [Fact]
+    public async Task RunAsync_NoThreadId_CreatesMainThreadWhenSessionIsEmpty()
+    {
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
+        var config = DefaultConfig();
+        config.SessionStore = store;
+        var client = new FakeChatClient();
+        client.EnqueueTextResponse("hello human");
+        var agent = CreateAgent(config, client);
+        var session = new HPD.Agent.Session("test-session");
+        await store.SaveSessionAsync(session);
+
+        await agent.RunAsync("who are you", "test-session", cancellationToken: TestCancellationToken);
+
+        var thread = await store.ProjectThreadAsync(
+            session.Id,
+            "main",
+            ThreadProjectionPurpose.ThreadHistory,
+            TestCancellationToken);
+        Assert.NotNull(thread);
+        Assert.Equal(2, thread.Messages.Count);
+    }
+
+    [Fact]
     public async Task LoadSessionAndThread_MultipleThreads_NoThreadId_ThrowsAmbiguousThreadException()
     {
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);

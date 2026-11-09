@@ -60,86 +60,6 @@ public static class AgentBuilderWebSearchExtensions
     }
     
     /// <summary>
-    /// Configures Brave web search provider with fluent builder pattern
-    /// </summary>
-    /// <param name="builder">The agent builder</param>
-    /// <param name="configure">Configuration action for Brave settings</param>
-    /// <returns>The agent builder for chaining</returns>
-    public static AgentBuilder WithBraveWebSearch(this AgentBuilder builder,
-        Func<IBraveWebSearchBuilder, IBraveWebSearchBuilder> configure)
-    {
-        if (builder == null) throw new ArgumentNullException(nameof(builder));
-        if (configure == null) throw new ArgumentNullException(nameof(configure));
-        
-        var braveBuilder = new BraveWebSearchBuilder(builder.Configuration);
-        var configuredBuilder = configure(braveBuilder);
-        var connector = ((IWebSearchProviderBuilder<IBraveWebSearchBuilder>)configuredBuilder).Build();
-        
-        AddWebSearchConnector(builder, connector);
-        
-        // Auto-finalize to register the ToolHarness immediately
-        return FinalizeWebSearch(builder);
-    }
-
-    /// <summary>
-    /// Configures Brave web search provider with default settings
-    /// </summary>
-    /// <param name="builder">The agent builder</param>
-    /// <returns>The agent builder for chaining</returns>
-    public static AgentBuilder WithBraveWebSearch(this AgentBuilder builder)
-    {
-        if (builder == null) throw new ArgumentNullException(nameof(builder));
-        
-        var braveBuilder = new BraveWebSearchBuilder(builder.Configuration);
-        var connector = ((IWebSearchProviderBuilder<IBraveWebSearchBuilder>)braveBuilder).Build();
-        
-        AddWebSearchConnector(builder, connector);
-        
-        // Auto-finalize to register the ToolHarness immediately
-        return FinalizeWebSearch(builder);
-    }
-    
-    /// <summary>
-    /// Configures Bing web search provider with fluent builder pattern
-    /// </summary>
-    /// <param name="builder">The agent builder</param>
-    /// <param name="configure">Configuration action for Bing settings</param>
-    /// <returns>The agent builder for chaining</returns>
-    public static AgentBuilder WithBingWebSearch(this AgentBuilder builder,
-        Func<IBingWebSearchBuilder, IBingWebSearchBuilder> configure)
-    {
-        if (builder == null) throw new ArgumentNullException(nameof(builder));
-        if (configure == null) throw new ArgumentNullException(nameof(configure));
-        
-        var bingBuilder = new BingWebSearchBuilder(builder.Configuration);
-        var configuredBuilder = configure(bingBuilder);
-        var connector = ((IWebSearchProviderBuilder<IBingWebSearchBuilder>)configuredBuilder).Build();
-        
-        AddWebSearchConnector(builder, connector);
-        
-        // Auto-finalize to register the ToolHarness immediately
-        return FinalizeWebSearch(builder);
-    }
-
-    /// <summary>
-    /// Configures Bing web search provider with default settings
-    /// </summary>
-    /// <param name="builder">The agent builder</param>
-    /// <returns>The agent builder for chaining</returns>
-    public static AgentBuilder WithBingWebSearch(this AgentBuilder builder)
-    {
-        if (builder == null) throw new ArgumentNullException(nameof(builder));
-        
-        var bingBuilder = new BingWebSearchBuilder(builder.Configuration);
-        var connector = ((IWebSearchProviderBuilder<IBingWebSearchBuilder>)bingBuilder).Build();
-        
-        AddWebSearchConnector(builder, connector);
-        
-        // Auto-finalize to register the ToolHarness immediately
-        return FinalizeWebSearch(builder);
-    }
-    
-    /// <summary>
     /// Adds a web search connector to the agent's capabilities
     /// The WebSearchTools will be automatically created when all providers are configured
     /// </summary>
@@ -180,7 +100,7 @@ public static class AgentBuilderWebSearchExtensions
     /// Sets the default web search provider to use when no provider is specified
     /// </summary>
     /// <param name="builder">The agent builder</param>
-    /// <param name="providerName">Name of the provider to use as default (tavily, brave, bing)</param>
+    /// <param name="providerName">Name of a configured provider to use as default.</param>
     /// <returns>The agent builder for chaining</returns>
     public static AgentBuilder WithDefaultWebSearchProvider(this AgentBuilder builder, string providerName)
     {
@@ -263,7 +183,7 @@ public static class AgentBuilderWebSearchExtensions
 /// Placeholder implementations for other providers
 /// These will be implemented in future iterations
 /// </summary>
-public class BraveWebSearchBuilder : IBraveWebSearchBuilder
+internal class BraveWebSearchBuilder : IBraveWebSearchBuilder
 {
     private readonly BraveConfig _config = new();
     private readonly IConfiguration? _configuration;
@@ -365,7 +285,7 @@ public class BraveWebSearchBuilder : IBraveWebSearchBuilder
     }
 }
 
-public class BingWebSearchBuilder : IBingWebSearchBuilder
+internal class BingWebSearchBuilder : IBingWebSearchBuilder
 {
     private readonly BingConfig _config = new();
     private readonly IConfiguration? _configuration;

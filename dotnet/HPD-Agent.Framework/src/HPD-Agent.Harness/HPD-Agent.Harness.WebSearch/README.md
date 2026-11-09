@@ -1,6 +1,8 @@
 # HPD-Agent.ToolHarness.WebSearch
 
-Web search toolharness for HPD-Agent. Provides AI functions for searching the web using Tavily, Brave, and Bing search APIs.
+Web search toolharness for HPD-Agent. Provides AI functions for web, news,
+and answer search through the Tavily API. Custom providers can implement
+`IWebSearchConnector`.
 
 ## Install
 

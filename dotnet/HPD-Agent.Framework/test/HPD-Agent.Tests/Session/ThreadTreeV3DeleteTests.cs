@@ -95,7 +95,7 @@ public class ThreadTreeV3DeleteTests : AgentTestBase
     }
 
     [Fact]
-    public async Task DeleteMainThread_Throws()
+    public async Task DeleteMainThread_RemovesIt()
     {
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await CreateAgentWithStore(store);
@@ -105,9 +105,8 @@ public class ThreadTreeV3DeleteTests : AgentTestBase
         var main = session.CreateThread("test-agent", "main");
         await store.SaveInitialThreadAsync(session.Id, main);
 
-        var act = async () => await agent.DeleteThreadAsync(session.Id, "main");
+        await agent.DeleteThreadAsync(session.Id, "main");
 
-        await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*main*");
+        (await store.GetThreadAsync(new ThreadKey(session.Id, "main"))).Should().BeNull();
     }
 }

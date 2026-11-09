@@ -16,6 +16,8 @@ namespace HPD.Agent.AspNetCore.Serialization;
     WriteIndented = false)]
 // Endpoint error response collections
 [JsonSerializable(typeof(Dictionary<string, string[]>))]
+[JsonSerializable(typeof(Microsoft.AspNetCore.Mvc.ProblemDetails))]
+[JsonSerializable(typeof(Microsoft.AspNetCore.Http.HttpValidationProblemDetails))]
 [JsonSerializable(typeof(MiddlewareResponseConflictResponse))]
 // Microsoft.Extensions.AI payloads inside run/judge records
 [JsonSerializable(typeof(ChatMessage))]

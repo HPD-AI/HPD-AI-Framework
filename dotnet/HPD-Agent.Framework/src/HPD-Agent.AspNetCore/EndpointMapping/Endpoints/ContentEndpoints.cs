@@ -21,37 +21,51 @@ internal static class ContentEndpoints
         IAgentContentService content,
         string endpointName)
     {
-        // POST /sessions/{sid}/threads/{bid}/content - Upload content (multipart/form-data)
-        endpoints.MapPost("/sessions/{sid}/threads/{bid}/content", (string sid, string bid, HttpRequest request, CancellationToken ct) =>
-                UploadContent(RouteValue.Decode(sid), RouteValue.Decode(bid), request, content, ct))
+        // POST /sessions/{sessionId}/threads/{threadId}/content - Upload content (multipart/form-data)
+        endpoints.MapPost("/sessions/{sessionId}/threads/{threadId}/content", (
+                string sessionId,
+                string threadId,
+                HttpRequest request,
+                LinkGenerator links,
+                CancellationToken ct) =>
+                UploadContent(
+                    RouteValue.Decode(sessionId),
+                    RouteValue.Decode(threadId),
+                    request,
+                    content,
+                    links,
+                    endpointName,
+                    ct))
             .WithHostName(endpointName, "UploadContent")
             .WithSummary("Upload content (multipart/form-data)")
             .DisableAntiforgery(); // Allow multipart uploads
 
-        // GET /sessions/{sid}/threads/{bid}/content - List content for thread
-        endpoints.MapGet("/sessions/{sid}/threads/{bid}/content", (string sid, string bid, CancellationToken ct) =>
-                ListContent(RouteValue.Decode(sid), RouteValue.Decode(bid), content, ct))
+        // GET /sessions/{sessionId}/threads/{threadId}/content - List content for thread
+        endpoints.MapGet("/sessions/{sessionId}/threads/{threadId}/content", (string sessionId, string threadId, CancellationToken ct) =>
+                ListContent(RouteValue.Decode(sessionId), RouteValue.Decode(threadId), content, ct))
             .WithHostName(endpointName, "ListContent")
             .WithSummary("List all content in a thread");
 
-        // GET /sessions/{sid}/threads/{bid}/content/{contentId} - Download content (returns binary)
-        endpoints.MapGet("/sessions/{sid}/threads/{bid}/content/{contentId}", (string sid, string bid, string contentId, CancellationToken ct) =>
-                DownloadContent(RouteValue.Decode(sid), RouteValue.Decode(bid), RouteValue.Decode(contentId), content, ct))
+        // GET /sessions/{sessionId}/threads/{threadId}/content/{contentId} - Download content (returns binary)
+        endpoints.MapGet("/sessions/{sessionId}/threads/{threadId}/content/{contentId}", (string sessionId, string threadId, string contentId, CancellationToken ct) =>
+                DownloadContent(RouteValue.Decode(sessionId), RouteValue.Decode(threadId), RouteValue.Decode(contentId), content, ct))
             .WithHostName(endpointName, "DownloadContent")
             .WithSummary("Download content (returns binary content)");
 
-        // DELETE /sessions/{sid}/threads/{bid}/content/{contentId} - Delete content
-        endpoints.MapDelete("/sessions/{sid}/threads/{bid}/content/{contentId}", (string sid, string bid, string contentId, CancellationToken ct) =>
-                DeleteContent(RouteValue.Decode(sid), RouteValue.Decode(bid), RouteValue.Decode(contentId), content, ct))
+        // DELETE /sessions/{sessionId}/threads/{threadId}/content/{contentId} - Delete content
+        endpoints.MapDelete("/sessions/{sessionId}/threads/{threadId}/content/{contentId}", (string sessionId, string threadId, string contentId, CancellationToken ct) =>
+                DeleteContent(RouteValue.Decode(sessionId), RouteValue.Decode(threadId), RouteValue.Decode(contentId), content, ct))
             .WithHostName(endpointName, "DeleteContent")
             .WithSummary("Delete content");
     }
 
     private static async Task<Results<Created<ContentDto>, NotFound, ValidationProblem>> UploadContent(
-        string sid,
-        string bid,
+        string sessionId,
+        string threadId,
         HttpRequest request,
         IAgentContentService content,
+        LinkGenerator links,
+        string endpointName,
         CancellationToken ct = default)
     {
         try
@@ -76,11 +90,16 @@ internal static class ContentEndpoints
             }
 
             await using var stream = file.OpenReadStream();
-            var result = await content.UploadContentAsync(sid, bid, stream, file.FileName, file.ContentType, ct);
+            var result = await content.UploadContentAsync(sessionId, threadId, stream, file.FileName, file.ContentType, ct);
             return result.Status switch
             {
                 AgentServiceStatus.Success => TypedResults.Created(
-                    $"/sessions/{sid}/threads/{bid}/content/{result.Value!.ContentId}",
+                    CreatedLocation.Resolve(
+                        links,
+                        $"{endpointName}.DownloadContent",
+                        ("sessionId", sessionId),
+                        ("threadId", threadId),
+                        ("contentId", result.Value!.ContentId)),
                     result.Value),
                 AgentServiceStatus.NotFound => TypedResults.NotFound(),
                 _ => TypedResults.ValidationProblem(ToValidation(result))
@@ -96,14 +115,14 @@ internal static class ContentEndpoints
     }
 
     private static async Task<Results<Ok<List<ContentDto>>, NotFound, ValidationProblem>> ListContent(
-        string sid,
-        string bid,
+        string sessionId,
+        string threadId,
         IAgentContentService content,
         CancellationToken ct = default)
     {
         try
         {
-            var result = await content.ListContentAsync(sid, bid, ct);
+            var result = await content.ListContentAsync(sessionId, threadId, ct);
             return result.Status == AgentServiceStatus.NotFound
                 ? TypedResults.NotFound()
                 : TypedResults.Ok(result.Value!.ToList());
@@ -118,15 +137,15 @@ internal static class ContentEndpoints
     }
 
     private static async Task<Results<FileContentHttpResult, NotFound, ValidationProblem>> DownloadContent(
-        string sid,
-        string bid,
+        string sessionId,
+        string threadId,
         string contentId,
         IAgentContentService content,
         CancellationToken ct = default)
     {
         try
         {
-            var result = await content.DownloadContentAsync(sid, bid, contentId, ct);
+            var result = await content.DownloadContentAsync(sessionId, threadId, contentId, ct);
             if (result.Status == AgentServiceStatus.NotFound)
                 return TypedResults.NotFound();
 
@@ -142,15 +161,15 @@ internal static class ContentEndpoints
     }
 
     private static async Task<Results<NoContent, NotFound, ValidationProblem>> DeleteContent(
-        string sid,
-        string bid,
+        string sessionId,
+        string threadId,
         string contentId,
         IAgentContentService content,
         CancellationToken ct = default)
     {
         try
         {
-            var result = await content.DeleteContentAsync(sid, bid, contentId, ct);
+            var result = await content.DeleteContentAsync(sessionId, threadId, contentId, ct);
             return result.Status == AgentServiceStatus.NotFound
                 ? TypedResults.NotFound()
                 : TypedResults.NoContent();

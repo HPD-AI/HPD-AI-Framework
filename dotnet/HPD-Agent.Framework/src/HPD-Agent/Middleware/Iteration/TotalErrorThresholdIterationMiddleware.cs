@@ -45,20 +45,20 @@ namespace HPD.Agent;
 /// <example>
 /// <code>
 /// // Register via AgentBuilder
-/// var agent = new AgentBuilder()
+/// await using var agent = await new AgentBuilder()
 ///     .WithErrorTracking(maxConsecutiveErrors: 3)        // Consecutive same errors
 ///     .WithCircuitBreaker(maxConsecutiveCalls: 3)        // Identical tool calls
 ///     .WithTotalErrorThreshold(maxTotalErrors: 10)       // Any/all errors combined
-///     .Build();
+///     .BuildAsync();
 ///
 /// // Or with custom configuration
-/// var agent = new AgentBuilder()
+/// await using var customAgent = await new AgentBuilder()
 ///     .WithTotalErrorThreshold(config =>
 ///     {
 ///         config.MaxTotalErrors = 15;
 ///         config.TerminationMessageTemplate = "Encountered {count} errors total. Stopping.";
 ///     })
-///     .Build();
+///     .BuildAsync();
 /// </code>
 /// </example>
 public class TotalErrorThresholdMiddleware : IAgentMiddleware
@@ -258,5 +258,6 @@ public record TotalErrorThresholdExceededEvent(
     public string ErrorMessage => $"Total error threshold ({TotalErrorCount}/{MaxTotalErrors}) exceeded";
 
     /// <inheritdoc />
+    [System.Text.Json.Serialization.JsonIgnore]
     public Exception? Exception => null;
 }

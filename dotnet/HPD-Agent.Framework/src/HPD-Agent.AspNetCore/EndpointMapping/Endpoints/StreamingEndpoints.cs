@@ -29,40 +29,40 @@ internal static class StreamingEndpoints
         AgentInputCodec inputCodec,
         string endpointName)
     {
-        // POST /agents/{agentId}/sessions/{sid}/threads/{bid}/inputs - Submit runtime-owned input
-        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/inputs",
-                async (string agentId, string sid, string bid, JsonElement request, CancellationToken ct) =>
-                    await SubmitInput(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), request, streaming, inputCodec, ct))
+        // POST /agents/{agentId}/sessions/{sessionId}/threads/{threadId}/inputs - Submit runtime-owned input
+        endpoints.MapPost("/agents/{agentId}/sessions/{sessionId}/threads/{threadId}/inputs",
+                async (string agentId, string sessionId, string threadId, JsonElement request, CancellationToken ct) =>
+                    await SubmitInput(RouteValue.Decode(agentId), RouteValue.Decode(sessionId), RouteValue.Decode(threadId), request, streaming, inputCodec, ct))
             .WithHostName(endpointName, "SubmitAgentInput")
             .WithSummary("Submit an agent input event to the runtime");
 
-        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/subagents/{localId}/inputs",
-                async (string agentId, string sid, string bid, string localId, string childAgentId,
+        endpoints.MapPost("/agents/{agentId}/sessions/{sessionId}/threads/{threadId}/subagents/{localId}/inputs",
+                async (string agentId, string sessionId, string threadId, string localId, string childAgentId,
                     string childSessionId, string childThreadId, JsonElement request, CancellationToken ct) =>
                     await SubmitSubAgentInput(
-                        RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid),
+                        RouteValue.Decode(agentId), RouteValue.Decode(sessionId), RouteValue.Decode(threadId),
                         RouteValue.Decode(localId), RouteValue.Decode(childAgentId),
                         RouteValue.Decode(childSessionId), RouteValue.Decode(childThreadId),
                         request, streaming, inputCodec, ct))
             .WithHostName(endpointName, "SubmitControlledSubAgentInput")
             .WithSummary("Submit input to a child through its durable controller registry entry");
 
-        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/context-usage",
-                async (string agentId, string sid, string bid, JsonElement? request, CancellationToken ct) =>
-                    await EstimateContextUsage(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), request, streaming, ct))
+        endpoints.MapPost("/agents/{agentId}/sessions/{sessionId}/threads/{threadId}/context-usage",
+                async (string agentId, string sessionId, string threadId, JsonElement? request, CancellationToken ct) =>
+                    await EstimateContextUsage(RouteValue.Decode(agentId), RouteValue.Decode(sessionId), RouteValue.Decode(threadId), request, streaming, ct))
             .WithHostName(endpointName, "EstimateAgentThreadContextUsage")
             .WithSummary("Estimate model context usage for the current thread");
 
-        endpoints.MapGet("/agents/{agentId}/sessions/{sid}/threads/{bid}/state",
-                async (string agentId, string sid, string bid, CancellationToken ct) =>
-                    ToValueHttpResult(await streaming.GetThreadStateAsync(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), ct)))
+        endpoints.MapGet("/agents/{agentId}/sessions/{sessionId}/threads/{threadId}/state",
+                async (string agentId, string sessionId, string threadId, CancellationToken ct) =>
+                    ToValueHttpResult(await streaming.GetThreadStateAsync(RouteValue.Decode(agentId), RouteValue.Decode(sessionId), RouteValue.Decode(threadId), ct)))
             .WithHostName(endpointName, "GetAgentThreadRuntimeState")
             .WithSummary("Get one authoritative thread history and active-run snapshot");
 
         // One stream performs finite catch-up and remains attached for future commits.
-        endpoints.MapGet("/agents/{agentId}/sessions/{sid}/threads/{bid}/events",
-                async (string agentId, string sid, string bid, HttpContext context, CancellationToken ct) =>
-                    await ObserveEventsWithSse(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), context, streaming, ct))
+        endpoints.MapGet("/agents/{agentId}/sessions/{sessionId}/threads/{threadId}/events",
+                async (string agentId, string sessionId, string threadId, HttpContext context, CancellationToken ct) =>
+                    await ObserveEventsWithSse(RouteValue.Decode(agentId), RouteValue.Decode(sessionId), RouteValue.Decode(threadId), context, streaming, ct))
             .WithHostName(endpointName, "ObserveLiveEventsWithSse")
             .WithSummary("Replay durable thread events and observe all live runtime events using SSE");
 
@@ -70,8 +70,8 @@ internal static class StreamingEndpoints
 
     private static async Task<IResult> SubmitInput(
         string agentId,
-        string sid,
-        string bid,
+        string sessionId,
+        string threadId,
         JsonElement request,
         IAgentStreamingService streaming,
         AgentInputCodec inputCodec,
@@ -81,7 +81,7 @@ internal static class StreamingEndpoints
         if (input == null)
             return TypedResults.BadRequest();
 
-        var result = await streaming.SubmitInputAsync(agentId, sid, bid, input, ct);
+        var result = await streaming.SubmitInputAsync(agentId, sessionId, threadId, input, ct);
         return ToSubmissionHttpResult(result);
     }
 
@@ -116,21 +116,21 @@ internal static class StreamingEndpoints
 
     private static async Task<IResult> EstimateContextUsage(
         string agentId,
-        string sid,
-        string bid,
+        string sessionId,
+        string threadId,
         JsonElement? request,
         IAgentStreamingService streaming,
         CancellationToken ct = default)
     {
         var body = ParseContextUsageRequest(request);
-        var result = await streaming.EstimateContextUsageAsync(agentId, sid, bid, body.RunConfig, ct);
+        var result = await streaming.EstimateContextUsageAsync(agentId, sessionId, threadId, body.RunConfig, ct);
         return ToValueHttpResult(result);
     }
 
     private static async Task<IResult> ObserveEventsWithSse(
         string agentId,
-        string sid,
-        string bid,
+        string sessionId,
+        string threadId,
         HttpContext context,
         IAgentStreamingService streaming,
         CancellationToken ct = default)
@@ -138,7 +138,7 @@ internal static class StreamingEndpoints
         if (!TryParseHierarchy(context.Request.Query["hierarchy"].ToString(), out var hierarchy))
             return TypedResults.BadRequest();
 
-        var leaseResult = await streaming.ObserveThreadEventsAsync(agentId, new ThreadKey(sid, bid), hierarchy, ct);
+        var leaseResult = await streaming.ObserveThreadEventsAsync(agentId, new ThreadKey(sessionId, threadId), hierarchy, ct);
         if (leaseResult.Status == AgentServiceStatus.NotFound)
             return TypedResults.NotFound();
 

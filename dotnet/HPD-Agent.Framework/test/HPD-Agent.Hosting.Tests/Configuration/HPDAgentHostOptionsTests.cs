@@ -47,18 +47,17 @@ public class HPDAgentHostOptionsTests
     }
 
     [Fact]
-    public void ConfigureAgent_CalledAfter_AgentConfigApplied()
+    public void ConfigureEachAgentBuilder_CanBeAssignedAndInvoked()
     {
-        // This test verifies the contract - actual behavior tested in implementation tests
         // Arrange
         var callbackCalled = false;
         var options = new HPDAgentHostOptions
         {
-            ConfigureAgent = builder => { callbackCalled = true; }
+            ConfigureEachAgentBuilder = builder => { callbackCalled = true; }
         };
 
         // Act
-        options.ConfigureAgent?.Invoke(new AgentBuilder());
+        options.ConfigureEachAgentBuilder?.Invoke(new AgentBuilder());
 
         // Assert
         callbackCalled.Should().BeTrue();
@@ -72,6 +71,14 @@ public class HPDAgentHostOptionsTests
 
         // Assert
         options.AgentIdleTimeout.Should().Be(TimeSpan.FromMinutes(30));
+    }
+
+    [Fact]
+    public void PersistAfterTurn_DefaultsToTrue()
+    {
+        var options = new HPDAgentHostOptions();
+
+        options.PersistAfterTurn.Should().BeTrue();
     }
 
     [Fact]
@@ -97,7 +104,7 @@ public class HPDAgentHostOptionsTests
             SessionStorePath = null,
             DefaultAgent = null,
             DefaultAgentPath = null,
-            ConfigureAgent = null
+            ConfigureEachAgentBuilder = null
         };
 
         // Assert - Should not throw
@@ -105,6 +112,6 @@ public class HPDAgentHostOptionsTests
         options.SessionStorePath.Should().BeNull();
         options.DefaultAgent.Should().BeNull();
         options.DefaultAgentPath.Should().BeNull();
-        options.ConfigureAgent.Should().BeNull();
+        options.ConfigureEachAgentBuilder.Should().BeNull();
     }
 }

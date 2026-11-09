@@ -61,7 +61,12 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
                 await DescribeTypedResponseAsync<ThreadRuntimeStateDto>(
                         operation, context, "200", "Authoritative thread state snapshot.", cancellationToken)
                     .ConfigureAwait(false);
-                await AddCommonErrorsAsync(operation, context, includeNotFound: true, includeConflict: false, cancellationToken: cancellationToken)
+                await AddCommonErrorsAsync(operation, context, includeNotFound: true, includeConflict: true, cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+            case "GetAgentStorageInfo":
+                await DescribeTypedResponseAsync<HPDAgentStorageInfo>(
+                        operation, context, "200", "Hosting storage configuration and durability capabilities.", cancellationToken)
                     .ConfigureAwait(false);
                 break;
             case "RespondToAgentRequest":
@@ -72,14 +77,14 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
                 await DescribeTypedResponseAsync<ThreadExecutionCancellationDto>(
                         operation, context, "200", "Cancellation decision and queue state.", cancellationToken)
                     .ConfigureAwait(false);
-                await AddCommonErrorsAsync(operation, context, includeNotFound: true, includeConflict: false, cancellationToken: cancellationToken)
+                await AddCommonErrorsAsync(operation, context, includeNotFound: true, includeConflict: true, cancellationToken: cancellationToken)
                     .ConfigureAwait(false);
                 break;
             case "StartQueuedThreadWork":
                 await DescribeTypedResponseAsync<ThreadExecutionDto>(
                         operation, context, "200", "Promoted or remaining queued execution.", cancellationToken)
                     .ConfigureAwait(false);
-                await AddCommonErrorsAsync(operation, context, includeNotFound: true, includeConflict: false, cancellationToken: cancellationToken)
+                await AddCommonErrorsAsync(operation, context, includeNotFound: true, includeConflict: true, cancellationToken: cancellationToken)
                     .ConfigureAwait(false);
                 break;
             case "UploadContent":
@@ -215,7 +220,13 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
         await DescribeTypedResponseAsync<InputSubmissionDto>(
                 operation, context, "202", "Input accepted for runtime-owned execution.", cancellationToken)
             .ConfigureAwait(false);
-        await AddCommonErrorsAsync(operation, context, includeNotFound: true, includeConflict: true, cancellationToken: cancellationToken)
+        await AddCommonErrorsAsync(
+                operation,
+                context,
+                includeNotFound: true,
+                includeConflict: true,
+                cancellationToken: cancellationToken,
+                includeBadRequest: true)
             .ConfigureAwait(false);
 
         if (controlledSubAgent)
@@ -274,7 +285,13 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
         await DescribeTypedResponseAsync<ThreadContextUsage>(
                 operation, context, "200", "Estimated context usage.", cancellationToken)
             .ConfigureAwait(false);
-        await AddCommonErrorsAsync(operation, context, includeNotFound: true, includeConflict: true, cancellationToken: cancellationToken)
+        await AddCommonErrorsAsync(
+                operation,
+                context,
+                includeNotFound: true,
+                includeConflict: true,
+                cancellationToken: cancellationToken,
+                includeBadRequest: true)
             .ConfigureAwait(false);
     }
 

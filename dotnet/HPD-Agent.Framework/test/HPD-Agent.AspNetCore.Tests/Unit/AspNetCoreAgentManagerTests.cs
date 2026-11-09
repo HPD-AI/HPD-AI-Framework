@@ -57,13 +57,14 @@ public class AspNetCoreAgentManagerTests : IDisposable
     public async Task BuildAgentAsync_UsesDefaultAgent_WhenProvided()
     {
         _optionsMonitor.CurrentValue.DefaultAgent = MakeConfig("Default Agent");
-        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
+        _optionsMonitor.CurrentValue.ConfigureEachAgentBuilder = InjectTestProvider;
 
         var manager = MakeManager();
-        var stored = await SeedDefault(manager);
+        await manager.EnsureConfiguredDefinitionAsync("configured", CancellationToken.None);
+        var stored = (await _agentStore.LoadAsync("configured"))!;
 
         var agent = await manager.GetOrBuildAgentAsync(stored.Id);
-        agent.Should().NotBeNull();
+        agent.Config!.Name.Should().Be("Default Agent");
     }
 
     [Fact]
@@ -71,17 +72,20 @@ public class AspNetCoreAgentManagerTests : IDisposable
     {
         var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.json");
         var config = MakeConfig("FileConfig Agent");
-        await File.WriteAllTextAsync(tempPath, System.Text.Json.JsonSerializer.Serialize(config));
+        await File.WriteAllTextAsync(
+            tempPath,
+            HPD.Agent.Serialization.HpdAgentConfigSerializer.Serialize(config));
 
         _optionsMonitor.CurrentValue.DefaultAgentPath = tempPath;
-        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
+        _optionsMonitor.CurrentValue.ConfigureEachAgentBuilder = InjectTestProvider;
 
         try
         {
             var manager = MakeManager();
-            var stored = await SeedDefault(manager);
+            await manager.EnsureConfiguredDefinitionAsync("file-config", CancellationToken.None);
+            var stored = (await _agentStore.LoadAsync("file-config"))!;
             var agent = await manager.GetOrBuildAgentAsync(stored.Id);
-            agent.Should().NotBeNull();
+            agent.Config!.Name.Should().Be("FileConfig Agent");
         }
         finally
         {
@@ -95,11 +99,11 @@ public class AspNetCoreAgentManagerTests : IDisposable
         _optionsMonitor.CurrentValue.DefaultAgentDocument = """
             { "name": "Configured Agent", "systemInstructions": "Configured at runtime." }
             """;
-        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
+        _optionsMonitor.CurrentValue.ConfigureEachAgentBuilder = InjectTestProvider;
 
         var manager = MakeManager();
-        var stored = new StoredAgent { Id = Guid.NewGuid().ToString(), Name = "Deferred", Config = null! };
-        await _agentStore.SaveAsync(stored);
+        await manager.EnsureConfiguredDefinitionAsync("deferred", CancellationToken.None);
+        var stored = (await _agentStore.LoadAsync("deferred"))!;
 
         var agent = await manager.GetOrBuildAgentAsync(stored.Id);
 
@@ -108,40 +112,39 @@ public class AspNetCoreAgentManagerTests : IDisposable
     }
 
     [Fact]
-    public async Task BuildAgentAsync_FallsBackToEmptyBuilder_WhenNoConfig()
+    public async Task BuildAgentAsync_Builds_ExplicitEmptyDefinition()
     {
-        // No DefaultAgent, no path, no factory — falls back to empty AgentBuilder
-        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
+        _optionsMonitor.CurrentValue.ConfigureEachAgentBuilder = InjectTestProvider;
 
         var manager = MakeManager();
-        var stored = await SeedDefault(manager);
+        var stored = await manager.CreateDefinitionAsync(new AgentConfig(), "Empty", agentId: "empty");
 
         var agent = await manager.GetOrBuildAgentAsync(stored.Id);
         agent.Should().NotBeNull();
     }
 
     [Fact]
-    public async Task BuildAgentAsync_CallsConfigureAgent_AfterConfig()
+    public async Task BuildAgentAsync_ConfigureEachAgentBuilderRunsAfterDefinitionAndCanOverride()
     {
-        var called = false;
         _optionsMonitor.CurrentValue.DefaultAgent = MakeConfig("X");
-        _optionsMonitor.CurrentValue.ConfigureAgent = builder =>
+        _optionsMonitor.CurrentValue.ConfigureEachAgentBuilder = builder =>
         {
-            called = true;
+            builder.WithInstructions("Overridden by host");
             InjectTestProvider(builder);
         };
 
         var manager = MakeManager();
-        var stored = await SeedDefault(manager);
-        await manager.GetOrBuildAgentAsync(stored.Id);
+        await manager.EnsureConfiguredDefinitionAsync("customized", CancellationToken.None);
+        var agent = await manager.GetOrBuildAgentAsync("customized");
 
-        called.Should().BeTrue();
+        agent.Config!.Name.Should().Be("X");
+        agent.Config.SystemInstructions.Should().Be("Overridden by host");
     }
 
     [Fact]
     public async Task GetOrBuildAgentAsync_CachesInstance_ByAgentId()
     {
-        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
+        _optionsMonitor.CurrentValue.ConfigureEachAgentBuilder = InjectTestProvider;
         var manager = MakeManager();
         var stored = await SeedDefault(manager);
 
@@ -152,35 +155,35 @@ public class AspNetCoreAgentManagerTests : IDisposable
     }
 
     [Fact]
-    public async Task GetOrBuildAgentAsync_Builds_WhenDefinitionMissing()
+    public async Task GetOrBuildAgentAsync_Throws_WhenDefinitionMissing()
     {
-        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
+        _optionsMonitor.CurrentValue.ConfigureEachAgentBuilder = InjectTestProvider;
         var manager = MakeManager();
 
-        var agent = await manager.GetOrBuildAgentAsync("no-such-agent");
+        var action = () => manager.GetOrBuildAgentAsync("no-such-agent");
 
-        agent.Should().NotBeNull();
-        agent.AgentId.Should().Be("no-such-agent");
+        await action.Should().ThrowAsync<KeyNotFoundException>();
+        (await _agentStore.LoadAsync("no-such-agent")).Should().BeNull();
     }
 
     [Fact]
-    public async Task GetOrBuildAgentAsync_DoesNotPersistMissingDefinition_WhenPersistAgentDefinitionsOnBuildFalse()
+    public async Task DeletedDeclaredDefinition_IsNotRecreatedByRuntimeResolution()
     {
-        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
-        _optionsMonitor.CurrentValue.PersistAgentDefinitionsOnBuild = false;
+        _optionsMonitor.CurrentValue.ConfigureEachAgentBuilder = InjectTestProvider;
         var manager = MakeManager();
+        await manager.EnsureConfiguredDefinitionAsync("declared", CancellationToken.None);
+        await manager.DeleteDefinitionAsync("declared");
 
-        var agent = await manager.GetOrBuildAgentAsync("runtime-only");
+        var action = () => manager.GetOrBuildAgentAsync("declared");
 
-        agent.Should().NotBeNull();
-        agent.AgentId.Should().Be("runtime-only");
-        (await _agentStore.LoadAsync("runtime-only")).Should().BeNull();
+        await action.Should().ThrowAsync<KeyNotFoundException>();
+        (await _agentStore.LoadAsync("declared")).Should().BeNull();
     }
 
     [Fact]
     public async Task BuildAgentAsync_UsesStoredToolHarnessConfig()
     {
-        _optionsMonitor.CurrentValue.ConfigureAgent = builder =>
+        _optionsMonitor.CurrentValue.ConfigureEachAgentBuilder = builder =>
         {
             builder.WithToolHarnessCatalogFrom<CodingToolHarness>()
                 .WithPermissions(HPD.Agent.Permissions.AuthorizationMode.Bypass);
@@ -214,7 +217,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
     [Fact]
     public async Task BuildAgentAsync_UsesStoredToolHarnessConfig_WithRuntimeProvider()
     {
-        _optionsMonitor.CurrentValue.ConfigureAgent = builder =>
+        _optionsMonitor.CurrentValue.ConfigureEachAgentBuilder = builder =>
             builder.WithToolHarnessCatalogFrom<CodingToolHarness>()
                 .WithPermissions(HPD.Agent.Permissions.AuthorizationMode.Bypass);
         var manager = MakeManager();
@@ -244,7 +247,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
     [Fact]
     public async Task BuildAgentAsync_RuntimeProvider_UsesExplicitSummarizerProvider()
     {
-        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProviderRegistry;
+        _optionsMonitor.CurrentValue.ConfigureEachAgentBuilder = InjectTestProviderRegistry;
         var manager = MakeManager();
         var stored = await manager.CreateDefinitionAsync(new AgentConfig
         {

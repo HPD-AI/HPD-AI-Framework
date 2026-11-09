@@ -21,12 +21,10 @@ var agentId = builder.Configuration["Agent:Id"] ?? "dev-agent";
 builder.Services.AddHPD();
 builder.Services.AddHPDAgentHost(cfg =>
 {
-    cfg.ConfigureAgent = ab => ab
+    cfg.ConfigureEachAgentBuilder = ab => ab
         .WithAnthropic(
             model: builder.Configuration["Agent:Model"] ?? "claude-sonnet-4-5-20250929",
             apiKey: builder.Configuration["Anthropic:ApiKey"]);
-
-    cfg.PersistAfterTurn = true;
 });
 
 builder.Services.AddHttpClient();

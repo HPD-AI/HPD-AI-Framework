@@ -1,4 +1,5 @@
 using FluentAssertions;
+using HPD.Agent.AspNetCore.Lifecycle;
 using HPD.Agent.AspNetCore;
 using HPD.Agent;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
@@ -145,26 +146,29 @@ public class HPDAgentRegistryTests
     }
 
     [Fact]
-    public async Task AddHPDAgentHost_PersistsDefaultStoredAgent_OnFirstBuild()
+    public async Task HostDefinitionBootstrap_CreatesDeclaredAgent_WithoutChangingItDuringBuild()
     {
         var agentStore = new InMemoryAgentStore();
         var sp = BuildProvider(opts =>
         {
             opts.AgentStore = agentStore;
-            opts.ConfigureAgent = InjectTestProvider;
+            opts.ConfigureEachAgentBuilder = InjectTestProvider;
         });
 
-        var manager = sp.GetRequiredService<AgentManager>();
+        var manager = (AspNetCoreAgentManager)sp.GetRequiredService<AgentManager>();
 
+        await manager.EnsureConfiguredDefinitionAsync("default", CancellationToken.None);
+        var beforeBuild = await agentStore.LoadAsync("default");
         await manager.GetOrBuildAgentAsync("default");
 
-        var def = await agentStore.LoadAsync("default");
-        def.Should().NotBeNull("first build should persist the synthesized default definition");
-        def!.Id.Should().Be("default");
+        var afterBuild = await agentStore.LoadAsync("default");
+        beforeBuild.Should().NotBeNull();
+        afterBuild.Should().NotBeNull();
+        afterBuild!.UpdatedAt.Should().Be(beforeBuild!.UpdatedAt);
     }
 
     [Fact]
-    public async Task AddHPDAgentHost_DoesNotOverwrite_ExistingDefaultAgent_OnFirstBuild()
+    public async Task HostDefinitionBootstrap_DoesNotOverwrite_ExistingDefinition()
     {
         var agentStore = new InMemoryAgentStore();
         var existing = new StoredAgent
@@ -180,11 +184,11 @@ public class HPDAgentRegistryTests
         var sp = BuildProvider(opts =>
         {
             opts.AgentStore = agentStore;
-            opts.ConfigureAgent = InjectTestProvider;
+            opts.ConfigureEachAgentBuilder = InjectTestProvider;
         });
 
-        var manager = sp.GetRequiredService<AgentManager>();
-        await manager.GetOrBuildAgentAsync("default");
+        var manager = (AspNetCoreAgentManager)sp.GetRequiredService<AgentManager>();
+        await manager.EnsureConfiguredDefinitionAsync("default", CancellationToken.None);
 
         var loaded = await agentStore.LoadAsync("default");
         loaded!.Name.Should().Be("Pre-existing");

@@ -12,8 +12,6 @@ namespace HPD.Agent.Middleware.Image;
 /// Current strategies:
 /// <list type="bullet">
 /// <item><b>PassThrough</b>: Send images directly to vision-capable models (default)</item>
-/// <item><b>OCR (future)</b>: Extract text, replace with TextContent</item>
-/// <item><b>Description (future)</b>: Use vision API to describe, add as TextContent</item>
 /// </list>
 /// </para>
 /// <para>

@@ -122,9 +122,8 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
 
         var store = _agent.Config?.AgentStore
             ?? throw new InvalidOperationException("No agent store configured.");
-        var id = string.IsNullOrWhiteSpace(request.Config.AgentId)
-            ? Guid.NewGuid().ToString("N")
-            : request.Config.AgentId;
+        var id = request.AgentId;
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
         if (await store.LoadAsync(id, cancellationToken).ConfigureAwait(false) is not null)
         {
             throw new InvalidOperationException($"Agent '{id}' already exists.");

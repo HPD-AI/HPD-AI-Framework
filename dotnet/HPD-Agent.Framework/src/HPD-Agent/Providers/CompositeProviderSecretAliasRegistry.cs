@@ -9,7 +9,7 @@ namespace HPD.Agent.Providers;
 /// explicitly-registered providers (see <see cref="IProviderSecretAliasProvider"/>).
 /// Earlier sources win so the canonical generated aliases take precedence.
 /// </summary>
-public sealed class CompositeProviderSecretAliasRegistry : IProviderSecretAliasRegistry
+internal sealed class CompositeProviderSecretAliasRegistry : IProviderSecretAliasRegistry
 {
     private readonly IReadOnlyList<IProviderSecretAliasRegistry> _sources;
 

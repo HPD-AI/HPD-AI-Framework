@@ -19,10 +19,10 @@ namespace HPD.Agent;
 /// <code>
 /// var vizObserver = new MermaidVisualizationObserver();
 ///
-/// var agent = new AgentBuilder()
-///     .WithModel(model)
+/// await using var agent = await new AgentBuilder()
+///     .WithChatClient(model)
 ///     .WithEventSubscription(coordinator => coordinator.Subscribe&lt;AgentEvent&gt;(vizObserver.HandleAsync))
-///     .Build();
+///     .BuildAsync();
 ///
 /// await agent.RunAsync("Analyze the request.");
 ///

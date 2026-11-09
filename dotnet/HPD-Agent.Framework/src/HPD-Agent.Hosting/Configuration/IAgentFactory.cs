@@ -19,7 +19,8 @@ namespace HPD.Agent.Hosting.Configuration;
 /// 4. Deferred configuration document
 /// 5. DefaultAgentPath file (serializable — loaded from disk)
 /// 6. Empty builder (fallback)
-/// ConfigureAgent enriches whichever builder the selected source creates.
+/// When no custom <see cref="IAgentFactory"/> is registered,
+/// <see cref="HPDAgentHostOptions.ConfigureEachAgentBuilder"/> configures each host-created builder.
 /// </remarks>
 public interface IAgentFactory
 {

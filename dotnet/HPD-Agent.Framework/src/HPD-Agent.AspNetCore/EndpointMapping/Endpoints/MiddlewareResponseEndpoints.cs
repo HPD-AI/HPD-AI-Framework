@@ -24,16 +24,16 @@ internal static class MiddlewareResponseEndpoints
         AgentEventCodec codec,
         string endpointName)
     {
-        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/responses", (string agentId, string sid, string bid, HttpRequest request, CancellationToken ct) =>
-                Respond(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), request, responses, codec, ct))
+        endpoints.MapPost("/agents/{agentId}/sessions/{sessionId}/threads/{threadId}/responses", (string agentId, string sessionId, string threadId, HttpRequest request, CancellationToken ct) =>
+                Respond(RouteValue.Decode(agentId), RouteValue.Decode(sessionId), RouteValue.Decode(threadId), request, responses, codec, ct))
             .WithHostName(endpointName, "RespondToAgentRequest")
             .WithSummary("Respond to a request from the agent");
     }
 
     private static async Task<IResult> Respond(
         string agentId,
-        string sid,
-        string bid,
+        string sessionId,
+        string threadId,
         HttpRequest request,
         IAgentMiddlewareResponseService responses,
         AgentEventCodec codec,
@@ -72,7 +72,7 @@ internal static class MiddlewareResponseEndpoints
                 });
             }
 
-            return ToHttpResult(await responses.AnswerRequestAsync(agentId, sid, bid, response, ct));
+            return ToHttpResult(await responses.AnswerRequestAsync(agentId, sessionId, threadId, response, ct));
         }
         catch (Exception ex)
         {

@@ -25,7 +25,7 @@ public class HPDAgentHostOptions
     /// The hosting layer owns the store, not the AgentBuilder. The store is created at startup
     /// so that session/thread endpoints work before any agent is built. When a stream request
     /// arrives, the same store is passed into the AgentBuilder automatically — do not also
-    /// call WithSessionStore() inside <see cref="ConfigureAgent"/>.
+    /// call WithSessionStore() inside <see cref="ConfigureEachAgentBuilder"/>.
     /// </remarks>
     /// <summary>
     /// Path to a directory where sessions are persisted as JSON files.
@@ -44,20 +44,23 @@ public class HPDAgentHostOptions
     /// <remarks>
     /// The hosting layer owns the content store so uploaded content and model-call resolution
     /// use the same storage instance. Do not also call WithContentStore() inside
-    /// <see cref="ConfigureAgent"/>; set this property instead.
+    /// <see cref="ConfigureEachAgentBuilder"/>; set this property instead.
     /// </remarks>
     public IContentStore? ContentStore { get; set; }
 
     /// <summary>
-    /// Whether to automatically persist conversation history after each completed turn.
+    /// Whether to save session metadata and ensure the active thread descriptor exists
+    /// after each completed turn.
     /// Only meaningful when <see cref="SessionStore"/> is a durable store (e.g. <see cref="FileSessionStore"/>).
-    /// Default: false.
+    /// Canonical thread events are committed through the configured session store independently.
+    /// Default: true.
     /// </summary>
-    public bool PersistAfterTurn { get; set; } = false;
+    public bool PersistAfterTurn { get; set; } = true;
 
     /// <summary>
-    /// Serializable default agent definition.
-    /// If set, seeds the AgentBuilder before ConfigureAgent runs.
+    /// Serializable definition for the agent declared by this hosting profile.
+    /// Hosting creates this definition at startup when <see cref="DefaultAgentId"/> is absent
+    /// from the configured agent store. It is not a per-request fallback.
     /// Because AgentConfig is JSON-serializable, it can be loaded from files,
     /// databases, or API payloads — enabling no-code agent definition.
     /// Takes priority over <see cref="DefaultAgentPath"/>.
@@ -65,8 +68,14 @@ public class HPDAgentHostOptions
     public AgentConfig? DefaultAgent { get; set; }
 
     /// <summary>
-    /// Path to a JSON or YAML file containing the default agent definition.
-    /// Loaded once per agent build. Ignored if <see cref="DefaultAgent"/> is set.
+    /// Explicit identity of the agent definition declared by this hosting profile.
+    /// Defaults to the host profile name, or <c>default</c> for the unnamed profile.
+    /// </summary>
+    public string? DefaultAgentId { get; set; }
+
+    /// <summary>
+    /// Path to a JSON or YAML file containing the declared agent definition.
+    /// Loaded during startup definition materialization. Ignored if <see cref="DefaultAgent"/> is set.
     /// </summary>
     public string? DefaultAgentPath { get; set; }
 
@@ -88,24 +97,18 @@ public class HPDAgentHostOptions
     public IAgentStore? AgentStore { get; set; }
 
     /// <summary>
-    /// Whether hosted agent builds should persist synthesized or updated definitions back
-    /// to the configured <see cref="AgentStore"/> after a successful build.
-    /// Default: true.
-    /// </summary>
-    public bool PersistAgentDefinitionsOnBuild { get; set; } = true;
-
-    /// <summary>
-    /// Callback to configure the AgentBuilder for each new session.
-    /// Called after DefaultAgent/DefaultAgentPath are applied.
-    /// Use this for runtime-only concerns (compiled type references, DI services).
+    /// Callback invoked for each agent instance built by this host profile.
+    /// Called after the stored agent definition and host services have configured the builder.
+    /// The callback may add runtime-only capabilities or override individual settings.
     /// </summary>
     /// <remarks>
     /// The AgentBuilder is pre-configured with the <see cref="SessionStore"/> and any
     /// default agent definition. Use this callback for runtime-only enrichment such as
     /// DI-backed services, compiled tools, or server policy. Do not call WithSessionStore()
     /// here; set <see cref="SessionStore"/> directly instead.
+    /// This callback is not invoked when a custom <see cref="IAgentFactory"/> is registered.
     /// </remarks>
-    public Action<AgentBuilder>? ConfigureAgent { get; set; }
+    public Action<AgentBuilder>? ConfigureEachAgentBuilder { get; set; }
 
     /// <summary>
     /// How long an agent can sit idle before eviction from the in-memory cache.
