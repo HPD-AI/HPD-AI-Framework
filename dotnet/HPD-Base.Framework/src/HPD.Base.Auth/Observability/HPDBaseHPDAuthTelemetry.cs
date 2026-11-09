@@ -192,7 +192,7 @@ internal static class HPDBaseHPDAuthTelemetry
     {
         activity.SetTag(HPDBaseTelemetryTags.ModuleId, HPDBaseTelemetryValues.ModuleHPDAuth);
         activity.SetTag(HPDBaseTelemetryTags.OperationKind, OperationValue(request.Operation.Operation));
-        activity.SetTag(HPDBaseTelemetryTags.CollectionId, request.Collection.Id);
+        activity.SetTag(HPDBaseTelemetryTags.CollectionId, request.Collection?.Id ?? string.Empty);
         activity.SetTag(HPDBaseTelemetryTags.PolicyResourceKind, ResourceKindValue(request.Resource.Kind));
         activity.SetTag(HPDBaseTelemetryTags.AuthState, AuthStateValue(request.Principal.AuthenticationState));
         activity.SetTag(HPDBaseTelemetryTags.AuthSubjectKind, SubjectKindValue(request.Principal.SubjectKind));
@@ -205,7 +205,7 @@ internal static class HPDBaseHPDAuthTelemetry
         {
             { HPDBaseTelemetryTags.ModuleId, HPDBaseTelemetryValues.ModuleHPDAuth },
             { HPDBaseTelemetryTags.OperationKind, OperationValue(request.Operation.Operation) },
-            { HPDBaseTelemetryTags.CollectionId, request.Collection.Id },
+            { HPDBaseTelemetryTags.CollectionId, request.Collection?.Id ?? string.Empty },
             { HPDBaseTelemetryTags.AuthState, AuthStateValue(request.Principal.AuthenticationState) },
             { HPDBaseTelemetryTags.AuthSubjectKind, SubjectKindValue(request.Principal.SubjectKind) },
             { HPDBaseTelemetryTags.ResultStatus, outcome ?? status }

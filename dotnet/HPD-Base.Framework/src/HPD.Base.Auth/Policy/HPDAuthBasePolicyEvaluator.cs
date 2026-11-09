@@ -143,8 +143,11 @@ internal sealed class HPDBaseAuthPolicyEvaluator : IPolicyEvaluator
         if (grantDecision is not null)
             return grantDecision;
 
-        var rule = _options.CollectionRules.FirstOrDefault(candidate =>
-            string.Equals(candidate.CollectionId, request.Collection.Id, StringComparison.Ordinal));
+        CollectionDefinition? requestCollection = request.Collection;
+        var rule = requestCollection is null
+            ? null
+            : _options.CollectionRules.FirstOrDefault(candidate =>
+                string.Equals(candidate.CollectionId, requestCollection.Id, StringComparison.Ordinal));
         if (rule is not null)
         {
             var ruleDecision = EvaluateRule(request, rule, subjects, action);
@@ -316,7 +319,8 @@ internal sealed class HPDBaseAuthPolicyEvaluator : IPolicyEvaluator
         PolicyEvaluationRequest request,
         CancellationToken cancellationToken)
     {
-        var providers = _grantProviders.ToArray();
+        CollectionDefinition? collection = request.Collection;
+        var providers = collection is null ? [] : _grantProviders.ToArray();
         return await HPDBaseHPDAuthTelemetry.TraceGrantsAsync(
             request,
             providers.Length,
@@ -337,7 +341,7 @@ internal sealed class HPDBaseAuthPolicyEvaluator : IPolicyEvaluator
                         {
                             Principal = request.Principal,
                             Operation = request.Operation,
-                            Collection = request.Collection,
+                            Collection = collection!,
                             Resource = request.Resource
                         }, cancellationToken).ConfigureAwait(false);
                         HPDBaseHPDAuthTelemetry.RecordGrantProviderCall(request, "ok");
@@ -520,13 +524,22 @@ internal sealed class HPDBaseAuthPolicyEvaluator : IPolicyEvaluator
         AccessSubject[] subjects,
         string action)
     {
+        CollectionDefinition? collection = request.Collection;
         if (request.Resource.Kind == PolicyResourceKind.SubjectContract)
         {
             if (!ExactSubjectDimensions(grant, request))
                 return false;
         }
-        else if (request.Collection.System && (!ExactSystemDimensions(grant, request)))
+        else if (collection is not null &&
+                 collection.System &&
+                 !ExactSystemDimensions(grant, request))
+        {
             return false;
+        }
+        else if (collection is null)
+        {
+            return false;
+        }
         if (!string.Equals(grant.Action, action, StringComparison.Ordinal))
             return false;
         if (grant.ExpiresAt is { } expiresAt && expiresAt <= request.Operation.Now)
@@ -537,9 +550,11 @@ internal sealed class HPDBaseAuthPolicyEvaluator : IPolicyEvaluator
         return grant.Scope.Kind switch
         {
             ResourceScopeKind.Runtime => true,
-            ResourceScopeKind.Collection => string.IsNullOrWhiteSpace(grant.Scope.CollectionId)
-                || string.Equals(grant.Scope.CollectionId, request.Collection.Id, StringComparison.Ordinal),
-            ResourceScopeKind.Record => string.Equals(grant.Scope.CollectionId, request.Collection.Id, StringComparison.Ordinal)
+            ResourceScopeKind.Collection => collection is not null
+                && (string.IsNullOrWhiteSpace(grant.Scope.CollectionId)
+                || string.Equals(grant.Scope.CollectionId, collection.Id, StringComparison.Ordinal)),
+            ResourceScopeKind.Record => collection is not null
+                && string.Equals(grant.Scope.CollectionId, collection.Id, StringComparison.Ordinal)
                 && (string.IsNullOrWhiteSpace(grant.Scope.RecordId)
                     || string.Equals(grant.Scope.RecordId, request.Resource.RecordId, StringComparison.Ordinal)
                     || string.Equals(grant.Scope.RecordId, request.Operation.RecordId, StringComparison.Ordinal)),
@@ -554,8 +569,9 @@ internal sealed class HPDBaseAuthPolicyEvaluator : IPolicyEvaluator
     private static bool ExactSubjectDimensions(AccessGrant grant, PolicyEvaluationRequest request) =>
         !string.IsNullOrWhiteSpace(request.Operation.ApplicationId)
         && string.Equals(grant.ApplicationId, request.Operation.ApplicationId, StringComparison.Ordinal)
-        && !string.IsNullOrWhiteSpace(request.Collection.SystemOwnerModuleId)
-        && string.Equals(grant.ModuleId, request.Collection.SystemOwnerModuleId, StringComparison.Ordinal)
+        && request.Collection is { } collection
+        && !string.IsNullOrWhiteSpace(collection.SystemOwnerModuleId)
+        && string.Equals(grant.ModuleId, collection.SystemOwnerModuleId, StringComparison.Ordinal)
         && grant.Audience == request.Operation.Audience
         && grant.Scope.Kind == ResourceScopeKind.SubjectContract
         && !string.IsNullOrWhiteSpace(request.Resource.SubjectContractId)
@@ -573,11 +589,12 @@ internal sealed class HPDBaseAuthPolicyEvaluator : IPolicyEvaluator
     private static bool ExactSystemDimensions(AccessGrant grant, PolicyEvaluationRequest request) =>
         !string.IsNullOrWhiteSpace(request.Operation.ApplicationId)
         && string.Equals(grant.ApplicationId, request.Operation.ApplicationId, StringComparison.Ordinal)
-        && !string.IsNullOrWhiteSpace(request.Collection.SystemOwnerModuleId)
-        && string.Equals(grant.ModuleId, request.Collection.SystemOwnerModuleId, StringComparison.Ordinal)
+        && request.Collection is { } collection
+        && !string.IsNullOrWhiteSpace(collection.SystemOwnerModuleId)
+        && string.Equals(grant.ModuleId, collection.SystemOwnerModuleId, StringComparison.Ordinal)
         && grant.Audience == request.Operation.Audience
         && grant.Scope.Kind is ResourceScopeKind.Collection or ResourceScopeKind.Record
-        && string.Equals(grant.Scope.CollectionId, request.Collection.Id, StringComparison.Ordinal)
+        && string.Equals(grant.Scope.CollectionId, collection.Id, StringComparison.Ordinal)
         && (string.IsNullOrWhiteSpace(request.Operation.TenantId)
             ? string.IsNullOrWhiteSpace(grant.Scope.TenantId)
             : string.Equals(grant.Scope.TenantId, request.Operation.TenantId, StringComparison.Ordinal));

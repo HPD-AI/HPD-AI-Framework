@@ -26,8 +26,19 @@
 
   <ItemGroup>
     <None Include="$(StudioBaseModuleRoot)**\*" Exclude="$(StudioBaseModuleRoot)node_modules\**\*;$(StudioBaseModuleRoot)dist\**\*;$(StudioBaseModuleRoot).DS_Store" Pack="true" PackagePath="clientapp-modules\hpd-base-studio\%(RecursiveDir)%(Filename)%(Extension)" />
-    <EmbeddedResource Include="$(StudioBaseModuleRoot)dist\base.js" LogicalName="HPD.Base.Studio.Assets.base.js" />
-    <None Include="$(StudioBaseModuleRoot)dist\base.js" Pack="true" PackagePath="studio-assets\base\6c6d65420bde4c64faaaea95ec0a74b36c719d66c0edd2eec1aa7d7f461873e5.js" />
+    <EmbeddedResource Include="$(StudioBaseModuleRoot)dist\base.js"
+                      LogicalName="HPD.Base.Studio.Assets.base.js"
+                      Condition="Exists('$(StudioBaseModuleRoot)dist\base.js')" />
+    <None Include="$(StudioBaseModuleRoot)dist\base.js"
+          Pack="true"
+          PackagePath="studio-assets\base\6c6d65420bde4c64faaaea95ec0a74b36c719d66c0edd2eec1aa7d7f461873e5.js"
+          Condition="Exists('$(StudioBaseModuleRoot)dist\base.js')" />
   </ItemGroup>
+
+  <Target Name="RequireStudioBaseAssetBeforePack"
+          BeforeTargets="Pack"
+          Condition="'$(IsPackable)' == 'true' and !Exists('$(StudioBaseModuleRoot)dist\base.js')">
+    <Error Text="HPD.Base.Studio requires dist/base.js. Build the HPD Base Studio TypeScript module before packing." />
+  </Target>
 
 </Project>
