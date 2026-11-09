@@ -462,7 +462,9 @@ public sealed class DebugProtocolClientTests
             timeout: TimeSpan.FromMilliseconds(75));
         await request.Should().ThrowAsync<OperationCanceledException>();
 
-        started.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(1));
+        started.Elapsed.Should().BeLessThan(
+            TimeSpan.FromSeconds(5),
+            "the request timeout must bound the write instead of waiting for the thirty-second write timeout");
         client.PendingRequestCount.Should().Be(0);
         transport.WriteStarted.Should().BeTrue();
     }

@@ -2,7 +2,19 @@ name: Build and Test
 
 on:
   workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: 'Emergency release only: skip test execution while retaining build and package verification.'
+        required: false
+        type: boolean
+        default: false
   workflow_call:
+    inputs:
+      skip_tests:
+        description: 'Emergency release only: skip test execution while retaining build and package verification.'
+        required: false
+        type: boolean
+        default: false
   pull_request:
   push:
     branches:
@@ -153,8 +165,12 @@ jobs:
         --
         --help
 
+    - name: Report skipped tests
+      if: inputs.skip_tests
+      run: echo "::warning::Tests were explicitly skipped for this emergency release; build, API, and package verification still ran."
+
     - name: Run tests (with coverage)
-      if: matrix.collect-coverage
+      if: ${{ matrix.collect-coverage && !inputs.skip_tests }}
       run: |
         bash dotnet/HPD-Agent.Framework/eng/test-agent-suite.sh \
           ${{ matrix.targetFramework }} \
@@ -163,7 +179,7 @@ jobs:
           --results-directory:"TestResults/Coverage/"
 
     - name: Run tests (without coverage)
-      if: ${{ !matrix.collect-coverage }}
+      if: ${{ !matrix.collect-coverage && !inputs.skip_tests }}
       shell: bash
       run: |
         CONFIGURATION="${{ matrix.configuration }}"
@@ -172,14 +188,14 @@ jobs:
           --logger "trx;LogFileName=test-results.trx"
 
     - name: Upload test results
-      if: always()
+      if: ${{ always() && !inputs.skip_tests }}
       uses: actions/upload-artifact@v4
       with:
         name: test-results-${{ matrix.os }}-${{ matrix.targetFramework }}
         path: '**/*.trx'
 
     - name: Generate coverage report
-      if: matrix.collect-coverage
+      if: ${{ matrix.collect-coverage && !inputs.skip_tests }}
       uses: danielpalme/ReportGenerator-GitHub-Action@5.5.1
       with:
         reports: "./TestResults/Coverage/**/coverage.cobertura.xml"
@@ -187,7 +203,7 @@ jobs:
         reporttypes: "HtmlInline;JsonSummary;Cobertura"
 
     - name: Check coverage threshold
-      if: matrix.collect-coverage
+      if: ${{ matrix.collect-coverage && !inputs.skip_tests }}
       run: |
         # Extract coverage from JSON summary
         JSON_FILE="./TestResults/Reports/Summary.json"
@@ -218,7 +234,7 @@ jobs:
         fi
 
     - name: Upload coverage report
-      if: matrix.collect-coverage
+      if: ${{ matrix.collect-coverage && !inputs.skip_tests }}
       uses: actions/upload-artifact@v4
       with:
         name: coverage-report
@@ -230,7 +246,7 @@ jobs:
   unit-test-summary:
     needs: [paths-filter, build-and-test]
     runs-on: ubuntu-latest
-    if: always() && (github.event_name == 'workflow_call' || needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch')
+    if: always() && !inputs.skip_tests && (github.event_name == 'workflow_call' || needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch')
 
     steps:
     - name: Download all test results

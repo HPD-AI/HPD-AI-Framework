@@ -39,6 +39,11 @@ on:
         description: 'HPD.Base package version to validate against. Defaults to latest stable on NuGet.'
         required: false
         type: string
+      skip_tests:
+        description: 'Emergency release only: skip test execution while retaining build, API, and package verification.'
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       version:
@@ -77,6 +82,11 @@ on:
         description: 'Published HPD.Base version'
         required: true
         type: string
+      skip_tests:
+        description: 'Emergency release only: skip test execution while retaining build, API, and package verification.'
+        required: false
+        type: boolean
+        default: false
     secrets:
       NUGET_API_KEY:
         required: true
@@ -125,6 +135,8 @@ jobs:
 
   verify:
     uses: ./.github/workflows/dotnet-build-and-test.yml
+    with:
+      skip_tests: ${{ inputs.skip_tests }}
 
   publish:
     runs-on: ubuntu-latest
