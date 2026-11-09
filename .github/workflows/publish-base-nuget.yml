@@ -186,8 +186,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BASE_PACKAGE="./nupkg-base/HPD.Base.${{ needs.determine-version.outputs.version }}.nupkg"
-          GENERATOR_PACKAGE="./nupkg-base/HPD.Base.Generators.${{ needs.determine-version.outputs.version }}.nupkg"
+          BASE_PACKAGE="./nupkg-base/HPD-Base.${{ needs.determine-version.outputs.version }}.nupkg"
+          GENERATOR_PACKAGE="./nupkg-base/HPD-Base.Generators.${{ needs.determine-version.outputs.version }}.nupkg"
           test -n "$BASE_PACKAGE"
           test -n "$GENERATOR_PACKAGE"
           unzip -l "$BASE_PACKAGE" | grep -q 'analyzers/dotnet/cs/HPD.Base.Generators.dll'
@@ -222,12 +222,12 @@ jobs:
         run: |
           set -euo pipefail
           PACKAGE_IDS=(
-            "HPD.Base.Generators"
-            "HPD.Base"
-            "HPD.Base.Sqlite"
-            "HPD.Base.AspNetCore"
-            "HPD.Base.Auth"
-            "HPD.Base.Testing"
+            "HPD-Base.Generators"
+            "HPD-Base"
+            "HPD-Base.Sqlite"
+            "HPD-Base.AspNetCore"
+            "HPD-Base.Auth"
+            "HPD-Base.Testing"
           )
           VERSION_LOWER="${PACKAGE_VERSION,,}"
 
@@ -277,5 +277,5 @@ jobs:
               echo "- $(basename "$PACKAGE")"
             done
             echo
-            echo "[View HPD Base packages on NuGet](https://www.nuget.org/packages?q=HPD.Base)"
+            echo "[View HPD Base packages on NuGet](https://www.nuget.org/packages?q=HPD-Base)"
           } >> "$GITHUB_STEP_SUMMARY"

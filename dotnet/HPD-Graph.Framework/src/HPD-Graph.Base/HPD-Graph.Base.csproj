@@ -19,6 +19,6 @@
                       Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
   </ItemGroup>
   <ItemGroup Condition="'$(UsePublishedHpdDependencies)' == 'true'">
-    <PackageReference Include="HPD.Base" Version="$(HPDBaseVersion)" />
+    <PackageReference Include="HPD-Base" Version="$(HPDBaseVersion)" />
   </ItemGroup>
 </Project>

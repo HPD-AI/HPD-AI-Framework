@@ -41,7 +41,7 @@ No scaffolding. Explicit storage. No middleware ordering to think about.
 dotnet add package HPD.Auth
 dotnet add package HPD.Auth.Authentication
 dotnet add package HPD.Auth.Base
-dotnet add package HPD.Base.Sqlite
+dotnet add package HPD-Base.Sqlite
 ```
 
 ```csharp

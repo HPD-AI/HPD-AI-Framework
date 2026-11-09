@@ -103,7 +103,7 @@ jobs:
           HPD_BASE_VERSION="$INPUT_HPD_BASE_VERSION"
           if [[ -z "$HPD_BASE_VERSION" ]]; then
             HPD_BASE_VERSION="$(
-              curl -fsSL "https://api.nuget.org/v3-flatcontainer/hpd.base/index.json" |
+              curl -fsSL "https://api.nuget.org/v3-flatcontainer/hpd-base/index.json" |
                 python3 -c 'import json,sys; versions=json.load(sys.stdin)["versions"]; stable=[v for v in versions if "-" not in v]; print((stable or versions)[-1])'
             )"
           fi

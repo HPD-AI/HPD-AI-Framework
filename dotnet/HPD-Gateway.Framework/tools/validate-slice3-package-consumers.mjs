@@ -47,7 +47,7 @@ writeFileSync(nugetConfig, `<?xml version="1.0" encoding="utf-8"?>
       <package pattern="HPD.Gateway.ControlPlane.Sqlite" />
       <package pattern="HPD.Gateway.ControlPlane.HPDAuth" /><package pattern="HPD.Gateway.Discovery.Microsoft" />
       <package pattern="HPD.Gateway.Admission.Redis" />
-      <package pattern="HPD.Base" /><package pattern="HPD.Base.Sqlite" /><package pattern="HPD-Events" /><package pattern="HPD-AI.Platform" />
+      <package pattern="HPD-Base" /><package pattern="HPD-Base.Sqlite" /><package pattern="HPD-Events" /><package pattern="HPD-AI.Platform" />
       <package pattern="HPD-Auth-*" />
     </packageSource>
     <packageSource key="nuget.org"><package pattern="*" /></packageSource>

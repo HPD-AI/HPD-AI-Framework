@@ -17,7 +17,7 @@ app.MapHPDBaseApplicationApi(new HPDBaseApplicationEndpointOptions
 });
 ```
 
-Install `HPD.Base.Auth` and call `AddHPDAuth()` plus
+Install `HPD-Base.Auth` and call `AddHPDAuth()` plus
 `MapHPDBaseControlPlane(...)` when an HPD.Auth L1-secured management surface is
 required. ASP.NET capability authorization and BASE Runtime resource policy are
 independent gates.

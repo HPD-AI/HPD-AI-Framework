@@ -41,6 +41,12 @@ validate_project() {
         return 1
       fi
       ;;
+    */HPD-Base.Framework/src/*)
+      if [[ "$package_id" != HPD-Base && "$package_id" != HPD-Base.* ]]; then
+        echo "Package identity error: base project must use the HPD-Base package prefix: $package_id ($project)" >&2
+        return 1
+      fi
+      ;;
     */HPD-Auth.Framework/src/*)
       if [[ "$package_id" != HPD-Auth && "$package_id" != HPD-Auth-* ]]; then
         echo "Package identity error: auth project must use HPD-Auth prefix: $package_id ($project)" >&2

@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsPackable>true</IsPackable>
-    <PackageId>HPD.Base</PackageId>
+    <PackageId>HPD-Base</PackageId>
     <Description>Typed, policy-aware, realtime application data platform for .NET.</Description>
     <PackageTags>hpd;base;data;realtime;aot</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>

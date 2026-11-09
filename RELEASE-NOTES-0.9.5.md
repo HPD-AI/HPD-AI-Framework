@@ -112,6 +112,10 @@ Applications should create agents through `AgentBuilder`. Consumers using the
 former public direct constructor must migrate provider, middleware, content-store,
 and resource ownership to builder-owned construction.
 
+The NuGet package identifiers for HPD Base use the reserved-safe `HPD-Base.*`
+family, for example `HPD-Base`, `HPD-Base.AspNetCore`, and `HPD-Base.Auth`.
+Assembly names and `HPD.Base` namespaces are unchanged.
+
 The durable `ITERATION_CONTEXT_SNAPSHOT` event was removed before the 1.0
 freeze. It was diagnostic-only and did not participate in compaction recovery
 or thread projection. Existing journals that contain this discriminator

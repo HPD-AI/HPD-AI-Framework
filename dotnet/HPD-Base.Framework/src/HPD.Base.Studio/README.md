@@ -1,4 +1,4 @@
-# HPD.Base.Studio
+# HPD-Base.Studio
 
 HPD BASE Studio module contribution for `HPD-AI.Platform`.
 

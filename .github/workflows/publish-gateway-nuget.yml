@@ -100,8 +100,8 @@ jobs:
               exit 1
             }
           }
-          require_nuget_version "HPD.Base" "$HPD_BASE_VERSION"
-          require_nuget_version "HPD.Base.Sqlite" "$HPD_BASE_VERSION"
+          require_nuget_version "HPD-Base" "$HPD_BASE_VERSION"
+          require_nuget_version "HPD-Base.Sqlite" "$HPD_BASE_VERSION"
           require_nuget_version "HPD-Auth-Core" "$HPD_AUTH_VERSION"
           require_nuget_version "HPD-Auth-ControlPlane-AspNetCore" "$HPD_AUTH_VERSION"
           require_nuget_version "HPD-AI.Platform" "$HPD_PLATFORM_VERSION"

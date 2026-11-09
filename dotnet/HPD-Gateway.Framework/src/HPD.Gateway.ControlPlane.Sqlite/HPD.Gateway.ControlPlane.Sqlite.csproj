@@ -21,6 +21,6 @@
     <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base.Sqlite/HPD.Base.Sqlite.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(UsePublishedHpdDependencies)' == 'true'">
-    <PackageReference Include="HPD.Base.Sqlite" Version="$(HPDBaseVersion)" />
+    <PackageReference Include="HPD-Base.Sqlite" Version="$(HPDBaseVersion)" />
   </ItemGroup>
 </Project>

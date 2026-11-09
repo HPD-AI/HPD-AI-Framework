@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsPackable>true</IsPackable>
-    <PackageId>HPD.Base.Auth</PackageId>
+    <PackageId>HPD-Base.Auth</PackageId>
     <Description>HPD.Auth adapter for HPD.BASE principals, subjects, grants, policy evaluation, descriptors, health, and diagnostics.</Description>
     <PackageTags>hpd;base;auth;policy;adapter;aot</PackageTags>
     <IsAotCompatible>true</IsAotCompatible>

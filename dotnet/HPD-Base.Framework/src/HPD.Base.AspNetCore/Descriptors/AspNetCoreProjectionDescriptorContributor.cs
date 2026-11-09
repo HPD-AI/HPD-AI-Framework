@@ -67,7 +67,7 @@ internal sealed class AspNetCoreProjectionDescriptorContributor : IBaseDescripto
         {
             Id = "hpd.base.aspnetcore",
             Kind = ProjectionKind.AspNet,
-            PackageId = "HPD.Base.AspNetCore",
+            PackageId = "HPD-Base.AspNetCore",
             PackageVersion = "1.0.0",
             ContractVersionRange = "1.0",
             Status = ProjectionStatus.Available,

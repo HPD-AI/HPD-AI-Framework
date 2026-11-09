@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsPackable>true</IsPackable>
-    <PackageId>HPD.Base.Sqlite</PackageId>
+    <PackageId>HPD-Base.Sqlite</PackageId>
     <Description>SQLite durable record store provider for HPD.BASE records.</Description>
     <PackageTags>hpd;base;sqlite;records;store;relational;aot</PackageTags>
     <IsAotCompatible>true</IsAotCompatible>

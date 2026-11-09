@@ -10,7 +10,7 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsPackable>true</IsPackable>
-    <PackageId>HPD.Base.Generators</PackageId>
+    <PackageId>HPD-Base.Generators</PackageId>
     <Description>Compile-time typed collection generation and diagnostics for HPD.Base.</Description>
     <PackageTags>hpd;base;source-generator;analyzer;aot</PackageTags>
     <IncludeBuildOutput>false</IncludeBuildOutput>

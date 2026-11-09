@@ -276,7 +276,7 @@ jobs:
           HPD_EVENTS_VERSION="$(resolve_nuget_version "HPD-Events" "$INPUT_HPD_EVENTS_VERSION")"
           HPD_SERIALIZATION_VERSION="$(resolve_nuget_version "HPD-Serialization" "$INPUT_HPD_SERIALIZATION_VERSION")"
           HPD_OPENAPI_CORE_VERSION="$(resolve_nuget_version "HPD-OpenApi.Core" "$INPUT_HPD_OPENAPI_CORE_VERSION")"
-          HPD_BASE_VERSION="$(resolve_nuget_version "HPD.Base" "$INPUT_HPD_BASE_VERSION")"
+          HPD_BASE_VERSION="$(resolve_nuget_version "HPD-Base" "$INPUT_HPD_BASE_VERSION")"
 
           echo "Using published HPD dependency versions:"
           echo "  HPD-Environment.*: $HPD_ENVIRONMENT_VERSION"
@@ -286,7 +286,7 @@ jobs:
           echo "  HPD-Events: $HPD_EVENTS_VERSION"
           echo "  HPD-Serialization: $HPD_SERIALIZATION_VERSION"
           echo "  HPD-OpenApi.Core: $HPD_OPENAPI_CORE_VERSION"
-          echo "  HPD.Base: $HPD_BASE_VERSION"
+          echo "  HPD-Base: $HPD_BASE_VERSION"
 
           PUBLISHED_HPD_PROPS=(
             "-p:UsePublishedHpdDependencies=true"

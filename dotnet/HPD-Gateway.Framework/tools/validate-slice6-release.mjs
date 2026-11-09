@@ -18,9 +18,9 @@ const platformVersion = requireArgument("platform-version");
 
 const products = new Map([
   ["HPD.Gateway", new Map([["Microsoft.Extensions.Http.Resilience", "10.0.0"], ["Yarp.ReverseProxy", "2.3.0"]])],
-  ["HPD.Gateway.ControlPlane", new Map([["HPD-AI.Platform", platformVersion], ["HPD.Base", baseVersion], ["HPD.Gateway", gatewayVersion], ["Microsoft.AspNetCore.OpenApi", "10.0.10"], ["Microsoft.OpenApi", "2.11.0"]])],
+  ["HPD.Gateway.ControlPlane", new Map([["HPD-AI.Platform", platformVersion], ["HPD-Base", baseVersion], ["HPD.Gateway", gatewayVersion], ["Microsoft.AspNetCore.OpenApi", "10.0.10"], ["Microsoft.OpenApi", "2.11.0"]])],
   ["HPD.Gateway.ControlPlane.HPDAuth", new Map([["HPD-Auth-ControlPlane-AspNetCore", authVersion], ["HPD-Auth-Core", authVersion], ["HPD.Gateway.ControlPlane", gatewayVersion]])],
-  ["HPD.Gateway.ControlPlane.Sqlite", new Map([["HPD.Base.Sqlite", baseVersion], ["HPD.Gateway.ControlPlane", gatewayVersion]])],
+  ["HPD.Gateway.ControlPlane.Sqlite", new Map([["HPD-Base.Sqlite", baseVersion], ["HPD.Gateway.ControlPlane", gatewayVersion]])],
   ["HPD.Gateway.Discovery.Microsoft", new Map([["HPD.Gateway", gatewayVersion], ["Microsoft.Extensions.ServiceDiscovery", "10.7.0"], ["Microsoft.Extensions.ServiceDiscovery.Dns", "10.7.0"]])],
   ["HPD.Gateway.Admission.Redis", new Map([["HPD.Gateway", gatewayVersion], ["StackExchange.Redis", "3.0.17"]])],
 ]);

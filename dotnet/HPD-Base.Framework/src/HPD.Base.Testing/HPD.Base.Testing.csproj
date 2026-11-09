@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsPackable>true</IsPackable>
-    <PackageId>HPD.Base.Testing</PackageId>
+    <PackageId>HPD-Base.Testing</PackageId>
     <Description>Deterministic application test hosting for HPD.BASE.</Description>
     <PackageTags>hpd;base;testing;integration;deterministic</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>

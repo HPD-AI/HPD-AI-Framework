@@ -1,6 +1,6 @@
-# HPD.Base.Testing
+# HPD-Base.Testing
 
-`HPD.Base.Testing` provides deterministic in-process application tests for
+`HPD-Base.Testing` provides deterministic in-process application tests for
 the typed HPD.BASE API.
 
 ```csharp

@@ -25,6 +25,6 @@ builder.Services.AddHPDMultiAgentHpdBase(installedGraphs);
 app.MapHPDMultiAgentApi();
 ```
 
-This package depends on compatible `HPD.Base.AspNetCore` and
+This package depends on compatible `HPD-Base.AspNetCore` and
 `HPD-Graph.Base` releases. Use `HPD-Agent.MultiAgent.AspNetCore` without this
 adapter when supplying another durable backend.
