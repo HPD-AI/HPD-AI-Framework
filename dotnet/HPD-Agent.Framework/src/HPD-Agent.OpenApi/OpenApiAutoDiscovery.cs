@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using HPD.Agent.ErrorHandling;
 
 namespace HPD.Agent.OpenApi;
 
@@ -15,5 +16,6 @@ internal static class OpenApiAutoDiscovery
 #pragma warning restore CA2255
     {
         AgentBuilder.RegisterOpenApiLoader(new OpenApiLoader());
+        FunctionErrorHandlerRegistry.Register("OpenApi", new OpenApiErrorHandler());
     }
 }

@@ -2,6 +2,10 @@
   <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
 
   <PropertyGroup>
+    <VersionPrefix>0.9.5</VersionPrefix>
+    <PackageVersion Condition="'$(VersionSuffix)' != ''">$(VersionPrefix)-$(VersionSuffix)</PackageVersion>
+    <PackageVersion Condition="'$(VersionSuffix)' == ''">$(VersionPrefix)</PackageVersion>
+    <Version>$(PackageVersion)</Version>
     <!-- HPD.Base follows the current HPD.Auth framework policy for the first release. -->
     <TargetFrameworks>net10.0</TargetFrameworks>
     <!-- .NET 10 is the minimum BASE contract and maps to released C# 14. -->

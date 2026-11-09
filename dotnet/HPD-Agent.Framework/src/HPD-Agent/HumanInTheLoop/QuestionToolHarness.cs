@@ -15,7 +15,7 @@ public sealed record QuestionAnswer(string QuestionId, string[] SelectedOptionId
 [JsonConverter(typeof(JsonStringEnumConverter<QuestionOutcome>))]
 public enum QuestionOutcome { Answered, Dismissed, Discuss }
 
-[DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 public sealed record UserQuestionRequestEvent(string RequestId, string SourceName, AgentQuestion[] Questions)
     : AgentEvent, IAgentRequestEvent<QuestionResponseEvent>
 {
@@ -23,7 +23,7 @@ public sealed record UserQuestionRequestEvent(string RequestId, string SourceNam
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
 }
 
-[DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 public sealed record QuestionResponseEvent(string RequestId, string SourceName,
     QuestionOutcome Outcome, QuestionAnswer[] Answers) : AgentEvent, IAgentResponseEvent
 {

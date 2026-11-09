@@ -4,7 +4,7 @@ using HPD.Agent.Audio.Output;
 
 namespace HPD.Agent.Audio.Runtime.Output;
 
-public sealed class TextToSpeechTextSanitizer
+internal sealed class TextToSpeechTextSanitizer
 {
     public TextToSpeechSegment Sanitize(
         TextToSpeechSegment segment,

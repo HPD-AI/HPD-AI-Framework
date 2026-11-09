@@ -335,12 +335,12 @@ public sealed class SkillHotReloadTests
     [Fact]
     public async Task RuntimeScript_EmitsRunnerLifecycleEventsWithoutSourceContent()
     {
-        var script = new SkillScript("run_check", "Runs the packaged verification check.")
-        {
-            Reference = new FileScriptReference("scripts/check.py", "python"),
-            InputContract = SkillScriptInput.Empty,
-            RequiresPermission = false
-        };
+        var script = SkillCapabilities.Script(
+            "run_check",
+            "Runs the packaged verification check.",
+            new FileScriptReference("scripts/check.py", "python"),
+            SkillScriptInput.Empty,
+            requiresPermission: false);
         var source = new InMemorySkillSource([
             Skill.Create(
                 "script_guidance",

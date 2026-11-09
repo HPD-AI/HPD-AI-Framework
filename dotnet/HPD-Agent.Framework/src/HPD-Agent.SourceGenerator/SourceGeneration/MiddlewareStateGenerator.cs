@@ -304,12 +304,12 @@ public class MiddlewareStateGenerator : IIncrementalGenerator
         sb.AppendLine("/// Registry of middleware state types in this assembly.");
         sb.AppendLine("/// Loaded by AgentBuilder.LoadStateRegistryFromAssembly() at runtime.");
         sb.AppendLine("/// </summary>");
-        sb.AppendLine("public static class MiddlewareStateRegistry");
+        sb.AppendLine("internal static class MiddlewareStateRegistry");
         sb.AppendLine("{");
         sb.AppendLine("    /// <summary>");
         sb.AppendLine("    /// All middleware state factories in this assembly.");
         sb.AppendLine("    /// </summary>");
-        sb.AppendLine("    public static readonly MiddlewareStateFactory[] All = new MiddlewareStateFactory[]");
+        sb.AppendLine("    internal static readonly MiddlewareStateFactory[] All = new MiddlewareStateFactory[]");
         sb.AppendLine("    {");
 
         foreach (var stateInfo in uniqueTypes)

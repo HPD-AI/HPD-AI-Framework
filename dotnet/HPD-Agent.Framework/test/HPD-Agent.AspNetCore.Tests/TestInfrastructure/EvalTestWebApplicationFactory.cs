@@ -20,6 +20,7 @@ namespace HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 public class EvalTestWebApplicationFactory : IDisposable
 {
     private readonly bool _registerStores;
+    private readonly IScoreStore? _scoreStoreOverride;
     private TestServer? _server;
     private HttpClient? _client;
     private readonly FakeChatClient _fakeChatClient = new();
@@ -37,6 +38,10 @@ public class EvalTestWebApplicationFactory : IDisposable
 
     internal EvalTestWebApplicationFactory(bool registerStores) =>
         _registerStores = registerStores;
+
+    internal EvalTestWebApplicationFactory(IScoreStore scoreStore)
+        : this(registerStores: true) =>
+        _scoreStoreOverride = scoreStore;
 
     public HttpClient CreateClient()
     {
@@ -68,7 +73,7 @@ public class EvalTestWebApplicationFactory : IDisposable
                 if (_registerStores)
                 {
                     // Register the shared stores so non-guard evaluation tests can resolve them.
-                    services.AddSingleton<IScoreStore>(ScoreStore);
+                    services.AddSingleton<IScoreStore>(_scoreStoreOverride ?? ScoreStore);
                     services.AddSingleton<IDatasetStore>(DatasetStore);
                 }
                 services.AddHPDAgentEvaluations();

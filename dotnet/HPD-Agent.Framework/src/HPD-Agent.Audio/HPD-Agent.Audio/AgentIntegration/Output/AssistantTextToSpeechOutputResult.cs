@@ -5,7 +5,7 @@ using HPD.Agent.Audio.Trace;
 
 namespace HPD.Agent.Audio.AgentIntegration.Output;
 
-public sealed record AssistantTextToSpeechOutputResult
+internal sealed record AssistantTextToSpeechOutputResult
 {
     public required AudioSessionId SessionId { get; init; }
 
@@ -32,7 +32,7 @@ public sealed record AssistantTextToSpeechOutputResult
     public required IReadOnlyList<RealtimeAudioTraceRecord> Trace { get; init; }
 }
 
-public enum AssistantTextToSpeechOutputStatus
+internal enum AssistantTextToSpeechOutputStatus
 {
     Disabled = 0,
     SkippedNoText = 1,

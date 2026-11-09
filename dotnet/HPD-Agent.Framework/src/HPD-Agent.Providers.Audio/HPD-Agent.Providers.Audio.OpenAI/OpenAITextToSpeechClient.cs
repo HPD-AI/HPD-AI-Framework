@@ -5,6 +5,7 @@ using System.ClientModel;
 using System.Runtime.CompilerServices;
 using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
+using HPD.Agent.ErrorHandling;
 using Microsoft.Extensions.AI;
 using OpenAI.Audio;
 
@@ -78,6 +79,9 @@ public sealed class OpenAITextToSpeechClient : ITextToSpeechClient
 
     public object? GetService(Type serviceType, object? serviceKey = null)
     {
+        if (serviceType == typeof(IProviderErrorHandler))
+            return new OpenAIAudioErrorHandler();
+
         if (serviceType == typeof(AudioClient))
             return _audioClient;
 

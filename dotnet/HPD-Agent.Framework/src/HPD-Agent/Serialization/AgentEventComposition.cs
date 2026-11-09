@@ -17,6 +17,69 @@ public enum AgentEventDurability
     Durable
 }
 
+internal static class AgentEventWireFormat
+{
+    internal const string Version = "1.0";
+
+    internal static void Validate(JsonElement root, string surface)
+    {
+        if (!root.TryGetProperty("version", out var version) ||
+            version.ValueKind != JsonValueKind.String ||
+            !StringComparer.Ordinal.Equals(version.GetString(), Version))
+        {
+            throw new JsonException(
+                $"Agent {surface} envelope requires version '{Version}'.");
+        }
+    }
+}
+
+internal static class AgentEventContractDigest
+{
+    internal static string Compute(JsonTypeInfo typeInfo)
+    {
+        ArgumentNullException.ThrowIfNull(typeInfo);
+        var contract = new StringBuilder();
+        foreach (var property in typeInfo.Properties
+                     .Where(static property => property.Get is not null || property.Set is not null)
+                     .OrderBy(static property => property.Name, StringComparer.Ordinal))
+        {
+            contract.Append('\n')
+                .Append(property.Name).Append('|')
+                .Append(FormatType(property.PropertyType)).Append('|')
+                .Append(property.IsRequired).Append('|')
+                .Append(property.IsExtensionData);
+        }
+
+        if (typeInfo.PolymorphismOptions is { } polymorphism)
+        {
+            contract.Append("\npolymorphism|")
+                .Append(polymorphism.TypeDiscriminatorPropertyName ?? string.Empty);
+            foreach (var derived in polymorphism.DerivedTypes
+                         .OrderBy(static value => value.TypeDiscriminator?.ToString(), StringComparer.Ordinal))
+            {
+                contract.Append('\n').Append(derived.TypeDiscriminator).Append('|').Append(FormatType(derived.DerivedType));
+            }
+        }
+
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(contract.ToString()))).ToLowerInvariant();
+    }
+
+    private static string FormatType(Type type)
+    {
+        if (type.IsArray)
+            return FormatType(type.GetElementType()!) + "[]";
+        if (type.IsGenericType)
+        {
+            var definition = type.GetGenericTypeDefinition();
+            return (definition.FullName ?? definition.Name) + "<" +
+                string.Join(",", type.GetGenericArguments().Select(FormatType)) + ">";
+        }
+        if (type.IsEnum)
+            return (type.FullName ?? type.Name) + "{" + string.Join(",", Enum.GetNames(type)) + "}";
+        return type.FullName ?? type.Name;
+    }
+}
+
 /// <summary>Complete reflection-free serialization metadata for one agent event contract.</summary>
 public sealed record AgentEventDescriptor
 {
@@ -31,6 +94,12 @@ public sealed record AgentEventDescriptor
 
     /// <summary>Gets the event's journal admission classification.</summary>
     public required AgentEventDurability Durability { get; init; }
+
+    /// <summary>Gets whether runtime recovery requires durable journal admission.</summary>
+    public bool RequiresDurable { get; init; }
+
+    /// <summary>Gets a deterministic digest of the serialized property contract.</summary>
+    public string ContractDigest => AgentEventContractDigest.Compute(JsonTypeInfo);
 
     /// <summary>Gets the stable identity of the module that owns the event.</summary>
     public required string ModuleId { get; init; }
@@ -78,16 +147,122 @@ public sealed record AgentEventCatalogEntry(
     string Discriminator,
     string ContractName,
     AgentEventDurability Durability,
-    string ModuleId);
+    string ModuleId)
+{
+    /// <summary>Gets the deterministic serialized property-contract digest.</summary>
+    public required string ContractDigest { get; init; }
+}
 
-/// <summary>Deterministic public catalog for an immutable event composition.</summary>
+/// <summary>Deterministic structural catalog for an immutable event composition.</summary>
 public sealed record AgentEventCatalog
 {
     /// <summary>Gets event entries in canonical order.</summary>
     public required IReadOnlyList<AgentEventCatalogEntry> Events { get; init; }
 
-    /// <summary>Gets the deterministic compatibility digest.</summary>
+    /// <summary>Gets the deterministic structural compatibility digest.</summary>
     public required string Digest { get; init; }
+}
+
+/// <summary>Immutable host overrides for generated event durability defaults.</summary>
+public sealed class AgentEventDurabilityPolicy
+{
+    private readonly IReadOnlyDictionary<Type, AgentEventDurability> _byType;
+    private readonly IReadOnlyDictionary<string, AgentEventDurability> _byDiscriminator;
+
+    private AgentEventDurabilityPolicy(
+        IReadOnlyDictionary<Type, AgentEventDurability> byType,
+        IReadOnlyDictionary<string, AgentEventDurability> byDiscriminator)
+    {
+        _byType = byType;
+        _byDiscriminator = byDiscriminator;
+    }
+
+    /// <summary>Gets a policy that leaves every generated durability default unchanged.</summary>
+    public static AgentEventDurabilityPolicy Empty { get; } = new(
+        new Dictionary<Type, AgentEventDurability>(),
+        new Dictionary<string, AgentEventDurability>(StringComparer.Ordinal));
+
+    /// <summary>Gets whether the policy contains no overrides.</summary>
+    public bool IsEmpty => _byType.Count == 0 && _byDiscriminator.Count == 0;
+
+    /// <summary>Adds or replaces one CLR event-type override.</summary>
+    public AgentEventDurabilityPolicy Set<TEvent>(AgentEventDurability durability)
+        where TEvent : AgentEvent =>
+        Set(typeof(TEvent), durability);
+
+    /// <summary>Adds or replaces one CLR event-type override.</summary>
+    public AgentEventDurabilityPolicy Set(Type eventType, AgentEventDurability durability)
+    {
+        ArgumentNullException.ThrowIfNull(eventType);
+        ValidateDurability(durability);
+        if (!typeof(AgentEvent).IsAssignableFrom(eventType) ||
+            eventType.IsAbstract ||
+            eventType.ContainsGenericParameters)
+        {
+            throw new ArgumentException(
+                $"Event type '{eventType.FullName}' must be a closed concrete AgentEvent.",
+                nameof(eventType));
+        }
+
+        var byType = new Dictionary<Type, AgentEventDurability>(_byType)
+        {
+            [eventType] = durability
+        };
+        return new AgentEventDurabilityPolicy(byType, _byDiscriminator);
+    }
+
+    /// <summary>Adds or replaces one wire-discriminator override.</summary>
+    public AgentEventDurabilityPolicy Set(string discriminator, AgentEventDurability durability)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(discriminator);
+        ValidateDurability(durability);
+        if (discriminator.Any(static value =>
+                !(char.IsAsciiDigit(value) || char.IsAsciiLetterUpper(value) || value == '_')))
+        {
+            throw new ArgumentException(
+                $"Event discriminator '{discriminator}' is not canonical SCREAMING_SNAKE_CASE.",
+                nameof(discriminator));
+        }
+
+        var byDiscriminator = new Dictionary<string, AgentEventDurability>(_byDiscriminator, StringComparer.Ordinal)
+        {
+            [discriminator] = durability
+        };
+        return new AgentEventDurabilityPolicy(_byType, byDiscriminator);
+    }
+
+    internal bool TryGet(Type eventType, string discriminator, out AgentEventDurability durability)
+    {
+        var hasType = _byType.TryGetValue(eventType, out var typeDurability);
+        var hasDiscriminator = _byDiscriminator.TryGetValue(discriminator, out var discriminatorDurability);
+        if (hasType && hasDiscriminator && typeDurability != discriminatorDurability)
+        {
+            throw new InvalidOperationException(
+                $"Event '{discriminator}' has conflicting durability overrides " +
+                $"'{typeDurability}' by type and '{discriminatorDurability}' by discriminator.");
+        }
+
+        durability = hasType ? typeDurability : discriminatorDurability;
+        return hasType || hasDiscriminator;
+    }
+
+    internal void ValidateResolved(
+        IReadOnlySet<Type> resolvedTypes,
+        IReadOnlySet<string> resolvedDiscriminators)
+    {
+        var unknownType = _byType.Keys.FirstOrDefault(type => !resolvedTypes.Contains(type));
+        if (unknownType is not null)
+            throw new InvalidOperationException($"Event durability policy references unknown event type '{unknownType.FullName}'.");
+        var unknownDiscriminator = _byDiscriminator.Keys.FirstOrDefault(value => !resolvedDiscriminators.Contains(value));
+        if (unknownDiscriminator is not null)
+            throw new InvalidOperationException($"Event durability policy references unknown discriminator '{unknownDiscriminator}'.");
+    }
+
+    private static void ValidateDurability(AgentEventDurability durability)
+    {
+        if (!Enum.IsDefined(durability))
+            throw new ArgumentOutOfRangeException(nameof(durability));
+    }
 }
 
 /// <summary>Thrown when a codec cannot resolve an event wire discriminator.</summary>
@@ -190,16 +365,15 @@ public sealed class AgentEventCodec
     public string Digest => Catalog.Digest;
 
     /// <summary>Serializes an event using its exact generated metadata and stable flat envelope.</summary>
-    public string Serialize(AgentEvent value, string version = "1.0")
+    public string Serialize(AgentEvent value)
     {
         ArgumentNullException.ThrowIfNull(value);
-        ArgumentException.ThrowIfNullOrWhiteSpace(version);
 
         if (!_byType.TryGetValue(value.GetType(), out var descriptor))
             throw new JsonException($"Agent event type '{value.GetType().FullName}' is not present in codec '{Digest}'.");
 
         var eventJson = JsonSerializer.Serialize(value, descriptor.JsonTypeInfo);
-        var prefix = $"\"version\":{JsonSerializer.Serialize(version, AgentEventJsonContext.Default.String)}," +
+        var prefix = $"\"version\":{JsonSerializer.Serialize(AgentEventWireFormat.Version, AgentEventJsonContext.Default.String)}," +
             $"\"type\":{JsonSerializer.Serialize(descriptor.Discriminator, AgentEventJsonContext.Default.String)}";
         if (value is IErrorEvent errorEvent)
         {
@@ -218,6 +392,7 @@ public sealed class AgentEventCodec
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(json);
         using var document = JsonDocument.Parse(json);
+        AgentEventWireFormat.Validate(document.RootElement, "event");
         if (!document.RootElement.TryGetProperty("type", out var typeProperty) ||
             typeProperty.ValueKind != JsonValueKind.String)
         {
@@ -276,8 +451,6 @@ public sealed class AgentEventCodec
 /// <summary>Closed immutable event authority for one application.</summary>
 public sealed class AgentEventComposition
 {
-    private const string WireFormatVersion = "1.0";
-
     private AgentEventComposition(
         IReadOnlyList<AgentEventModuleFragment> fragments,
         AgentEventCatalog catalog,
@@ -300,11 +473,43 @@ public sealed class AgentEventComposition
     /// <summary>Gets the safe deterministic event catalog.</summary>
     public AgentEventCatalog Catalog { get; }
 
-    /// <summary>Gets the catalog compatibility digest.</summary>
+    /// <summary>Gets the structural catalog compatibility digest.</summary>
     public string Digest => Catalog.Digest;
 
-    /// <summary>Gets the deterministic runtime-policy digest, including content retention.</summary>
+    /// <summary>Gets the deterministic runtime-policy digest, including durability and content retention.</summary>
     public string BehaviorDigest { get; }
+
+    /// <summary>Creates an effective composition with host-selected event durability.</summary>
+    public AgentEventComposition WithDurabilityPolicy(AgentEventDurabilityPolicy policy)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        if (policy.IsEmpty)
+            return this;
+
+        var resolvedTypes = new HashSet<Type>();
+        var resolvedDiscriminators = new HashSet<string>(StringComparer.Ordinal);
+        var fragments = Fragments.Select(fragment => new AgentEventModuleFragment
+        {
+            ModuleId = fragment.ModuleId,
+            Events = Array.AsReadOnly(fragment.Events.Select(descriptor =>
+            {
+                if (!policy.TryGet(descriptor.EventType, descriptor.Discriminator, out var durability))
+                    return descriptor;
+                if (descriptor.RequiresDurable && durability != AgentEventDurability.Durable)
+                {
+                    throw new InvalidOperationException(
+                        $"Event '{descriptor.Discriminator}' is required-durable and cannot be overridden to live-only.");
+                }
+
+                resolvedTypes.Add(descriptor.EventType);
+                resolvedDiscriminators.Add(descriptor.Discriminator);
+                return descriptor with { Durability = durability };
+            }).ToArray())
+        }).ToArray();
+
+        policy.ValidateResolved(resolvedTypes, resolvedDiscriminators);
+        return Create(fragments);
+    }
 
     /// <summary>Validates and freezes a complete application event graph.</summary>
     public static AgentEventComposition Create(IReadOnlyList<AgentEventModuleFragment> fragments)
@@ -354,7 +559,10 @@ public sealed class AgentEventComposition
                 descriptor.Discriminator,
                 descriptor.EventType.FullName ?? descriptor.EventType.Name,
                 descriptor.Durability,
-                descriptor.ModuleId))
+                descriptor.ModuleId)
+            {
+                ContractDigest = descriptor.ContractDigest
+            })
             .ToArray();
         var digest = ComputeDigest(entries);
         var behaviorDigest = ComputeBehaviorDigest(byDiscriminator.Values);
@@ -380,6 +588,8 @@ public sealed class AgentEventComposition
             throw new InvalidOperationException($"Event '{descriptor.Discriminator}' declares module '{descriptor.ModuleId}' but is contained by '{fragment.ModuleId}'.");
         if (!typeof(AgentEvent).IsAssignableFrom(descriptor.EventType) || descriptor.EventType.IsAbstract || descriptor.EventType.ContainsGenericParameters)
             throw new InvalidOperationException($"Event type '{descriptor.EventType.FullName}' must be a closed concrete AgentEvent.");
+        if (descriptor.RequiresDurable && descriptor.Durability != AgentEventDurability.Durable)
+            throw new InvalidOperationException($"Event '{descriptor.EventType.FullName}' is required-durable but is classified as live-only.");
         if (descriptor.JsonTypeInfo is null)
             throw new InvalidOperationException($"Event '{descriptor.EventType.FullName}' has no source-generated JSON metadata.");
         if (descriptor.JsonTypeInfo.Type != descriptor.EventType)
@@ -405,6 +615,8 @@ public sealed class AgentEventComposition
             pair.First.EventType == pair.Second.EventType &&
             pair.First.JsonTypeInfo?.Type == pair.Second.JsonTypeInfo?.Type &&
             pair.First.Durability == pair.Second.Durability &&
+            pair.First.RequiresDurable == pair.Second.RequiresDurable &&
+            StringComparer.Ordinal.Equals(pair.First.ContractDigest, pair.Second.ContractDigest) &&
             Equals(pair.First.ContentPolicy, pair.Second.ContentPolicy) &&
             StringComparer.Ordinal.Equals(pair.First.ModuleId, pair.Second.ModuleId));
     }
@@ -418,22 +630,23 @@ public sealed class AgentEventComposition
 
     private static string ComputeDigest(IReadOnlyList<AgentEventCatalogEntry> entries)
     {
-        var canonical = new StringBuilder(WireFormatVersion);
+        var canonical = new StringBuilder(AgentEventWireFormat.Version);
         foreach (var entry in entries)
             canonical.Append('\n').Append(entry.ModuleId).Append('|').Append(entry.Discriminator).Append('|')
-                .Append(entry.ContractName).Append('|').Append(entry.Durability);
+                .Append(entry.ContractDigest);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString()))).ToLowerInvariant();
     }
 
     private static string ComputeBehaviorDigest(IEnumerable<AgentEventDescriptor> descriptors)
     {
-        var canonical = new StringBuilder(WireFormatVersion);
+        var canonical = new StringBuilder(AgentEventWireFormat.Version);
         foreach (var descriptor in descriptors
             .OrderBy(static value => value.ModuleId, StringComparer.Ordinal)
             .ThenBy(static value => value.Discriminator, StringComparer.Ordinal))
         {
             canonical.Append('\n').Append(descriptor.ModuleId).Append('|').Append(descriptor.Discriminator)
-                .Append('|').Append(descriptor.Durability);
+                .Append('|').Append(descriptor.Durability)
+                .Append('|').Append(descriptor.RequiresDurable);
             if (descriptor.ContentPolicy is { } policy)
                 canonical.Append('|').Append(policy.Kind).Append('|').Append(policy.ContentType)
                     .Append('|').Append(policy.Origin).Append('|').Append(policy.Scope);

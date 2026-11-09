@@ -12,7 +12,7 @@ namespace HPD.Agent.Evaluations.Integration;
 /// its model. Register this after prompt/privacy middleware so evaluation traces
 /// store the post-middleware prompt rather than the raw evaluator prompt.
 /// </summary>
-public sealed class EvalJudgeTraceCaptureMiddleware : IAgentMiddleware
+internal sealed class EvalJudgeTraceCaptureMiddleware : IAgentMiddleware
 {
     /// <inheritdoc />
     public IAsyncEnumerable<AgentModelUpdate>? WrapModelTurnStreamingAsync(

@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
@@ -28,6 +29,7 @@ namespace HPD.Agent;
 /// toolharness instantiation and function creation.
 /// </para>
 /// </remarks>
+[EditorBrowsable(EditorBrowsableState.Never)]
 public record ToolHarnessFactory(
     // ========== EXISTING FIELDS ==========
 

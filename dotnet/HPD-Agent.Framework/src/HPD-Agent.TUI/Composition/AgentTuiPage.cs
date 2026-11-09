@@ -7,6 +7,8 @@ namespace HPD.Agent.TUI.Composition;
 
 public sealed class AgentTuiPageContext
 {
+    private readonly AgentTuiStateBag _state;
+
     public AgentTuiPageContext(
         AgentTuiRuntimeScope scope,
         ChatShellModel shell,
@@ -21,7 +23,7 @@ public sealed class AgentTuiPageContext
     {
     }
 
-    public AgentTuiPageContext(
+    internal AgentTuiPageContext(
         AgentTuiRuntimeScope scope,
         ChatShellModel shell,
         AgentTuiNavigationModel navigation,
@@ -39,7 +41,7 @@ public sealed class AgentTuiPageContext
         Registry = registry ?? throw new ArgumentNullException(nameof(registry));
         Page = page ?? throw new ArgumentNullException(nameof(page));
         Height = height;
-        State = state ?? throw new ArgumentNullException(nameof(state));
+        _state = state ?? throw new ArgumentNullException(nameof(state));
         Width = Math.Max(1, width);
         Theme = theme ?? HPD.TUI.Core.Theme.Default;
         ColorSystem = colorSystem;
@@ -53,11 +55,22 @@ public sealed class AgentTuiPageContext
 
     public HpdAgentTuiRegistry Registry { get; }
 
+    /// <summary>Gets the runtime available to host-authored page actions.</summary>
+    public IHpdAgentTuiRuntime? Runtime => Shell.Runtime;
+
+    /// <summary>Gets the supported target-switching operation, when the host provides one.</summary>
+    public Func<AgentTuiExecutionTarget, CancellationToken, ValueTask>? SwitchTargetAsync => Shell.SwitchTargetAsync;
+
+    /// <summary>Gets the direct-scope switching convenience operation, when supported.</summary>
+    public Func<AgentTuiRuntimeScope, CancellationToken, ValueTask>? SwitchScopeAsync => Shell.SwitchScopeAsync;
+
     public HpdAgentTuiPageDescriptor Page { get; }
 
     public int Height { get; }
 
-    public AgentTuiStateBag State { get; }
+    public IAgentTuiStateStore State => _state;
+
+    internal AgentTuiStateBag StateBag => _state;
 
     /// <summary>Gets the exact page width prepared for the next frame.</summary>
     public int Width { get; }

@@ -38,7 +38,7 @@ public sealed class TurnAutonomyEvaluatorOptions
 /// Combine with TurnRiskEvaluator in IScoreStore.GetRiskAutonomyDistributionAsync()
 /// for the risk/autonomy scatter plot.
 /// </summary>
-public sealed class TurnAutonomyEvaluator : HpdDeterministicEvaluatorBase
+internal sealed class TurnAutonomyEvaluator : HpdDeterministicEvaluatorBase
 {
     public const string MetricName = "Turn Autonomy";
     private readonly TurnAutonomyEvaluatorOptions _options;

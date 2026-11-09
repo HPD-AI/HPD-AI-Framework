@@ -11,7 +11,7 @@ using HPD.Agent.Evaluations.Contexts;
 namespace HPD.Agent.Evaluations.Evaluators.Deterministic;
 
 /// <summary>BooleanMetric — response text contains the specified substring.</summary>
-public sealed class OutputContainsEvaluator(string value) : HpdDeterministicEvaluatorBase
+internal sealed class OutputContainsEvaluator(string value) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Output Contains"];
 
@@ -32,7 +32,7 @@ public sealed class OutputContainsEvaluator(string value) : HpdDeterministicEval
 }
 
 /// <summary>BooleanMetric — response text contains any expected substring.</summary>
-public sealed class ContainsAnyEvaluator(params string[] values) : HpdDeterministicEvaluatorBase
+internal sealed class ContainsAnyEvaluator(params string[] values) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Contains Any"];
 
@@ -58,7 +58,7 @@ public sealed class ContainsAnyEvaluator(params string[] values) : HpdDeterminis
 }
 
 /// <summary>BooleanMetric — response text contains all expected substrings.</summary>
-public sealed class ContainsAllEvaluator(params string[] values) : HpdDeterministicEvaluatorBase
+internal sealed class ContainsAllEvaluator(params string[] values) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Contains All"];
 
@@ -82,7 +82,7 @@ public sealed class ContainsAllEvaluator(params string[] values) : HpdDeterminis
 }
 
 /// <summary>BooleanMetric — case-insensitive response substring check.</summary>
-public sealed class CaseInsensitiveContainsEvaluator(string value) : HpdDeterministicEvaluatorBase
+internal sealed class CaseInsensitiveContainsEvaluator(string value) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Case-Insensitive Contains"];
 
@@ -103,7 +103,7 @@ public sealed class CaseInsensitiveContainsEvaluator(string value) : HpdDetermin
 }
 
 /// <summary>BooleanMetric — response text starts with the expected prefix.</summary>
-public sealed class StartsWithEvaluator(string value, bool ignoreCase = false) : HpdDeterministicEvaluatorBase
+internal sealed class StartsWithEvaluator(string value, bool ignoreCase = false) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Starts With"];
 
@@ -125,7 +125,7 @@ public sealed class StartsWithEvaluator(string value, bool ignoreCase = false) :
 }
 
 /// <summary>BooleanMetric with word-count metadata — validates min/max/exact word count.</summary>
-public sealed class WordCountEvaluator(int? min = null, int? max = null, int? exact = null)
+internal sealed class WordCountEvaluator(int? min = null, int? max = null, int? exact = null)
     : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Word Count"];
@@ -156,7 +156,7 @@ public sealed class WordCountEvaluator(int? min = null, int? max = null, int? ex
 }
 
 /// <summary>NumericMetric 0-1 — normalized Levenshtein similarity to expected output.</summary>
-public sealed class LevenshteinEvaluator(string expected) : HpdDeterministicEvaluatorBase
+internal sealed class LevenshteinEvaluator(string expected) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Levenshtein Similarity"];
 
@@ -207,7 +207,7 @@ public sealed class LevenshteinEvaluator(string expected) : HpdDeterministicEval
 }
 
 /// <summary>BooleanMetric — detects common refusal language in the response.</summary>
-public sealed class RefusalEvaluator : HpdDeterministicEvaluatorBase
+internal sealed class RefusalEvaluator : HpdDeterministicEvaluatorBase
 {
     private static readonly string[] RefusalPhrases =
     [
@@ -245,7 +245,7 @@ public sealed class RefusalEvaluator : HpdDeterministicEvaluatorBase
 }
 
 /// <summary>BooleanMetric — regex match on output text.</summary>
-public sealed class OutputMatchesRegexEvaluator(string pattern) : HpdDeterministicEvaluatorBase
+internal sealed class OutputMatchesRegexEvaluator(string pattern) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Output Matches Regex"];
 
@@ -266,7 +266,7 @@ public sealed class OutputMatchesRegexEvaluator(string pattern) : HpdDeterminist
 }
 
 /// <summary>BooleanMetric — exact string match on output text.</summary>
-public sealed class OutputEqualsEvaluator(string value) : HpdDeterministicEvaluatorBase
+internal sealed class OutputEqualsEvaluator(string value) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Output Equals"];
 
@@ -285,7 +285,7 @@ public sealed class OutputEqualsEvaluator(string value) : HpdDeterministicEvalua
 }
 
 /// <summary>BooleanMetric — exact match with the ground truth from GroundTruthContext.</summary>
-public sealed class EqualsGroundTruthEvaluator : HpdDeterministicEvaluatorBase
+internal sealed class EqualsGroundTruthEvaluator : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Equals Ground Truth"];
 
@@ -312,7 +312,7 @@ public sealed class EqualsGroundTruthEvaluator : HpdDeterministicEvaluatorBase
 }
 
 /// <summary>NumericMetric 0–1 — fraction of keywords present in output.</summary>
-public sealed class KeywordCoverageEvaluator(string[] keywords) : HpdDeterministicEvaluatorBase
+internal sealed class KeywordCoverageEvaluator(string[] keywords) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Keyword Coverage"];
 
@@ -341,7 +341,7 @@ public sealed class KeywordCoverageEvaluator(string[] keywords) : HpdDeterminist
 }
 
 /// <summary>NumericMetric 0–1 — character-level similarity (Dice coefficient).</summary>
-public sealed class ContentSimilarityEvaluator(string expected) : HpdDeterministicEvaluatorBase
+internal sealed class ContentSimilarityEvaluator(string expected) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Content Similarity"];
 
@@ -378,7 +378,7 @@ public sealed class ContentSimilarityEvaluator(string expected) : HpdDeterminist
 }
 
 /// <summary>BooleanMetric — response text is parseable JSON.</summary>
-public sealed class JsonValidityEvaluator : HpdDeterministicEvaluatorBase
+internal sealed class JsonValidityEvaluator : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["JSON Validity"];
 
@@ -394,7 +394,7 @@ public sealed class JsonValidityEvaluator : HpdDeterministicEvaluatorBase
 }
 
 /// <summary>BooleanMetric — response text is well-formed XML.</summary>
-public sealed class XmlValidityEvaluator : HpdDeterministicEvaluatorBase
+internal sealed class XmlValidityEvaluator : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["XML Validity"];
 
@@ -407,7 +407,7 @@ public sealed class XmlValidityEvaluator : HpdDeterministicEvaluatorBase
 }
 
 /// <summary>BooleanMetric — response has plausible HTML shape. This is not W3C validation.</summary>
-public sealed class HtmlShapeEvaluator(params string[] requiredTags) : HpdDeterministicEvaluatorBase
+internal sealed class HtmlShapeEvaluator(params string[] requiredTags) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["HTML Shape"];
 
@@ -436,7 +436,7 @@ public sealed class HtmlShapeEvaluator(params string[] requiredTags) : HpdDeterm
 }
 
 /// <summary>BooleanMetric — response has plausible SQL statement shape. This is not dialect validation.</summary>
-public sealed class SqlShapeEvaluator : HpdDeterministicEvaluatorBase
+internal sealed class SqlShapeEvaluator : HpdDeterministicEvaluatorBase
 {
     private static readonly string[] StatementStarters =
     [

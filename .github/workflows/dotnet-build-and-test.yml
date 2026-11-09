@@ -2,6 +2,11 @@ name: Build and Test
 
 on:
   workflow_dispatch:
+  workflow_call:
+  pull_request:
+  push:
+    branches:
+      - main
 
 env:
   COVERAGE_FRAMEWORK: net10.0
@@ -48,7 +53,7 @@ jobs:
   # ============================================
   build-and-test:
     needs: paths-filter
-    if: needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_call' || needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -75,6 +80,13 @@ jobs:
           8.0.x
           9.0.x
           10.0.x
+
+    - name: Prepare Apple virtualization helper
+      if: runner.os == 'macOS'
+      shell: bash
+      run: >-
+        bash
+        dotnet/HPD-Environment.Framework/src/HPD-Environment.Virtualization/HPD-Environment.Virtualization.Apple/hpd-vz/packaging/sign-hpd-vz.sh
 
     - name: Provision required debugger adapters
       if: matrix.collect-coverage
@@ -119,15 +131,33 @@ jobs:
     - name: Build
       run: dotnet build dotnet/HPD-Agent.Framework/HPD-Agent.slnx -c ${{ matrix.configuration }} --no-restore
 
+    - name: Verify API surfaces
+      if: matrix.targetFramework == 'net10.0'
+      run: >
+        dotnet run
+        --project dotnet/HPD-Agent.Framework/test/HPD-Agent.DxAudit/HPD-Agent.DxAudit.csproj
+        -c ${{ matrix.configuration }}
+        -f net10.0
+        --no-build
+        --
+        --api-only
+        --strict
+
+    - name: Smoke-test audio application composition
+      if: matrix.targetFramework == 'net10.0'
+      run: >
+        dotnet run
+        --project dotnet/HPD-Agent.Framework/test/HPD-Agent.AudioCli/HPD-Agent.AudioCli.csproj
+        -c ${{ matrix.configuration }}
+        --no-build
+        --
+        --help
+
     - name: Run tests (with coverage)
       if: matrix.collect-coverage
       run: |
-        dotnet test dotnet/HPD-Agent.Framework/HPD-Agent.slnx \
-          -m:1 \
-          -f ${{ matrix.targetFramework }} \
-          -c ${{ matrix.configuration }} \
-          --no-build \
-          --verbosity normal \
+        bash dotnet/HPD-Agent.Framework/eng/test-agent-suite.sh \
+          ${{ matrix.targetFramework }} \
           --logger "trx" \
           --collect:"XPlat Code Coverage" \
           --results-directory:"TestResults/Coverage/"
@@ -136,12 +166,9 @@ jobs:
       if: ${{ !matrix.collect-coverage }}
       shell: bash
       run: |
-        dotnet test dotnet/HPD-Agent.Framework/HPD-Agent.slnx \
-          -m:1 \
-          -f ${{ matrix.targetFramework }} \
-          -c ${{ matrix.configuration }} \
-          --no-build \
-          --verbosity normal \
+        CONFIGURATION="${{ matrix.configuration }}"
+        bash dotnet/HPD-Agent.Framework/eng/test-agent-suite.sh \
+          ${{ matrix.targetFramework }} \
           --logger "trx;LogFileName=test-results.trx"
 
     - name: Upload test results
@@ -203,7 +230,7 @@ jobs:
   unit-test-summary:
     needs: [paths-filter, build-and-test]
     runs-on: ubuntu-latest
-    if: always() && needs.paths-filter.outputs.dotnet-changed == 'true'
+    if: always() && (github.event_name == 'workflow_call' || needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch')
 
     steps:
     - name: Download all test results
@@ -228,7 +255,7 @@ jobs:
   package-check:
     needs: [paths-filter, build-and-test]
     runs-on: ubuntu-latest
-    if: needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_call' || needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch'
 
     steps:
     - uses: actions/checkout@v4
@@ -267,14 +294,16 @@ jobs:
           frameworks=$(unzip -l "$pkg" | grep -E "lib/net" | awk '{print $4}' | cut -d'/' -f2 | sort -u | tr '\n' ' ')
           echo "Frameworks: $frameworks"
 
-          # Check for expected frameworks (skip source generators which are netstandard2.0)
-          if [[ "$pkg" != *"SourceGenerator"* ]]; then
+          # Check for expected frameworks (skip analyzers and RID-specific native packages).
+          if [[ "$pkg" != *"SourceGenerator"* && "$pkg" != *"LiveKit.NativeAssets"* ]]; then
             if [[ "$frameworks" != *"net10.0"* ]] || [[ "$frameworks" != *"net9.0"* ]] || [[ "$frameworks" != *"net8.0"* ]]; then
               echo "WARNING: Package may be missing frameworks. Expected net10.0, net9.0, net8.0"
               MISSING_FRAMEWORKS=true
             else
               echo "✓ All expected frameworks present"
             fi
+          elif [[ "$pkg" == *"LiveKit.NativeAssets"* ]]; then
+            echo "✓ LiveKit native assets (net8.0 marker assembly expected)"
           else
             echo "✓ Source generator (netstandard2.0 expected)"
           fi
@@ -318,6 +347,20 @@ jobs:
             echo "⊘ HPD-Agent.Framework package not found (checking if packable...)"
           fi
 
+          if dotnet add package HPD-Agent.Audio 2>/dev/null &&
+             dotnet add package HPD-Agent.Providers.Audio.OpenAI 2>/dev/null &&
+             dotnet add package HPD-Agent.Audio.LiveKit 2>/dev/null; then
+            if dotnet build -f $framework --nologo -v q 2>&1 | tail -1; then
+              echo "✓ Audio and LiveKit packages installed and built on $framework"
+            else
+              echo "Audio package build failed on $framework"
+              INSTALL_FAILED=true
+            fi
+          else
+            echo "Audio package installation failed on $framework"
+            INSTALL_FAILED=true
+          fi
+
           cd - > /dev/null
         done
 
@@ -354,7 +397,7 @@ jobs:
           echo "Dotnet Changed: ${{ needs.paths-filter.outputs.dotnet-changed }}"
 
       - name: Skip message (no dotnet changes)
-        if: needs.paths-filter.outputs.dotnet-changed != 'true' && github.event_name != 'workflow_dispatch'
+        if: needs.paths-filter.outputs.dotnet-changed != 'true' && github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call'
         run: |
           echo "=================================="
           echo "⊘ Skipped - No .NET changes       "
@@ -364,21 +407,21 @@ jobs:
           echo "Build and test jobs were skipped to save CI minutes."
 
       - name: Check for failures
-        if: (needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch') && contains(join(needs.*.result, ','), 'failure')
+        if: (needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && contains(join(needs.*.result, ','), 'failure')
         run: |
           echo "One or more jobs failed"
           echo "::error::Build or test failures detected"
           exit 1
 
       - name: Check for cancellation
-        if: (needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch') && contains(join(needs.*.result, ','), 'cancelled')
+        if: (needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && contains(join(needs.*.result, ','), 'cancelled')
         run: |
           echo "One or more jobs were cancelled"
           echo "::error::Jobs were cancelled"
           exit 1
 
       - name: All checks passed
-        if: needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch'
+        if: needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call'
         run: |
           echo "=================================="
           echo "✓ All checks passed!              "

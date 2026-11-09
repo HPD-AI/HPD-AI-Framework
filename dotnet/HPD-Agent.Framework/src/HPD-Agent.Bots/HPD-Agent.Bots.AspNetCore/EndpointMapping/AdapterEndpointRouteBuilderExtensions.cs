@@ -33,7 +33,8 @@ public static class BotEndpointRouteBuilderExtensions
         // Each adapter's MapEndpoint delegate calls the generated MapXxxWebhook() extension.
         foreach (var registration in GetRegistrations(app))
         {
-            registration.MapEndpoint(app, registration.DefaultPath);
+            // Let the adapter apply its own default mapping. Teams uses a non-webhook SDK endpoint.
+            registration.MapEndpoint(app, null);
         }
 
         return app;

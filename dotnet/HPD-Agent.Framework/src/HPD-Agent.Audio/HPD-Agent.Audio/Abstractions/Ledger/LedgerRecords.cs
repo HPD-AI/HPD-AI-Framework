@@ -33,9 +33,9 @@ public sealed record UserTurnLedgerRecord : RealtimeLedgerRecord
 
     public required string Text { get; init; }
 
-    public required IReadOnlyList<EndpointEvidenceIdV1> EvidenceIds { get; init; }
+    public required IReadOnlyList<EndpointEvidenceId> EvidenceIds { get; init; }
 
-    public required EndpointCommitProjectionReasonV1 CommitReason { get; init; }
+    public required EndpointCommitProjectionReason CommitReason { get; init; }
 }
 
 public sealed record AssistantOutputLedgerRecord : RealtimeLedgerRecord

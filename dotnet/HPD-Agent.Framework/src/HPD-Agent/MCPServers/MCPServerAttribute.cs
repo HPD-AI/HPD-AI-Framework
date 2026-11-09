@@ -21,7 +21,7 @@ namespace HPD.Agent;
 /// (same as [AIFunction] and [Skill]).
 /// </remarks>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = false)]
-public class McpServerAttribute : Attribute
+public sealed class McpServerAttribute : Attribute
 {
     /// <summary>
     /// Server name to look up when using FromManifest mode.

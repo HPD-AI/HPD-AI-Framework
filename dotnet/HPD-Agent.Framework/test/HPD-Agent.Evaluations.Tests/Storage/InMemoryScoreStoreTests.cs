@@ -5,6 +5,7 @@ using FluentAssertions;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Evaluation;
 using Microsoft.Extensions.AI.Evaluation.Reporting;
+using HPD.Agent.Evaluations.Evaluators.Safety;
 using HPD.Agent.Evaluations.Storage;
 
 namespace HPD.Agent.Evaluations.Tests.Storage;
@@ -281,6 +282,42 @@ public sealed class InMemoryScoreStoreTests
 
         var rate = await store.GetPassRateAsync("E");
         rate.Should().BeApproximately(0.5, 0.01);
+    }
+
+    [Fact]
+    public async Task GetPassRate_ExplicitMetricInterpretation_OverridesNumericFallback()
+    {
+        var store = new InMemoryScoreStore();
+        var risk = new NumericMetric("Content Harm")
+        {
+            Value = 1.0,
+            Interpretation = new EvaluationMetricInterpretation(
+                EvaluationRating.Exceptional,
+                failed: false),
+        };
+        var passed = new BooleanMetric("Content Harm Passed")
+        {
+            Value = true,
+            Interpretation = new EvaluationMetricInterpretation(
+                EvaluationRating.Exceptional,
+                failed: false),
+        };
+
+        await store.WriteScoreAsync(new ScoreRecord
+        {
+            Id = Guid.NewGuid().ToString(),
+            EvaluatorName = nameof(ContentHarmEvaluator),
+            EvaluatorVersion = "1.0.0",
+            Result = new EvaluationResult(risk, passed),
+            Source = EvaluationSource.Live,
+            SessionId = "safe-session",
+            ThreadId = "main",
+            AgentName = "TestAgent",
+            Policy = EvalPolicy.TrackTrend,
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+
+        (await store.GetPassRateAsync(nameof(ContentHarmEvaluator))).Should().Be(1.0);
     }
 
     [Fact]

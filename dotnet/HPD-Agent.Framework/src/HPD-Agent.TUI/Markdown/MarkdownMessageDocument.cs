@@ -84,7 +84,7 @@ public sealed record MarkdownMessageDocument
     }
 
     /// <summary>Exports exact accepted UTF-16 source after validating explicit authority for this lineage.</summary>
-    public string ExportExact(MarkdownExactSourceAuthority authority)
+    internal string ExportExact(MarkdownExactSourceAuthority authority)
     {
         ArgumentNullException.ThrowIfNull(authority);
         if (authority.Identity != Identity || authority.LineageId != LineageId)
@@ -102,7 +102,7 @@ public sealed record MarkdownMessageDocument
 }
 
 /// <summary>Unforgeable authorization to export exact source from one retained Markdown lineage.</summary>
-public sealed class MarkdownExactSourceAuthority
+internal sealed class MarkdownExactSourceAuthority
 {
     internal MarkdownExactSourceAuthority(MarkdownStreamIdentity identity, Guid lineageId)
     { Identity = identity; LineageId = lineageId; }

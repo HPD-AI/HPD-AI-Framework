@@ -15,12 +15,12 @@ namespace HPD.Agent.Providers.Audio.Silero;
     Lifetime = ProviderFamilyLifetime.StatefulPerAudioSession)]
 [HpdProviderPayload(ProviderClientFamily.VoiceActivityDetection, ProviderPayloadKind.Configuration,
     typeof(SileroVadOptions), typeof(SileroJsonContext))]
-public sealed class SileroAudioProvider : IVoiceActivitySourceProviderV1, IDisposable
+public sealed class SileroAudioProvider : IVoiceActivitySourceProvider, IDisposable
 {
     public const string Key = "silero";
     public const string DefaultModel = "silero-vad-6.2";
     private readonly object _gate = new();
-    private SileroModelHostV1? _host;
+    private SileroModelHost? _host;
     private string? _hostIdentity;
     private bool _disposed;
 
@@ -35,7 +35,7 @@ public sealed class SileroAudioProvider : IVoiceActivitySourceProviderV1, IDispo
     }
 
     /// <inheritdoc />
-    public ValueTask<ProviderClientConstruction<VoiceActivitySourceProductV1>> CreateAsync(
+    public ValueTask<ProviderClientConstruction<VoiceActivitySourceProduct>> CreateAsync(
         ProviderClientConstructionContext context,
         CancellationToken cancellationToken = default)
     {
@@ -54,15 +54,15 @@ public sealed class SileroAudioProvider : IVoiceActivitySourceProviderV1, IDispo
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (_host is null)
             {
-                _host = new SileroModelHostV1(options.ModelPath!, options.ModelSha256, options.IntraOpThreads);
+                _host = new SileroModelHost(options.ModelPath!, options.ModelSha256, options.IntraOpThreads);
                 _hostIdentity = identity;
             }
             else if (!StringComparer.Ordinal.Equals(_hostIdentity, identity))
             {
                 throw new InvalidOperationException("A Silero provider instance cannot change its model host identity.");
             }
-            VoiceActivitySourceProductV1 product = new VoiceActivitySourceProductV1.BorrowedSynchronous(_host.CreateSource());
-            var construction = new ProviderClientConstruction<VoiceActivitySourceProductV1>
+            VoiceActivitySourceProduct product = new VoiceActivitySourceProduct.BorrowedSynchronous(_host.CreateSource());
+            var construction = new ProviderClientConstruction<VoiceActivitySourceProduct>
             {
                 Client = product,
                 Owner = ProviderClientConstructionUtilities.Own()
@@ -94,8 +94,8 @@ public sealed class SileroAudioProvider : IVoiceActivitySourceProviderV1, IDispo
                     ["ImplicitModelDownload"] = false,
                     ["MaximumConcurrentInferences"] = 1,
                     ["MaximumPendingInferences"] = 0,
-                    ["OnnxRuntimeVersion"] = SileroModelArtifactV1.OnnxRuntimeVersion,
-                    ["SupportedRuntimeIdentifiers"] = SileroModelArtifactV1.NativeRuntimeAssets.Keys.ToArray(),
+                    ["OnnxRuntimeVersion"] = SileroModelArtifact.OnnxRuntimeVersion,
+                    ["SupportedRuntimeIdentifiers"] = SileroModelArtifact.NativeRuntimeAssets.Keys.ToArray(),
                 }
             }
         }
@@ -126,7 +126,7 @@ public sealed class SileroAudioProvider : IVoiceActivitySourceProviderV1, IDispo
         return errors.Count == 0 ? ProviderValidationResult.Success() : ProviderValidationResult.Failure(errors.ToArray());
     }
 
-    public IProviderErrorHandler CreateErrorHandler() => SileroErrorHandlerV1.Instance;
+    public IProviderErrorHandler CreateErrorHandler() => SileroErrorHandler.Instance;
 
     public void Dispose()
     {

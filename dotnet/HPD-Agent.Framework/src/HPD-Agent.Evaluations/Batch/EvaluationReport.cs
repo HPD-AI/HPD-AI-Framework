@@ -176,9 +176,19 @@ public sealed class EvaluationReport
             $"POLICY VIOLATION: '{v.EvaluatorName}' pass rate = {v.PassRate:P1} (expected 100%)"));
     }
 
+    /// <summary>
+    /// Throws when one or more <see cref="EvalPolicy.MustAlwaysPass"/> evaluators
+    /// failed. Intended for CI and release gates.
+    /// </summary>
+    public void ThrowIfPolicyViolations()
+    {
+        if (HasPolicyViolations)
+            throw new InvalidOperationException(FormatPolicyViolations());
+    }
+
     // ── Rendering ─────────────────────────────────────────────────────────────
 
-    public void Print(EvaluationReport? baseline = null, PrintOptions? options = null)
+    public void Print(EvaluationReport? baseline = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine($"=== {ExperimentName} ===");
@@ -379,19 +389,10 @@ public sealed class EvaluationReport
 
     // ── Private ───────────────────────────────────────────────────────────────
 
-    private static bool IsMetricPassing(EvaluationMetric metric) => metric switch
-    {
-        BooleanMetric bm => bm.Value == true,
-        NumericMetric nm => nm.Value.HasValue && nm.Value.Value >= 0.5,
-        _ => false,
-    };
+    private static bool IsMetricPassing(EvaluationMetric metric)
+        => EvaluationMetricSemantics.IsPassing(metric);
 
     private sealed record PolicyViolation(string EvaluatorName, double PassRate);
-}
-
-public sealed class PrintOptions
-{
-    public bool ShowCaseDetails { get; init; } = false;
 }
 
 // ── Built-in report evaluators ────────────────────────────────────────────────

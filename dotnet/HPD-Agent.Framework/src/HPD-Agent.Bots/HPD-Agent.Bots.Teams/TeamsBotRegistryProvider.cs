@@ -18,7 +18,8 @@ internal sealed class TeamsBotRegistryProvider : IBotRegistryProvider
 
     private static IEndpointConventionBuilder MapEndpoint(IEndpointRouteBuilder endpoints, string? path)
     {
-        if (path is not null)
+        if (path is not null &&
+            !string.Equals(path, Registration.DefaultPath, StringComparison.Ordinal))
         {
             throw new NotSupportedException(
                 "Teams uses the M365 Agents SDK endpoint mapping. Custom endpoint aliases are not supported yet.");

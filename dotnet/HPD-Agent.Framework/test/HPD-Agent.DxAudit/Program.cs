@@ -4,19 +4,46 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using HPD.Agent;
+using HPD.Agent.AspNetCore.Evaluations;
+using HPD.Agent.MultiAgent.AspNetCore;
+using HPD.Agent.MultiAgent.HpdBase;
 using HPD.Agent.DxAudit;
+using HPD.MultiAgent;
 
 var strict = args.Contains("--strict", StringComparer.OrdinalIgnoreCase);
+var strictMultiAgent = args.Contains("--strict-multiagent", StringComparer.OrdinalIgnoreCase);
+var strictEvaluations = args.Contains("--strict-evaluations", StringComparer.OrdinalIgnoreCase) ||
+                        strict;
+var apiOnly = args.Contains("--api-only", StringComparer.OrdinalIgnoreCase);
 var snapshotPath = ReadOption(args, "--api-snapshot");
 var baselinePath = ReadOption(args, "--api-baseline");
 var updateBaselinePath = ReadOption(args, "--update-api-baseline");
 baselinePath ??= updateBaselinePath is null
-    ? FindDefaultApiBaseline()
+    ? FindDefaultApiBaseline("api-surface.json")
+    : null;
+var multiAgentSnapshotPath = ReadOption(args, "--multiagent-api-snapshot");
+var multiAgentBaselinePath = ReadOption(args, "--multiagent-api-baseline");
+var updateMultiAgentBaselinePath = ReadOption(args, "--update-multiagent-api-baseline");
+multiAgentBaselinePath ??= updateMultiAgentBaselinePath is null
+    ? FindDefaultApiBaseline("multiagent-api-surface.json")
+    : null;
+var evaluationSnapshotPath = ReadOption(args, "--evaluation-api-snapshot");
+var evaluationBaselinePath = ReadOption(args, "--evaluation-api-baseline");
+var updateEvaluationBaselinePath = ReadOption(args, "--update-evaluation-api-baseline");
+evaluationBaselinePath ??= updateEvaluationBaselinePath is null
+    ? FindDefaultApiBaseline("evaluations-api-surface.json")
     : null;
 
 using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-var results = await AuditSuite.RunAsync(cancellation.Token);
+var results = apiOnly ? [] : await AuditSuite.RunAsync(cancellation.Token);
 var surface = ApiSurfaceSnapshot.Capture(typeof(Agent).Assembly);
+var multiAgentSurface = ApiSurfaceSnapshot.Capture(
+    typeof(AgentWorkflowInstance).Assembly,
+    typeof(IHPDMultiAgentWorkflowBackend).Assembly,
+    typeof(HPDMultiAgentHpdBaseServiceCollectionExtensions).Assembly);
+var evaluationSurface = ApiSurfaceSnapshot.Capture(
+    typeof(HPD.Agent.Evaluations.Eval).Assembly,
+    typeof(HPDAgentEvaluationServiceCollectionExtensions).Assembly);
 
 Console.WriteLine("# HPD-Agent DX audit");
 Console.WriteLine();
@@ -35,22 +62,11 @@ foreach (var result in results)
 
 var probeFailures = results.Count(result =>
     result.Status is AuditStatus.Failure or AuditStatus.Gap);
-var apiDifferences = Array.Empty<string>();
-if (baselinePath is not null)
-{
-    var fullPath = Path.GetFullPath(baselinePath);
-    if (!File.Exists(fullPath))
-    {
-        apiDifferences = [$"API baseline does not exist: {fullPath}"];
-    }
-    else
-    {
-        var json = await File.ReadAllTextAsync(fullPath, cancellation.Token);
-        var baseline = JsonSerializer.Deserialize<ApiSurfaceSnapshot>(json)
-            ?? throw new InvalidOperationException($"API baseline is empty: {fullPath}");
-        apiDifferences = surface.Diff(baseline);
-    }
-}
+var apiDifferences = await CompareBaselineAsync(surface, baselinePath, cancellation.Token);
+var multiAgentApiDifferences = await CompareBaselineAsync(
+    multiAgentSurface, multiAgentBaselinePath, cancellation.Token);
+var evaluationApiDifferences = await CompareBaselineAsync(
+    evaluationSurface, evaluationBaselinePath, cancellation.Token);
 
 Console.WriteLine();
 Console.WriteLine("API baseline");
@@ -70,12 +86,56 @@ else
 }
 
 Console.WriteLine();
+Console.WriteLine("Multi-agent API baseline");
+Console.WriteLine($"        {multiAgentSurface.TypeCount} types, {multiAgentSurface.MethodCount} methods, " +
+    $"{multiAgentSurface.ConstructorCount} constructors, {multiAgentSurface.PropertyCount} properties, " +
+    $"{multiAgentSurface.FieldCount} fields, {multiAgentSurface.EventCount} events, " +
+    $"SHA-256 {multiAgentSurface.Fingerprint}");
+if (multiAgentBaselinePath is null)
+{
+    Console.WriteLine("        NOT CHECKED");
+}
+else if (multiAgentApiDifferences.Length == 0)
+{
+    Console.WriteLine($"        MATCH ({Path.GetFullPath(multiAgentBaselinePath)})");
+}
+else
+{
+    Console.WriteLine($"        CHANGED ({multiAgentApiDifferences.Length} differences)");
+    foreach (var difference in multiAgentApiDifferences)
+        Console.WriteLine($"        {difference}");
+}
+
+Console.WriteLine();
+Console.WriteLine("Evaluations API baseline");
+Console.WriteLine($"        {evaluationSurface.TypeCount} types, {evaluationSurface.MethodCount} methods, " +
+                  $"{evaluationSurface.ConstructorCount} constructors, {evaluationSurface.PropertyCount} properties, " +
+                  $"{evaluationSurface.FieldCount} fields, {evaluationSurface.EventCount} events, " +
+                  $"SHA-256 {evaluationSurface.Fingerprint}");
+if (evaluationBaselinePath is null)
+{
+    Console.WriteLine("        NOT CHECKED");
+}
+else if (evaluationApiDifferences.Length == 0)
+{
+    Console.WriteLine($"        MATCH ({Path.GetFullPath(evaluationBaselinePath)})");
+}
+else
+{
+    Console.WriteLine($"        CHANGED ({evaluationApiDifferences.Length} differences)");
+    foreach (var difference in evaluationApiDifferences)
+        Console.WriteLine($"        {difference}");
+}
+
+Console.WriteLine();
 Console.WriteLine(
     $"Summary: {results.Count(result => result.Status == AuditStatus.Pass)} passed, " +
     $"{results.Count(result => result.Status == AuditStatus.Failure)} failed, " +
     $"{results.Count(result => result.Status == AuditStatus.Gap)} surface gaps, " +
     $"{results.Count(result => result.Status == AuditStatus.NotRun)} not run, " +
-    $"{apiDifferences.Length} API differences.");
+    $"{apiDifferences.Length} core API differences, " +
+    $"{multiAgentApiDifferences.Length} multi-agent API differences, " +
+    $"{evaluationApiDifferences.Length} evaluation API differences.");
 
 if (snapshotPath is not null)
 {
@@ -83,6 +143,22 @@ if (snapshotPath is not null)
     Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
     await File.WriteAllTextAsync(fullPath, surface.ToJson(), cancellation.Token);
     Console.WriteLine($"API snapshot written to {fullPath}");
+}
+
+if (multiAgentSnapshotPath is not null)
+{
+    var fullPath = Path.GetFullPath(multiAgentSnapshotPath);
+    Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+    await File.WriteAllTextAsync(fullPath, multiAgentSurface.ToJson(), cancellation.Token);
+    Console.WriteLine($"Multi-agent API snapshot written to {fullPath}");
+}
+
+if (evaluationSnapshotPath is not null)
+{
+    var fullPath = Path.GetFullPath(evaluationSnapshotPath);
+    Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+    await File.WriteAllTextAsync(fullPath, evaluationSurface.ToJson(), cancellation.Token);
+    Console.WriteLine($"Evaluation API snapshot written to {fullPath}");
 }
 
 if (updateBaselinePath is not null)
@@ -93,7 +169,26 @@ if (updateBaselinePath is not null)
     Console.WriteLine($"API baseline written to {fullPath}");
 }
 
-return strict && (probeFailures > 0 || apiDifferences.Length > 0) ? 1 : 0;
+if (updateMultiAgentBaselinePath is not null)
+{
+    var fullPath = Path.GetFullPath(updateMultiAgentBaselinePath);
+    Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+    await File.WriteAllTextAsync(fullPath, multiAgentSurface.ToJson(), cancellation.Token);
+    Console.WriteLine($"Multi-agent API baseline written to {fullPath}");
+}
+
+if (updateEvaluationBaselinePath is not null)
+{
+    var fullPath = Path.GetFullPath(updateEvaluationBaselinePath);
+    Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+    await File.WriteAllTextAsync(fullPath, evaluationSurface.ToJson(), cancellation.Token);
+    Console.WriteLine($"Evaluation API baseline written to {fullPath}");
+}
+
+var failed = strict && (probeFailures > 0 || apiDifferences.Length > 0) ||
+             strictMultiAgent && multiAgentApiDifferences.Length > 0 ||
+             strictEvaluations && evaluationApiDifferences.Length > 0;
+return failed ? 1 : 0;
 
 static string? ReadOption(string[] arguments, string name)
 {
@@ -106,7 +201,25 @@ static string? ReadOption(string[] arguments, string name)
     return null;
 }
 
-static string? FindDefaultApiBaseline()
+static async Task<string[]> CompareBaselineAsync(
+    ApiSurfaceSnapshot actual,
+    string? baselinePath,
+    CancellationToken cancellationToken)
+{
+    if (baselinePath is null)
+        return [];
+
+    var fullPath = Path.GetFullPath(baselinePath);
+    if (!File.Exists(fullPath))
+        return [$"API baseline does not exist: {fullPath}"];
+
+    var json = await File.ReadAllTextAsync(fullPath, cancellationToken);
+    var baseline = JsonSerializer.Deserialize<ApiSurfaceSnapshot>(json)
+        ?? throw new InvalidOperationException($"API baseline is empty: {fullPath}");
+    return actual.Diff(baseline);
+}
+
+static string? FindDefaultApiBaseline(string fileName)
 {
     for (var directory = new DirectoryInfo(Directory.GetCurrentDirectory());
          directory is not null;
@@ -117,7 +230,7 @@ static string? FindDefaultApiBaseline()
             "test",
             "HPD-Agent.DxAudit",
             "baseline",
-            "api-surface.json");
+            fileName);
         if (File.Exists(candidate))
             return candidate;
     }
@@ -159,9 +272,12 @@ internal sealed record ApiSurfaceSnapshot(
     string Fingerprint,
     IReadOnlyList<ApiTypeSnapshot> Types)
 {
-    public static ApiSurfaceSnapshot Capture(Assembly assembly)
+    public static ApiSurfaceSnapshot Capture(params Assembly[] assemblies)
     {
-        var types = assembly.GetExportedTypes()
+        var types = assemblies
+            .SelectMany(static assembly => assembly.GetExportedTypes())
+            .GroupBy(static type => type.FullName, StringComparer.Ordinal)
+            .Select(static group => group.First())
             .OrderBy(type => type.FullName, StringComparer.Ordinal)
             .Select(ApiTypeSnapshot.From)
             .ToArray();

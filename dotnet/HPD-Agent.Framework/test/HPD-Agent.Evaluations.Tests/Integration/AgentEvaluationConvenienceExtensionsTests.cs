@@ -91,6 +91,26 @@ public sealed class AgentEvaluationConvenienceExtensionsTests
         Eval.ToolCallF1("a", "b").Should().BeOfType<ToolCallF1Evaluator>();
     }
 
+    [Fact]
+    public void EvalFactories_CoverFactoryBackedDeterministicAndNlpEvaluators()
+    {
+        EvaluatorCatalog.All.Should().HaveCount(77);
+        EvaluatorCatalog.All.Select(item => item.Id).Should().OnlyHaveUniqueItems();
+        typeof(OutputContainsEvaluator).IsPublic.Should().BeFalse();
+        typeof(HPD.Agent.Evaluations.Evaluators.Nlp.BleuEvaluator).IsPublic.Should().BeFalse();
+
+        Eval.EqualsGroundTruth().Should().NotBeNull();
+        Eval.KeywordCoverage("one", "two").Should().NotBeNull();
+        Eval.JsonValidity().Should().NotBeNull();
+        Eval.SchemaConformance("""{"type":"object"}""").Should().NotBeNull();
+        Eval.MaxDuration(10).Should().NotBeNull();
+        Eval.ToolCalled("search").Should().NotBeNull();
+        Eval.TurnAutonomy().Should().NotBeNull();
+        Eval.Bleu("reference").Should().NotBeNull();
+        Eval.Rouge("reference").Should().NotBeNull();
+        Eval.Meteor("reference").Should().NotBeNull();
+    }
+
     private static HPD.Agent.Agent CreateAgent()
     {
         var chatClient = new EchoChatClient();

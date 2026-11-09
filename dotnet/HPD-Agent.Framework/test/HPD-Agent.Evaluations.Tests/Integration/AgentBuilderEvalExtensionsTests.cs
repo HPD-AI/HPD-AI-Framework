@@ -4,6 +4,7 @@
 using FluentAssertions;
 using HPD.Agent;
 using HPD.Agent.Evaluations.Batch;
+using HPD.Agent.Evaluations.Evaluators.LlmJudge;
 using HPD.Agent.Evaluations.Integration;
 using HPD.Agent.Evaluations.Storage;
 using HPD.Agent.Evaluations.Tests.Infrastructure;
@@ -175,6 +176,68 @@ public sealed class AgentBuilderEvalExtensionsTests
         var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
         var regs = GetRegistrations(middleware);
         regs.Single().Policy.Should().Be(EvalPolicy.TrackTrend);
+    }
+
+    [Fact]
+    public void AddEvaluator_DefaultsDeterministicEvaluatorToMustAlwaysPass()
+    {
+        var builder = MakeBuilder();
+        builder.AddEvaluator(new StubDeterministicEvaluator("Score"));
+
+        var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
+        GetRegistrations(middleware).Single().Policy.Should().Be(EvalPolicy.MustAlwaysPass);
+    }
+
+    [Fact]
+    public void AddEvaluator_DefaultsJudgeEvaluatorToTrackTrend()
+    {
+        var builder = MakeBuilder();
+        builder.AddEvaluator(new CustomJudgeEvaluator("Be concise."));
+
+        var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
+        GetRegistrations(middleware).Single().Policy.Should().Be(EvalPolicy.TrackTrend);
+    }
+
+    [Fact]
+    public void UseEvaluationJudgeConfig_SetsFallbackOnSharedMiddleware()
+    {
+        var builder = MakeBuilder();
+        var config = new EvaluationJudgeRunConfig { Timeout = TimeSpan.FromSeconds(45) };
+
+        builder
+            .AddEvaluator(new CustomJudgeEvaluator("Be concise."))
+            .UseEvaluationJudgeConfig(config);
+
+        var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
+        middleware.GlobalJudgeConfig.Should().BeSameAs(config);
+    }
+
+    [Fact]
+    public void AddEvaluator_InvalidSamplingRate_FailsImmediately()
+    {
+        var builder = MakeBuilder();
+
+        var act = () => builder.AddEvaluator(
+            new StubDeterministicEvaluator("Score"),
+            samplingRate: 1.5);
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void WithStateAssembly_LoadsInternalGeneratedEvaluationStateRegistry()
+    {
+        var builder = MakeBuilder();
+
+        builder.WithStateAssembly<ConversationEvalStateData>();
+
+        var field = typeof(AgentBuilder).GetField(
+            "_stateFactories",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        field.Should().NotBeNull();
+        var states = field!.GetValue(builder)
+            .Should().BeAssignableTo<System.Collections.IDictionary>().Subject;
+        states.Contains(typeof(ConversationEvalStateData).FullName).Should().BeTrue();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

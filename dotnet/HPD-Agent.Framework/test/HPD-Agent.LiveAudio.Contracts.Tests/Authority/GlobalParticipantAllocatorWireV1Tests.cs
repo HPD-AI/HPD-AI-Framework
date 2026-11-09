@@ -56,24 +56,24 @@ public sealed class GlobalParticipantAllocatorWireV1Tests
     [Fact]
     public void EmptyPage_RoundTripsAndHasFrozenDeterministicHash()
     {
-        var page = new GlobalParticipantPageV1(JournalId(), null, GlobalParticipantPageCodecV1.DefaultIndexRoot,
-            1, null, GlobalParticipantPageCodecV1.EncodeRecordsField(Array.Empty<ReadOnlyMemory<byte>>()),
+        var page = new GlobalParticipantPage(JournalId(), null, GlobalParticipantPageCodec.DefaultIndexRoot,
+            1, null, GlobalParticipantPageCodec.EncodeRecordsField(Array.Empty<ReadOnlyMemory<byte>>()),
             1, 1, 0, 0);
-        var bytes = GlobalParticipantPageCodecV1.Encode(page);
-        Assert.True(GlobalParticipantPageCodecV1.TryDecode(bytes, out var decoded));
-        Assert.Equal(bytes, GlobalParticipantPageCodecV1.Encode(decoded!));
-        Assert.Equal(GlobalParticipantPageCodecV1.ComputePageHash(page), GlobalParticipantPageCodecV1.ComputePageHash(decoded!));
+        var bytes = GlobalParticipantPageCodec.Encode(page);
+        Assert.True(GlobalParticipantPageCodec.TryDecode(bytes, out var decoded));
+        Assert.Equal(bytes, GlobalParticipantPageCodec.Encode(decoded!));
+        Assert.Equal(GlobalParticipantPageCodec.ComputePageHash(page), GlobalParticipantPageCodec.ComputePageHash(decoded!));
     }
 
     [Fact]
     public void PageFraming_RejectsRecordAndPageBounds()
     {
-        Assert.ThrowsAny<ArgumentException>(() => GlobalParticipantPageCodecV1.EncodeRecordsField(
+        Assert.ThrowsAny<ArgumentException>(() => GlobalParticipantPageCodec.EncodeRecordsField(
             [new ReadOnlyMemory<byte>(new byte[8193])]));
         var malformed = new byte[] { 0, 1, 0, 0, 0, 2, 0xa0 };
-        Assert.False(GlobalParticipantPageCodecV1.TryDecodeRecordsField(malformed, out _));
-        Assert.ThrowsAny<ArgumentException>(() => new GlobalParticipantPageV1(JournalId(), null,
-            GlobalParticipantPageCodecV1.DefaultIndexRoot, 1, null, new byte[] { 0, 0 }, 2, 1, 0, 0));
+        Assert.False(GlobalParticipantPageCodec.TryDecodeRecordsField(malformed, out _));
+        Assert.ThrowsAny<ArgumentException>(() => new GlobalParticipantPage(JournalId(), null,
+            GlobalParticipantPageCodec.DefaultIndexRoot, 1, null, new byte[] { 0, 0 }, 2, 1, 0, 0));
     }
 
     [Fact]
@@ -100,9 +100,9 @@ public sealed class GlobalParticipantAllocatorWireV1Tests
     [Fact]
     public void PageRecords_RequireExactClaimOuterNotArbitraryCanonicalCbor()
     {
-        Assert.Throws<ArgumentException>(()=>GlobalParticipantPageCodecV1.EncodeRecordsField([new ReadOnlyMemory<byte>(new byte[]{0xa0})]));
+        Assert.Throws<ArgumentException>(()=>GlobalParticipantPageCodec.EncodeRecordsField([new ReadOnlyMemory<byte>(new byte[]{0xa0})]));
         var f=Fixture();var body=GlobalParticipantAllocatorCodecsV1.Encode(f.Body);var outer=GlobalParticipantAllocatorCodecsV1.Encode(new GlobalParticipantClaimRecordV1(f.Session,f.Vector,body));
-        var framed=GlobalParticipantPageCodecV1.EncodeRecordsField([new ReadOnlyMemory<byte>(outer)]);Assert.True(GlobalParticipantPageCodecV1.TryDecodeRecordsField(framed,out var records));Assert.Single(records);
+        var framed=GlobalParticipantPageCodec.EncodeRecordsField([new ReadOnlyMemory<byte>(outer)]);Assert.True(GlobalParticipantPageCodec.TryDecodeRecordsField(framed,out var records));Assert.Single(records);
     }
 
     [Fact]
@@ -116,7 +116,7 @@ public sealed class GlobalParticipantAllocatorWireV1Tests
         var evidence=new ParticipantIdOwnerEvidenceV1(f.Body.ParticipantId,f.Session.LiveSessionId,f.Body.OperationId,Hash("fingerprint"),head);
         var body=GlobalParticipantAllocatorCodecsV1.Encode(f.Body);
         var outer=GlobalParticipantAllocatorCodecsV1.Encode(new GlobalParticipantClaimRecordV1(f.Session,f.Vector,body));
-        var page=GlobalParticipantPageCodecV1.Encode(new GlobalParticipantPageV1(JournalId(),null,GlobalParticipantPageCodecV1.DefaultIndexRoot,1,null,GlobalParticipantPageCodecV1.EncodeRecordsField(Array.Empty<ReadOnlyMemory<byte>>()),1,1,0,0));
+        var page=GlobalParticipantPageCodec.Encode(new GlobalParticipantPage(JournalId(),null,GlobalParticipantPageCodec.DefaultIndexRoot,1,null,GlobalParticipantPageCodec.EncodeRecordsField(Array.Empty<ReadOnlyMemory<byte>>()),1,1,0,0));
         var encodings=new[]{outer,body,GlobalParticipantAllocatorCodecsV1.Encode(f.Body.AssignedPosition),GlobalParticipantAllocatorCodecsV1.Encode(head),GlobalParticipantAllocatorCodecsV1.Encode(f.Source),GlobalParticipantAllocatorCodecsV1.Encode(evidence),GlobalParticipantAllocatorCodecsV1.Encode(f.Body.OwnerProof),GlobalParticipantAllocatorCodecsV1.Encode(f.Body.Outcome),page};
         var digest=SHA256.HashData(encodings.SelectMany(x=>x).ToArray());Assert.Equal("43C3DF7C2CFDA0EAC78DBA505566DDA91A1BEA510CC1079A41A341FFF545F81B",Convert.ToHexString(digest));
     }
@@ -142,9 +142,9 @@ public sealed class GlobalParticipantAllocatorWireV1Tests
     [Fact]
     public void PageFramingAndHash_GoldensCoverEmptyOneAndChain()
     {
-        Assert.Equal(new byte[]{0,0},GlobalParticipantPageCodecV1.EncodeRecordsField(Array.Empty<ReadOnlyMemory<byte>>()));var f=Fixture();var record=GlobalParticipantAllocatorCodecsV1.Encode(new GlobalParticipantClaimRecordV1(f.Session,f.Vector,GlobalParticipantAllocatorCodecsV1.Encode(f.Body)));var field=GlobalParticipantPageCodecV1.EncodeRecordsField([record]);Assert.Equal((ushort)1,BinaryPrimitives.ReadUInt16BigEndian(field));Assert.Equal((uint)record.Length,BinaryPrimitives.ReadUInt32BigEndian(field.AsSpan(2,4)));Assert.Equal(record,field.AsSpan(6).ToArray());
-        var head=new GlobalParticipantAuthorityHeadV1(new GlobalParticipantAuthorityPositionV1(JournalId(),1),Hash("record"));var first=new GlobalParticipantPageV1(JournalId(),head,GlobalParticipantPageCodecV1.DefaultIndexRoot,1,null,field,0,2,1,(ulong)record.Length);var firstHash=GlobalParticipantPageCodecV1.ComputePageHash(first);var second=new GlobalParticipantPageV1(JournalId(),head,GlobalParticipantPageCodecV1.DefaultIndexRoot,2,firstHash,field,1,2,1,(ulong)record.Length);Assert.NotEqual(firstHash,GlobalParticipantPageCodecV1.ComputePageHash(second));
-        var tooMany=new byte[2];BinaryPrimitives.WriteUInt16BigEndian(tooMany,257);Assert.False(GlobalParticipantPageCodecV1.TryDecodeRecordsField(tooMany,out _));
+        Assert.Equal(new byte[]{0,0},GlobalParticipantPageCodec.EncodeRecordsField(Array.Empty<ReadOnlyMemory<byte>>()));var f=Fixture();var record=GlobalParticipantAllocatorCodecsV1.Encode(new GlobalParticipantClaimRecordV1(f.Session,f.Vector,GlobalParticipantAllocatorCodecsV1.Encode(f.Body)));var field=GlobalParticipantPageCodec.EncodeRecordsField([record]);Assert.Equal((ushort)1,BinaryPrimitives.ReadUInt16BigEndian(field));Assert.Equal((uint)record.Length,BinaryPrimitives.ReadUInt32BigEndian(field.AsSpan(2,4)));Assert.Equal(record,field.AsSpan(6).ToArray());
+        var head=new GlobalParticipantAuthorityHeadV1(new GlobalParticipantAuthorityPositionV1(JournalId(),1),Hash("record"));var first=new GlobalParticipantPage(JournalId(),head,GlobalParticipantPageCodec.DefaultIndexRoot,1,null,field,0,2,1,(ulong)record.Length);var firstHash=GlobalParticipantPageCodec.ComputePageHash(first);var second=new GlobalParticipantPage(JournalId(),head,GlobalParticipantPageCodec.DefaultIndexRoot,2,firstHash,field,1,2,1,(ulong)record.Length);Assert.NotEqual(firstHash,GlobalParticipantPageCodec.ComputePageHash(second));
+        var tooMany=new byte[2];BinaryPrimitives.WriteUInt16BigEndian(tooMany,257);Assert.False(GlobalParticipantPageCodec.TryDecodeRecordsField(tooMany,out _));
     }
 
     private static Hash256 IndependentProofRoot(ParticipantId participant,ushort state,ParticipantIdOwnerEvidenceV1 owner,ReadOnlySpan<byte> path)
@@ -162,7 +162,7 @@ public sealed class GlobalParticipantAllocatorWireV1Tests
         var participant = Participant();
         var position = new GlobalParticipantAuthorityPositionV1(JournalId(), 1);
         var proof = new ParticipantIdOwnerProofV1(participant, null, 1, null,
-            GlobalParticipantPageCodecV1.DefaultIndexRoot, GlobalParticipantAllocatorCodecsV1.CreateEmptyProofPath(), 0);
+            GlobalParticipantPageCodec.DefaultIndexRoot, GlobalParticipantAllocatorCodecsV1.CreateEmptyProofPath(), 0);
         var outcome = new ParticipantIdClaimOutcomeV1(1, null, null);
         var stamp = new MonotonicStampV1(ClockDomainId.FromValue(Id(8)), BootId.FromValue(Id(9)), 10);
         return (session, vector, source, new GlobalParticipantClaimRecordBodyV1(

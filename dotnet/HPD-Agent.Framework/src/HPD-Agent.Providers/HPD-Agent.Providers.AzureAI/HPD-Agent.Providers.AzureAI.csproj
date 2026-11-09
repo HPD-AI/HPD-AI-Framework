@@ -5,6 +5,8 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <LangVersion>latest</LangVersion>
+    <!-- The latest compatible stable SDK cannot compile the exposed Azure OpenAI options. -->
+    <NoWarn>$(NoWarn);NU5104</NoWarn>
     <PackageId>HPD-Agent.Providers.AzureAI</PackageId>
     <Title>HPD-Agent Azure AI Provider</Title>
     <Description>Azure AI Projects provider for HPD-Agent using Azure.AI.Projects SDK</Description>

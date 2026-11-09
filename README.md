@@ -14,9 +14,9 @@ Product documentation, websites, and opinionated product layers live in their ow
 
 ## HPD-Agent
 
-Use HPD-Agent to build production agents that can talk to models, call tools, stream events, manage sessions, hand work to sub-agents, handle deduplicated user inputs, and expose chat surfaces.
+Use HPD-Agent to build production agents that can talk to models, call native and external tools, stream events, manage sessions, hand work to sub-agents, handle deduplicated user inputs, and expose chat surfaces. Optional integrations consume MCP servers and OpenAPI-described REST APIs, while `HPD-Agent.AspNetCore.OpenApi` publishes the hosted agent API as OpenAPI 3.1.
 
-[GitHub](https://github.com/HPD-AI/HPD-Agent) · [Documentation](https://hpd-ai.github.io/HPD-Agent-Framework/)
+[GitHub](https://github.com/HPD-AI/HPD-Agent) · [Documentation](https://hpd-ai.github.io/HPD-Agent/getting-started/)
 
 ---
 
@@ -114,6 +114,11 @@ Use HPD-TUI to build native AOT-friendly terminal interfaces that stay allocatio
 
 ---
 
-## HPD-AI Use Discretion
+## Versioning
 
-HPD-AI Framework is pre-1.0. Until `1.0.0`, API and persistence contracts may continue to evolve as the framework stabilizes.
+HPD-AI Framework contains independently released package families. The current
+HPD-Agent release train targets `0.9.5` for pre-1.0 stabilization and additional
+compatibility testing. A 1.0.0 API and persistence compatibility commitment
+begins only when the 1.0 release notes state that it is final.
+
+See [HPD-Agent 0.9.5 release notes](RELEASE-NOTES-0.9.5.md).

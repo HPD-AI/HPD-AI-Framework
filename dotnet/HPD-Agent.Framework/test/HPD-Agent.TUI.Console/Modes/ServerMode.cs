@@ -16,7 +16,7 @@ internal static class ServerMode
 {
     public static async Task RunAsync(string[] args)
     {
-        var options = ModeOptions.Parse(args);
+        var options = ModeOptions.Parse(args, "url", "data", "agent", "session", "thread", "model");
         var url = options.Get("url", "http://127.0.0.1:5057");
         var agentId = options.Get("agent", "tui-console-agent");
         var sessionId = options.Get("session", "local-session");

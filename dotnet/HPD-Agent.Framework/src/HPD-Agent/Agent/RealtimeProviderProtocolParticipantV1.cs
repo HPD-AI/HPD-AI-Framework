@@ -502,7 +502,10 @@ internal sealed class RealtimeProviderProtocolParticipantV1 : IAgentInteractiveM
             message.ItemId,
             message.ContentIndex,
             ToException(message.Error),
-            message.Usage);
+            message.Usage)
+        {
+            ErrorDetails = ToErrorDetails(message.Error)
+        };
 
     private static IEnumerable<AgentModelUpdate> MapOutput(OutputTextAudioRealtimeServerMessage message)
     {
@@ -584,5 +587,54 @@ internal sealed class RealtimeProviderProtocolParticipantV1 : IAgentInteractiveM
         }
 
         return new InvalidOperationException(message);
+    }
+
+    private static ErrorHandling.ProviderErrorDetails? ToErrorDetails(ErrorContent? error)
+    {
+        if (error is null)
+            return null;
+
+        var details = new ErrorHandling.GenericErrorHandler().ParseError(ToException(error)!);
+        details ??= new ErrorHandling.ProviderErrorDetails { Message = error.Message };
+        details.Message = error.Message;
+        if (!string.IsNullOrWhiteSpace(error.ErrorCode))
+        {
+            details.ErrorCode = error.ErrorCode;
+            details.Category = ClassifyTranscriptError(error.ErrorCode);
+        }
+        if (!string.IsNullOrWhiteSpace(error.Details))
+        {
+            details.RawDetails ??= new Dictionary<string, object>();
+            details.RawDetails["details"] = error.Details;
+        }
+        return details;
+    }
+
+    private static ErrorHandling.ErrorCategory ClassifyTranscriptError(string? code)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+            return ErrorHandling.ErrorCategory.Unknown;
+
+        var normalized = code.Trim().ToLowerInvariant();
+        if (normalized.Contains("invalid_api_key", StringComparison.Ordinal) ||
+            normalized.Contains("authentication", StringComparison.Ordinal) ||
+            normalized.Contains("unauthorized", StringComparison.Ordinal))
+            return ErrorHandling.ErrorCategory.AuthError;
+        if (normalized.Contains("insufficient_quota", StringComparison.Ordinal) ||
+            normalized.Contains("billing", StringComparison.Ordinal))
+            return ErrorHandling.ErrorCategory.RateLimitTerminal;
+        if (normalized.Contains("rate_limit", StringComparison.Ordinal) ||
+            normalized.Contains("too_many", StringComparison.Ordinal))
+            return ErrorHandling.ErrorCategory.RateLimitRetryable;
+        if (normalized.Contains("model_not_found", StringComparison.Ordinal) ||
+            normalized.Contains("unsupported_model", StringComparison.Ordinal))
+            return ErrorHandling.ErrorCategory.ModelNotFound;
+        if (normalized.Contains("invalid", StringComparison.Ordinal) ||
+            normalized.Contains("bad_request", StringComparison.Ordinal))
+            return ErrorHandling.ErrorCategory.ClientError;
+        if (normalized.Contains("timeout", StringComparison.Ordinal) ||
+            normalized.Contains("unavailable", StringComparison.Ordinal))
+            return ErrorHandling.ErrorCategory.Transient;
+        return ErrorHandling.ErrorCategory.Unknown;
     }
 }

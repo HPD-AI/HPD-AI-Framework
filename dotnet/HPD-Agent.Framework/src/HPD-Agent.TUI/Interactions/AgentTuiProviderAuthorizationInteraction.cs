@@ -10,7 +10,7 @@ namespace HPD.Agent.TUI.Interactions;
 /// The adapter does not launch a browser or create a callback listener. Browser callback URIs
 /// remain transient dialog input and are returned directly to the authentication coordinator.
 /// </remarks>
-public sealed class AgentTuiProviderAuthorizationInteraction : IProviderAuthorizationInteraction
+internal sealed class AgentTuiProviderAuthorizationInteraction : IProviderAuthorizationInteraction
 {
     private readonly IAgentTuiDialogService _dialogs;
 

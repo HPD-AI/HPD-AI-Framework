@@ -10,7 +10,6 @@ namespace HPD.Agent.Middleware;
 /// This event indicates framework-managed local or ephemeral storage was used.
 /// The provider boundary materializes the stored reference before model delivery.
 /// </remarks>
-[HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("CONTENT_UPLOADED")]
 public record ContentUploadedEvent(
     /// <summary>The unique identifier assigned to the uploaded content.</summary>
@@ -27,7 +26,6 @@ public record ContentUploadedEvent(
 /// In Auto mode, the middleware will attempt to fall back to HostedFileClient.
 /// In Local mode, original DataContent is kept.
 /// </remarks>
-[HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("CONTENT_UPLOAD_FAILED")]
 public record ContentUploadFailedEvent(
     /// <summary>Error message describing why the upload failed.</summary>
@@ -45,7 +43,6 @@ public record ContentUploadFailedEvent(
 /// This event indicates provider-native file storage was used (e.g., OpenAI Files API).
 /// The HostedFileContent is directly compatible with LLM providers and requires no resolver.
 /// </remarks>
-[HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("HOSTED_FILE_UPLOADED")]
 public record HostedFileUploadedEvent(
     /// <summary>The provider-specific file identifier.</summary>
@@ -62,7 +59,6 @@ public record HostedFileUploadedEvent(
 /// In Auto mode, the middleware will fall back to IContentStore.
 /// In Hosted mode, original DataContent is kept and an error is logged.
 /// </remarks>
-[HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("HOSTED_FILE_UPLOAD_FAILED")]
 public record HostedFileUploadFailedEvent(
     /// <summary>Error message describing why the hosted upload failed.</summary>
@@ -90,7 +86,6 @@ public enum ContentReferenceResolutionKind
 /// <summary>
 /// Emitted when a stored content attachment is materialized at the provider boundary.
 /// </summary>
-[HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("CONTENT_REFERENCE_RESOLVED")]
 public record ContentReferenceResolvedEvent(
     /// <summary>The synthetic stored-content event address; never sent to a provider.</summary>
@@ -105,7 +100,6 @@ public record ContentReferenceResolvedEvent(
 /// <summary>
 /// Emitted when a stored content attachment cannot be materialized.
 /// </summary>
-[HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("CONTENT_REFERENCE_RESOLUTION_FAILED")]
 public record ContentReferenceResolutionFailedEvent(
     /// <summary>The synthetic stored-content event address that failed to materialize.</summary>

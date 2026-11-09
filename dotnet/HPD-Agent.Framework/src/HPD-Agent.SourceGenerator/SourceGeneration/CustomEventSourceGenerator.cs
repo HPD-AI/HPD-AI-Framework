@@ -259,9 +259,12 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
 
         // Check for [EventType("CUSTOM_NAME")] attribute override
         var customDiscriminator = GetCustomEventTypeAttribute(typeSymbol);
-        var durability = HasAttribute(typeSymbol, "DurableEventAttribute", "DurableEvent")
+        var durableAttribute = GetAttribute(typeSymbol, "DurableEventAttribute", "DurableEvent");
+        var durability = durableAttribute is not null
             ? "Durable"
             : "LiveOnly";
+        var requiresDurable = durableAttribute?.NamedArguments.Any(argument =>
+            argument.Key == "Required" && argument.Value.Value is true) == true;
         var contentPolicy = GetContentPolicy(typeSymbol);
         var discriminator = customDiscriminator ?? ToScreamingSnakeCase(typeSymbol.Name);
 
@@ -292,6 +295,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             IsValid: true,
             Diagnostics: diagnostics,
             Durability: durability,
+            RequiresDurable: requiresDurable,
             ContentPolicy: contentPolicy,
             SourceLocation: recordDecl.Identifier.GetLocation());
     }
@@ -475,7 +479,10 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
     }
 
     private static bool HasAttribute(INamedTypeSymbol typeSymbol, string longName, string shortName)
-        => typeSymbol.GetAttributes().Any(attr =>
+        => GetAttribute(typeSymbol, longName, shortName) is not null;
+
+    private static AttributeData? GetAttribute(INamedTypeSymbol typeSymbol, string longName, string shortName)
+        => typeSymbol.GetAttributes().FirstOrDefault(attr =>
             attr.AttributeClass?.Name == longName || attr.AttributeClass?.Name == shortName);
 
     private static EventContentPolicyInfo? GetContentPolicy(INamedTypeSymbol typeSymbol)
@@ -804,6 +811,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         sb.AppendLine();
         sb.AppendLine("namespace HPD.Agent.Serialization;");
         sb.AppendLine();
+        sb.AppendLine("#pragma warning disable RS0016 // Generated module identity is mechanical assembly metadata.");
         sb.AppendLine("/// <summary>Provides the immutable event fragment generated for this module.</summary>");
         sb.AppendLine($"public static class {providerTypeName}");
         sb.AppendLine("{");
@@ -822,6 +830,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             sb.AppendLine($"                JsonTypeInfo = {contextName}.Default.GetTypeInfo(typeof(global::{evt.FullTypeName}))");
             sb.AppendLine($"                    ?? throw new global::System.InvalidOperationException(\"Missing generated JSON metadata for {evt.FullTypeName}.\"),");
             sb.AppendLine($"                Durability = AgentEventDurability.{evt.Durability},");
+            sb.AppendLine($"                RequiresDurable = {evt.RequiresDurable.ToString().ToLowerInvariant()},");
             if (evt.ContentPolicy is { } policy)
             {
                 var scope = policy.Scope is null ? "null" : $"\"{EscapeString(policy.Scope)}\"";
@@ -834,6 +843,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         sb.AppendLine("        ])");
         sb.AppendLine("    };");
         sb.AppendLine("}");
+        sb.AppendLine("#pragma warning restore RS0016");
 
         if (isCoreModule)
         {
@@ -864,13 +874,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             return "CoreAgentEventModule";
 
         var sanitized = Regex.Replace(moduleId, "[^A-Za-z0-9_]", "_");
-        uint hash = 2166136261;
-        foreach (var value in moduleId)
-        {
-            hash ^= value;
-            hash *= 16777619;
-        }
-        return $"GeneratedAgentEventModule_{sanitized}_{hash:x8}";
+        return $"{sanitized}GeneratedAgentEventModule";
     }
 
     private static string EscapeString(string value) =>
@@ -1059,6 +1063,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         bool IsValid,
         List<Diagnostic> Diagnostics,
         string Durability = "LiveOnly",
+        bool RequiresDurable = false,
         EventContentPolicyInfo? ContentPolicy = null,
         Location? SourceLocation = null);
 

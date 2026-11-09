@@ -294,20 +294,20 @@ public sealed class ContentStoreSkillStore : IWatchableSkillStore, IContentBacke
     private static void ValidatePackage(SkillPackage package)
     {
         ArgumentNullException.ThrowIfNull(package); ArgumentNullException.ThrowIfNull(package.Manifest); ArgumentNullException.ThrowIfNull(package.Instructions);
-        ArgumentException.ThrowIfNullOrWhiteSpace(package.Manifest.Id); ArgumentException.ThrowIfNullOrWhiteSpace(package.Manifest.Name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(package.Manifest.Id); SkillModelName.Validate(package.Manifest.Name, "package.Manifest.Name");
         ArgumentException.ThrowIfNullOrWhiteSpace(package.Manifest.Description); ArgumentException.ThrowIfNullOrWhiteSpace(package.Manifest.Version);
         if (!package.Instructions.CanRead)
             throw new ArgumentException("Skill instructions must be readable.", nameof(package));
         var capabilityNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var resource in package.Resources)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(resource.Name); ArgumentException.ThrowIfNullOrWhiteSpace(resource.Description); ArgumentNullException.ThrowIfNull(resource.Content);
+            SkillModelName.Validate(resource.Name, "package.Resources[].Name"); ArgumentException.ThrowIfNullOrWhiteSpace(resource.Description); ArgumentNullException.ThrowIfNull(resource.Content);
             if (!resource.Content.CanRead) throw new ArgumentException($"Skill resource '{resource.Name}' content must be readable.", nameof(package));
             if (!capabilityNames.Add(resource.Name)) throw new ArgumentException($"Duplicate packaged capability name '{resource.Name}'.", nameof(package));
         }
         foreach (var script in package.Scripts)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(script.Name); ArgumentException.ThrowIfNullOrWhiteSpace(script.Description); ArgumentException.ThrowIfNullOrWhiteSpace(script.Runtime); ArgumentNullException.ThrowIfNull(script.Content);
+            SkillModelName.Validate(script.Name, "package.Scripts[].Name"); ArgumentException.ThrowIfNullOrWhiteSpace(script.Description); ArgumentException.ThrowIfNullOrWhiteSpace(script.Runtime); ArgumentNullException.ThrowIfNull(script.Content);
             if (!script.Content.CanRead) throw new ArgumentException($"Skill script '{script.Name}' content must be readable.", nameof(package));
             if (script.Timeout <= TimeSpan.Zero) throw new ArgumentException($"Skill script '{script.Name}' must have a positive timeout.", nameof(package));
             if (script.MaximumOutputBytes <= 0) throw new ArgumentException($"Skill script '{script.Name}' must have a positive output limit.", nameof(package));

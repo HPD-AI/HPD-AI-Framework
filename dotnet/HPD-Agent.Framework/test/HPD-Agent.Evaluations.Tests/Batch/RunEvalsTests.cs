@@ -695,6 +695,61 @@ public sealed class RunEvalsTests
         report.Cases[0].EvaluationResult.Metrics.Should().ContainKey("Probe 2");
     }
 
+    [Fact]
+    public async Task ExecuteAsync_StructuredInput_UsesExplicitFormatter()
+    {
+        var agent = new CapturingAgent();
+        var dataset = new Dataset<SearchRequest>
+        {
+            Cases =
+            [
+                new EvalCase<SearchRequest>
+                {
+                    Name = "structured",
+                    Input = new SearchRequest("cats", 3),
+                },
+            ],
+        };
+
+        var report = await RunEvals.ExecuteAsync(
+            agent,
+            dataset,
+            [new OutputContainsEvaluator("response to cats:3")],
+            new RunEvalsOptions<SearchRequest>
+            {
+                InputFormatter = input => $"{input.Query}:{input.MaxResults}",
+            },
+            experimentName: "structured-input");
+
+        report.PassRate("Output Contains").Should().Be(1.0);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_StructuredInputWithoutFormatter_FailsBeforeRunningAgent()
+    {
+        var agent = new CapturingAgent();
+        var dataset = new Dataset<SearchRequest>
+        {
+            Cases =
+            [
+                new EvalCase<SearchRequest>
+                {
+                    Name = "structured",
+                    Input = new SearchRequest("cats", 3),
+                },
+            ],
+        };
+
+        var act = async () => await RunEvals.ExecuteAsync(
+            agent,
+            dataset,
+            [new OutputContainsEvaluator("response")]);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage($"*{nameof(RunEvalsOptions<SearchRequest>.InputFormatter)}*");
+        agent.Configs.Should().BeEmpty();
+    }
+
     private static Dataset<string> SingleCaseDataset(string input) => new()
     {
         Cases =
@@ -706,6 +761,8 @@ public sealed class RunEvalsTests
             },
         ],
     };
+
+    private sealed record SearchRequest(string Query, int MaxResults);
 
     private sealed class CapturingAgent
     {

@@ -7,6 +7,27 @@ on:
         description: 'Version to publish (e.g., 0.2.0 or 0.2.0-alpha)'
         required: true
         type: string
+      package_set:
+        description: 'Package set to publish'
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - core
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version to publish'
+        required: true
+        type: string
+      package_set:
+        description: 'Package set to publish: core or all'
+        required: true
+        type: string
+    secrets:
+      NUGET_API_KEY:
+        required: true
 
 jobs:
   determine-version:
@@ -63,11 +84,20 @@ jobs:
             10.0.x
 
       - name: Pack HPD-Auth packages
+        env:
+          PACKAGE_SET: ${{ inputs.package_set }}
         run: |
+          set -euo pipefail
           mkdir -p ./nupkg-auth
 
-          PROJECTS=(
+          CORE_PROJECTS=(
             "dotnet/HPD-Auth.Framework/src/HPD.Auth.Core/HPD.Auth.Core.csproj"
+            "dotnet/HPD-Auth.Framework/src/HPD.Auth.ControlPlane.AspNetCore/HPD.Auth.ControlPlane.AspNetCore.csproj"
+          )
+
+          ALL_PROJECTS=(
+            "${CORE_PROJECTS[@]}"
+            "dotnet/HPD-Auth.Framework/src/HPD.Auth.Base/HPD.Auth.Base.csproj"
             "dotnet/HPD-Auth.Framework/src/HPD.Auth.Infrastructure/HPD.Auth.Infrastructure.csproj"
             "dotnet/HPD-Auth.Framework/src/HPD.Auth/HPD.Auth.csproj"
             "dotnet/HPD-Auth.Framework/src/HPD.Auth.Authentication/HPD.Auth.Authentication.csproj"
@@ -76,8 +106,20 @@ jobs:
             "dotnet/HPD-Auth.Framework/src/HPD.Auth.TwoFactor/HPD.Auth.TwoFactor.csproj"
             "dotnet/HPD-Auth.Framework/src/HPD.Auth.OAuth/HPD.Auth.OAuth.csproj"
             "dotnet/HPD-Auth.Framework/src/HPD.Auth.Admin/HPD.Auth.Admin.csproj"
-            "dotnet/HPD-Auth.Framework/src/HPD.Auth.ControlPlane.AspNetCore/HPD.Auth.ControlPlane.AspNetCore.csproj"
           )
+
+          case "$PACKAGE_SET" in
+            core)
+              PROJECTS=("${CORE_PROJECTS[@]}")
+              ;;
+            all)
+              PROJECTS=("${ALL_PROJECTS[@]}")
+              ;;
+            *)
+              echo "::error::Unsupported HPD-Auth package set '$PACKAGE_SET'."
+              exit 1
+              ;;
+          esac
 
           VERSION_PREFIX="${{ needs.determine-version.outputs.version_prefix }}"
           VERSION_SUFFIX="${{ needs.determine-version.outputs.version_suffix }}"
@@ -99,7 +141,7 @@ jobs:
       - name: Upload HPD-Auth packages as artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: auth-nuget-packages
+          name: auth-${{ inputs.package_set }}-nuget-packages
           path: ./nupkg-auth/*.nupkg
 
       - name: Push HPD-Auth packages to NuGet
@@ -112,11 +154,67 @@ jobs:
           fi
           dotnet nuget push ./nupkg-auth/*.nupkg --source https://api.nuget.org/v3/index.json --api-key "$NUGET_KEY" --skip-duplicate
 
+      - name: Wait for NuGet package availability
+        env:
+          PACKAGE_SET: ${{ inputs.package_set }}
+          PACKAGE_VERSION: ${{ needs.determine-version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CORE_PACKAGE_IDS=(
+            "HPD-Auth-Core"
+            "HPD-Auth-ControlPlane-AspNetCore"
+          )
+          ALL_PACKAGE_IDS=(
+            "${CORE_PACKAGE_IDS[@]}"
+            "HPD-Auth-Base"
+            "HPD-Auth-Infrastructure"
+            "HPD-Auth"
+            "HPD-Auth-Authentication"
+            "HPD-Auth-Authorization"
+            "HPD-Auth-Audit"
+            "HPD-Auth-TwoFactor"
+            "HPD-Auth-OAuth"
+            "HPD-Auth-Admin"
+          )
+
+          case "$PACKAGE_SET" in
+            core) PACKAGE_IDS=("${CORE_PACKAGE_IDS[@]}") ;;
+            all) PACKAGE_IDS=("${ALL_PACKAGE_IDS[@]}") ;;
+            *)
+              echo "::error::Unsupported HPD-Auth package set '$PACKAGE_SET'."
+              exit 1
+              ;;
+          esac
+
+          VERSION_LOWER="${PACKAGE_VERSION,,}"
+          for attempt in {1..60}; do
+            all_available=true
+            for PACKAGE_ID in "${PACKAGE_IDS[@]}"; do
+              PACKAGE_ID_LOWER="${PACKAGE_ID,,}"
+              PACKAGE_URL="https://api.nuget.org/v3-flatcontainer/$PACKAGE_ID_LOWER/$VERSION_LOWER/$PACKAGE_ID_LOWER.$VERSION_LOWER.nupkg"
+              if ! curl -fsSL -o /dev/null "$PACKAGE_URL"; then
+                all_available=false
+              fi
+            done
+
+            if [[ "$all_available" == "true" ]]; then
+              echo "All HPD-Auth $PACKAGE_SET packages at $PACKAGE_VERSION are available from NuGet."
+              exit 0
+            fi
+            echo "Waiting for HPD-Auth $PACKAGE_SET packages at $PACKAGE_VERSION (attempt $attempt/60)..."
+            sleep 10
+          done
+
+          echo "::error::HPD-Auth $PACKAGE_SET packages at $PACKAGE_VERSION did not become available within 10 minutes."
+          exit 1
+
       - name: Summary
         run: |
           echo "## Published HPD-Auth Packages" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** ${{ needs.determine-version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Package set:** ${{ inputs.package_set }}" >> $GITHUB_STEP_SUMMARY
           if [ -n "${{ needs.determine-version.outputs.version_suffix }}" ]; then
             echo "**Type:** Pre-release (${{ needs.determine-version.outputs.version_suffix }})" >> $GITHUB_STEP_SUMMARY
           else

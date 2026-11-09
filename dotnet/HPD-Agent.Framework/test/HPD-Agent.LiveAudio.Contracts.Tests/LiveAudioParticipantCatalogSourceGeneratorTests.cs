@@ -13,14 +13,14 @@ public sealed class LiveAudioParticipantCatalogSourceGeneratorTests
             [HpdLiveAudioParticipantFactory("provider", OwnerSliceId.S5, AuthorityAxisId.Provider, 10, 20, 30, 2,
                 OpaqueProviderKey = "openai", OpaqueMaximumOutstandingOperations = 8,
                 OpaqueMaximumSubmittedBytes = 4096, OpaqueMaximumAgeNanoseconds = 1000000,
-                OpaqueControl = LiveAudioOpaqueResidenceControlV1.ObservationOnly)]
-            public sealed class Provider : ILiveAudioParticipantFactoryV1 { }
+                OpaqueControl = LiveAudioOpaqueResidenceControl.ObservationOnly)]
+            public sealed class Provider : ILiveAudioParticipantFactory { }
             """;
         var (result, compilation) = Run(source);
         Assert.DoesNotContain(result.Diagnostics, static value => value.Severity == DiagnosticSeverity.Error);
         var catalog = CatalogText(result); var manifest = Assert.Single(result.GeneratedTrees,
             static value => value.FilePath.Contains("LiveAudioParticipantManifest.g.cs", StringComparison.Ordinal)).GetText().ToString();
-        Assert.Contains("LiveAudioOpaqueResidenceQualificationV1", catalog, StringComparison.Ordinal);
+        Assert.Contains("LiveAudioOpaqueResidenceQualification", catalog, StringComparison.Ordinal);
         Assert.Contains("4096UL", catalog, StringComparison.Ordinal);
         Assert.Contains("1000000L", catalog, StringComparison.Ordinal);
         Assert.Contains("new byte[]", manifest, StringComparison.Ordinal);
@@ -34,22 +34,22 @@ public sealed class LiveAudioParticipantCatalogSourceGeneratorTests
             [HpdLiveAudioParticipantFactory("provider", OwnerSliceId.S5, AuthorityAxisId.Provider, 10,20,30,2,
                 OpaqueProviderKey="openai", OpaqueMaximumOutstandingOperations=8,
                 OpaqueMaximumSubmittedBytes=4096, OpaqueMaximumAgeNanoseconds=1000000,
-                OpaqueControl=LiveAudioOpaqueResidenceControlV1.ObservationOnly)]
-            public sealed class Provider : ILiveAudioParticipantFactoryV1 { }
+                OpaqueControl=LiveAudioOpaqueResidenceControl.ObservationOnly)]
+            public sealed class Provider : ILiveAudioParticipantFactory { }
             """);
         var (result, compilation) = Run(Preamble, [leaf]);
         Assert.DoesNotContain(result.Diagnostics, static value => value.Severity == DiagnosticSeverity.Error);
-        Assert.Contains("LiveAudioOpaqueResidenceQualificationV1", CatalogText(result), StringComparison.Ordinal);
+        Assert.Contains("LiveAudioOpaqueResidenceQualification", CatalogText(result), StringComparison.Ordinal);
         Assert.DoesNotContain(compilation.GetDiagnostics(), static value => value.Severity == DiagnosticSeverity.Error);
     }
 
     [Theory]
     [InlineData("OpaqueProviderKey = \"openai\"")]
     [InlineData("OpaqueMaximumOutstandingOperations = 1")]
-    [InlineData("OpaqueProviderKey = \"openai\", OpaqueMaximumOutstandingOperations = 65, OpaqueMaximumSubmittedBytes = 1, OpaqueMaximumAgeNanoseconds = 1, OpaqueControl = LiveAudioOpaqueResidenceControlV1.ObservationOnly")]
+    [InlineData("OpaqueProviderKey = \"openai\", OpaqueMaximumOutstandingOperations = 65, OpaqueMaximumSubmittedBytes = 1, OpaqueMaximumAgeNanoseconds = 1, OpaqueControl = LiveAudioOpaqueResidenceControl.ObservationOnly")]
     public void Partial_or_unbounded_opaque_qualification_is_HPDA005(string values)
     {
-        AssertInvalid(Preamble + $"[HpdLiveAudioParticipantFactory(\"provider\", OwnerSliceId.S5, AuthorityAxisId.Provider, 10,20,30,2, {values})] public sealed class Provider : ILiveAudioParticipantFactoryV1 {{ }}");
+        AssertInvalid(Preamble + $"[HpdLiveAudioParticipantFactory(\"provider\", OwnerSliceId.S5, AuthorityAxisId.Provider, 10,20,30,2, {values})] public sealed class Provider : ILiveAudioParticipantFactory {{ }}");
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public sealed class LiveAudioParticipantCatalogSourceGeneratorTests
         var source = Preamble + """
             [HpdLiveAudioParticipantFactory("graph", OwnerSliceId.S2, AuthorityAxisId.Graph, 10, 20, 30, 2, 1)]
             [HpdGraphParticipantAllocation(new string[] { "node-b", "node-a" }, new ushort[] { 2, 1 }, new string[] { "22222222222222222222222222222222", "11111111111111111111111111111111" }, new ulong[] { 9, 7 }, new byte[] { 2, 1 })]
-            public sealed class Media : ILiveAudioParticipantFactoryV1 { }
+            public sealed class Media : ILiveAudioParticipantFactory { }
             """;
         var (result, compilation) = Run(source);
         Assert.DoesNotContain(result.Diagnostics, static value => value.Severity == DiagnosticSeverity.Error);
@@ -81,14 +81,14 @@ public sealed class LiveAudioParticipantCatalogSourceGeneratorTests
     [InlineData("OwnerSliceId.S2, AuthorityAxisId.Graph", "new string[] { \"node\" }", "new ushort[] { 1 }", "new string[] { \"11111111111111111111111111111111\" }", "new ulong[] { 1 }", "new byte[] { 3 }")]
     public void Allocation_mutations_emit_HPDA007_and_no_sources(string ownerAxis, string nodes, string dimensions, string purposes, string amounts, string policies)
     {
-        var source = Preamble + $"[HpdLiveAudioParticipantFactory(\"graph\", {ownerAxis}, 10, 20, 30, 1)] [HpdGraphParticipantAllocation({nodes}, {dimensions}, {purposes}, {amounts}, {policies})] public sealed class Media : ILiveAudioParticipantFactoryV1 {{ }}";
+        var source = Preamble + $"[HpdLiveAudioParticipantFactory(\"graph\", {ownerAxis}, 10, 20, 30, 1)] [HpdGraphParticipantAllocation({nodes}, {dimensions}, {purposes}, {amounts}, {policies})] public sealed class Media : ILiveAudioParticipantFactory {{ }}";
         var (result, _) = Run(source); Assert.Contains(result.Diagnostics, static value => value.Id == "HPDA007"); Assert.Empty(result.GeneratedTrees);
     }
 
     [Fact]
     public void Two_nonempty_allocations_emit_HPDA007_and_no_sources()
     {
-        var source = Preamble + "[HpdLiveAudioParticipantFactory(\"a\", OwnerSliceId.S2, AuthorityAxisId.Graph, 10,20,30,1)] [HpdGraphParticipantAllocation(new string[] { \"a-node\" }, new ushort[] {1}, new string[] {\"11111111111111111111111111111111\"}, new ulong[] {1}, new byte[] {1})] public sealed class Media : ILiveAudioParticipantFactoryV1 { } [HpdLiveAudioParticipantFactory(\"b\", OwnerSliceId.S2, AuthorityAxisId.Graph, 10,20,30,1)] [HpdGraphParticipantAllocation(new string[] { \"b-node\" }, new ushort[] {1}, new string[] {\"11111111111111111111111111111111\"}, new ulong[] {1}, new byte[] {1})] public sealed class Provider : ILiveAudioParticipantFactoryV1 { }";
+        var source = Preamble + "[HpdLiveAudioParticipantFactory(\"a\", OwnerSliceId.S2, AuthorityAxisId.Graph, 10,20,30,1)] [HpdGraphParticipantAllocation(new string[] { \"a-node\" }, new ushort[] {1}, new string[] {\"11111111111111111111111111111111\"}, new ulong[] {1}, new byte[] {1})] public sealed class Media : ILiveAudioParticipantFactory { } [HpdLiveAudioParticipantFactory(\"b\", OwnerSliceId.S2, AuthorityAxisId.Graph, 10,20,30,1)] [HpdGraphParticipantAllocation(new string[] { \"b-node\" }, new ushort[] {1}, new string[] {\"11111111111111111111111111111111\"}, new ulong[] {1}, new byte[] {1})] public sealed class Provider : ILiveAudioParticipantFactory { }";
         var (result, _) = Run(source); Assert.Contains(result.Diagnostics, static value => value.Id == "HPDA007"); Assert.Empty(result.GeneratedTrees);
     }
 
@@ -102,9 +102,9 @@ public sealed class LiveAudioParticipantCatalogSourceGeneratorTests
     [Fact]
     public void Referenced_allocation_is_authenticated_and_conflicting_local_is_rejected()
     {
-        var leaf = CompileLeafSource(Preamble + "[HpdLiveAudioParticipantFactory(\"leaf\", OwnerSliceId.S2, AuthorityAxisId.Graph, 10,20,30,1)] [HpdGraphParticipantAllocation(new string[] { \"leaf-node\" }, new ushort[] {1}, new string[] {\"11111111111111111111111111111111\"}, new ulong[] {1}, new byte[] {1})] public sealed class LeafFactory : ILiveAudioParticipantFactoryV1 { }");
+        var leaf = CompileLeafSource(Preamble + "[HpdLiveAudioParticipantFactory(\"leaf\", OwnerSliceId.S2, AuthorityAxisId.Graph, 10,20,30,1)] [HpdGraphParticipantAllocation(new string[] { \"leaf-node\" }, new ushort[] {1}, new string[] {\"11111111111111111111111111111111\"}, new ulong[] {1}, new byte[] {1})] public sealed class LeafFactory : ILiveAudioParticipantFactory { }");
         var success = Run(Preamble, [leaf]); Assert.DoesNotContain(success.Result.Diagnostics, static value => value.Severity == DiagnosticSeverity.Error); Assert.Contains("Hash256.FromBytes", CatalogText(success.Result), StringComparison.Ordinal);
-        var conflict = Run(Preamble + "[HpdLiveAudioParticipantFactory(\"local\", OwnerSliceId.S2, AuthorityAxisId.Graph, 10,20,30,1)] [HpdGraphParticipantAllocation(new string[] { \"local-node\" }, new ushort[] {1}, new string[] {\"11111111111111111111111111111111\"}, new ulong[] {1}, new byte[] {1})] public sealed class Media : ILiveAudioParticipantFactoryV1 { }", [leaf]);
+        var conflict = Run(Preamble + "[HpdLiveAudioParticipantFactory(\"local\", OwnerSliceId.S2, AuthorityAxisId.Graph, 10,20,30,1)] [HpdGraphParticipantAllocation(new string[] { \"local-node\" }, new ushort[] {1}, new string[] {\"11111111111111111111111111111111\"}, new ulong[] {1}, new byte[] {1})] public sealed class Media : ILiveAudioParticipantFactory { }", [leaf]);
         Assert.Contains(conflict.Result.Diagnostics, static value => value.Id == "HPDA007"); Assert.Empty(conflict.Result.GeneratedTrees);
     }
 
@@ -113,8 +113,8 @@ public sealed class LiveAudioParticipantCatalogSourceGeneratorTests
     [InlineData("22222222222222222222222222222222")]
     public void Referenced_same_key_identical_changed_or_local_shadow_is_HPDA007(string purpose)
     {
-        var leaf = CompileLeafSource(Preamble + "[HpdLiveAudioParticipantFactory(\"shared\", OwnerSliceId.S2, AuthorityAxisId.Graph, 10,20,30,1)] [HpdGraphParticipantAllocation(new string[] { \"node\" }, new ushort[] {1}, new string[] {\"11111111111111111111111111111111\"}, new ulong[] {1}, new byte[] {1})] public sealed class LeafFactory : ILiveAudioParticipantFactoryV1 { }");
-        var local = Preamble + $"[HpdLiveAudioParticipantFactory(\"shared\", OwnerSliceId.S2, AuthorityAxisId.Graph, 10,20,30,1)] [HpdGraphParticipantAllocation(new string[] {{ \"node\" }}, new ushort[] {{1}}, new string[] {{\"{purpose}\"}}, new ulong[] {{1}}, new byte[] {{1}})] public sealed class Media : ILiveAudioParticipantFactoryV1 {{ }}";
+        var leaf = CompileLeafSource(Preamble + "[HpdLiveAudioParticipantFactory(\"shared\", OwnerSliceId.S2, AuthorityAxisId.Graph, 10,20,30,1)] [HpdGraphParticipantAllocation(new string[] { \"node\" }, new ushort[] {1}, new string[] {\"11111111111111111111111111111111\"}, new ulong[] {1}, new byte[] {1})] public sealed class LeafFactory : ILiveAudioParticipantFactory { }");
+        var local = Preamble + $"[HpdLiveAudioParticipantFactory(\"shared\", OwnerSliceId.S2, AuthorityAxisId.Graph, 10,20,30,1)] [HpdGraphParticipantAllocation(new string[] {{ \"node\" }}, new ushort[] {{1}}, new string[] {{\"{purpose}\"}}, new ulong[] {{1}}, new byte[] {{1}})] public sealed class Media : ILiveAudioParticipantFactory {{ }}";
         var (result, _) = Run(local,[leaf]); Assert.Contains(result.Diagnostics, static value => value.Id=="HPDA007"); Assert.Empty(result.GeneratedTrees);
     }
 
@@ -172,11 +172,11 @@ public sealed class LiveAudioParticipantCatalogSourceGeneratorTests
         Assert.DoesNotContain(result.Diagnostics, static value => value.Severity == DiagnosticSeverity.Error);
         Assert.Equal(3, result.GeneratedTrees.Length);
         var catalog = Assert.Single(result.GeneratedTrees,
-            static value => value.FilePath.EndsWith("GeneratedLiveAudioParticipantCatalogV1.g.cs", StringComparison.Ordinal));
+            static value => value.FilePath.EndsWith("GeneratedLiveAudioParticipantCatalog.g.cs", StringComparison.Ordinal));
         var text = catalog.GetText().ToString();
         Assert.True(text.IndexOf("BoundedAscii(\"media\")", StringComparison.Ordinal) <
                     text.IndexOf("BoundedAscii(\"provider\")", StringComparison.Ordinal));
-        Assert.Contains("LiveAudioParticipantFactoryRegistrationV1", text, StringComparison.Ordinal);
+        Assert.Contains("LiveAudioParticipantFactoryRegistration", text, StringComparison.Ordinal);
         Assert.Contains(": base(Registrations, factories)", text, StringComparison.Ordinal);
         Assert.DoesNotContain(compilation.GetDiagnostics(), static value => value.Severity == DiagnosticSeverity.Error);
     }
@@ -191,9 +191,9 @@ public sealed class LiveAudioParticipantCatalogSourceGeneratorTests
     [Fact]
     public void Dependency_cycle_fails_without_catalog() => AssertInvalid(Preamble + """
         [HpdLiveAudioParticipantFactory("media", OwnerSliceId.S2, AuthorityAxisId.Graph, 10, 20, 30, 1, Dependencies = new string[] { "provider" })]
-        public sealed class Media : ILiveAudioParticipantFactoryV1 { }
+        public sealed class Media : ILiveAudioParticipantFactory { }
         [HpdLiveAudioParticipantFactory("provider", OwnerSliceId.S5, AuthorityAxisId.Provider, 10, 20, 30, 2, Dependencies = new string[] { "media" })]
-        public sealed class Provider : ILiveAudioParticipantFactoryV1 { }
+        public sealed class Provider : ILiveAudioParticipantFactory { }
         """);
 
     [Fact]
@@ -208,14 +208,14 @@ public sealed class LiveAudioParticipantCatalogSourceGeneratorTests
     [InlineData("public sealed class Open<T>")]
     public void Inaccessible_abstract_or_open_generic_factory_fails(string declaration) => AssertInvalid(Preamble +
         "[HpdLiveAudioParticipantFactory(\"media\", OwnerSliceId.S2, AuthorityAxisId.Graph, 1, 1, 1, 1)] " +
-        declaration + " : ILiveAudioParticipantFactoryV1 { }");
+        declaration + " : ILiveAudioParticipantFactory { }");
 
     [Fact]
     public void Factory_nested_in_open_generic_container_fails() => AssertInvalid(Preamble + """
         public sealed class Outer<T>
         {
             [HpdLiveAudioParticipantFactory("media", OwnerSliceId.S2, AuthorityAxisId.Graph, 1, 1, 1, 1)]
-            public sealed class Factory : ILiveAudioParticipantFactoryV1 { }
+            public sealed class Factory : ILiveAudioParticipantFactory { }
         }
         """);
 
@@ -224,17 +224,17 @@ public sealed class LiveAudioParticipantCatalogSourceGeneratorTests
     {
         AssertInvalid(Preamble +
             "[HpdLiveAudioParticipantFactory(\"media\", OwnerSliceId.S2, AuthorityAxisId.Graph, 1, 1, 1, 1)] " +
-            "public sealed class Fáctory : ILiveAudioParticipantFactoryV1 { }");
+            "public sealed class Fáctory : ILiveAudioParticipantFactory { }");
         var longName = new string('A', 510);
         AssertInvalid(Preamble +
             "[HpdLiveAudioParticipantFactory(\"media\", OwnerSliceId.S2, AuthorityAxisId.Graph, 1, 1, 1, 1)] " +
-            $"public sealed class {longName} : ILiveAudioParticipantFactoryV1 {{ }}");
+            $"public sealed class {longName} : ILiveAudioParticipantFactory {{ }}");
     }
 
     [Fact]
     public void Manual_catalog_subclass_is_rejected() => AssertInvalid(Preamble +
-        "public sealed class ManualCatalog : LiveAudioParticipantFactoryCatalogV1 { " +
-        "public ManualCatalog(LiveAudioParticipantFactoryRegistrationV1[] r, System.Collections.Generic.IEnumerable<ILiveAudioParticipantFactoryV1> f) : base(r, f) { } }");
+        "public sealed class ManualCatalog : LiveAudioParticipantFactoryCatalog { " +
+        "public ManualCatalog(LiveAudioParticipantFactoryRegistration[] r, System.Collections.Generic.IEnumerable<ILiveAudioParticipantFactory> f) : base(r, f) { } }");
 
     [Fact]
     public void Referenced_leaf_manifest_participates_in_each_application_root_exact_set()
@@ -256,7 +256,7 @@ public sealed class LiveAudioParticipantCatalogSourceGeneratorTests
         var (result, _) = Run(source);
         Assert.Contains(result.Diagnostics, static value => value.Id == "HPDA005" && value.Severity == DiagnosticSeverity.Error);
         Assert.DoesNotContain(result.GeneratedTrees,
-            static value => value.FilePath.EndsWith("GeneratedLiveAudioParticipantCatalogV1.g.cs", StringComparison.Ordinal));
+            static value => value.FilePath.EndsWith("GeneratedLiveAudioParticipantCatalog.g.cs", StringComparison.Ordinal));
     }
 
     private static (GeneratorDriverRunResult Result, Compilation Compilation) Run(string source,
@@ -277,7 +277,7 @@ public sealed class LiveAudioParticipantCatalogSourceGeneratorTests
     {
         var source = Preamble + $$"""
             [HpdLiveAudioParticipantFactory("{{key}}", OwnerSliceId.S2, AuthorityAxisId.Graph, 10, 20, 30, 1)]
-            public sealed class LeafFactory : ILiveAudioParticipantFactoryV1 { }
+            public sealed class LeafFactory : ILiveAudioParticipantFactory { }
             """;
         return CompileLeafSource(source);
     }
@@ -310,7 +310,7 @@ public sealed class LiveAudioParticipantCatalogSourceGeneratorTests
     }
 
     private static string RawManifestAttribute(string allocationArguments) =>
-        $"[assembly: HPD.Agent.Audio.HpdLiveAudioParticipantManifestAttribute(typeof(HPD.Agent.Audio.LeafFactory), \"leaf\", 2, 2, 10, 20, 30, new ushort[] {{ 1 }}, new string[] {{ }}{allocationArguments})] namespace HPD.Agent.Audio {{ public sealed class LeafFactory : ILiveAudioParticipantFactoryV1 {{ }} }}";
+        $"[assembly: HPD.Agent.Audio.HpdLiveAudioParticipantManifestAttribute(typeof(HPD.Agent.Audio.LeafFactory), \"leaf\", 2, 2, 10, 20, 30, new ushort[] {{ 1 }}, new string[] {{ }}{allocationArguments})] namespace HPD.Agent.Audio {{ public sealed class LeafFactory : ILiveAudioParticipantFactory {{ }} }}";
 
     private static byte[] AllocationFingerprintBytes(byte[] carrier) =>
         System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("hpd-graph-participant-allocation-declaration-v1\0").Concat(carrier).ToArray());
@@ -320,14 +320,14 @@ public sealed class LiveAudioParticipantCatalogSourceGeneratorTests
             .Split(Path.PathSeparator).Select(static path => MetadataReference.CreateFromFile(path));
 
     private static string CatalogText(GeneratorDriverRunResult result) => Assert.Single(result.GeneratedTrees,
-        static value => value.FilePath.EndsWith("GeneratedLiveAudioParticipantCatalogV1.g.cs", StringComparison.Ordinal))
+        static value => value.FilePath.EndsWith("GeneratedLiveAudioParticipantCatalog.g.cs", StringComparison.Ordinal))
         .GetText().ToString();
 
     private static string Declarations(string first, string second, string? providerDependency) => Preamble + $$"""
         [HpdLiveAudioParticipantFactory("{{first}}", OwnerSliceId.S2, AuthorityAxisId.Graph, 10, 20, 30, 1)]
-        public sealed class Media : ILiveAudioParticipantFactoryV1 { }
+        public sealed class Media : ILiveAudioParticipantFactory { }
         [HpdLiveAudioParticipantFactory("{{second}}", OwnerSliceId.S5, AuthorityAxisId.Provider, 10, 20, 30, 2, Dependencies = new string[] { {{(providerDependency is null ? "" : "\"" + providerDependency + "\"")}} })]
-        public sealed class Provider : ILiveAudioParticipantFactoryV1 { }
+        public sealed class Provider : ILiveAudioParticipantFactory { }
         """;
 
     private const string Preamble = """
@@ -350,15 +350,15 @@ public sealed class LiveAudioParticipantCatalogSourceGeneratorTests
             using HPD.Agent.Authority;
             [AttributeUsage(AttributeTargets.Class)]
             public sealed class HpdLiveAudioParticipantFactoryAttribute(string key, OwnerSliceId owner, AuthorityAxisId axis, long prepare, long drain, long terminate, params ushort[] capacities) : Attribute
-            { public string[] Dependencies { get; set; } = []; public string OpaqueProviderKey { get; set; } = string.Empty; public ushort OpaqueMaximumOutstandingOperations { get; set; } public ulong OpaqueMaximumSubmittedBytes { get; set; } public long OpaqueMaximumAgeNanoseconds { get; set; } public LiveAudioOpaqueResidenceControlV1 OpaqueControl { get; set; } }
+            { public string[] Dependencies { get; set; } = []; public string OpaqueProviderKey { get; set; } = string.Empty; public ushort OpaqueMaximumOutstandingOperations { get; set; } public ulong OpaqueMaximumSubmittedBytes { get; set; } public long OpaqueMaximumAgeNanoseconds { get; set; } public LiveAudioOpaqueResidenceControl OpaqueControl { get; set; } }
             [AttributeUsage(AttributeTargets.Assembly, AllowMultiple=true)]
             public sealed class HpdLiveAudioParticipantManifestAttribute : Attribute { public HpdLiveAudioParticipantManifestAttribute(Type type, string key, ushort owner, ushort axis, long prepare, long drain, long terminate, ushort[] capacities, string[] dependencies) { } public HpdLiveAudioParticipantManifestAttribute(Type type, string key, ushort owner, ushort axis, long prepare, long drain, long terminate, ushort[] capacities, string[] dependencies, byte[] bytes, byte[] fingerprint) { } public HpdLiveAudioParticipantManifestAttribute(Type type, string key, ushort owner, ushort axis, long prepare, long drain, long terminate, ushort[] capacities, string[] dependencies, byte[] bytes, byte[] fingerprint, byte[] providerId, ushort operations, ulong submittedBytes, long age, byte control) { } }
-            public enum LiveAudioOpaqueResidenceControlV1 : byte { ObservationOnly=1, AdapterAcknowledgedCancellation=2 }
-            public sealed class LiveAudioOpaqueResidenceQualificationV1 { public LiveAudioOpaqueResidenceQualificationV1(ProviderId providerId, ushort operations, ulong bytes, DurationNs age, LiveAudioOpaqueResidenceControlV1 control) { } }
-            public interface ILiveAudioParticipantFactoryV1 { }
-            public sealed class LiveAudioParticipantDescriptorV1 { public LiveAudioParticipantDescriptorV1(BoundedAscii key, OwnerSliceId owner, AuthorityAxisId axis, BoundedAscii[] dependencies, CapacityDimensionId[] capacities, DurationNs prepare, DurationNs drain, DurationNs terminate) { } }
-            public sealed class LiveAudioParticipantFactoryRegistrationV1 { public LiveAudioParticipantFactoryRegistrationV1(Type type, string identity, LiveAudioParticipantDescriptorV1 descriptor) { } public LiveAudioParticipantFactoryRegistrationV1(Type type, string identity, LiveAudioParticipantDescriptorV1 descriptor, ReadOnlyMemory<byte> bytes, Hash256? fingerprint) { } public LiveAudioParticipantFactoryRegistrationV1(Type type, string identity, LiveAudioParticipantDescriptorV1 descriptor, ReadOnlyMemory<byte> bytes, Hash256? fingerprint, LiveAudioOpaqueResidenceQualificationV1 qualification) { } }
-            public abstract class LiveAudioParticipantFactoryCatalogV1 { protected LiveAudioParticipantFactoryCatalogV1(LiveAudioParticipantFactoryRegistrationV1[] registrations, System.Collections.Generic.IEnumerable<ILiveAudioParticipantFactoryV1> factories) { } }
+            public enum LiveAudioOpaqueResidenceControl : byte { ObservationOnly=1, AdapterAcknowledgedCancellation=2 }
+            public sealed class LiveAudioOpaqueResidenceQualification { public LiveAudioOpaqueResidenceQualification(ProviderId providerId, ushort operations, ulong bytes, DurationNs age, LiveAudioOpaqueResidenceControl control) { } }
+            public interface ILiveAudioParticipantFactory { }
+            public sealed class LiveAudioParticipantDescriptor { public LiveAudioParticipantDescriptor(BoundedAscii key, OwnerSliceId owner, AuthorityAxisId axis, BoundedAscii[] dependencies, CapacityDimensionId[] capacities, DurationNs prepare, DurationNs drain, DurationNs terminate) { } }
+            public sealed class LiveAudioParticipantFactoryRegistration { public LiveAudioParticipantFactoryRegistration(Type type, string identity, LiveAudioParticipantDescriptor descriptor) { } public LiveAudioParticipantFactoryRegistration(Type type, string identity, LiveAudioParticipantDescriptor descriptor, ReadOnlyMemory<byte> bytes, Hash256? fingerprint) { } public LiveAudioParticipantFactoryRegistration(Type type, string identity, LiveAudioParticipantDescriptor descriptor, ReadOnlyMemory<byte> bytes, Hash256? fingerprint, LiveAudioOpaqueResidenceQualification qualification) { } }
+            public abstract class LiveAudioParticipantFactoryCatalog { protected LiveAudioParticipantFactoryCatalog(LiveAudioParticipantFactoryRegistration[] registrations, System.Collections.Generic.IEnumerable<ILiveAudioParticipantFactory> factories) { } }
         }
         """;
 }

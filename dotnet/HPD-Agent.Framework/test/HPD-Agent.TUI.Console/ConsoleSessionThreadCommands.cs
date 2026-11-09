@@ -595,12 +595,12 @@ internal static class ConsoleSessionThreadCommands
     private static void SwitchToSelectedSession(AgentTuiPageContext context)
     {
         if (PageState.Snapshot().SelectedSession is not { } session ||
-            context.Shell.SwitchScopeAsync is null)
+            context.SwitchScopeAsync is null)
         {
             return;
         }
 
-        _ = context.Shell.SwitchScopeAsync(
+        _ = context.SwitchScopeAsync(
             context.Scope with { SessionId = session.Id, ThreadId = "main" },
             CancellationToken.None);
     }
@@ -608,12 +608,12 @@ internal static class ConsoleSessionThreadCommands
     private static void SwitchToSelectedThread(AgentTuiPageContext context)
     {
         if (PageState.Snapshot().SelectedThread is not { } thread ||
-            context.Shell.SwitchScopeAsync is null)
+            context.SwitchScopeAsync is null)
         {
             return;
         }
 
-        _ = context.Shell.SwitchScopeAsync(
+        _ = context.SwitchScopeAsync(
             context.Scope with { SessionId = thread.SessionId, ThreadId = thread.Id },
             CancellationToken.None);
     }
@@ -622,7 +622,7 @@ internal static class ConsoleSessionThreadCommands
     {
         var snapshot = PageState.Snapshot();
         var session = snapshot.SelectedSession;
-        if (session is null || context.Shell.Runtime is not IAgentTuiSessionThreadRuntime runtime)
+        if (session is null || context.Runtime is not IAgentTuiSessionThreadRuntime runtime)
         {
             return;
         }

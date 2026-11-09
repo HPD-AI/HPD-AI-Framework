@@ -517,6 +517,34 @@ public sealed class HpdAgentTuiAppCancelTests
     }
 
     [Fact]
+    public async Task Escape_WhenThreadJournalIsMissing_ReturnsToReadyWithoutError()
+    {
+        var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
+        var runtime = new CancelRuntime(scope) { ThreadJournalMissing = true };
+        await using var app = HpdAgentTuiApp.Create(
+            runtime,
+            new DirectAgentTuiExecutionTarget(scope),
+            static builder => builder.AddAgentTuiDefaults(),
+            new TestTerminal(80, 24));
+
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
+
+        InvokePrivate<bool>(
+            app,
+            "TryExecuteShortcut",
+            new KeyEvent(KeyCode.Escape)).Should().BeTrue();
+
+        var state = GetPrivateField<AgentTuiSessionState>(app, "_state");
+        await WaitUntilAsync(() => state.Shell.PromptStatusText == "state: ready");
+        runtime.Calls.Should().Contain("state");
+        runtime.Calls.Should().NotContain("cancel");
+        state.Shell.Transcript.Snapshot().Entries
+            .Select(static entry => entry.Cell)
+            .OfType<NoticeCell>()
+            .Should().NotContain(cell => cell.Title == "Cancel request failed");
+    }
+
+    [Fact]
     public async Task Escape_WithActivePage_GoesBackWithoutRequestingInterrupt()
     {
         var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
@@ -673,6 +701,8 @@ public sealed class HpdAgentTuiAppCancelTests
 
         public bool DelaySubmission { get; init; }
 
+        public bool ThreadJournalMissing { get; init; }
+
         public TaskCompletionSource SubmissionStarted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -781,6 +811,11 @@ public sealed class HpdAgentTuiAppCancelTests
         {
             Calls.Add("state");
             ActiveExecutionRequested.TrySetResult();
+            if (ThreadJournalMissing)
+            {
+                throw new AgentTuiThreadJournalNotFoundException(
+                    $"Thread '{scope.SessionId}/{scope.ThreadId}' does not have a durable journal.");
+            }
             return Task.FromResult(new AgentTuiThreadState(ThreadJournalCursor.Start(1), ActiveExecution, []));
         }
     }

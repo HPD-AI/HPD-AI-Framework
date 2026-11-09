@@ -1264,7 +1264,7 @@ public sealed partial class Agent : IAsyncDisposable
         if (thread == null)
         {
             return await CreateEventPublisher(_ephemeralEventJournal, eventCoordinator)
-                .CommitAndPublishAsync(new ThreadKey($"ephemeral:{AgentId}", "main"), evt, cancellationToken)
+                .PublishAsync(new ThreadKey($"ephemeral:{AgentId}", "main"), evt, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -1272,12 +1272,12 @@ public sealed partial class Agent : IAsyncDisposable
         if (store == null)
         {
             return await CreateEventPublisher(_ephemeralEventJournal, eventCoordinator)
-                .CommitAndPublishAsync(new ThreadKey(thread.SessionId, thread.Id), evt, cancellationToken)
+                .PublishAsync(new ThreadKey(thread.SessionId, thread.Id), evt, cancellationToken)
                 .ConfigureAwait(false);
         }
 
         var publisher = CreateEventPublisher(store, eventCoordinator);
-        return await publisher.CommitAndPublishAsync(
+        return await publisher.PublishAsync(
             new ThreadKey(thread.SessionId, thread.Id),
             evt,
             cancellationToken).ConfigureAwait(false);
@@ -1399,7 +1399,7 @@ public sealed partial class Agent : IAsyncDisposable
         if (thread == null)
         {
             return await CreateEventPublisher(_ephemeralEventJournal, eventCoordinator)
-                .CommitAndPublishAsync(new ThreadKey($"ephemeral:{AgentId}", "main"), evt, cancellationToken)
+                .PublishAsync(new ThreadKey($"ephemeral:{AgentId}", "main"), evt, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -1478,7 +1478,7 @@ public sealed partial class Agent : IAsyncDisposable
         int turnMessageCount,
         HPD.Events.IEventCoordinator eventCoordinator)
     {
-        if (thread is null || Config?.SessionStore is not IThreadDeltaStore)
+        if (thread is null || Config?.SessionStore is null)
             return;
 
         foreach (var messageId in stagedTextMessages.ToArray())
@@ -1944,9 +1944,171 @@ public sealed partial class Agent : IAsyncDisposable
             ChatClientResolver = _chatClientResolver,
             DefaultChatClient = _defaultChatClientHandle,
             ActiveInput = activeInput,
+            ReportErrorAsync = ReportInputMiddlewareErrorAsync,
             RunMessagesAsync = RunMessagesInputAsync,
             TryResolveClientToolOperation = ResolveClientToolOperation
         };
+
+    private async ValueTask ReportInputMiddlewareErrorAsync(
+        AgentInputEvent input,
+        Exception exception,
+        ErrorSource source,
+        CancellationToken cancellationToken)
+        => await ReportAgentInputErrorAsync(
+            input,
+            exception,
+            source,
+            cancellationToken).ConfigureAwait(false);
+
+    private async ValueTask ReportAgentInputErrorAsync(
+        AgentInputEvent input,
+        Exception exception,
+        ErrorSource source,
+        CancellationToken cancellationToken)
+    {
+        var session = input switch
+        {
+            UserMessagesInputEvent user => user.Session,
+            CompactThreadInputEvent compact => compact.Session,
+            _ => null
+        };
+        var thread = input switch
+        {
+            UserMessagesInputEvent user => user.Thread,
+            CompactThreadInputEvent compact => compact.Thread,
+            _ => null
+        };
+        var context = CreateDiagnosticAgentContext(
+            eventCoordinator: GetActiveEventCoordinator(),
+            session: session,
+            thread: thread,
+            cancellationToken: cancellationToken,
+            threadExecutionId: input.ThreadExecutionId);
+        var pipeline = _runtimeContext?.RunConfig is { } runConfig
+            ? BuildTurnMiddlewarePipeline(runConfig)
+            : _middlewarePipeline;
+
+        await MiddlewareErrorRouter.ReportAsync(
+            context,
+            pipeline,
+            exception,
+            source,
+            cancellationToken,
+            input.RunConfig ?? _runtimeContext?.RunConfig).ConfigureAwait(false);
+    }
+
+    private sealed class TurnErrorScope(AgentRunConfig runConfig)
+    {
+        public AgentRunConfig RunConfig { get; set; } = runConfig;
+        public ErrorSource Source { get; set; } = ErrorSource.MessageTurn;
+        public AgentContext? Context { get; set; }
+        public AgentMiddlewarePipeline? Pipeline { get; set; }
+    }
+
+    private async ValueTask ReportTurnMiddlewareErrorAsync(
+        TurnErrorScope scope,
+        Exception exception,
+        Session? session,
+        Thread? thread,
+        IEventCoordinator eventCoordinator,
+        string? threadExecutionId,
+        string? traceId,
+        CancellationToken cancellationToken)
+    {
+        scope.Context ??= CreateDiagnosticAgentContext(
+            eventCoordinator: eventCoordinator,
+            session: session,
+            thread: thread,
+            cancellationToken: cancellationToken,
+            threadExecutionId: threadExecutionId,
+            traceId: traceId,
+            config: Config,
+            clientSet: _clientSet,
+            contentStore: _contentStore,
+            runtimeCapabilities: _runtimeContext?.RuntimeCapabilities,
+            structEvents: GetActiveStructEvents());
+        scope.Pipeline ??= BuildTurnMiddlewarePipeline(scope.RunConfig);
+
+        await MiddlewareErrorRouter.ReportAsync(
+            scope.Context,
+            scope.Pipeline,
+            exception,
+            scope.Source,
+            cancellationToken,
+            scope.RunConfig).ConfigureAwait(false);
+    }
+
+    private AgentContext CreateDiagnosticAgentContext(
+        IEventCoordinator eventCoordinator,
+        Session? session = null,
+        Thread? thread = null,
+        CancellationToken cancellationToken = default,
+        string? threadExecutionId = null,
+        string? traceId = null,
+        AgentConfig? config = null,
+        IServiceProvider? services = null,
+        AgentClientSet? clientSet = null,
+        IContentStore? contentStore = null,
+        IRuntimeCapabilityRegistry? runtimeCapabilities = null,
+        HPD.Events.Struct.IStructEventHub? structEvents = null)
+    {
+        var conversationId = session?.Id ?? thread?.SessionId ?? $"ephemeral:{AgentId}";
+        var state = AgentLoopState.InitialSafe(
+            messages: [],
+            runId: Guid.NewGuid().ToString("N"),
+            conversationId: conversationId,
+            agentName: _name);
+
+        return new AgentContext(
+            agentName: _name,
+            conversationId: conversationId,
+            initialState: state,
+            eventCoordinator: eventCoordinator,
+            session: session,
+            thread: thread,
+            cancellationToken: cancellationToken,
+            threadEvents: config?.SessionStore is { } store
+                ? CreateEventPublisher(store, eventCoordinator)
+                : null,
+            effectiveChatClient: _defaultChatClientHandle,
+            chatClientResolver: _chatClientResolver,
+            services: services ?? _serviceProvider,
+            runtimeCapabilities: runtimeCapabilities,
+            traceId: traceId,
+            threadExecutionId: threadExecutionId,
+            agentId: AgentId,
+            parentAgentMetadata: AgentMetadata,
+            parentAgentStore: Config?.AgentStore,
+            config: config ?? Config,
+            clientSet: clientSet ?? _clientSet,
+            contentStore: contentStore ?? _contentStore,
+            structEvents: structEvents ?? GetActiveStructEvents(),
+            agentResources: _agentResources.Resources);
+    }
+
+    private async ValueTask ReportRuntimeMiddlewareErrorAsync(
+        Middleware.AgentRuntimeContext runtimeContext,
+        Exception exception,
+        CancellationToken cancellationToken)
+    {
+        var context = CreateDiagnosticAgentContext(
+            eventCoordinator: runtimeContext.EventCoordinator,
+            cancellationToken: cancellationToken,
+            config: runtimeContext.Config,
+            services: runtimeContext.Services,
+            clientSet: runtimeContext.ClientSet,
+            contentStore: runtimeContext.ContentStore,
+            runtimeCapabilities: runtimeContext.RuntimeCapabilities,
+            structEvents: runtimeContext.StructEvents);
+
+        await MiddlewareErrorRouter.ReportAsync(
+            context,
+            BuildTurnMiddlewarePipeline(runtimeContext.RunConfig ?? new AgentRunConfig()),
+            exception,
+            ErrorSource.Runtime,
+            cancellationToken,
+            runtimeContext.RunConfig).ConfigureAwait(false);
+    }
 
     private bool ResolveClientToolOperation(ClientToolOperationOutcomeEvent input)
     {
@@ -2248,8 +2410,12 @@ public sealed partial class Agent : IAsyncDisposable
             }
             await ReconcileRestoredGoalsOnStartAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex)
         {
+            await ReportRuntimeMiddlewareErrorAsync(
+                runtimeContext,
+                ex,
+                cancellationToken).ConfigureAwait(false);
             await StopRuntimeAsync(
                 runtimeContext,
                 runtimeCoordinator,
@@ -2480,7 +2646,16 @@ public sealed partial class Agent : IAsyncDisposable
         runtimeStructEvents.Dispose();
 
         if (exceptions is { Count: > 0 })
-            throw new AggregateException("One or more runtime stop operations failed.", exceptions);
+        {
+            var failure = new AggregateException(
+                "One or more runtime stop operations failed.",
+                exceptions);
+            await ReportRuntimeMiddlewareErrorAsync(
+                runtimeContext,
+                failure,
+                cancellationToken).ConfigureAwait(false);
+            throw failure;
+        }
     }
 
     private void RecordRuntimeShutdownCancellation()
@@ -2522,10 +2697,28 @@ public sealed partial class Agent : IAsyncDisposable
     /// Sends a semantic input event to the agent.
     /// </summary>
     /// <returns>The semantic admission or completion result.</returns>
-    public Task<AgentInputResult> RunAsync(AgentInputEvent input, CancellationToken cancellationToken = default)
+    public async Task<AgentInputResult> RunAsync(
+        AgentInputEvent input,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
-        return RunCapturedInputAsync(CaptureInput(input), cancellationToken);
+        try
+        {
+            return await RunCapturedInputAsync(
+                CaptureInput(input),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await ReportAgentInputErrorAsync(
+                input,
+                ex,
+                input is UserMessagesInputEvent
+                    ? ErrorSource.MessageTurn
+                    : ErrorSource.Input,
+                cancellationToken).ConfigureAwait(false);
+            throw;
+        }
     }
 
     private async Task<AgentInputResult> RunCapturedInputAsync(
@@ -2547,6 +2740,17 @@ public sealed partial class Agent : IAsyncDisposable
             input = AuthorizeWorkIdentity(input, registration);
 
             return await RunCapturedInputCoreAsync(input, registration, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await ReportAgentInputErrorAsync(
+                input,
+                ex,
+                input is UserMessagesInputEvent
+                    ? ErrorSource.MessageTurn
+                    : ErrorSource.Input,
+                cancellationToken).ConfigureAwait(false);
+            throw;
         }
         finally
         {
@@ -3011,7 +3215,8 @@ public sealed partial class Agent : IAsyncDisposable
         [EnumeratorCancellation] CancellationToken cancellationToken = default,
         AgentChatClientHandle? inheritedChatClient = null,
         ClientFamilyInheritanceMode inheritedChatMode = ClientFamilyInheritanceMode.UseOwn,
-        AgentInputEvent? sourceInput = null)
+        AgentInputEvent? sourceInput = null,
+        TurnErrorScope? errorScope = null)
     {
         eventCoordinator ??= _eventCoordinator;
         var orchestrationStartTime = DateTime.UtcNow;
@@ -3110,6 +3315,9 @@ public sealed partial class Agent : IAsyncDisposable
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
         var toolHarnessDeactivationReason = ToolHarnessDeactivationReason.Failed;
+        var effectiveRunConfig = runConfig ?? new AgentRunConfig();
+        errorScope ??= new TurnErrorScope(effectiveRunConfig);
+        errorScope.RunConfig = effectiveRunConfig;
 
         try
         {
@@ -3183,7 +3391,7 @@ public sealed partial class Agent : IAsyncDisposable
             var responseUpdates = new List<ChatResponseUpdate>();
             string? currentAssistantMessageId = null;
 
-            var effectiveRunConfig = runConfig ?? new AgentRunConfig();
+            errorScope.Source = ErrorSource.ModelCall;
             if (ResolveModelTransport(effectiveRunConfig) is Middleware.AgentModelTransport.Chat)
             {
                 chatClientLease = await _chatClientResolver.ResolveAsync(
@@ -3205,6 +3413,7 @@ public sealed partial class Agent : IAsyncDisposable
             runClientSet = await ResolveRunClientSetV9Async(effectiveRunConfig, effectiveCancellationToken)
                 .ConfigureAwait(false);
             var effectiveClientSet = runClientSet ?? _clientSet;
+            errorScope.Source = ErrorSource.MessageTurn;
 
             // Resolve background responses settings from AgentRunConfig → Config → false
             var allowBackgroundResponses = runConfig?.BackgroundResponses?.Allow
@@ -3267,6 +3476,8 @@ public sealed partial class Agent : IAsyncDisposable
             // Middleware may modify the consolidated per-run concern objects.
             // We must use the SAME instance for BeforeMessageTurnAsync and BeforeIterationAsync
             var turnPipeline = BuildTurnMiddlewarePipeline(effectiveRunConfig);
+            errorScope.Context = agentContext;
+            errorScope.Pipeline = turnPipeline;
             var functionCallProcessor = ReferenceEquals(turnPipeline, _middlewarePipeline)
                 ? _functionCallProcessor
                 : CreateFunctionCallProcessorForPipeline(
@@ -3373,6 +3584,7 @@ public sealed partial class Agent : IAsyncDisposable
 
             while (!state.IsTerminated)
             {
+                errorScope.Source = ErrorSource.Iteration;
                 if (await DrainAcceptedTurnContinuationsAsync(
                         activeInput,
                         sharedMessages,
@@ -3496,10 +3708,6 @@ public sealed partial class Agent : IAsyncDisposable
 
                     // UPDATE AGENT CONTEXT STATE (sync state changes from previous iteration)
                     agentContext.SyncState(state);
-
-                    // Snapshot the message set before BeforeIteration middleware runs so the
-                    // observability event can report only newly injected context, not chat history.
-                    var preIterationMessages = modelVisibleMessages.ToList();
 
                     // CREATE TYPED ITERATION CONTEXT (V2)
                     // Note: Tool Collapsing is handled by ToolCollapsingMiddleware in BeforeIterationAsync
@@ -3659,6 +3867,7 @@ public sealed partial class Agent : IAsyncDisposable
                     else
                     {
                         // CREATE MODEL REQUEST (V2 - immutable request pattern)
+                        errorScope.Source = ErrorSource.ModelCall;
                         var selectedTransport = ResolveModelTransport(effectiveRunConfig);
                         var chatModel = selectedTransport is Middleware.AgentModelTransport.Chat
                             ? chatClientLease?.Client
@@ -3709,33 +3918,6 @@ public sealed partial class Agent : IAsyncDisposable
                             : _chatModelTurnExecutor;
                         currentModelRequest = modelRequest;
                         currentModelTurnExecutor = modelTurnExecutor;
-
-                        var contextMessages = BuildContextMessageSnapshots(
-                            modelRequest.Messages,
-                            preIterationMessages);
-                        var toolSnapshots = BuildToolContextSnapshots(modelRequest.Options);
-
-                        yield return new IterationContextSnapshotEvent(
-                            AgentName: _name,
-                            Iteration: state.Iteration,
-                            TotalMessageCount: modelRequest.Messages.Count,
-                            ContextMessageCount: contextMessages.Count,
-                            ContextMessages: contextMessages,
-                            Instructions: modelRequest.Options?.Instructions,
-                            ToolCount: toolSnapshots.Count,
-                            Tools: toolSnapshots,
-                            Timestamp: DateTimeOffset.UtcNow)
-                        {
-                            TraceId = traceId,
-                            SpanId = GenerateSpanId(),
-                            ParentSpanId = iterSpanId,
-                            CompactionSummaryInputs = modelRequest.Messages
-                                .Where(CompactionEvidence.IsPriorSummary)
-                                .Select(static message => new CompactionSummaryInputSnapshot(
-                                    message.MessageId, message.Role.ToString(), message.Text.Length,
-                                    Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(message.Text)))))
-                                .ToArray()
-                        };
 
                         yield return BuildMiddlewareStateSnapshotEvent(
                             agentName: _name,
@@ -3978,6 +4160,7 @@ public sealed partial class Agent : IAsyncDisposable
                         if (coalesceDeltas)
                         {
                             // COALESCE MODE: Buffer all updates, then emit coalesced events
+                            errorScope.Source = ErrorSource.ModelCall;
                             await foreach (var modelUpdate in turnPipeline.ExecuteModelTurnStreamingAsync(
                                 modelRequest,
                                 (req) => ExecuteAccountedModelAttempt(req, effectiveCancellationToken),
@@ -4090,6 +4273,7 @@ public sealed partial class Agent : IAsyncDisposable
                                     }
                                 }
                             }
+                            errorScope.Source = ErrorSource.Iteration;
 
                             // Now coalesce and emit events
                             var coalescedContents = CoalesceTextContents(assistantContents);
@@ -4175,6 +4359,7 @@ public sealed partial class Agent : IAsyncDisposable
                         else
                         {
                             // STREAMING MODE: Emit immediately (existing behavior)
+                            errorScope.Source = ErrorSource.ModelCall;
                             await foreach (var modelUpdate in turnPipeline.ExecuteModelTurnStreamingAsync(
                                 modelRequest,
                                 (req) => ExecuteAccountedModelAttempt(req, effectiveCancellationToken),
@@ -4352,6 +4537,7 @@ public sealed partial class Agent : IAsyncDisposable
                                     }
                                 }
                             }
+                            errorScope.Source = ErrorSource.Iteration;
                         }
 
                         // Capture ConversationId from the agent turn response and update session
@@ -4791,6 +4977,7 @@ public sealed partial class Agent : IAsyncDisposable
                 }
             }
 
+            errorScope.Source = ErrorSource.MessageTurn;
             // Provider work and durable turn-history rewrites must settle before accounting closes.
             agentContext.SyncState(state);
             CollapseDuplicateMessageSnapshots(turnHistory);
@@ -4938,6 +5125,24 @@ public sealed partial class Agent : IAsyncDisposable
             if (cleanupFailures.Count > 0)
             {
                 var cleanupFailure = new AggregateException("Agent execution cleanup failed.", cleanupFailures);
+                var cleanupContext = errorScope.Context ?? CreateDiagnosticAgentContext(
+                    eventCoordinator: eventCoordinator!,
+                    session: session,
+                    thread: thread,
+                    threadExecutionId: sourceInput?.ThreadExecutionId ?? activeInput?.ThreadExecutionId,
+                    traceId: traceId,
+                    config: Config,
+                    clientSet: runClientSet ?? _clientSet,
+                    contentStore: _contentStore,
+                    runtimeCapabilities: _runtimeContext?.RuntimeCapabilities,
+                    structEvents: GetActiveStructEvents());
+                await MiddlewareErrorRouter.ReportAsync(
+                    cleanupContext,
+                    errorScope.Pipeline ?? _middlewarePipeline,
+                    cleanupFailure,
+                    ErrorSource.Runtime,
+                    CancellationToken.None,
+                    effectiveRunConfig).ConfigureAwait(false);
                 if (toolHarnessDeactivationReason == ToolHarnessDeactivationReason.Completed)
                     throw cleanupFailure;
                 _agentLogger?.LogError(cleanupFailure, "Agent cleanup also failed while preserving the original execution failure.");
@@ -5528,6 +5733,7 @@ public sealed partial class Agent : IAsyncDisposable
             (Config?.ResolveClientConfig(Providers.ProviderClientFamily.Chat) as ChatClientConfig)?.ToMicrosoftChatOptions();
         var chatOptions = options?.Clients.Chat?.MergeWith(baseDefaultOptions) ?? baseDefaultOptions;
         chatOptions = ApplySystemInstructionOverrides(chatOptions, options);
+        var errorScope = new TurnErrorScope(options ?? new AgentRunConfig());
 
         // Prepare turn
         var inputMessages = messages?.ToList() ?? new List<ChatMessage>();
@@ -5546,10 +5752,19 @@ public sealed partial class Agent : IAsyncDisposable
                 catalogLease?.Snapshot.Functions);
             turn = turn with { CatalogLease = catalogLease };
         }
-        catch
+        catch (Exception ex)
         {
             if (catalogLease is not null)
                 await catalogLease.DisposeAsync().ConfigureAwait(false);
+            await ReportTurnMiddlewareErrorAsync(
+                errorScope,
+                ex,
+                session,
+                thread,
+                eventCoordinator,
+                sourceInput?.ThreadExecutionId ?? activeInput?.ThreadExecutionId,
+                traceId: null,
+                cancellationToken).ConfigureAwait(false);
             throw;
         }
 
@@ -5576,7 +5791,8 @@ public sealed partial class Agent : IAsyncDisposable
             cancellationToken: cancellationToken,
             inheritedChatClient: inheritedChatClient,
             inheritedChatMode: inheritedChatMode,
-            sourceInput: sourceInput);
+            sourceInput: sourceInput,
+            errorScope: errorScope);
 
         await using var enumerator = internalStream.GetAsyncEnumerator(cancellationToken);
         string? messageTurnId = null;
@@ -5652,6 +5868,15 @@ public sealed partial class Agent : IAsyncDisposable
                                 null, cancellationToken.IsCancellationRequested ? "caller_token" : "event_flow") : null).ConfigureAwait(false);
                     }
 
+                    await ReportTurnMiddlewareErrorAsync(
+                        errorScope,
+                        ex,
+                        session,
+                        thread,
+                        eventCoordinator,
+                        sourceInput?.ThreadExecutionId ?? activeInput?.ThreadExecutionId,
+                        traceId: null,
+                        cancellationToken).ConfigureAwait(false);
                     throw;
                 }
 
@@ -5705,7 +5930,7 @@ public sealed partial class Agent : IAsyncDisposable
                 stagedReasoningMessages.Add(reasoningStart.MessageId);
             }
 
-            var useStagedDeltaLifecycle = thread is not null && Config?.SessionStore is IThreadDeltaStore;
+            var useStagedDeltaLifecycle = thread is not null && Config?.SessionStore is not null;
             AgentEvent outputEvent;
             if (useStagedDeltaLifecycle &&
                 (evt is TextDeltaEvent textDelta && stagedTextMessages.Contains(textDelta.MessageId) ||
@@ -5773,6 +5998,15 @@ public sealed partial class Agent : IAsyncDisposable
                             ? activeInput?.CancellationInfo ?? new AgentInputCancellation(
                                 cancellationToken.IsCancellationRequested ? AgentInputCancellationCause.Caller : AgentInputCancellationCause.Unknown,
                                 null, cancellationToken.IsCancellationRequested ? "caller_token" : "event_flow") : null).ConfigureAwait(false);
+                    await ReportTurnMiddlewareErrorAsync(
+                        errorScope,
+                        ex,
+                        session,
+                        thread,
+                        eventCoordinator,
+                        sourceInput?.ThreadExecutionId ?? activeInput?.ThreadExecutionId,
+                        traceId: null,
+                        CancellationToken.None).ConfigureAwait(false);
                     throw;
                 }
             }
@@ -7536,6 +7770,7 @@ public sealed partial class Agent : IAsyncDisposable
             newThread.MiddlewareState[kvp.Key] = kvp.Value;
         }
 
+        Middleware.AgentContext? forkContext = null;
         try
         {
             if (forkOptions.Metadata != null)
@@ -7548,6 +7783,17 @@ public sealed partial class Agent : IAsyncDisposable
         }
         catch (Exception exception)
         {
+            forkContext ??= CreateDiagnosticAgentContext(
+                eventCoordinator: GetActiveEventCoordinator(),
+                session: sourceThread.Session,
+                thread: newThread,
+                cancellationToken: cancellationToken);
+            await MiddlewareErrorRouter.ReportAsync(
+                forkContext,
+                _middlewarePipeline,
+                exception,
+                ErrorSource.ThreadFork,
+                cancellationToken).ConfigureAwait(false);
             await AbortForkOperationAsync(forkOperationStore, forkOperation, exception).ConfigureAwait(false);
             throw;
         }
@@ -7568,7 +7814,7 @@ public sealed partial class Agent : IAsyncDisposable
                     agentName: _name,
                     persistentState: persistentState);
 
-                var forkContext = new Middleware.AgentContext(
+                forkContext = new Middleware.AgentContext(
                     agentName: _name,
                     conversationId: sourceThread.SessionId,
                     initialState: forkState,
@@ -7611,6 +7857,17 @@ public sealed partial class Agent : IAsyncDisposable
         }
         catch (Exception exception)
         {
+            forkContext ??= CreateDiagnosticAgentContext(
+                eventCoordinator: GetActiveEventCoordinator(),
+                session: sourceThread.Session,
+                thread: newThread,
+                cancellationToken: cancellationToken);
+            await MiddlewareErrorRouter.ReportAsync(
+                forkContext,
+                _middlewarePipeline,
+                exception,
+                ErrorSource.ThreadFork,
+                cancellationToken).ConfigureAwait(false);
             await AbortForkOperationAsync(forkOperationStore, forkOperation, exception).ConfigureAwait(false);
             throw;
         }
@@ -8855,15 +9112,35 @@ public sealed partial class Agent : IAsyncDisposable
             AgentInputTranscriptStage.Failed =>
                 new UserAudioTranscriptFailedEvent(
                     messageId,
-                    update.Error?.Message ?? "Realtime user input transcription failed.",
+                    update.ErrorDetails?.Message ??
+                    update.Error?.Message ??
+                    "Realtime user input transcription failed.",
                     update.ItemId,
-                    update.ContentIndex),
+                    update.ContentIndex,
+                    CreateTranscriptErrorInfo(update)),
             _ => null
         };
 
         return evt is null
             ? null
             : evt with { TraceId = traceId };
+    }
+
+    private static ErrorHandling.ProviderErrorInfo? CreateTranscriptErrorInfo(
+        AgentInputTranscriptUpdate update)
+    {
+        if (update.ErrorDetails is not null)
+        {
+            return ErrorHandling.ProviderErrorInfo.From(
+                update.ErrorDetails,
+                "RealtimeTranscriptFailed");
+        }
+
+        return update.Error is null
+            ? null
+            : ErrorHandling.ProviderErrorInfo.FromException(
+                update.Error,
+                "RealtimeTranscriptFailed");
     }
 
     private static string? ResolveRealtimeTranscriptTargetMessageId(
@@ -9158,30 +9435,6 @@ public sealed partial class Agent : IAsyncDisposable
         return sb.ToString();
     }
 
-    private static IReadOnlyList<ContextMessageSnapshot> BuildContextMessageSnapshots(
-        IReadOnlyList<ChatMessage> finalMessages,
-        IReadOnlyList<ChatMessage> preIterationMessages)
-    {
-        var preExisting = new HashSet<ChatMessage>(preIterationMessages, ReferenceEqualityComparer.Instance);
-        var contextMessages = new List<ContextMessageSnapshot>();
-
-        foreach (var message in finalMessages)
-        {
-            if (preExisting.Contains(message))
-                continue;
-
-            var text = message.Text;
-            if (string.IsNullOrWhiteSpace(text))
-                continue;
-
-            contextMessages.Add(new ContextMessageSnapshot(
-                Role: message.Role.ToString(),
-                Text: text));
-        }
-
-        return contextMessages;
-    }
-
     internal static MiddlewareStateSnapshotEvent BuildMiddlewareStateSnapshotEvent(
         string agentName,
         IReadOnlyDictionary<string, MiddlewareStateFactory> stateFactories,
@@ -9354,68 +9607,6 @@ public sealed partial class Agent : IAsyncDisposable
             && before.Redacted == after.Redacted;
     }
 
-    private static IReadOnlyList<ToolContextSnapshot> BuildToolContextSnapshots(ChatOptions? options)
-    {
-        if (options?.Tools is not { Count: > 0 } tools)
-            return [];
-
-        var snapshots = new List<ToolContextSnapshot>(tools.Count);
-        foreach (var tool in tools)
-        {
-            string? toolharnessName = null;
-            ToolCallType? callType = null;
-            var isContainer = false;
-
-            if (tool.AdditionalProperties is { } properties)
-            {
-                if (tool is AIFunction typedFunction &&
-                    properties.TryGetValue(HPDCapabilityMetadata.AdditionalPropertiesKey, out var typedValue) &&
-                    typedValue is HPDCapabilityMetadata typedMetadata)
-                {
-                    callType = FunctionExecutionCore.LookupToolCallType(typedFunction);
-                    isContainer = typedMetadata.Kind is
-                        HPDCapabilityKind.SkillActivation or
-                        HPDCapabilityKind.ToolHarnessActivation or
-                        HPDCapabilityKind.FunctionActivation;
-                }
-
-                if (properties.TryGetValue("ToolHarnessName", out var toolharnessValue) && toolharnessValue is string h)
-                    toolharnessName = h;
-                else if (properties.TryGetValue("ParentToolHarness", out var parentValue) && parentValue is string p)
-                    toolharnessName = p;
-
-                if (callType is null && properties.TryGetValue("IsContainer", out var containerValue) && containerValue is bool container)
-                    isContainer = container;
-
-                if (callType is null && properties.TryGetValue("CapabilityType", out var capabilityValue) && capabilityValue is string capability)
-                {
-                    callType = capability switch
-                    {
-                        "Function" => ToolCallType.Function,
-                        "Skill" => ToolCallType.Skill,
-                        "SubAgent" => ToolCallType.SubAgent,
-                        "MultiAgent" => ToolCallType.MultiAgent,
-                        "MCPServer" => ToolCallType.McpServer,
-                        "OpenApi" => ToolCallType.OpenApi,
-                        _ => null
-                    };
-                }
-            }
-
-            snapshots.Add(new ToolContextSnapshot(
-                Name: tool.Name,
-                Description: tool.Description,
-                ToolHarnessName: toolharnessName,
-                CallType: callType,
-                IsContainer: isContainer,
-                InputSchemaJson: tool is AIFunctionDeclaration function
-                    && function.JsonSchema.ValueKind != JsonValueKind.Undefined
-                    ? function.JsonSchema.GetRawText()
-                    : null));
-        }
-
-        return snapshots;
-    }
 }
 
 #region Agent Decision Engine

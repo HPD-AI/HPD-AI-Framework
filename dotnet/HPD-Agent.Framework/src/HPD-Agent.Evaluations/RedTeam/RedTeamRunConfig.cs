@@ -60,48 +60,7 @@ public static class RedTeamRunConfig
     private static IRedTeamPlugin CreatePlugin(JsonNode? node)
     {
         var (id, _) = ReadDefinition(node, "plugin");
-        return NormalizeName(id) switch
-        {
-            "promptinjection" => new PromptInjectionPlugin(),
-            "indirectpromptinjection" => new IndirectPromptInjectionPlugin(),
-            "systempromptextraction" or "promptextraction" => new SystemPromptExtractionPlugin(),
-            "tooldiscovery" => new ToolDiscoveryPlugin(),
-            "toolabuse" => new ToolAbusePlugin(),
-            "dataexfiltration" or "dataexfil" => new DataExfiltrationPlugin(),
-            "secretleak" => new SecretLeakPlugin(),
-            "piileak" or "pii" or "piidirect" => new PiiLeakPlugin(),
-            "unauthorizedaction" => new UnauthorizedActionPlugin(),
-            "jailbreak" => new JailbreakPlugin(),
-            "shellinjection" => new ShellInjectionPlugin(),
-            "sqlinjection" => new SqlInjectionPlugin(),
-            "rbacviolation" or "rbac" => new RbacViolationPlugin(),
-            "objectaccessviolation" or "bola" => new ObjectAccessViolationPlugin(),
-            "policybypass" or "policy" => new PolicyBypassPlugin(),
-            "excessiveagency" => new ExcessiveAgencyPlugin(),
-            "crosssessionleak" => new CrossSessionLeakPlugin(),
-            "ssrf" => new SsrfPlugin(),
-            "overreliance" => new OverreliancePlugin(),
-            "unverifiableclaims" => new UnverifiableClaimsPlugin(),
-            "offtopichijacking" or "offtopic" or "hijacking" => new OffTopicHijackingPlugin(),
-            "asciismuggling" => new AsciiSmugglingPlugin(),
-            "specialtokeninjection" => new SpecialTokenInjectionPlugin(),
-            "debugaccess" => new DebugAccessPlugin(),
-            "modelidentification" => new ModelIdentificationPlugin(),
-            "reasoningdos" => new ReasoningDosPlugin(),
-            "divergentrepetition" => new DivergentRepetitionPlugin(),
-            "imitation" => new ImitationPlugin(),
-            "competitormention" or "competitors" => new CompetitorMentionPlugin(),
-            "goalmisalignment" => new GoalMisalignmentPlugin(),
-            "contracts" => new ContractsPlugin(),
-            "bfla" => new BflaPlugin(),
-            "mcptoolabuse" or "mcp" => new McpToolAbusePlugin(),
-            "memorypoisoning" or "agenticmemorypoisoning" => new MemoryPoisoningPlugin(),
-            "contextcomplianceattack" or "cca" => new ContextComplianceAttackPlugin(),
-            "maliciouscode" => new MaliciousCodePlugin(),
-            "harmfulcontent" or "harmful" => new HarmfulContentPlugin(),
-            "bias" => new BiasPlugin(),
-            _ => throw new InvalidOperationException($"Unknown red-team plugin '{id}'."),
-        };
+        return RedTeamPlugins.Create(id);
     }
 
     private static IReadOnlyList<IRedTeamStrategy> CreateStrategies(JsonArray? strategies)
@@ -112,35 +71,18 @@ public static class RedTeamRunConfig
         var (id, config) = ReadDefinition(node, "strategy");
         return NormalizeName(id) switch
         {
-            "basic" => new BasicStrategy(),
-            "base64" => new Base64Strategy(),
-            "hex" => new HexStrategy(),
-            "rot13" => new Rot13Strategy(),
-            "leetspeak" => new LeetspeakStrategy(),
-            "camelcase" => new CamelCaseStrategy(),
-            "morse" => new MorseStrategy(),
-            "piglatin" => new PigLatinStrategy(),
-            "emoji" => new EmojiStrategy(),
-            "homoglyph" => new HomoglyphStrategy(),
-            "unicodesmuggling" => new UnicodeSmugglingStrategy(),
-            "fakesystemmessage" => new FakeSystemMessageStrategy(),
-            "roleplayjailbreak" => new RoleplayJailbreakStrategy(),
-            "mathprompt" => new MathPromptStrategy(),
-            "citation" => new CitationStrategy(),
-            "mischievoususer" => new MischievousUserStrategy(),
-            "multiturnescalation" or "multiturn" => new MultiTurnEscalationStrategy(),
-            "crescendo" => new CrescendoStrategy(),
-            "markdownauthority" => new MarkdownAuthorityStrategy(),
-            "authoritativemarkupinjection" => new AuthoritativeMarkupInjectionStrategy(),
-            "indirectcontent" or "indirectwebpwn" => new IndirectContentStrategy(),
-            "bestofn" => new BestOfNStrategy(GetInt(config, "variant_count") ?? GetInt(config, "n") ?? GetInt(config, "count") ?? 3),
-            "retrymutation" or "retry" => new RetryMutationStrategy(GetInt(config, "retry_count") ?? GetInt(config, "count") ?? 2),
-            "jailbreaktemplates" or "promptinjection" or "jailbreak" => new JailbreakTemplateStrategy(),
-            "compositejailbreak" or "jailbreakcomposite" => new CompositeJailbreakStrategy(),
-            "treejailbreak" or "jailbreaktree" => new TreeJailbreakStrategy(),
-            "likertjailbreak" or "jailbreaklikert" => new LikertJailbreakStrategy(),
-            "layered" or "layer" => new LayeredStrategy(CreateStrategies(GetArray(config, "strategies"))),
-            _ => throw new InvalidOperationException($"Unknown red-team strategy '{id}'."),
+            "bestofn" => RedTeamStrategies.BestOfN(
+                GetInt(config, "variant_count") ??
+                GetInt(config, "n") ??
+                GetInt(config, "count") ??
+                3),
+            "retrymutation" or "retry" => RedTeamStrategies.RetryMutation(
+                GetInt(config, "retry_count") ??
+                GetInt(config, "count") ??
+                2),
+            "layered" or "layer" => RedTeamStrategies.Layered(
+                CreateStrategies(GetArray(config, "strategies"))),
+            _ => RedTeamStrategies.Create(id),
         };
     }
 

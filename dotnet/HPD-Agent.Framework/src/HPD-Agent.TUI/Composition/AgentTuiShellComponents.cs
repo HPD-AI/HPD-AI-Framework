@@ -3,7 +3,7 @@ using HPD.TUI.Core;
 
 namespace HPD.Agent.TUI.Composition;
 
-public sealed class DelegateAgentTuiShellComponent : IAgentTuiShellComponent
+internal sealed class DelegateAgentTuiShellComponent : IAgentTuiShellComponent
 {
     private readonly Func<AgentTuiShellContext, IComponent> _render;
 
@@ -16,20 +16,20 @@ public sealed class DelegateAgentTuiShellComponent : IAgentTuiShellComponent
         => _render(context);
 }
 
-public sealed class DefaultHeaderShellComponent : IAgentTuiShellComponent
+internal sealed class DefaultHeaderShellComponent : IAgentTuiShellComponent
 {
     public IComponent Create(AgentTuiShellContext context)
         => new ShellText(context, static shell => shell.HeaderText);
 }
 
-public sealed class DefaultFooterShellComponent : IAgentTuiShellComponent
+internal sealed class DefaultFooterShellComponent : IAgentTuiShellComponent
 {
     public IComponent Create(AgentTuiShellContext context)
         => new ShellText(context, static shell => shell.FooterText);
 }
 
 /// <summary>Renders the shell's agent-owned status immediately above the prompt.</summary>
-public sealed class DefaultPromptStatusShellComponent : IAgentTuiShellComponent
+internal sealed class DefaultPromptStatusShellComponent : IAgentTuiShellComponent
 {
     public IComponent Create(AgentTuiShellContext context)
         => new ShellText(context, static shell => shell.PromptStatusText);

@@ -10,7 +10,7 @@ using HPD.TUI.Views;
 
 namespace HPD.Agent.TUI.Views;
 
-public sealed class DefaultAgentTuiShellView : Component, IAgentTuiShellView
+internal sealed class DefaultAgentTuiShellView : Component, IAgentTuiShellView
 {
     private readonly List<(TuiSlot Slot, ContributionWidgetSlotView View)> _widgetSlots = [];
     private readonly ChatShellModel _model;
@@ -44,7 +44,7 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiShellView
         _model = context.Shell;
         _prompt = context.Prompt;
         _registry = context.Registry;
-        _state = context.State;
+        _state = context.StateBag;
         _chrome = context.Chrome;
         _lastTranscriptHeight = _chrome.DefaultTranscriptHeight;
         AgentTuiPerformanceDiagnostics.TryGetSink(_state, out var performanceSink);

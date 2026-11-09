@@ -1,0 +1,248 @@
+using System.Reflection;
+using HPD.Agent.Authority;
+using Xunit;
+
+namespace HPD.Agent.Audio.Authority;
+
+public sealed class TypedOwnerEvidenceAdaptersTests
+{
+    [Fact]
+    public void Every_S2_through_S8_payload_maps_to_its_exact_registration()
+    {
+        var session = new SessionAuthorityStampV1(
+            RuntimeGenerationId.Create(), LiveSessionId.Create());
+        var authority = ExpectedAuthorityVectorV1.Create(session, []);
+        var correlation = new CorrelationEnvelopeV1(
+            TenantId.Create(), operationId: OperationId.Create());
+        var body = new byte[] { 1, 2, 3 };
+        var observedAt = new UtcInstant(10);
+
+        var cases = new (ProposedAuthorityFactV1 Proposal,
+            AuthorityPayloadRegistrationV1 Registration)[]
+        {
+            (TypedOwnerEvidenceAdapters.GraphGeneration(
+                new GraphGenerationChangedOuter(session, authority, body),
+                JournalFactId.Create(), null, correlation, observedAt),
+                TurnGenerationAuthorityPayloadRegistrations.GraphGenerationChanged),
+            (TypedOwnerEvidenceAdapters.VadObservation(
+                new VadObservation(session, authority, body),
+                JournalFactId.Create(), null, correlation, observedAt),
+                ActivityAuthorityPayloadRegistrations.VadObservation),
+            (TypedOwnerEvidenceAdapters.ActivityBoundary(
+                new ActivityBoundaryFact(session, authority, body),
+                JournalFactId.Create(), null, correlation, observedAt),
+                ActivityAuthorityPayloadRegistrations.ActivityBoundaryFact),
+            (TypedOwnerEvidenceAdapters.TurnFinalized(
+                new TurnDecisionFinalizedOuter(session, authority, body),
+                JournalFactId.Create(), null, correlation, observedAt),
+                TurnGenerationAuthorityPayloadRegistrations.TurnDecisionFinalized),
+            (TypedOwnerEvidenceAdapters.SemanticCandidate(
+                new SemanticCandidate(session, authority, body),
+                JournalFactId.Create(), null, correlation, observedAt),
+                SemanticCandidateAuthorityPayloadRegistration.Candidate),
+            (TypedOwnerEvidenceAdapters.ProviderGeneration(
+                new ProviderGenerationChangedOuter(session, authority, body),
+                JournalFactId.Create(), null, correlation, observedAt),
+                TurnGenerationAuthorityPayloadRegistrations.ProviderGenerationChanged),
+            (TypedOwnerEvidenceAdapters.ProviderEffectCommand(
+                new ProviderEffectCommand(session, authority, body),
+                JournalFactId.Create(), null, correlation, observedAt),
+                ProviderEffectAuthorityPayloadRegistrations.ProviderEffectCommand),
+            (TypedOwnerEvidenceAdapters.ProviderEffectReceipt(
+                new ProviderEffectReceipt(session, authority, body),
+                JournalFactId.Create(), null, correlation, observedAt),
+                ProviderEffectAuthorityPayloadRegistrations.ProviderEffectReceipt),
+            (TypedOwnerEvidenceAdapters.OutputSinkCommand(
+                new OutputSinkCommand(session, authority, body),
+                JournalFactId.Create(), null, correlation, observedAt),
+                OutputAuthorityPayloadRegistrations.OutputSinkCommand),
+            (TypedOwnerEvidenceAdapters.OutputSinkReceipt(
+                new OutputSinkReceipt(session, authority, body),
+                JournalFactId.Create(), null, correlation, observedAt),
+                OutputAuthorityPayloadRegistrations.OutputSinkReceipt),
+            (TypedOwnerEvidenceAdapters.HeardRange(
+                new HeardRangeFact(session, authority, body),
+                JournalFactId.Create(), null, correlation, observedAt),
+                OutputAuthorityPayloadRegistrations.HeardRangeFact),
+            (TypedOwnerEvidenceAdapters.InterruptionCommand(
+                new InterruptionCommand(session, authority, body),
+                JournalFactId.Create(), null, correlation, observedAt),
+                InterruptionToolAuthorityPayloadRegistrations.InterruptionCommand),
+            (TypedOwnerEvidenceAdapters.InterruptionSettled(
+                new InterruptionSettled(session, authority, body),
+                JournalFactId.Create(), null, correlation, observedAt),
+                InterruptionToolAuthorityPayloadRegistrations.InterruptionSettled),
+            (TypedOwnerEvidenceAdapters.ToolContinuation(
+                new ToolContinuation(session, authority, body),
+                JournalFactId.Create(), null, correlation, observedAt),
+                InterruptionToolAuthorityPayloadRegistrations.ToolContinuation),
+            (TypedOwnerEvidenceAdapters.ToolEffectReceipt(
+                new ToolEffectReceipt(session, authority, body),
+                JournalFactId.Create(), null, correlation, observedAt),
+                InterruptionToolAuthorityPayloadRegistrations.ToolEffectReceipt),
+            (TypedOwnerEvidenceAdapters.RouteGeneration(
+                new RouteGenerationChangedOuter(session, authority, body),
+                JournalFactId.Create(), null, correlation, observedAt),
+                TurnGenerationAuthorityPayloadRegistrations.RouteGenerationChanged),
+            (TypedOwnerEvidenceAdapters.RouteSelection(
+                new RouteSelectionCommand(session, authority, body),
+                JournalFactId.Create(), null, correlation, observedAt),
+                RouteSelectionAuthorityPayloadRegistration.Command),
+        };
+
+        Assert.Equal(17, cases.Length);
+        Assert.Equal(
+            [OwnerSliceId.S2, OwnerSliceId.S3, OwnerSliceId.S4,
+             OwnerSliceId.S5, OwnerSliceId.S6, OwnerSliceId.S7, OwnerSliceId.S8],
+            cases.Select(value => value.Proposal.Owner).Distinct().Order().ToArray());
+
+        foreach (var (proposal, registration) in cases)
+        {
+            Assert.Equal(registration.Owner, proposal.Owner);
+            Assert.Equal(registration.Schema, proposal.PayloadSchema);
+            Assert.Equal(
+                AuthorityPayloadHashV1.Compute(
+                    registration.SchemaToken, registration.Schema, proposal.PayloadBytes),
+                proposal.PayloadHash);
+
+            var admission = new AuthorityPayloadAdmissionRegistryV1([registration])
+                .Validate(session, proposal, out var matched);
+            Assert.Equal(AuthorityPayloadAdmissionV1.Exact, admission);
+            Assert.Same(registration, matched);
+        }
+    }
+
+    [Fact]
+    public void Adapter_is_stateless_owns_bytes_and_exposes_no_journal_or_store_port()
+    {
+        var session = new SessionAuthorityStampV1(
+            RuntimeGenerationId.Create(), LiveSessionId.Create());
+        var authority = ExpectedAuthorityVectorV1.Create(session, []);
+        var correlation = new CorrelationEnvelopeV1(TenantId.Create());
+        var body = new byte[] { 7, 8, 9 };
+        var payload = new VadObservation(session, authority, body);
+        var proposal = TypedOwnerEvidenceAdapters.VadObservation(
+            payload, JournalFactId.Create(), null, correlation, new UtcInstant(1));
+
+        body.AsSpan().Fill(0xff);
+        Assert.True(ActivityAuthorityPayloadCodec.TryDecodeVadObservation(
+            proposal.PayloadMemory, out var decoded));
+        Assert.Equal(new byte[] { 7, 8, 9 }, decoded!.Body);
+
+        var adapter = typeof(TypedOwnerEvidenceAdapters);
+        Assert.Empty(adapter.GetFields(
+            BindingFlags.Static | BindingFlags.Instance |
+            BindingFlags.Public | BindingFlags.NonPublic));
+        Assert.All(adapter.GetMethods(BindingFlags.Static | BindingFlags.NonPublic), method =>
+        {
+            Assert.DoesNotContain(method.GetParameters(), parameter =>
+                typeof(IAuthorityJournalV1).IsAssignableFrom(parameter.ParameterType));
+            Assert.DoesNotContain(method.GetParameters(), parameter =>
+                parameter.ParameterType.Name.Contains("Store", StringComparison.Ordinal));
+        });
+    }
+
+    [Fact]
+    public async Task Typed_proposal_survives_crash_conflict_retry_replay_and_stale_fencing()
+    {
+        var directory = Path.Combine(Path.GetTempPath(),
+            "hpd-owner-adapter-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "authority.log");
+        FileAuthorityJournalV1? journal = null;
+        try
+        {
+            var session = new SessionAuthorityStampV1(
+                RuntimeGenerationId.Create(), LiveSessionId.Create());
+            var authority = ExpectedAuthorityVectorV1.Create(session, []);
+            var correlation = new CorrelationEnvelopeV1(
+                TenantId.Create(), operationId: OperationId.Create());
+            var registration = ActivityAuthorityPayloadRegistrations.VadObservation;
+            var runtimeRegistration =
+                new AuthorityGenerationTransitionPayloadRegistrationV1(AuthorityAxisId.Runtime);
+            var registry = new AuthorityPayloadAdmissionRegistryV1(
+                [registration, runtimeRegistration]);
+            var capacity = new AuthorityJournalCapacityV1(4, 32, 4 * 1024 * 1024);
+
+            var proposal = TypedOwnerEvidenceAdapters.VadObservation(
+                new VadObservation(session, authority, [1, 2, 3]),
+                JournalFactId.Create(), null, correlation, new UtcInstant(10));
+            AppendAuthorityBatchV1 Batch(long head, ProposedAuthorityFactV1 fact) =>
+                new(session, head, [], [fact], ProposedAuthorityFactV1.MaximumPayloadBytes);
+            ValueTask<FileAuthorityJournalV1> Open() =>
+                FileAuthorityJournalV1.OpenAsync(path, registry,
+                    static () => new UtcInstant(20), capacity);
+            ValueTask<FileAuthorityJournalV1> OpenWithFault(string stage) =>
+                FileAuthorityJournalV1.OpenForTestingAsync(path, registry,
+                    static () => new UtcInstant(20), capacity,
+                    value => value.ToString() == stage
+                        ? ValueTask.FromException(new IOException("injected-owner-adapter-crash"))
+                        : ValueTask.CompletedTask);
+
+            journal = await OpenWithFault("before-record-write");
+            await Assert.ThrowsAsync<IOException>(async () =>
+                await journal.AppendAsync(Batch(0, proposal)));
+            await journal.DisposeAsync();
+            journal = await Open();
+            var before = Assert.IsType<ReadAuthorityRangeResultV1.Batch>(
+                await journal.ReadAsync(new ReadAuthorityRangeV1(
+                    session, 0, long.MaxValue, 32, ProposedAuthorityFactV1.MaximumPayloadBytes)));
+            Assert.Empty(before.Facts);
+            await journal.DisposeAsync();
+
+            journal = await OpenWithFault("after-record-flush");
+            await Assert.ThrowsAsync<IOException>(async () =>
+                await journal.AppendAsync(Batch(0, proposal)));
+            await journal.DisposeAsync();
+            journal = await Open();
+            var after = Assert.IsType<ReadAuthorityRangeResultV1.Batch>(
+                await journal.ReadAsync(new ReadAuthorityRangeV1(
+                    session, 0, long.MaxValue, 32, ProposedAuthorityFactV1.MaximumPayloadBytes)));
+            var replayed = Assert.Single(after.Facts);
+            Assert.Equal(proposal.FactId, replayed.FactId);
+            Assert.Equal(proposal.Payload, replayed.Payload);
+
+            var retry = Assert.IsType<AppendAuthorityResultV1.AlreadyCommitted>(
+                await journal.AppendAsync(Batch(0, proposal)));
+            Assert.Equal(replayed.FactId, Assert.Single(retry.Envelopes).FactId);
+
+            var competing = TypedOwnerEvidenceAdapters.VadObservation(
+                new VadObservation(session, authority, [4, 5, 6]),
+                JournalFactId.Create(), null, correlation, new UtcInstant(11));
+            Assert.IsType<AppendAuthorityResultV1.SessionConflict>(
+                await journal.AppendAsync(Batch(0, competing)));
+
+            Span<byte> currentBytes = stackalloc byte[16];
+            Assert.True(session.RuntimeGenerationId.TryWriteBytes(currentBytes));
+            var nextRuntime = RuntimeGenerationId.Create();
+            Span<byte> nextBytes = stackalloc byte[16];
+            Assert.True(nextRuntime.TryWriteBytes(nextBytes));
+            var transitionPayload = AuthorityGenerationTransitionCodecV1.Encode(
+                session, AuthorityAxisId.Runtime, StableId128.FromBytes(currentBytes),
+                StableId128.FromBytes(nextBytes));
+            var transition = new ProposedAuthorityFactV1(
+                JournalFactId.Create(), null, runtimeRegistration.Owner,
+                runtimeRegistration.Schema, transitionPayload,
+                AuthorityPayloadHashV1.Compute(runtimeRegistration.SchemaToken,
+                    runtimeRegistration.Schema, transitionPayload), correlation,
+                new UtcInstant(12));
+            Assert.IsType<AppendAuthorityResultV1.Committed>(
+                await journal.AppendAsync(Batch(1, transition)));
+            await journal.DisposeAsync();
+            journal = await Open();
+
+            var stale = TypedOwnerEvidenceAdapters.VadObservation(
+                new VadObservation(session, authority, [7, 8, 9]),
+                JournalFactId.Create(), null, correlation, new UtcInstant(13));
+            var staleResult = Assert.IsType<AppendAuthorityResultV1.InvalidPayload>(
+                await journal.AppendAsync(Batch(2, stale)));
+            Assert.Equal("generation-state-conflict", staleResult.SafeCode.ToString());
+        }
+        finally
+        {
+            if (journal is not null) await journal.DisposeAsync();
+            try { Directory.Delete(directory, recursive: true); }
+            catch (DirectoryNotFoundException) { }
+        }
+    }
+}

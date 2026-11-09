@@ -4,7 +4,7 @@
 namespace HPD.Agent.Evaluations.RedTeam;
 
 /// <summary>Generates direct prompt-injection attempts.</summary>
-public sealed class PromptInjectionPlugin : StaticRedTeamPlugin
+internal sealed class PromptInjectionPlugin : StaticRedTeamPlugin
 {
     public PromptInjectionPlugin()
         : base(
@@ -26,7 +26,7 @@ public sealed class PromptInjectionPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to reveal hidden system, developer, or tool instructions.</summary>
-public sealed class SystemPromptExtractionPlugin : StaticRedTeamPlugin
+internal sealed class SystemPromptExtractionPlugin : StaticRedTeamPlugin
 {
     public SystemPromptExtractionPlugin()
         : base(
@@ -48,7 +48,7 @@ public sealed class SystemPromptExtractionPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to enumerate tools or unavailable capabilities.</summary>
-public sealed class ToolDiscoveryPlugin : StaticRedTeamPlugin
+internal sealed class ToolDiscoveryPlugin : StaticRedTeamPlugin
 {
     public ToolDiscoveryPlugin()
         : base(
@@ -70,7 +70,7 @@ public sealed class ToolDiscoveryPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to exfiltrate sensitive conversation, memory, or tool data.</summary>
-public sealed class DataExfiltrationPlugin : StaticRedTeamPlugin
+internal sealed class DataExfiltrationPlugin : StaticRedTeamPlugin
 {
     public DataExfiltrationPlugin()
         : base(
@@ -92,7 +92,7 @@ public sealed class DataExfiltrationPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to disclose credentials, tokens, keys, or secrets.</summary>
-public sealed class SecretLeakPlugin : StaticRedTeamPlugin
+internal sealed class SecretLeakPlugin : StaticRedTeamPlugin
 {
     public SecretLeakPlugin()
         : base(
@@ -114,7 +114,7 @@ public sealed class SecretLeakPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to make the agent act outside authorization boundaries.</summary>
-public sealed class UnauthorizedActionPlugin : StaticRedTeamPlugin
+internal sealed class UnauthorizedActionPlugin : StaticRedTeamPlugin
 {
     public UnauthorizedActionPlugin()
         : base(
@@ -136,7 +136,7 @@ public sealed class UnauthorizedActionPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to bypass safety or policy boundaries through jailbreak framing.</summary>
-public sealed class JailbreakPlugin : StaticRedTeamPlugin
+internal sealed class JailbreakPlugin : StaticRedTeamPlugin
 {
     public JailbreakPlugin()
         : base(
@@ -158,7 +158,7 @@ public sealed class JailbreakPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to disclose personal information.</summary>
-public sealed class PiiLeakPlugin : StaticRedTeamPlugin
+internal sealed class PiiLeakPlugin : StaticRedTeamPlugin
 {
     public PiiLeakPlugin()
         : base(
@@ -180,7 +180,7 @@ public sealed class PiiLeakPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to inject shell syntax into tool or task inputs.</summary>
-public sealed class ShellInjectionPlugin : StaticRedTeamPlugin
+internal sealed class ShellInjectionPlugin : StaticRedTeamPlugin
 {
     public ShellInjectionPlugin()
         : base(
@@ -202,7 +202,7 @@ public sealed class ShellInjectionPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to inject SQL syntax into query-like inputs.</summary>
-public sealed class SqlInjectionPlugin : StaticRedTeamPlugin
+internal sealed class SqlInjectionPlugin : StaticRedTeamPlugin
 {
     public SqlInjectionPlugin()
         : base(
@@ -224,7 +224,7 @@ public sealed class SqlInjectionPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to bypass role-based authorization checks.</summary>
-public sealed class RbacViolationPlugin : StaticRedTeamPlugin
+internal sealed class RbacViolationPlugin : StaticRedTeamPlugin
 {
     public RbacViolationPlugin()
         : base(
@@ -246,7 +246,7 @@ public sealed class RbacViolationPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to access or mutate another user's object by identifier.</summary>
-public sealed class ObjectAccessViolationPlugin : StaticRedTeamPlugin
+internal sealed class ObjectAccessViolationPlugin : StaticRedTeamPlugin
 {
     public ObjectAccessViolationPlugin()
         : base(
@@ -268,7 +268,7 @@ public sealed class ObjectAccessViolationPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to bypass caller-supplied or business policy.</summary>
-public sealed class PolicyBypassPlugin : StaticRedTeamPlugin
+internal sealed class PolicyBypassPlugin : StaticRedTeamPlugin
 {
     public PolicyBypassPlugin()
         : base(
@@ -290,7 +290,7 @@ public sealed class PolicyBypassPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to make the agent act with too much autonomy.</summary>
-public sealed class ExcessiveAgencyPlugin : StaticRedTeamPlugin
+internal sealed class ExcessiveAgencyPlugin : StaticRedTeamPlugin
 {
     public ExcessiveAgencyPlugin()
         : base(
@@ -312,7 +312,7 @@ public sealed class ExcessiveAgencyPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates prompt-injection attempts embedded in untrusted content.</summary>
-public sealed class IndirectPromptInjectionPlugin : StaticRedTeamPlugin
+internal sealed class IndirectPromptInjectionPlugin : StaticRedTeamPlugin
 {
     public IndirectPromptInjectionPlugin()
         : base(
@@ -334,7 +334,7 @@ public sealed class IndirectPromptInjectionPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to misuse available tools or tool arguments.</summary>
-public sealed class ToolAbusePlugin : StaticRedTeamPlugin
+internal sealed class ToolAbusePlugin : StaticRedTeamPlugin
 {
     public ToolAbusePlugin()
         : base(
@@ -356,7 +356,7 @@ public sealed class ToolAbusePlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to leak information from another session or tenant.</summary>
-public sealed class CrossSessionLeakPlugin : StaticRedTeamPlugin
+internal sealed class CrossSessionLeakPlugin : StaticRedTeamPlugin
 {
     public CrossSessionLeakPlugin()
         : base(
@@ -378,7 +378,7 @@ public sealed class CrossSessionLeakPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to cause server-side requests to attacker-controlled or internal URLs.</summary>
-public sealed class SsrfPlugin : StaticRedTeamPlugin
+internal sealed class SsrfPlugin : StaticRedTeamPlugin
 {
     public SsrfPlugin()
         : base(
@@ -400,7 +400,7 @@ public sealed class SsrfPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to make the agent over-trust user-provided or untrusted claims.</summary>
-public sealed class OverreliancePlugin : StaticRedTeamPlugin
+internal sealed class OverreliancePlugin : StaticRedTeamPlugin
 {
     public OverreliancePlugin()
         : base(
@@ -422,7 +422,7 @@ public sealed class OverreliancePlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to elicit unsupported factual claims.</summary>
-public sealed class UnverifiableClaimsPlugin : StaticRedTeamPlugin
+internal sealed class UnverifiableClaimsPlugin : StaticRedTeamPlugin
 {
     public UnverifiableClaimsPlugin()
         : base(
@@ -444,7 +444,7 @@ public sealed class UnverifiableClaimsPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to pull the agent away from its intended task.</summary>
-public sealed class OffTopicHijackingPlugin : StaticRedTeamPlugin
+internal sealed class OffTopicHijackingPlugin : StaticRedTeamPlugin
 {
     public OffTopicHijackingPlugin()
         : base(
@@ -466,7 +466,7 @@ public sealed class OffTopicHijackingPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to hide instructions using ASCII or invisible-looking control text.</summary>
-public sealed class AsciiSmugglingPlugin : StaticRedTeamPlugin
+internal sealed class AsciiSmugglingPlugin : StaticRedTeamPlugin
 {
     public AsciiSmugglingPlugin()
         : base(
@@ -488,7 +488,7 @@ public sealed class AsciiSmugglingPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to alter model behavior using special tokens or role markers.</summary>
-public sealed class SpecialTokenInjectionPlugin : StaticRedTeamPlugin
+internal sealed class SpecialTokenInjectionPlugin : StaticRedTeamPlugin
 {
     public SpecialTokenInjectionPlugin()
         : base(
@@ -510,7 +510,7 @@ public sealed class SpecialTokenInjectionPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to access internal debugging behavior.</summary>
-public sealed class DebugAccessPlugin : StaticRedTeamPlugin
+internal sealed class DebugAccessPlugin : StaticRedTeamPlugin
 {
     public DebugAccessPlugin()
         : base(
@@ -532,7 +532,7 @@ public sealed class DebugAccessPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to identify the model, provider, or deployment internals.</summary>
-public sealed class ModelIdentificationPlugin : StaticRedTeamPlugin
+internal sealed class ModelIdentificationPlugin : StaticRedTeamPlugin
 {
     public ModelIdentificationPlugin()
         : base(
@@ -554,7 +554,7 @@ public sealed class ModelIdentificationPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to consume reasoning or compute budget without useful progress.</summary>
-public sealed class ReasoningDosPlugin : StaticRedTeamPlugin
+internal sealed class ReasoningDosPlugin : StaticRedTeamPlugin
 {
     public ReasoningDosPlugin()
         : base(
@@ -576,7 +576,7 @@ public sealed class ReasoningDosPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to make the agent repeat or diverge from useful output.</summary>
-public sealed class DivergentRepetitionPlugin : StaticRedTeamPlugin
+internal sealed class DivergentRepetitionPlugin : StaticRedTeamPlugin
 {
     public DivergentRepetitionPlugin()
         : base(
@@ -598,7 +598,7 @@ public sealed class DivergentRepetitionPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to make the agent impersonate people, brands, or authorities.</summary>
-public sealed class ImitationPlugin : StaticRedTeamPlugin
+internal sealed class ImitationPlugin : StaticRedTeamPlugin
 {
     public ImitationPlugin()
         : base(
@@ -620,7 +620,7 @@ public sealed class ImitationPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to force competitor mentions or product steering.</summary>
-public sealed class CompetitorMentionPlugin : StaticRedTeamPlugin
+internal sealed class CompetitorMentionPlugin : StaticRedTeamPlugin
 {
     public CompetitorMentionPlugin()
         : base(
@@ -642,7 +642,7 @@ public sealed class CompetitorMentionPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to pull the agent away from its intended objective.</summary>
-public sealed class GoalMisalignmentPlugin : StaticRedTeamPlugin
+internal sealed class GoalMisalignmentPlugin : StaticRedTeamPlugin
 {
     public GoalMisalignmentPlugin()
         : base(
@@ -664,7 +664,7 @@ public sealed class GoalMisalignmentPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to bypass contractual or terms-of-service constraints.</summary>
-public sealed class ContractsPlugin : StaticRedTeamPlugin
+internal sealed class ContractsPlugin : StaticRedTeamPlugin
 {
     public ContractsPlugin()
         : base(
@@ -686,7 +686,7 @@ public sealed class ContractsPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates broken function-level authorization attempts.</summary>
-public sealed class BflaPlugin : StaticRedTeamPlugin
+internal sealed class BflaPlugin : StaticRedTeamPlugin
 {
     public BflaPlugin()
         : base(
@@ -708,7 +708,7 @@ public sealed class BflaPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to misuse MCP-style tools, resources, or prompts.</summary>
-public sealed class McpToolAbusePlugin : StaticRedTeamPlugin
+internal sealed class McpToolAbusePlugin : StaticRedTeamPlugin
 {
     public McpToolAbusePlugin()
         : base(
@@ -730,7 +730,7 @@ public sealed class McpToolAbusePlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to poison memory or future context.</summary>
-public sealed class MemoryPoisoningPlugin : StaticRedTeamPlugin
+internal sealed class MemoryPoisoningPlugin : StaticRedTeamPlugin
 {
     public MemoryPoisoningPlugin()
         : base(
@@ -752,7 +752,7 @@ public sealed class MemoryPoisoningPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates context compliance attacks that conflict with trusted instructions.</summary>
-public sealed class ContextComplianceAttackPlugin : StaticRedTeamPlugin
+internal sealed class ContextComplianceAttackPlugin : StaticRedTeamPlugin
 {
     public ContextComplianceAttackPlugin()
         : base(
@@ -774,7 +774,7 @@ public sealed class ContextComplianceAttackPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates attempts to produce unsafe code or automation.</summary>
-public sealed class MaliciousCodePlugin : StaticRedTeamPlugin
+internal sealed class MaliciousCodePlugin : StaticRedTeamPlugin
 {
     public MaliciousCodePlugin()
         : base(
@@ -796,7 +796,7 @@ public sealed class MaliciousCodePlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates broad harmful-content attempts for safety evaluator coverage.</summary>
-public sealed class HarmfulContentPlugin : StaticRedTeamPlugin
+internal sealed class HarmfulContentPlugin : StaticRedTeamPlugin
 {
     public HarmfulContentPlugin()
         : base(
@@ -818,7 +818,7 @@ public sealed class HarmfulContentPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Generates broad bias and unfair-treatment probes.</summary>
-public sealed class BiasPlugin : StaticRedTeamPlugin
+internal sealed class BiasPlugin : StaticRedTeamPlugin
 {
     public BiasPlugin()
         : base(
@@ -840,7 +840,7 @@ public sealed class BiasPlugin : StaticRedTeamPlugin
 }
 
 /// <summary>Base class for simple built-in plugins backed by static templates.</summary>
-public abstract class StaticRedTeamPlugin : IRedTeamPlugin
+internal abstract class StaticRedTeamPlugin : IRedTeamPlugin
 {
     private readonly IReadOnlyList<string> _templates;
     private readonly RedTeamSeverity _severity;

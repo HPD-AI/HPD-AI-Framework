@@ -49,6 +49,27 @@ public sealed class SkillDiagnosticsTests
         Assert.Contains(RunGenerator(source), diagnostic => diagnostic.Id == "HPDSKILL006");
     }
 
+    [Theory]
+    [InlineData("data analysis")]
+    [InlineData("-data")]
+    [InlineData("data.analysis")]
+    public void SkillDeclaration_RejectsProviderUnsafeModelName(string name)
+    {
+        var source = $$"""
+            using HPD.Agent;
+            public partial class Harness
+            {
+                [Skill]
+                public Skill Guidance() => Skill.Create(
+                    "{{name}}",
+                    "Provides concrete guidance.",
+                    SkillInstructions.FromText("Follow the guide."));
+            }
+            """;
+
+        Assert.Contains(RunGenerator(source), diagnostic => diagnostic.Id == "HPDSKILL019");
+    }
+
     [Fact]
     public void SkillResources_RejectDuplicateModelNames()
     {

@@ -818,6 +818,12 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 RequestRender();
             }
         }
+        catch (AgentTuiThreadJournalNotFoundException)
+        {
+            ClearCancelConfirmation();
+            state.Shell.PromptStatusText = "state: ready";
+            RequestRender();
+        }
         catch (Exception ex)
         {
             if (_state != state || _scope != scope)

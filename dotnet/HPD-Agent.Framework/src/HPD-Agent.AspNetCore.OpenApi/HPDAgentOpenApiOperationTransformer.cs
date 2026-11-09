@@ -591,6 +591,10 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
                     JsonValue.Create(descriptor.Discriminator));
                 resolved.Extensions["x-hpd-event-durability"] = new JsonNodeExtension(
                     JsonValue.Create(descriptor.Durability.ToString()));
+                resolved.Extensions["x-hpd-event-requires-durable"] = new JsonNodeExtension(
+                    JsonValue.Create(descriptor.RequiresDurable));
+                resolved.Extensions["x-hpd-event-contract-digest"] = new JsonNodeExtension(
+                    JsonValue.Create(descriptor.ContractDigest));
                 resolved.Extensions["x-hpd-event-module"] = new JsonNodeExtension(
                     JsonValue.Create(descriptor.ModuleId));
             }

@@ -5,7 +5,7 @@ using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Audio.AgentIntegration.Detection;
 
-public sealed class InputContentDetector
+internal sealed class InputContentDetector
 {
     public IReadOnlyList<InputContentDetection> Detect(ChatMessage message)
     {

@@ -14,36 +14,36 @@ foreach (var scenario in scenarios)
 
 static string Run(string scenario)
 {
-    var identity = new VoiceActivityCompositionIdentityV1("example-tenant",
+    var identity = new VoiceActivityCompositionIdentity("example-tenant",
         new SessionAuthorityStampV1(RuntimeGenerationId.Create(), LiveSessionId.Create()));
     var shape = Shape(scenario);
     if (scenario == "finite")
     {
-        var support = VoiceActivityCompositionHostV1.InspectFinite(1, 1, identity, shape.Request, shape.Candidates);
+        var support = VoiceActivityCompositionHost.InspectFinite(1, 1, identity, shape.Request, shape.Candidates);
         return Summary(scenario, support, factCount: 0, finite: true);
     }
 
-    var prepared = VoiceActivityCompositionHostV1.Start(1, 1, identity, GraphDirectionV1.IngressForward,
+    var prepared = VoiceActivityCompositionHost.Start(1, 1, identity, GraphDirection.IngressForward,
         shape.Request, shape.Candidates, shape.Generations);
-    if (prepared is VoiceActivityCompositionPreparationV1.Rejected rejected)
+    if (prepared is VoiceActivityCompositionPreparation.Rejected rejected)
         return Summary(scenario, rejected.Support, factCount: 0, finite: false);
 
-    var host = ((VoiceActivityCompositionPreparationV1.Prepared)prepared).Host;
+    var host = ((VoiceActivityCompositionPreparation.Prepared)prepared).Host;
     if (scenario == "manual")
     {
-        Apply(host, "manual", 1, VoiceActivityPromotionEdgeV1.ManualPress, active: true);
-        Apply(host, "manual", 2, VoiceActivityPromotionEdgeV1.ManualRelease, active: false);
+        Apply(host, "manual", 1, VoiceActivityPromotionEdge.ManualPress, active: true);
+        Apply(host, "manual", 2, VoiceActivityPromotionEdge.ManualRelease, active: false);
     }
     else if (scenario == "fusion")
     {
-        Apply(host, "local", 1, VoiceActivityPromotionEdgeV1.Observation, active: true, shape.Calibration);
-        Apply(host, "provider", 1, VoiceActivityPromotionEdgeV1.Observation, active: true, shape.Calibration);
+        Apply(host, "local", 1, VoiceActivityPromotionEdge.Observation, active: true, shape.Calibration);
+        Apply(host, "provider", 1, VoiceActivityPromotionEdge.Observation, active: true, shape.Calibration);
     }
     else
     {
         var key = host.Snapshot.Sources.Single(static source =>
-            source.Role == ActivitySourceRoleV1.Authoritative).SourceKey;
-        Apply(host, key, 1, VoiceActivityPromotionEdgeV1.Observation, active: true);
+            source.Role == ActivitySourceRole.Authoritative).SourceKey;
+        Apply(host, key, 1, VoiceActivityPromotionEdge.Observation, active: true);
     }
     return Summary(scenario, host.Support, host.Facts.Count, finite: false);
 }
@@ -54,9 +54,9 @@ static Scenario Shape(string scenario) => scenario switch
     "webrtc" => Local("webrtc", 48_000),
     "telephony" => Local("telephony", 8_000),
     "finite" => Local("finite-local", 16_000),
-    "provider" => Provider(ProviderActivityVisibilityV1.Acknowledged),
-    "provider-unknown" => Provider(ProviderActivityVisibilityV1.Unknown),
-    "provider-not-observable" => Provider(ProviderActivityVisibilityV1.NotObservable),
+    "provider" => Provider(ProviderActivityVisibility.Acknowledged),
+    "provider-unknown" => Provider(ProviderActivityVisibility.Unknown),
+    "provider-not-observable" => Provider(ProviderActivityVisibility.NotObservable),
     "split" => Split(),
     "fusion" => Fusion(),
     "manual" => Manual(),
@@ -64,104 +64,104 @@ static Scenario Shape(string scenario) => scenario switch
 };
 
 static Scenario Local(string key, int sampleRate) => new(
-    Request(VoiceActivityProfileV1.HpdManaged,
-        new ActivitySourceRequestV1(key, ActivitySourceKindV1.LocalDetector,
-            ActivitySourceRoleV1.Authoritative, true)),
-    [Candidate(key, ActivitySourceKindV1.LocalDetector, sampleRate)],
+    Request(VoiceActivityProfile.HpdManaged,
+        new ActivitySourceRequest(key, ActivitySourceKind.LocalDetector,
+            ActivitySourceRole.Authoritative, true)),
+    [Candidate(key, ActivitySourceKind.LocalDetector, sampleRate)],
     new Dictionary<string, ulong> { [key] = 1 }, null);
 
-static Scenario Provider(ProviderActivityVisibilityV1 visibility) => new(
-    Request(VoiceActivityProfileV1.ProviderManaged,
-        new ActivitySourceRequestV1("provider", ActivitySourceKindV1.ProviderNative,
-            ActivitySourceRoleV1.Authoritative, true)),
-    [Candidate("provider", ActivitySourceKindV1.ProviderNative, 0, visibility: visibility)],
+static Scenario Provider(ProviderActivityVisibility visibility) => new(
+    Request(VoiceActivityProfile.ProviderManaged,
+        new ActivitySourceRequest("provider", ActivitySourceKind.ProviderNative,
+            ActivitySourceRole.Authoritative, true)),
+    [Candidate("provider", ActivitySourceKind.ProviderNative, 0, visibility: visibility)],
     new Dictionary<string, ulong> { ["provider"] = 1 }, null);
 
 static Scenario Split() => new(
-    Request(VoiceActivityProfileV1.HpdManaged,
-        new ActivitySourceRequestV1("local", ActivitySourceKindV1.LocalDetector,
-            ActivitySourceRoleV1.Authoritative, true),
-        new ActivitySourceRequestV1("stt", ActivitySourceKindV1.SttAdjacent,
-            ActivitySourceRoleV1.Fallback, true)),
-    [Candidate("local", ActivitySourceKindV1.LocalDetector, 16_000),
-     Candidate("stt", ActivitySourceKindV1.SttAdjacent, 16_000)],
+    Request(VoiceActivityProfile.HpdManaged,
+        new ActivitySourceRequest("local", ActivitySourceKind.LocalDetector,
+            ActivitySourceRole.Authoritative, true),
+        new ActivitySourceRequest("stt", ActivitySourceKind.SttAdjacent,
+            ActivitySourceRole.Fallback, true)),
+    [Candidate("local", ActivitySourceKind.LocalDetector, 16_000),
+     Candidate("stt", ActivitySourceKind.SttAdjacent, 16_000)],
     new Dictionary<string, ulong> { ["local"] = 1 }, null);
 
 static Scenario Fusion()
 {
     var calibration = Hash256.Compute("composition-example"u8);
     return new Scenario(
-        Request(VoiceActivityProfileV1.Fused,
-            new ActivitySourceRequestV1("local", ActivitySourceKindV1.LocalDetector,
-                ActivitySourceRoleV1.Authoritative, true),
-            new ActivitySourceRequestV1("provider", ActivitySourceKindV1.ProviderNative,
-                ActivitySourceRoleV1.Corroborating, true)),
-        [Candidate("local", ActivitySourceKindV1.LocalDetector, 16_000,
-             VoiceActivityMeasurementKindV1.CalibratedLikelihood, calibration),
-         Candidate("provider", ActivitySourceKindV1.ProviderNative, 0,
-             VoiceActivityMeasurementKindV1.CalibratedLikelihood, calibration)],
+        Request(VoiceActivityProfile.Fused,
+            new ActivitySourceRequest("local", ActivitySourceKind.LocalDetector,
+                ActivitySourceRole.Authoritative, true),
+            new ActivitySourceRequest("provider", ActivitySourceKind.ProviderNative,
+                ActivitySourceRole.Corroborating, true)),
+        [Candidate("local", ActivitySourceKind.LocalDetector, 16_000,
+             VoiceActivityMeasurementKind.CalibratedLikelihood, calibration),
+         Candidate("provider", ActivitySourceKind.ProviderNative, 0,
+             VoiceActivityMeasurementKind.CalibratedLikelihood, calibration)],
         new Dictionary<string, ulong> { ["local"] = 1, ["provider"] = 1 }, calibration);
 }
 
 static Scenario Manual() => new(
-    Request(VoiceActivityProfileV1.Manual,
-        new ActivitySourceRequestV1("manual", ActivitySourceKindV1.Manual,
-            ActivitySourceRoleV1.Authoritative, true)),
-    [Candidate("manual", ActivitySourceKindV1.Manual, 16_000)],
+    Request(VoiceActivityProfile.Manual,
+        new ActivitySourceRequest("manual", ActivitySourceKind.Manual,
+            ActivitySourceRole.Authoritative, true)),
+    [Candidate("manual", ActivitySourceKind.Manual, 16_000)],
     new Dictionary<string, ulong> { ["manual"] = 1 }, null);
 
-static VoiceActivityRequestV1 Request(VoiceActivityProfileV1 profile,
-    params ActivitySourceRequestV1[] sources) => new(profile, ActivityResponsivenessV1.Responsive,
-    VoiceActivityNoiseEnvironmentV1.Variable, VoiceActivitySpeechContinuityV1.Natural, null, sources,
-    ActivityDegradationPolicyV1.Strict,
-    new VoiceActivityOperationalLimitsV1(8, 64, 8, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1)));
+static VoiceActivityRequest Request(VoiceActivityProfile profile,
+    params ActivitySourceRequest[] sources) => new(profile, ActivityResponsiveness.Responsive,
+    VoiceActivityNoiseEnvironment.Variable, VoiceActivitySpeechContinuity.Natural, null, sources,
+    ActivityDegradationPolicy.Strict,
+    new VoiceActivityOperationalLimits(8, 64, 8, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1)));
 
-static VoiceActivitySourceCandidateV1 Candidate(string key, ActivitySourceKindV1 kind, int sampleRate,
-    VoiceActivityMeasurementKindV1? measurement = null, Hash256? calibration = null,
-    ProviderActivityVisibilityV1? visibility = null)
+static VoiceActivitySourceCandidate Candidate(string key, ActivitySourceKind kind, int sampleRate,
+    VoiceActivityMeasurementKind? measurement = null, Hash256? calibration = null,
+    ProviderActivityVisibility? visibility = null)
 {
-    var opaque = kind == ActivitySourceKindV1.ProviderNative;
+    var opaque = kind == ActivitySourceKind.ProviderNative;
     var measurementKind = measurement ?? kind switch
     {
-        ActivitySourceKindV1.Manual => VoiceActivityMeasurementKindV1.PostProcessedState,
-        ActivitySourceKindV1.SttAdjacent => VoiceActivityMeasurementKindV1.ProviderOpaqueCategory,
-        _ => VoiceActivityMeasurementKindV1.EngineScore,
+        ActivitySourceKind.Manual => VoiceActivityMeasurementKind.PostProcessedState,
+        ActivitySourceKind.SttAdjacent => VoiceActivityMeasurementKind.ProviderOpaqueCategory,
+        _ => VoiceActivityMeasurementKind.EngineScore,
     };
-    return new VoiceActivitySourceCandidateV1(key, kind, new VoiceActivitySourceCapabilitiesV1(
-        opaque ? VoiceActivityInputOwnershipV1.ProviderOpaque : VoiceActivityInputOwnershipV1.BorrowedSynchronous,
-        [opaque ? new VoiceActivityInputFormatV1(VoiceActivitySampleEncodingV1.ProviderOpaque, 0, 0) :
-            new VoiceActivityInputFormatV1(VoiceActivitySampleEncodingV1.SignedPcm16, sampleRate, 1)],
-        new VoiceActivityWindowCapabilityV1(TimeSpan.FromMilliseconds(10), TimeSpan.FromSeconds(1),
+    return new VoiceActivitySourceCandidate(key, kind, new VoiceActivitySourceCapabilities(
+        opaque ? VoiceActivityInputOwnership.ProviderOpaque : VoiceActivityInputOwnership.BorrowedSynchronous,
+        [opaque ? new VoiceActivityInputFormat(VoiceActivitySampleEncoding.ProviderOpaque, 0, 0) :
+            new VoiceActivityInputFormat(VoiceActivitySampleEncoding.SignedPcm16, sampleRate, 1)],
+        new VoiceActivityWindowCapability(TimeSpan.FromMilliseconds(10), TimeSpan.FromSeconds(1),
             TimeSpan.FromMilliseconds(10), 1),
-        new VoiceActivityMeasurementDescriptorV1(measurementKind, new BoundedAscii("composition"), -1, 1,
-            measurementKind == VoiceActivityMeasurementKindV1.CalibratedLikelihood ? calibration : null),
-        opaque ? VoiceActivitySourceStateModelV1.ProviderOpaque : VoiceActivitySourceStateModelV1.Stateless,
-        opaque ? VoiceActivitySourceConcurrencyV1.ProviderManaged : VoiceActivitySourceConcurrencyV1.Serial,
-        VoiceActivitySourceControlV1.Unsupported, VoiceActivitySourceControlV1.Unsupported,
-        opaque ? VoiceActivitySourceControlV1.Sequenced : VoiceActivitySourceControlV1.Unsupported,
-        VoiceActivitySourceControlV1.ReplacementRequired, true, false, opaque ? 4 : 1), true,
-        visibility ?? (opaque ? ProviderActivityVisibilityV1.Acknowledged :
-            ProviderActivityVisibilityV1.AcceptedLocally));
+        new VoiceActivityMeasurementDescriptor(measurementKind, new BoundedAscii("composition"), -1, 1,
+            measurementKind == VoiceActivityMeasurementKind.CalibratedLikelihood ? calibration : null),
+        opaque ? VoiceActivitySourceStateModel.ProviderOpaque : VoiceActivitySourceStateModel.Stateless,
+        opaque ? VoiceActivitySourceConcurrency.ProviderManaged : VoiceActivitySourceConcurrency.Serial,
+        VoiceActivitySourceControl.Unsupported, VoiceActivitySourceControl.Unsupported,
+        opaque ? VoiceActivitySourceControl.Sequenced : VoiceActivitySourceControl.Unsupported,
+        VoiceActivitySourceControl.ReplacementRequired, true, false, opaque ? 4 : 1), true,
+        visibility ?? (opaque ? ProviderActivityVisibility.Acknowledged :
+            ProviderActivityVisibility.AcceptedLocally));
 }
 
-static void Apply(VoiceActivityCompositionHostV1 host, string key, ulong sequence,
-    VoiceActivityPromotionEdgeV1 edge, bool active, Hash256? calibration = null)
+static void Apply(VoiceActivityCompositionHost host, string key, ulong sequence,
+    VoiceActivityPromotionEdge edge, bool active, Hash256? calibration = null)
 {
-    var descriptor = new VoiceActivityMeasurementDescriptorV1(
-        calibration.HasValue ? VoiceActivityMeasurementKindV1.CalibratedLikelihood :
-            VoiceActivityMeasurementKindV1.BinaryDecision,
+    var descriptor = new VoiceActivityMeasurementDescriptor(
+        calibration.HasValue ? VoiceActivityMeasurementKind.CalibratedLikelihood :
+            VoiceActivityMeasurementKind.BinaryDecision,
         new BoundedAscii("composition"), -1, 1, calibration);
     var stamp = new MonotonicStampV1(ExampleAuthority.Clock, ExampleAuthority.Boot, sequence);
-    var outcome = new VoiceActivitySourceOutcomeV1.Observed(
-        calibration.HasValue ? new VoiceActivityMeasurementV1.Numeric(active ? 1 : -1) :
-            new VoiceActivityMeasurementV1.Binary(active), descriptor,
-        new VoiceActivityMediaExtentV1(ExampleAuthority.Graph, (long)sequence * 1_000,
+    var outcome = new VoiceActivitySourceOutcome.Observed(
+        calibration.HasValue ? new VoiceActivityMeasurement.Numeric(active ? 1 : -1) :
+            new VoiceActivityMeasurement.Binary(active), descriptor,
+        new VoiceActivityMediaExtent(ExampleAuthority.Graph, (long)sequence * 1_000,
             ((long)sequence + 1) * 1_000, true), sequence, stamp, stamp);
-    if (host.Apply(key, sequence, edge, outcome) is VoiceActivityPromotionResultV1.Rejected rejected)
+    if (host.Apply(key, sequence, edge, outcome) is VoiceActivityPromotionResult.Rejected rejected)
         throw new InvalidOperationException($"Scenario input was rejected: {rejected.SafeCode}");
 }
 
-static string Summary(string scenario, VoiceActivityCompositionSupportBundleV1 support, int factCount, bool finite)
+static string Summary(string scenario, VoiceActivityCompositionSupportBundle support, int factCount, bool finite)
 {
     var sourceSummary = support.Effective is null
         ? "none"
@@ -171,8 +171,8 @@ static string Summary(string scenario, VoiceActivityCompositionSupportBundleV1 s
         $"sources={sourceSummary} safe-code={support.SafeCode ?? "none"} facts={factCount} finite={finite.ToString().ToLowerInvariant()}";
 }
 
-file sealed record Scenario(VoiceActivityRequestV1 Request,
-    IReadOnlyList<VoiceActivitySourceCandidateV1> Candidates,
+file sealed record Scenario(VoiceActivityRequest Request,
+    IReadOnlyList<VoiceActivitySourceCandidate> Candidates,
     IReadOnlyDictionary<string, ulong> Generations,
     Hash256? Calibration);
 

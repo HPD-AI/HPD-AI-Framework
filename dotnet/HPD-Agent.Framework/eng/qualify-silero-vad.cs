@@ -38,7 +38,7 @@ try
 {
     var modelPath = await FetchQualificationInputsAsync(root);
 
-    var tests = Path.Combine(root, "test", "HPD.Agent.Audio.V2.Tests", "HPD.Agent.Audio.V2.Tests.csproj");
+    var tests = Path.Combine(root, "test", "HPD.Agent.Audio.Tests", "HPD.Agent.Audio.Tests.csproj");
     var provider = Path.Combine(
         root, "src", "HPD-Agent.Providers.Audio", "HPD-Agent.Providers.Audio.Silero", "HPD-Agent.Providers.Audio.Silero.csproj");
     var smoke = Path.Combine(

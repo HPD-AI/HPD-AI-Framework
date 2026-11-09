@@ -1,7 +1,7 @@
 namespace HPD.Agent.Audio;
 
 /// <summary>Identifies the five durable lifecycle states of one live Audio session.</summary>
-public enum LiveAudioSessionStateV1 : ushort
+public enum LiveAudioSessionState : ushort
 {
     /// <summary>The session is visible but has not published readiness.</summary>
     Starting = 1,
@@ -16,7 +16,7 @@ public enum LiveAudioSessionStateV1 : ushort
 }
 
 /// <summary>Reports whether the session accepts new operations.</summary>
-public enum LiveAudioAdmissionStateV1 : ushort
+public enum LiveAudioAdmissionState : ushort
 {
     /// <summary>New operations may be admitted subject to their own guards.</summary>
     Open = 1,
@@ -25,7 +25,7 @@ public enum LiveAudioAdmissionStateV1 : ushort
 }
 
 /// <summary>Reports the session's current service availability without changing lifecycle authority.</summary>
-public enum LiveAudioAvailabilityV1 : ushort
+public enum LiveAudioAvailability : ushort
 {
     /// <summary>The session cannot currently provide its promised service.</summary>
     Unavailable = 1,
@@ -40,7 +40,7 @@ public enum LiveAudioAvailabilityV1 : ushort
 }
 
 /// <summary>Reports whether session readiness has been published.</summary>
-public enum LiveAudioReadinessV1 : ushort
+public enum LiveAudioReadiness : ushort
 {
     /// <summary>No readiness outcome has been published.</summary>
     Unpublished = 1,
@@ -51,7 +51,7 @@ public enum LiveAudioReadinessV1 : ushort
 }
 
 /// <summary>Identifies the accepted terminal intent independently of lifecycle phase.</summary>
-public enum LiveAudioTerminalIntentV1 : ushort
+public enum LiveAudioTerminalIntent : ushort
 {
     /// <summary>No terminal intent has been accepted.</summary>
     None = 0,
@@ -68,7 +68,7 @@ public enum LiveAudioTerminalIntentV1 : ushort
 }
 
 /// <summary>Identifies the typed cause that established or escalated terminal intent.</summary>
-public enum LiveAudioTerminalCauseV1 : ushort
+public enum LiveAudioTerminalCause : ushort
 {
     /// <summary>No terminal cause exists.</summary>
     None = 0,
@@ -89,7 +89,7 @@ public enum LiveAudioTerminalCauseV1 : ushort
 }
 
 /// <summary>Reports the monotone severity of the terminal cause.</summary>
-public enum LiveAudioTerminalSeverityV1 : ushort
+public enum LiveAudioTerminalSeverity : ushort
 {
     /// <summary>No terminal severity exists.</summary>
     None = 0,
@@ -102,7 +102,7 @@ public enum LiveAudioTerminalSeverityV1 : ushort
 }
 
 /// <summary>Identifies the current monotone convergence phase.</summary>
-public enum LiveAudioConvergencePhaseV1 : ushort
+public enum LiveAudioConvergencePhase : ushort
 {
     /// <summary>No convergence phase has begun.</summary>
     None = 0,
@@ -125,7 +125,7 @@ public enum LiveAudioConvergencePhaseV1 : ushort
 }
 
 /// <summary>Reports whether mutation authority remains open.</summary>
-public enum LiveAudioMutationFenceV1 : ushort
+public enum LiveAudioMutationFence : ushort
 {
     /// <summary>Mutation authority remains open subject to ordinary guards.</summary>
     Open = 1,
@@ -134,20 +134,20 @@ public enum LiveAudioMutationFenceV1 : ushort
 }
 
 /// <summary>Contains the immutable folded lifecycle truth for one live Audio session.</summary>
-public sealed record LiveAudioLifecycleSnapshotV1
+public sealed record LiveAudioLifecycleSnapshot
 {
-    internal LiveAudioLifecycleSnapshotV1(
-        LiveAudioSessionStateV1 state,
-        LiveAudioAdmissionStateV1 admission,
-        LiveAudioAvailabilityV1 availability,
-        LiveAudioReadinessV1 readiness,
-        LiveAudioTerminalIntentV1 establishingTerminalIntent,
-        LiveAudioTerminalCauseV1 establishingTerminalCause,
-        LiveAudioTerminalIntentV1 currentTerminalIntent,
-        LiveAudioTerminalCauseV1 currentTerminalCause,
-        LiveAudioTerminalSeverityV1 terminalSeverity,
-        LiveAudioConvergencePhaseV1 convergencePhase,
-        LiveAudioMutationFenceV1 mutationFence,
+    internal LiveAudioLifecycleSnapshot(
+        LiveAudioSessionState state,
+        LiveAudioAdmissionState admission,
+        LiveAudioAvailability availability,
+        LiveAudioReadiness readiness,
+        LiveAudioTerminalIntent establishingTerminalIntent,
+        LiveAudioTerminalCause establishingTerminalCause,
+        LiveAudioTerminalIntent currentTerminalIntent,
+        LiveAudioTerminalCause currentTerminalCause,
+        LiveAudioTerminalSeverity terminalSeverity,
+        LiveAudioConvergencePhase convergencePhase,
+        LiveAudioMutationFence mutationFence,
         bool conversationStopped)
     {
         State = state;
@@ -165,27 +165,27 @@ public sealed record LiveAudioLifecycleSnapshotV1
     }
 
     /// <summary>Gets the five-state lifecycle axis.</summary>
-    public LiveAudioSessionStateV1 State { get; }
+    public LiveAudioSessionState State { get; }
     /// <summary>Gets the independent operation-admission state.</summary>
-    public LiveAudioAdmissionStateV1 Admission { get; }
+    public LiveAudioAdmissionState Admission { get; }
     /// <summary>Gets the independent service availability.</summary>
-    public LiveAudioAvailabilityV1 Availability { get; }
+    public LiveAudioAvailability Availability { get; }
     /// <summary>Gets the session-readiness outcome.</summary>
-    public LiveAudioReadinessV1 Readiness { get; }
+    public LiveAudioReadiness Readiness { get; }
     /// <summary>Gets the intent that first established terminal convergence.</summary>
-    public LiveAudioTerminalIntentV1 EstablishingTerminalIntent { get; }
+    public LiveAudioTerminalIntent EstablishingTerminalIntent { get; }
     /// <summary>Gets the cause that first established terminal convergence.</summary>
-    public LiveAudioTerminalCauseV1 EstablishingTerminalCause { get; }
+    public LiveAudioTerminalCause EstablishingTerminalCause { get; }
     /// <summary>Gets the most recently accepted terminal intent without replacing the establishing intent.</summary>
-    public LiveAudioTerminalIntentV1 CurrentTerminalIntent { get; }
+    public LiveAudioTerminalIntent CurrentTerminalIntent { get; }
     /// <summary>Gets the most recently accepted terminal cause without replacing the establishing cause.</summary>
-    public LiveAudioTerminalCauseV1 CurrentTerminalCause { get; }
+    public LiveAudioTerminalCause CurrentTerminalCause { get; }
     /// <summary>Gets the monotone terminal severity.</summary>
-    public LiveAudioTerminalSeverityV1 TerminalSeverity { get; }
+    public LiveAudioTerminalSeverity TerminalSeverity { get; }
     /// <summary>Gets the current convergence phase.</summary>
-    public LiveAudioConvergencePhaseV1 ConvergencePhase { get; }
+    public LiveAudioConvergencePhase ConvergencePhase { get; }
     /// <summary>Gets the irreversible mutation fence.</summary>
-    public LiveAudioMutationFenceV1 MutationFence { get; }
+    public LiveAudioMutationFence MutationFence { get; }
     /// <summary>Gets whether the distinct conversation-stopped fact was published.</summary>
     public bool ConversationStopped { get; }
 }

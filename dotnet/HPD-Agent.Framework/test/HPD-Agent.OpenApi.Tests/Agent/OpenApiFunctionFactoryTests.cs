@@ -167,6 +167,23 @@ public class OpenApiFunctionFactoryTests
     }
 
     [Fact]
+    public void CreateFunctions_ToolHarnessParent_StampsGeneratedHarnessCapability()
+    {
+        var owner = "MyApp:My.Namespace:ApiTools";
+        var functions = OpenApiFunctionFactory.CreateFunctions(
+            MakeSpec(MakeOp()),
+            new OpenApiConfig(),
+            MakeRunner(),
+            namePrefix: "api",
+            parentContainer: owner);
+
+        var metadata = Assert.IsType<HPDCapabilityMetadata>(
+            functions[0].AdditionalProperties[HPDCapabilityMetadata.AdditionalPropertiesKey]);
+        Assert.Equal(HPDCapabilityKind.OpenApi, metadata.Kind);
+        Assert.Equal($"generated:{owner}:harness", Assert.Single(metadata.ParentContainerIds).Value);
+    }
+
+    [Fact]
     public void CreateFunctions_AllFunctionsHaveSourceTypeOpenApi()
     {
         var spec = MakeSpec(MakeOp(), MakeOp("other", "/other"));

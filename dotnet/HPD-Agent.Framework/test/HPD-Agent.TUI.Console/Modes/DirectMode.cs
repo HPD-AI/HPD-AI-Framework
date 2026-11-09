@@ -6,7 +6,7 @@ internal static class DirectMode
 {
     public static async Task RunAsync(string[] args)
     {
-        var options = ModeOptions.Parse(args);
+        var options = ModeOptions.Parse(args, "agent", "session", "thread", "model");
         var agentId = options.Get("agent", "tui-direct-agent");
         var sessionId = options.Get("session", "local-session");
         var threadId = options.Get("thread", "main");

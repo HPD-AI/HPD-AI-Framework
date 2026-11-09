@@ -37,6 +37,8 @@ public sealed class AgentInputCompositionTests
         Assert.Throws<JsonException>(() => codec.DeserializePublic(internalJson));
         Assert.True(composition.IsPublic(typeof(PublicProbeInputEvent)));
         Assert.False(composition.IsPublic(typeof(InternalProbeInputEvent)));
+        Assert.Throws<JsonException>(() => codec.Deserialize(
+            publicJson.Replace("\"version\":\"1.0\"", "\"version\":\"2.0\"", StringComparison.Ordinal)));
 
         AgentInputDescriptor Descriptor<T>(string discriminator, bool isPublic)
             where T : AgentInputEvent => new()

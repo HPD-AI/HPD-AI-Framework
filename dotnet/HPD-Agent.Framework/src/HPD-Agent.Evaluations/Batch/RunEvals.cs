@@ -70,6 +70,12 @@ public sealed class RunEvalsOptions<TInput> : RunEvalsOptions
     where TInput : notnull
 {
     /// <summary>
+    /// Converts a structured dataset input into the user message sent to the agent.
+    /// Required when <typeparamref name="TInput"/> is not <see cref="string"/>.
+    /// </summary>
+    public Func<TInput, string>? InputFormatter { get; init; }
+
+    /// <summary>
     /// Called after each case completes with the original typed EvalCase.
     /// Provides access to input, ground truth, metadata, and version provenance.
     /// </summary>
@@ -115,6 +121,9 @@ public static class RunEvals
         }
 
         var allEvaluators = dataset.Evaluators.Concat(evaluators).ToList();
+        var caseInputs = dataset.Cases
+            .Select(evalCase => FormatInput(evalCase.Input, options.InputFormatter))
+            .ToArray();
         var cases = new ConcurrentBag<ReportCase>();
         var failures = new ConcurrentBag<ReportCaseFailure>();
 
@@ -126,6 +135,7 @@ public static class RunEvals
         for (int caseIdx = 0; caseIdx < dataset.Cases.Count; caseIdx++)
         {
             var evalCase = dataset.Cases[caseIdx];
+            var caseInput = caseInputs[caseIdx];
             var caseName = evalCase.Name ?? $"case-{caseIdx}";
 
             for (int repeatIdx = 0; repeatIdx < Math.Max(1, options.Repeat); repeatIdx++)
@@ -140,7 +150,7 @@ public static class RunEvals
                     try
                     {
                         var reportCase = await RunSingleCaseAsync(
-                            agent, localCase, localName, caseName, (localRepeat + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), allEvaluators,
+                            agent, localCase, caseInput, localName, caseName, (localRepeat + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), allEvaluators,
                             dataset.DatasetId, dataset.Version,
                             judgeConfig, options, experimentName, ct).ConfigureAwait(false);
 
@@ -205,6 +215,7 @@ public static class RunEvals
     private static async Task<ReportCase> RunSingleCaseAsync<TInput>(
         HPD.Agent.Agent agent,
         EvalCase<TInput> evalCase,
+        string caseInput,
         string caseName,
         string scenarioName,
         string iterationName,
@@ -224,7 +235,6 @@ public static class RunEvals
         // capture middleware adds per-attempt request state.
         var caseRunConfig = CloneRunConfig(agent, options.BaseRunConfig);
         caseRunConfig.SuppressEvaluation(EvaluationSuppressionReason.BatchExecution);
-        var caseInput = evalCase.Input?.ToString() ?? string.Empty;
 
         if (evalCase.GroundTruth is not null)
         {
@@ -267,7 +277,7 @@ public static class RunEvals
             agent.GetType().Name,
             experimentName,
             caseName,
-            evalCase.Input?.ToString() ?? string.Empty,
+            caseInput,
             evalCase.GroundTruth,
             runConfig ?? caseRunConfig,
             taskDuration);
@@ -614,9 +624,28 @@ public static class RunEvals
             options.EvaluatorPolicies.TryGetValue(evaluator, out var explicitPolicy))
             return explicitPolicy;
 
-        return evaluator is HpdDeterministicEvaluatorBase
-            ? EvalPolicy.MustAlwaysPass
-            : EvalPolicy.TrackTrend;
+        return EvaluatorCatalog.GetDefaultPolicy(evaluator);
+    }
+
+    private static string FormatInput<TInput>(
+        TInput input,
+        Func<TInput, string>? formatter)
+        where TInput : notnull
+    {
+        if (input is string text)
+            return text;
+
+        if (formatter is not null)
+        {
+            var formatted = formatter(input);
+            if (formatted is not null)
+                return formatted;
+        }
+
+        throw new InvalidOperationException(
+            $"Dataset input type '{typeof(TInput).FullName}' cannot be sent as a user message. " +
+            $"Set {nameof(RunEvalsOptions<TInput>)}.{nameof(RunEvalsOptions<TInput>.InputFormatter)} " +
+            "to convert structured inputs to text.");
     }
 
     private static bool IsRedTeamCase(IDictionary<string, object>? metadata)
@@ -634,17 +663,7 @@ public static class RunEvals
     }
 
     private static bool IsPassingResult(EvaluationResult result)
-    {
-        foreach (var (_, metric) in result.Metrics)
-        {
-            if (metric is BooleanMetric bm && bm.Value == false)
-                return false;
-            if (metric is NumericMetric nm && nm.Value.HasValue && nm.Value.Value < 0.5)
-                return false;
-        }
-
-        return true;
-    }
+        => EvaluationMetricSemantics.IsPassing(result);
 
     private static bool NeedsJudgeChatConfiguration(IEvaluator evaluator) =>
         evaluator is not HpdDeterministicEvaluatorBase &&

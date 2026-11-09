@@ -17,8 +17,6 @@ using HPD.Agent.SourceGenerator.Contracts;
 [Generator]
 public class HPDToolSourceGenerator : IIncrementalGenerator
 {
-    private static readonly System.Collections.Generic.List<string> _diagnosticMessages = new();
-
     // Phase 4: Feature flag removed - new polymorphic generation is now the only path
 
     /// <summary>
@@ -305,6 +303,16 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
                     });
                 if (create is null || create.ArgumentList.Arguments.Count < 3) continue;
 
+                var skillNameValue = semanticModel.GetConstantValue(create.ArgumentList.Arguments[0].Expression);
+                if (skillNameValue.Value is string nameText &&
+                    !HPD.Agent.SourceGenerator.Capabilities.CapabilityAnalyzer.IsValidModelName(nameText))
+                {
+                    diagnostics.Add(Diagnostic.Create(
+                        HPD.Agent.SourceGenerator.Capabilities.SkillDiagnostics.InvalidName,
+                        create.ArgumentList.Arguments[0].GetLocation(),
+                        nameText));
+                }
+
                 var description = semanticModel.GetConstantValue(create.ArgumentList.Arguments[1].Expression);
                 if (!description.HasValue || description.Value is not string descriptionText ||
                     string.IsNullOrWhiteSpace(descriptionText))
@@ -325,9 +333,9 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
 
                     if (symbol.Name == "Resource")
                     {
-                        var name = semanticModel.GetConstantValue(
+                        var resourceValue = semanticModel.GetConstantValue(
                             invocation.ArgumentList.Arguments[0].Expression);
-                        if (name.Value is string resourceName && !childNames.Add(resourceName))
+                        if (resourceValue.Value is string resourceName && !childNames.Add(resourceName))
                         {
                             diagnostics.Add(Diagnostic.Create(
                                 HPD.Agent.SourceGenerator.Capabilities.SkillDiagnostics.DuplicateChildName,
@@ -547,46 +555,9 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
             }
         }
 
-        // DIAGNOSTIC: Generate detailed diagnostic report AFTER grouping
         // Invalid owners must not emit duplicate binders or otherwise misleading registrations.
         ToolHarnessGroups.RemoveAll(harness => harness.Diagnostics.Any(diagnostic =>
             diagnostic.Severity == DiagnosticSeverity.Error));
-        var reportLines = string.Join("\\n", _diagnosticMessages.Select(m => m.Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "")));
-        var diagnosticCode = $@"
-// HPD Source Generator Diagnostic Report
-// Generated at: {DateTime.Now}
-// ToolHarnesses found: {ToolHarnesses.Length} raw, {ToolHarnessGroups.Count} after merging
-
-#pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
-
-namespace HPD.Agent.Diagnostics {{
-    /// <summary>
-    /// Diagnostic information from the HPD-Agent source generator execution.
-    /// </summary>
-    public static class SourceGeneratorDiagnostic {{
-        /// <summary>
-        /// Gets the source generator execution status message.
-        /// </summary>
-        public const string Message = ""Source generator executed successfully"";
-
-        /// <summary>
-        /// Gets the number of toolharnesses found during source generation.
-        /// </summary>
-        public const int ToolHarnessesFound = {ToolHarnessGroups.Count};
-
-        /// <summary>
-        /// Gets the detailed diagnostic report from source generation.
-        /// </summary>
-        public const string DetailedReport = @""{reportLines}"";
-    }}
-}}
-
-#pragma warning restore CS1591
-";
-        context.AddSource("HPD.Agent.Diagnostics.SourceGeneratorDiagnostic.g.cs", diagnosticCode);
-
-        // Clear for next compilation
-        _diagnosticMessages.Clear();
 
         var debugInfo = new StringBuilder();
         debugInfo.AppendLine($"// Found {ToolHarnesses.Length} ToolHarness parts total");
@@ -1027,13 +998,7 @@ namespace HPD.Agent.Diagnostics {{
     private static string GetGeneratedEventProviderTypeName(string moduleId)
     {
         var sanitized = Regex.Replace(moduleId, "[^A-Za-z0-9_]", "_");
-        uint hash = 2166136261;
-        foreach (var value in moduleId)
-        {
-            hash ^= value;
-            hash *= 16777619;
-        }
-        return $"GeneratedAgentEventModule_{sanitized}_{hash:x8}";
+        return $"{sanitized}GeneratedAgentEventModule";
     }
 
     /// <summary>

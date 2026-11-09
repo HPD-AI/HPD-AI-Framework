@@ -3,6 +3,8 @@
 
 using System.Net;
 using System.Net.Http.Json;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
 using FluentAssertions;
@@ -91,6 +93,25 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
         items.Should().Contain(i =>
             i.GetProperty("name").GetString() == "Sensitive Data Leak" &&
             i.GetProperty("requiresJudge").GetBoolean());
+        items.Should().HaveCount(HPD.Agent.Evaluations.EvaluatorCatalog.All.Count);
+        items.Should().Contain(i =>
+            i.GetProperty("id").GetString() == "answer-similarity" &&
+            i.GetProperty("requiredContexts").EnumerateArray().Any(context =>
+                context.GetString() == "Ground Truth"));
+    }
+
+    [Fact]
+    public async Task GET_evals_scores_Returns500_WhenStoreOperationFails()
+    {
+        using var failingFactory = new EvalTestWebApplicationFactory(
+            FailingScoreStoreProxy.Create());
+        var client = failingFactory.CreateClient();
+
+        var response = await client.GetAsync("/evals/scores?evaluatorName=Fails");
+
+        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().NotContain("store exploded");
     }
 
     [Fact]
@@ -1325,6 +1346,30 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
             AttackGoal = attackGoal,
             AttackSucceeded = attackSucceeded,
         };
+    }
+
+    private class FailingScoreStoreProxy : DispatchProxy
+    {
+        public static IScoreStore Create() =>
+            DispatchProxy.Create<IScoreStore, FailingScoreStoreProxy>();
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name == nameof(IScoreStore.GetScoresAsync))
+                return FailingScores();
+
+            throw new NotSupportedException(targetMethod?.Name);
+        }
+
+        private static async IAsyncEnumerable<ScoreRecord> FailingScores(
+            [EnumeratorCancellation] CancellationToken ct = default)
+        {
+            await Task.Yield();
+            throw new InvalidOperationException("store exploded");
+#pragma warning disable CS0162
+            yield break;
+#pragma warning restore CS0162
+        }
     }
 
     private Task RegisterDatasetVersionAsync(

@@ -10,8 +10,8 @@ namespace HPD.Agent.Evaluations.Storage;
 
 /// <summary>
 /// In-memory IScoreStore implementation for unit tests and development.
-/// All analytics queries operate over the in-memory collection — appropriate
-/// for small result sets. Use SqliteScoreStore for production with analytics.
+/// All analytics queries operate over the in-memory collection and are lost
+/// when the process exits. Implement IScoreStore for durable production storage.
 /// </summary>
 public sealed class InMemoryScoreStore : IScoreStore
 {
@@ -604,14 +604,7 @@ public sealed class InMemoryScoreStore : IScoreStore
     }
 
     private static bool IsPassingResult(EvaluationResult result)
-    {
-        foreach (var (_, metric) in result.Metrics)
-        {
-            if (metric is BooleanMetric bm && bm.Value == false) return false;
-            if (metric is NumericMetric nm && nm.Value.HasValue && nm.Value.Value < 0.5) return false;
-        }
-        return true;
-    }
+        => EvaluationMetricSemantics.IsPassing(result);
 
     private static double? GetPrimaryScore(EvaluationResult result)
     {

@@ -108,11 +108,19 @@ internal static class RegistrationGenerator
         if (adapter.WebhookMethods.Count > 0)
         {
             var methods = string.Join(", ", adapter.WebhookMethods.Select(m => $"\"{m}\""));
-            sb.AppendLine($"        return app.MapMethods(path, [{methods}], (HttpContext ctx) => adapter.HandleWebhookAsync(ctx));");
+            sb.AppendLine($"        return app.MapMethods(path, [{methods}], async (HttpContext ctx) =>");
+            sb.AppendLine("        {");
+            sb.AppendLine("            var result = await adapter.HandleWebhookAsync(ctx);");
+            sb.AppendLine("            await result.ExecuteAsync(ctx);");
+            sb.AppendLine("        });");
         }
         else
         {
-            sb.AppendLine($"        return app.MapPost(path, (HttpContext ctx) => adapter.HandleWebhookAsync(ctx));");
+            sb.AppendLine("        return app.MapPost(path, async (HttpContext ctx) =>");
+            sb.AppendLine("        {");
+            sb.AppendLine("            var result = await adapter.HandleWebhookAsync(ctx);");
+            sb.AppendLine("            await result.ExecuteAsync(ctx);");
+            sb.AppendLine("        });");
         }
         sb.AppendLine("    }");
         sb.AppendLine("}");

@@ -66,9 +66,9 @@ public sealed record LiveKitManagedAudioSessionBackendOptions
     /// Resolves either an LK1 managed credential envelope or an already minted
     /// participant JWT. The returned character array is cleared after use.
     /// </summary>
-    public required Func<ManagedAudioSessionStartRequestV1, CancellationToken, ValueTask<char[]>> CredentialResolver { get; init; }
+    public required Func<ManagedAudioSessionStartRequest, CancellationToken, ValueTask<char[]>> CredentialResolver { get; init; }
 
-    public required IManagedAudioTranscriptSourceV1 TranscriptSource { get; init; }
+    public required IManagedAudioTranscriptSource TranscriptSource { get; init; }
 
     /// <summary>
     /// PCM sample rate shared by the subscribed room stream and the published

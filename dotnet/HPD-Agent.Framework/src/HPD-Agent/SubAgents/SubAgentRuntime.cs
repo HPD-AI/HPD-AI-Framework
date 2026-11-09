@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
@@ -17,15 +16,14 @@ namespace HPD.Agent;
 /// <summary>Describes admission of a controller-routed child input.</summary>
 /// <param name="Disposition">The authoritative input disposition.</param>
 /// <param name="ThreadExecutionId">The active or newly reserved child execution identifier.</param>
-public sealed record SubAgentContinuationSubmission(
+internal sealed record SubAgentContinuationSubmission(
     AgentInputDisposition Disposition,
     string? ThreadExecutionId);
 
 /// <summary>
 /// Runtime services for invoking thread-native subagents.
 /// </summary>
-[EditorBrowsable(EditorBrowsableState.Never)]
-public static class SubAgentRuntime
+internal static class SubAgentRuntime
 {
     private static readonly ConditionalWeakTable<ISessionStore, ConcurrentDictionary<string, ContinuationAdmission>>
         ContinuationAdmissions = new();
@@ -36,25 +34,9 @@ public static class SubAgentRuntime
             new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
     /// <summary>
-    /// Creates a generated tool around one registration-time subagent declaration.
-    /// </summary>
-    /// <param name="definition">The immutable declaration captured during registration.</param>
-    /// <param name="factory">The generated function factory.</param>
-    /// <returns>The generated subagent function.</returns>
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    public static AIFunction CreateFrozenFunction(
-        SubAgent definition,
-        Func<SubAgent, AIFunction> factory)
-    {
-        ArgumentNullException.ThrowIfNull(definition);
-        ArgumentNullException.ThrowIfNull(factory);
-        return factory(definition);
-    }
-
-    /// <summary>
     /// Describes a subagent invocation request.
     /// </summary>
-    public sealed record SubAgentInvocationRequest
+    internal sealed record SubAgentInvocationRequest
     {
         /// <summary>
         /// Gets the subagent definition returned by the <see cref="SubAgentAttribute"/> method.
@@ -88,7 +70,7 @@ public static class SubAgentRuntime
     /// <summary>
     /// Describes the completed subagent invocation.
     /// </summary>
-    public sealed record SubAgentInvocationResult
+    internal sealed record SubAgentInvocationResult
     {
         /// <summary>
         /// Gets the text returned to the parent tool call.
@@ -122,7 +104,7 @@ public static class SubAgentRuntime
     /// <summary>
     /// Describes the resolved session, thread, and run used by a subagent invocation.
     /// </summary>
-    public sealed record SubAgentInvocationRoute(string SessionId, string ThreadId, string InvocationId);
+    internal sealed record SubAgentInvocationRoute(string SessionId, string ThreadId, string InvocationId);
 
     /// <summary>
     /// Invokes a subagent using the shared runtime path used by generated and reflection wrappers.
@@ -130,7 +112,7 @@ public static class SubAgentRuntime
     /// <param name="request">The invocation request.</param>
     /// <param name="cancellationToken">A token that cancels child agent construction or execution.</param>
     /// <returns>The subagent invocation result.</returns>
-    public static async Task<AgentInvocationResult> InvokeAsync(
+    internal static async Task<AgentInvocationResult> InvokeAsync(
         SubAgentInvocationRequest request,
         CancellationToken cancellationToken)
     {
@@ -711,8 +693,7 @@ public static class SubAgentRuntime
     }
 
     /// <summary>Dispatches a framework-owned lifecycle action against the current parent's registry.</summary>
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    public static async Task<object?> ControlAsync(
+    internal static async Task<object?> ControlAsync(
         string action,
         JsonElement branch,
         FunctionExecutionContext functionContext,
@@ -1024,7 +1005,7 @@ public static class SubAgentRuntime
     /// admitted chat client and descendant propagation policy remain authoritative; callers cannot replace
     /// either selection while continuing the child.
     /// </remarks>
-    public static async Task<SubAgentContinuationSubmission> SubmitControlledInputAsync(
+    internal static async Task<SubAgentContinuationSubmission> SubmitControlledInputAsync(
         ISessionStore store,
         IAgentRuntimeResolver resolver,
         ThreadKey controllerThread,
@@ -1575,7 +1556,7 @@ public static class SubAgentRuntime
     /// <param name="functionContext">The parent function context, when available.</param>
     /// <param name="cancellationToken">A token that cancels route resolution.</param>
     /// <returns>The resolved subagent invocation route.</returns>
-    public static async Task<SubAgentInvocationRoute> ResolveInvocationRouteAsync(
+    internal static async Task<SubAgentInvocationRoute> ResolveInvocationRouteAsync(
         Agent agent,
         SubAgent subAgent,
         FunctionExecutionContext? functionContext,
@@ -1645,7 +1626,7 @@ public static class SubAgentRuntime
     /// </summary>
     /// <param name="functionContext">The parent function context, when available.</param>
     /// <param name="route">The resolved subagent invocation route.</param>
-    public static void MarkCompleted(
+    internal static void MarkCompleted(
         FunctionExecutionContext? functionContext,
         SubAgentInvocationRoute route, bool hasResult = true)
     {
@@ -1661,7 +1642,7 @@ public static class SubAgentRuntime
     /// <param name="functionContext">The parent function context, when available.</param>
     /// <param name="route">The resolved subagent invocation route.</param>
     /// <param name="exception">The exception that failed the subagent invocation.</param>
-    public static void MarkFailed(
+    internal static void MarkFailed(
         FunctionExecutionContext? functionContext,
         SubAgentInvocationRoute route,
         Exception exception)

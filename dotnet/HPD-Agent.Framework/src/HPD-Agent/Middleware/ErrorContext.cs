@@ -18,7 +18,16 @@ public enum ErrorSource
     Iteration,
 
     /// <summary>Error during message turn processing</summary>
-    MessageTurn
+    MessageTurn,
+
+    /// <summary>Error while dispatching an agent input event</summary>
+    Input,
+
+    /// <summary>Error during runtime start, stop, or resource lifecycle</summary>
+    Runtime,
+
+    /// <summary>Error while preparing or committing a thread fork</summary>
+    ThreadFork
 }
 
 /// <summary>
@@ -39,7 +48,9 @@ public enum ErrorSource
 /// <para><b>Error Propagation:</b></para>
 /// <list type="bullet">
 /// <item>By default, errors propagate after all OnErrorAsync handlers complete</item>
-/// <item>To swallow error and prevent termination, set State.IsTerminated = true in OnErrorAsync</item>
+/// <item>Each terminal exception is reported once, even when it crosses multiple execution boundaries</item>
+/// <item>Caller cancellation uses the cancellation lifecycle and is not reported as an agent failure</item>
+/// <item>To stop further agent iterations after observing an error, update the state with IsTerminated = true</item>
 /// <item>If OnErrorAsync itself throws, the original error is preserved and propagated</item>
 /// <item>Error handlers execute in sequence - each handler sees the original error</item>
 /// </list>
@@ -58,24 +69,19 @@ public enum ErrorSource
 /// {
 ///     if (context.Source == ErrorSource.ToolCall)
 ///     {
-///         var errorState = context.State.MiddlewareState.ErrorTracking ?? new();
-///         var newState = errorState.IncrementFailures();
-///
-///         if (newState.ConsecutiveFailures >= 3)
+///         var failures = context.GetMiddlewareState&lt;MyErrorState&gt;()?.Count ?? 0;
+///         context.UpdateMiddlewareState&lt;MyErrorState&gt;(state => state with
 ///         {
-///             // Swallow error and gracefully terminate (don't propagate exception)
+///             Count = state.Count + 1
+///         });
+///
+///         if (failures + 1 >= 3)
+///         {
+///             // Stop further iterations after the current error is observed.
 ///             context.UpdateState(s => s with
 ///             {
 ///                 IsTerminated = true,
 ///                 TerminationReason = "Circuit breaker: too many errors"
-///             });
-///         }
-///         else
-///         {
-///             // Update error count but let error propagate
-///             context.UpdateState(s => s with
-///             {
-///                 MiddlewareState = s.MiddlewareState.WithErrorTracking(newState)
 ///             });
 ///         }
 ///     }
@@ -104,6 +110,11 @@ public sealed class ErrorContext : HookContext
     /// </summary>
     public int Iteration { get; }
 
+    /// <summary>
+    /// Gets the run configuration associated with the failed operation, when available.
+    /// </summary>
+    public AgentRunConfig? RunConfig { get; }
+
     //
     // HELPERS
     //
@@ -127,6 +138,21 @@ public sealed class ErrorContext : HookContext
     /// True if error came from message turn processing.
     /// </summary>
     public bool IsMessageTurnError => Source == ErrorSource.MessageTurn;
+
+    /// <summary>
+    /// True if error came from input dispatch.
+    /// </summary>
+    public bool IsInputError => Source == ErrorSource.Input;
+
+    /// <summary>
+    /// True if error came from runtime lifecycle processing.
+    /// </summary>
+    public bool IsRuntimeError => Source == ErrorSource.Runtime;
+
+    /// <summary>
+    /// True if error came from thread fork processing.
+    /// </summary>
+    public bool IsThreadForkError => Source == ErrorSource.ThreadFork;
 
     /// <summary>
     /// Parsed error details from provider-specific error handler.
@@ -165,11 +191,13 @@ public sealed class ErrorContext : HookContext
         AgentContext baseContext,
         Exception error,
         ErrorSource source,
-        int iteration)
+        int iteration,
+        AgentRunConfig? runConfig = null)
         : base(baseContext)
     {
         Error = error ?? throw new ArgumentNullException(nameof(error));
         Source = source;
         Iteration = iteration;
+        RunConfig = runConfig;
     }
 }

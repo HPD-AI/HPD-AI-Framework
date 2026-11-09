@@ -15,7 +15,8 @@
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
     <OutputType>Library</OutputType>
-    <Description>HPD-Agent integration shim for OpenAPI support. Adds [OpenApi] toolharness attribute support, WithOpenApi() builder extensions, retry error handling, and response optimization middleware.</Description>
+    <Description>Use OpenAPI-described REST APIs as HPD-Agent tools, with builder and ToolHarness registration, authentication callbacks, permissions, schema projection, retry handling, and response optimization.</Description>
+    <PackageTags>hpd;agent;openapi;rest;tools</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

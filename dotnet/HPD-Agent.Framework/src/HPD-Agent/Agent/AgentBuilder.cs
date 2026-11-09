@@ -111,6 +111,7 @@ public class AgentBuilder
     private JsonSerializerOptions? _toolSerializerOptions;
     internal ILoggerFactory? _logger;
     private string? _eventApplicationIdentity;
+    private AgentEventDurabilityPolicy _eventDurabilityPolicy = AgentEventDurabilityPolicy.Empty;
 
     // AIContextProvider factory (protocol-specific, stored as object for extensibility)
     internal object? _contextProviderFactory;
@@ -641,8 +642,10 @@ public class AgentBuilder
                 return;
             }
 
-            // Get the All field (static readonly array)
-            var allField = registryType.GetField("All", BindingFlags.Public | BindingFlags.Static);
+            // Get the internal All field (static readonly array)
+            var allField = registryType.GetField(
+                "All",
+                BindingFlags.NonPublic | BindingFlags.Static);
             if (allField == null)
             {
                 return;
@@ -1096,16 +1099,23 @@ public class AgentBuilder
 
         var logger = _logger?.CreateLogger<AgentBuilder>();
         logger?.LogDebug("Resolving {Count} middlewares from config", _config.Middlewares.Count);
+        var failures = new List<AgentRunConfigurationException>();
 
-        foreach (var middlewareRef in _config.Middlewares)
+        for (var index = 0; index < _config.Middlewares.Count; index++)
         {
+            var middlewareRef = _config.Middlewares[index];
+            var path = $"middlewares[{index}]";
+
             // Try to resolve middleware from source-generated registry (AOT-safe)
             if (!_availableMiddlewares.TryGetValue(middlewareRef.Name, out var factory))
             {
-                logger?.LogWarning(
-                    "Middleware '{Name}' referenced in config not found in registry. " +
-                    "Ensure the class has [Middleware] attribute and implements IAgentMiddleware.",
-                    middlewareRef.Name);
+                var error = new AgentRunConfigurationException(
+                    "middleware_not_found",
+                    path,
+                    $"Middleware '{middlewareRef.Name}' is not registered. " +
+                    "Ensure the package containing it is loaded and the class has [Middleware] and implements IAgentMiddleware.");
+                logger?.LogError(error, "Configured middleware {Name} was not found in the generated registry.", middlewareRef.Name);
+                failures.Add(error);
                 continue;
             }
 
@@ -1161,19 +1171,47 @@ public class AgentBuilder
                 }
                 else if (factory.RequiresDI)
                 {
-                    logger?.LogWarning(
-                        "Middleware '{Name}' requires DI. Register via services.AddTransient<{Type}>().",
-                        middlewareRef.Name, middlewareType.Name);
+                    var error = new AgentRunConfigurationException(
+                        "middleware_unresolved",
+                        path,
+                        $"Middleware '{middlewareRef.Name}' could not be resolved. " +
+                        $"Register '{middlewareType.FullName}' with services.AddTransient<{middlewareType.Name}>() or supply a supported constructor.",
+                        expectedType: middlewareType);
+                    logger?.LogError(error, "Configured middleware {Name} requires an unavailable dependency.", middlewareRef.Name);
+                    failures.Add(error);
                 }
                 else
                 {
-                    logger?.LogWarning("Failed to create instance of middleware '{Name}'", middlewareRef.Name);
+                    var error = new AgentRunConfigurationException(
+                        "middleware_unresolved",
+                        path,
+                        $"Middleware '{middlewareRef.Name}' could not be constructed from the generated registry.",
+                        expectedType: middlewareType);
+                    logger?.LogError(error, "Configured middleware {Name} could not be constructed.", middlewareRef.Name);
+                    failures.Add(error);
                 }
             }
             catch (Exception ex)
             {
-                logger?.LogWarning(ex, "Failed to instantiate middleware '{Name}'", middlewareRef.Name);
+                var error = new AgentRunConfigurationException(
+                    "middleware_instantiation_failed",
+                    path,
+                    $"Middleware '{middlewareRef.Name}' failed while being constructed. See the inner exception for details.",
+                    expectedType: middlewareType,
+                    innerException: ex);
+                logger?.LogError(ex, "Configured middleware {Name} failed while being constructed.", middlewareRef.Name);
+                failures.Add(error);
             }
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new AgentRunConfigurationException(
+                "middleware_configuration_invalid",
+                "middlewares",
+                $"One or more configured middleware entries could not be resolved: " +
+                string.Join(" ", failures.Select(static failure => $"{failure.Path}={failure.Code}: {failure.Message}")),
+                innerException: new AggregateException(failures));
         }
     }
 
@@ -1271,6 +1309,35 @@ public class AgentBuilder
         ArgumentException.ThrowIfNullOrWhiteSpace(applicationAssemblyIdentity);
         _eventApplicationIdentity = applicationAssemblyIdentity;
         _config.EventComposition = null;
+        return this;
+    }
+
+    /// <summary>Selects the effective durability for one generated event type.</summary>
+    public AgentBuilder WithEventDurability<TEvent>(AgentEventDurability durability)
+        where TEvent : AgentEvent
+    {
+        _eventDurabilityPolicy = _eventDurabilityPolicy.Set<TEvent>(durability);
+        return this;
+    }
+
+    /// <summary>Selects the effective durability for one generated event type.</summary>
+    public AgentBuilder WithEventDurability(Type eventType, AgentEventDurability durability)
+    {
+        _eventDurabilityPolicy = _eventDurabilityPolicy.Set(eventType, durability);
+        return this;
+    }
+
+    /// <summary>Selects the effective durability for one stable event discriminator.</summary>
+    public AgentBuilder WithEventDurability(string discriminator, AgentEventDurability durability)
+    {
+        _eventDurabilityPolicy = _eventDurabilityPolicy.Set(discriminator, durability);
+        return this;
+    }
+
+    /// <summary>Replaces the generated durability defaults with one immutable host policy.</summary>
+    public AgentBuilder WithEventDurabilityPolicy(AgentEventDurabilityPolicy policy)
+    {
+        _eventDurabilityPolicy = policy ?? throw new ArgumentNullException(nameof(policy));
         return this;
     }
 
@@ -2050,6 +2117,8 @@ public class AgentBuilder
         if (Interlocked.Exchange(ref _buildState, 1) != 0)
             throw new InvalidOperationException("An AgentBuilder instance can build only one Agent.");
         ResolveEventComposition();
+        _config.EventComposition = _config.EventComposition!
+            .WithDurabilityPolicy(_eventDurabilityPolicy);
         try
         {
         if (_sessionStoreFactory is not null)
@@ -2074,10 +2143,6 @@ public class AgentBuilder
             _contentStore = _implicitContentStoreFactory();
             _ownsContentStore = true;
         }
-        if (_config.Skills.ActivationLifetime != SkillActivationLifetime.MessageTurn)
-            throw new InvalidOperationException(
-                $"Skill activation lifetime '{_config.Skills.ActivationLifetime}' is not supported. " +
-                "Use MessageTurn until its persistence semantics are implemented.");
         await ResolveStoredAgentDefinitionAsync(cancellationToken).ConfigureAwait(false);
         EnsureAutoConfiguration();
         ValidateEventAuthority();
@@ -2314,7 +2379,7 @@ public class AgentBuilder
             selectedEvents.Zip(requiredEvents).All(static pair =>
                 pair.First.EventType == pair.Second.EventType &&
                 StringComparer.Ordinal.Equals(pair.First.Discriminator, pair.Second.Discriminator) &&
-                pair.First.Durability == pair.Second.Durability &&
+                pair.First.RequiresDurable == pair.Second.RequiresDurable &&
                 StringComparer.Ordinal.Equals(pair.First.ModuleId, pair.Second.ModuleId));
     }
 
@@ -2756,6 +2821,8 @@ public class AgentBuilder
 
         // Retry behavior is explicit. Configuration supplies policy, but a positive budget
         // does not install middleware or grant replay eligibility.
+        foreach (var retryMiddleware in _middlewares.OfType<RetryMiddleware>())
+            retryMiddleware.UseProviderErrorHandler(buildData.ErrorHandler);
 
         // Register FunctionTimeoutMiddleware if timeout is configured
         if (_config.ErrorHandling?.SingleFunctionTimeout != null)
@@ -3019,7 +3086,7 @@ public class AgentBuilder
                 var sourceId = CapabilitySourceId.Create(
                     $"openapi:{source.ParentContainer ?? "standalone"}:{source.Name}");
                 AddCapabilitySource(new AgentCapabilitySourceRegistration(
-                    new OpenApiCapabilitySourceFactory(sourceId, source, s_openApiLoader),
+                    new OpenApiCapabilitySourceFactory(sourceId, source, s_openApiLoader, _logger),
                     CapabilitySourceInitialLoadPolicy.Required,
                     CapabilitySourceRefreshFailurePolicy.RetainLastKnownGood));
             }
@@ -3618,8 +3685,7 @@ public class AgentBuilder
         // This allows tests to inject fake clients without configuring a real provider
         if (_baseClient != null)
         {
-            // Use generic error handler for testing
-            var testErrorHandler = new HPD.Agent.ErrorHandling.GenericErrorHandler();
+            var testErrorHandler = ResolveSelectedProviderErrorHandler();
             var toolBuild = await BuildToolOptionsAsync(cancellationToken).ConfigureAwait(false);
             var chatConfig = _config.ResolveClientConfig(ProviderClientFamily.Chat);
             var executionIdentity = CreateHostOwnedChatClientIdentity(_baseClient, chatConfig);
@@ -3637,8 +3703,20 @@ public class AgentBuilder
         return new AgentBuildDependencies(
             CreateAuxiliaryClientSet(),
             runtimeToolBuild.MergedOptions,
-            new HPD.Agent.ErrorHandling.GenericErrorHandler(),
+            ResolveSelectedProviderErrorHandler(),
             OwnedHttpClients: runtimeToolBuild.OwnedHttpClients);
+    }
+
+    private ErrorHandling.IProviderErrorHandler ResolveSelectedProviderErrorHandler()
+    {
+        var providerKey = _config.ResolveClientConfig(ProviderClientFamily.Chat)?.Provider?.Key;
+        if (!string.IsNullOrWhiteSpace(providerKey) &&
+            _providerRegistry.GetProvider(providerKey) is { } provider)
+        {
+            return provider.CreateErrorHandler();
+        }
+
+        return new ErrorHandling.GenericErrorHandler();
     }
 
     private static ProviderClientExecutionIdentity CreateHostOwnedChatClientIdentity(
@@ -4394,21 +4472,22 @@ public static class AgentBuilderMiddlewareExtensions
     }
 
     /// <summary>
-    /// Adds error formatting middleware to sanitize function errors before sending to the LLM.
-    /// Uses settings from AgentConfig.ErrorHandling.IncludeDetailedErrorsInChat (default: false for security).
+    /// Adds error formatting middleware for function errors and model-call failures.
+    /// Uses AgentConfig.ErrorHandling.IncludeDetailedErrorsInChat, which defaults to <c>true</c>.
     /// </summary>
     /// <param name="builder">The agent builder</param>
     /// <returns>The builder for chaining</returns>
     /// <remarks>
     /// <para>
-    /// This middleware acts as a security boundary, preventing sensitive information from being
-    /// exposed to the LLM through exception messages. By default, it returns sanitized error
-    /// messages like "Error: Function 'X' failed." while preserving the full exception in
-    /// <c>AgentMiddlewareContext.FunctionException</c> for logging and debugging.
+    /// This middleware controls how much exception detail is exposed to the LLM. With
+    /// <c>IncludeDetailedErrorsInChat = true</c> (the default), the exception message is included
+    /// in the model-facing error. With <c>false</c>, function errors are replaced with a generic
+    /// message and model errors are sanitized.
     /// </para>
     /// <para>
-    /// <b>Security Note:</b> The default setting (<c>IncludeDetailedErrorsInChat = false</c>) is
-    /// recommended for production to prevent exposing:
+    /// <b>Security Note:</b> The default (<c>IncludeDetailedErrorsInChat = true</c>) prioritizes
+    /// model recovery and diagnostics. Set it to <c>false</c> for production-facing agents when
+    /// errors may expose:
     /// - Stack traces
     /// - Database connection strings
     /// - File system paths
@@ -4425,21 +4504,21 @@ public static class AgentBuilderMiddlewareExtensions
     /// </remarks>
     /// <example>
     /// <code>
-    /// // Default - sanitized errors (secure)
+    /// // Default - detailed exception messages
     /// var config = new AgentConfig();
-    /// await using var secureAgent = await new AgentBuilder(config)
+    /// await using var diagnosticAgent = await new AgentBuilder(config)
     ///     .WithErrorFormatting()
     ///     .BuildAsync();
     ///
-    /// // Allow detailed errors (only for trusted environments)
-    /// var detailedConfig = new AgentConfig
+    /// // Production-facing tools - hide exception details from the model
+    /// var sanitizedConfig = new AgentConfig
     /// {
     ///     ErrorHandling = new ErrorHandlingConfig
     ///     {
-    ///         IncludeDetailedErrorsInChat = true
+    ///         IncludeDetailedErrorsInChat = false
     ///     }
     /// };
-    /// await using var detailedAgent = await new AgentBuilder(detailedConfig)
+    /// await using var sanitizedAgent = await new AgentBuilder(sanitizedConfig)
     ///     .WithErrorFormatting()
     ///     .BuildAsync();
     /// </code>
@@ -4514,9 +4593,9 @@ public static class AgentBuilderMiddlewareExtensions
     /// Function-level middleware uses settings from <c>AgentConfig.ErrorHandling</c> for retry/timeout/formatting configuration.
     /// </para>
     /// <para>
-    /// <b>Security Note:</b> By default, error messages sent to the LLM are sanitized to prevent exposing
-    /// sensitive information. Set <c>ErrorHandlingConfig.IncludeDetailedErrorsInChat = true</c> only in
-    /// trusted environments.
+    /// <b>Security Note:</b> Detailed exception messages are included by default. Set
+    /// <c>ErrorHandlingConfig.IncludeDetailedErrorsInChat = false</c> when model-facing errors
+    /// could expose sensitive implementation details.
     /// </para>
     /// </remarks>
     /// <example>
@@ -4566,7 +4645,7 @@ public static class AgentBuilderMiddlewareExtensions
     /// <param name="configureTotalThreshold">Optional action to configure total error threshold middleware</param>
     /// <param name="configureRetry">Optional action to configure function RetryMiddleware </param>
     /// <param name="configureFunctionTimeout">Optional timeout for function execution</param>
-    /// <param name="includeDetailedErrorsInChat">Optional flag to include detailed error messages in LLM chat (default: false for security)</param>
+    /// <param name="includeDetailedErrorsInChat">Optional flag controlling detailed error messages in LLM chat. When omitted, the configured value is used; a new <see cref="ErrorHandlingConfig"/> defaults to <c>true</c>.</param>
     /// <returns>The builder for chaining</returns>
     /// <remarks>
     /// <para>
@@ -4600,7 +4679,7 @@ public static class AgentBuilderMiddlewareExtensions
     ///             };
     ///         },
     ///         configureFunctionTimeout: TimeSpan.FromMinutes(2),
-    ///         includeDetailedErrorsInChat: false)  // Secure by default
+    ///         includeDetailedErrorsInChat: false)  // Sanitize untrusted error details
     ///     .BuildAsync();
     /// </code>
     /// </example>

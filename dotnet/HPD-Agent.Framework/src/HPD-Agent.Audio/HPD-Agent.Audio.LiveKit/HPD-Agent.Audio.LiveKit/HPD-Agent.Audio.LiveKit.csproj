@@ -5,7 +5,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <EnableDefaultItems>false</EnableDefaultItems>
-    <IsPackable>false</IsPackable>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Agent.Audio.LiveKit</PackageId>
+    <Description>Managed LiveKit audio transport for HPD Agent Audio.</Description>
+    <PackageTags>ai;agent;audio;livekit;realtime;webrtc</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
     <HpdLiveKitFfiManifestRequired>true</HpdLiveKitFfiManifestRequired>
@@ -14,7 +18,7 @@
     <Compile Include="Generated/LiveKitFfiNative.g.cs" />
     <Compile Include="LiveKitManagedSessionContracts.cs" />
     <Compile Include="ManagedLiveKitBuilderExtensions.cs" />
-    <Compile Include="ConfiguredManagedStreamingSpeechToTextSourceV1.cs" />
+    <Compile Include="ConfiguredManagedStreamingSpeechToTextSource.cs" />
     <Compile Include="Runtime/LiveKitIssuedOperationRegistry.cs" />
     <Compile Include="Runtime/LiveKitFfiHost.cs" />
     <Compile Include="Runtime/LiveKitFfiWireDecoder.cs" />
@@ -33,6 +37,7 @@
     <ProjectReference Include="../HPD-Agent.Audio.LiveKit.SourceGenerator/HPD-Agent.Audio.LiveKit.SourceGenerator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false"
+                      PrivateAssets="all"
                       GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier"
                       AdditionalProperties="PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
     <AdditionalFiles Include="FFI/livekit-ffi-binding-v0.12.60.txt" />

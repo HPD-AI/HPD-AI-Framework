@@ -5,6 +5,7 @@ Digest-pinned Silero v6.2 voice activity source provider for HPD Agent Audio.
 ## Install
 
 ```bash
+dotnet add package HPD-Agent.Audio
 dotnet add package HPD-Agent.Providers.Audio.Silero
 ```
 
@@ -24,3 +25,24 @@ For repository qualification only, run
 `dotnet run --file eng/fetch-silero-vad-v6.2.cs`. It pins
 upstream commit `be95df9152c0d7618fa1edfeb296fc3dae32376f` and SHA-256
 `1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3`.
+
+## Configure
+
+```csharp
+using HPD.Agent;
+using HPD.Agent.Providers.Audio.Silero;
+
+var agent = await AgentBuilder.Create()
+    .WithSileroVoiceActivity(
+        modelPath: "/opt/models/silero_vad.onnx")
+    .BuildAsync();
+```
+
+The provider defaults to the digest above but accepts an explicit
+`modelSha256` for an independently verified artifact. Configuration fails
+closed when the model is missing, the digest does not match, or the native
+inference runtime cannot be loaded.
+
+Silero performs local inference; it does not replace speech-to-text. Pair it
+with an STT provider through the voice-activity composition contracts when the
+application needs endpointing or turn detection.

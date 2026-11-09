@@ -1,6 +1,6 @@
 namespace HPD.Agent.Audio.Runtime;
 
-public sealed class RuntimeClock
+internal sealed class RuntimeClock
 {
     private DateTimeOffset _utcNow;
 

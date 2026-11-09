@@ -13,7 +13,7 @@ namespace HPD.Agent.Middleware;
 /// <item>  Typed contexts - compile-time safety, no NULL properties</item>
 /// <item>  Immutable requests - preserve original for debugging/retry</item>
 /// <item>  Streaming-first architecture - all LLM calls stream by default</item>
-/// <item>  Centralized errors - OnErrorAsync hook for all errors</item>
+/// <item>  Centralized errors - OnErrorAsync observes terminal operation failures</item>
 /// <item>  Immediate state updates - no scheduled updates</item>
 /// </list>
 ///
@@ -37,7 +37,7 @@ namespace HPD.Agent.Middleware;
 /// <para>
 /// Before* hooks run in registration order.<br/>
 /// After* hooks run in reverse registration order (stack unwinding).<br/>
-/// Wrap* hooks run in chain order (last registered = outermost wrapper).<br/>
+/// Wrap* hooks run in chain order (first registered = outermost wrapper).<br/>
 /// OnErrorAsync runs in reverse registration order (error unwinding).
 /// </para>
 /// </remarks>
@@ -372,14 +372,15 @@ public interface IAgentMiddleware
     //
 
     /// <summary>
-    /// Called when an error occurs during agent execution.
-    /// Provides centralized error handling, logging, and recovery.
+    /// Called once when a model, function, iteration, message-turn, input, runtime,
+    /// or thread-fork operation fails.
     /// </summary>
     /// <remarks>
     /// <para><b>Execution Order:</b></para>
     /// <para>
-    /// OnErrorAsync executes in REVERSE registration order (like After* hooks)
-    /// for proper error handler unwinding.
+    /// OnErrorAsync executes in reverse registration order for each terminal failure.
+    /// Caller cancellation is reported through the cancellation lifecycle instead of
+    /// OnErrorAsync.
     /// </para>
     /// <para>
     /// Registration: [ErrorLogger, CircuitBreaker, Telemetry]<br/>
@@ -388,8 +389,9 @@ public interface IAgentMiddleware
     ///
     /// <para><b>Error Propagation:</b></para>
     /// <list type="bullet">
-    /// <item>By default, errors propagate after all OnErrorAsync handlers complete</item>
-    /// <item>To swallow error and prevent termination, set <c>context.UpdateState(s => s with { IsTerminated = true })</c></item>
+    /// <item>OnErrorAsync is an observation hook; the original failure continues to propagate after handlers complete</item>
+    /// <item>An exception from an OnErrorAsync handler is ignored so it cannot replace the original failure</item>
+    /// <item>To stop further iterations after observing an error, use <c>context.UpdateState(s => s with { IsTerminated = true })</c></item>
     /// <item>If OnErrorAsync itself throws, the original error is preserved and propagated</item>
     /// <item>Error handlers execute in sequence - each handler sees the original error</item>
     /// </list>

@@ -47,16 +47,6 @@ public sealed class PostCompactionContinuationTests
         Assert.Contains(request, m => m.Role == ChatRole.Assistant && m.Text == CaptureClient.Summary);
         Assert.Contains(request, m => m.Role == ChatRole.User && m.Text == "What do you remember?");
         Assert.DoesNotContain(request, m => m.Text == "Remember the marker ORCHID-739; only inspect.");
-        var events = await store.CollectThreadEventsAsync("continuation-session", "main");
-        var snapshot = events!.OfType<IterationContextSnapshotEvent>().Last();
-        var summaryInput = Assert.Single(snapshot.CompactionSummaryInputs);
-        Assert.Equal("assistant", summaryInput.Role);
-        Assert.Equal(CaptureClient.Summary.Length, summaryInput.TextLength);
-        Assert.Equal(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
-            System.Text.Encoding.UTF8.GetBytes(CaptureClient.Summary))), summaryInput.TextSha256);
-        var codec = TestEventApplication.Codec;
-        var replay = (IterationContextSnapshotEvent)codec.DeserializeEvent(codec.Serialize(snapshot));
-        Assert.Equal(summaryInput, Assert.Single(replay.CompactionSummaryInputs));
         await agent.DisposeAsync();
     }
 

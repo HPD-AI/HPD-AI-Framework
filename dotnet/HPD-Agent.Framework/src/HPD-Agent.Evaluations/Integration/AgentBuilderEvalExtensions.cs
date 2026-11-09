@@ -4,6 +4,7 @@
 using HPD.Agent;
 using HPD.Agent.Evaluations.Annotation;
 using HPD.Agent.Evaluations.Batch;
+using HPD.Agent.Evaluations.Evaluators;
 using HPD.Agent.Evaluations.Storage;
 using Microsoft.Extensions.AI.Evaluation;
 
@@ -25,19 +26,30 @@ public static class AgentBuilderEvalExtensions
     /// Fraction of turns to evaluate (0.0–1.0). Default 1.0 = every turn.
     /// </param>
     /// <param name="policy">
-    /// MustAlwaysPass: failure emits EvalPolicyViolationEvent (CI gate).
-    /// TrackTrend: failures are recorded in IScoreStore only (quality monitoring).
+    /// Optional policy override. When omitted, deterministic evaluators use
+    /// <see cref="EvalPolicy.MustAlwaysPass"/> and model-judged or custom evaluators
+    /// use <see cref="EvalPolicy.TrackTrend"/>. MustAlwaysPass failures emit
+    /// <see cref="EvalPolicyViolationEvent"/>.
     /// </param>
     /// <param name="judgeConfig">Per-evaluator judge override.</param>
     public static AgentBuilder AddEvaluator(
         this AgentBuilder builder,
         IEvaluator evaluator,
         double samplingRate = 1.0,
-        EvalPolicy policy = EvalPolicy.MustAlwaysPass,
+        EvalPolicy? policy = null,
         EvaluationJudgeRunConfig? judgeConfig = null)
     {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(evaluator);
+        if (samplingRate is < 0 or > 1)
+            throw new ArgumentOutOfRangeException(nameof(samplingRate), samplingRate, "Sampling rate must be between zero and one.");
+
         var middleware = GetOrCreateMiddleware(builder);
-        middleware.AddEvaluator(evaluator, samplingRate, policy, judgeConfig);
+        middleware.AddEvaluator(
+            evaluator,
+            samplingRate,
+            policy ?? EvaluatorCatalog.GetDefaultPolicy(evaluator),
+            judgeConfig);
         return builder;
     }
 
@@ -47,8 +59,25 @@ public static class AgentBuilderEvalExtensions
     /// </summary>
     public static AgentBuilder UseScoreStore(this AgentBuilder builder, IScoreStore store)
     {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(store);
         var middleware = GetOrCreateMiddleware(builder);
         middleware.ScoreStore = store;
+        return builder;
+    }
+
+    /// <summary>
+    /// Sets the fallback judge configuration for evaluators added to this builder.
+    /// A per-evaluator judge configuration takes precedence.
+    /// </summary>
+    public static AgentBuilder UseEvaluationJudgeConfig(
+        this AgentBuilder builder,
+        EvaluationJudgeRunConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(config);
+        var middleware = GetOrCreateMiddleware(builder);
+        middleware.GlobalJudgeConfig = config;
         return builder;
     }
 

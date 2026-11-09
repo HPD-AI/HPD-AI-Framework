@@ -8,6 +8,9 @@ namespace HPD.Agent;
 /// Reference to a middleware in config. Supports JSON shorthand (string) or full object.
 /// </summary>
 /// <remarks>
+/// Every configured reference is required. The agent build fails when a name cannot be
+/// found in the generated registry, its dependencies cannot be resolved, or its
+/// constructor throws.
 /// <para>
 /// MiddlewareReference enables flexible JSON configuration syntax:
 /// </para>

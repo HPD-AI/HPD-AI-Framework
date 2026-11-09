@@ -3,7 +3,7 @@ using HPD.TUI.Controllers;
 
 namespace HPD.Agent.TUI.Commands;
 
-public sealed class SlashCommandAgentAutocompleteProvider : IAgentTuiAutocompleteProvider
+internal sealed class SlashCommandAgentAutocompleteProvider : IAgentTuiAutocompleteProvider
 {
     private readonly HpdAgentTuiRegistry _registry;
 

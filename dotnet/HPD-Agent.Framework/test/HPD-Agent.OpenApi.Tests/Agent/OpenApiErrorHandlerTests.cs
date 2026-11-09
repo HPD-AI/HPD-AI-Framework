@@ -1,5 +1,6 @@
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.OpenApi;
+using Microsoft.Extensions.AI;
 using HPD.OpenApi.Core;
 
 namespace HPD.Agent.OpenApi.Tests.Agent;
@@ -7,6 +8,24 @@ namespace HPD.Agent.OpenApi.Tests.Agent;
 public class OpenApiErrorHandlerTests
 {
     private readonly OpenApiErrorHandler _handler = new();
+
+    [Fact]
+    public void SourceType_RoutesFunctionsToOpenApiErrorHandler()
+    {
+        var function = HPDAIFunctionFactory.Create(
+            (_, _, _) => Task.FromResult<object?>("ok"),
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = "openapi_operation",
+                AdditionalProperties = new Dictionary<string, object?>
+                {
+                    ["SourceType"] = "OpenApi"
+                }
+            });
+
+        Assert.IsType<OpenApiErrorHandler>(
+            FunctionErrorHandlerRegistry.Resolve(function));
+    }
 
     // ────────────────────────────────────────────────────────────
     // ParseError

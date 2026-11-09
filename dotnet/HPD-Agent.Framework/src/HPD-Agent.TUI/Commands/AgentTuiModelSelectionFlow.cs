@@ -6,7 +6,7 @@ using HPD.TUI.Components;
 namespace HPD.Agent.TUI.Commands;
 
 /// <summary>Provides the shared provider and model selection workflow used by agent TUI hosts.</summary>
-public static class AgentTuiModelSelectionFlow
+internal static class AgentTuiModelSelectionFlow
 {
     private const int InitialModelChoiceLimit = 28;
     private const int BrowseModelChoiceLimit = 200;

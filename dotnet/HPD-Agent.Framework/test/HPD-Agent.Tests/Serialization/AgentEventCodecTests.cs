@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using FluentAssertions;
+using HPD.Agent.Middleware;
 using HPD.Agent.Serialization;
 
 namespace HPD.Agent.Tests.Serialization;
@@ -11,6 +13,19 @@ public sealed partial class AgentEventCodecTests
     private sealed record LiveCodecTestEvent(string Value) : AgentEvent;
     private sealed record ConflictingCodecTestEvent(string Value) : AgentEvent;
     private sealed record ReservedCodecTestEvent([property: JsonPropertyName("type")] string TypeValue) : AgentEvent;
+    private sealed record ShapeEvent(string First, string Second) : AgentEvent;
+    private sealed record GoldenEventCatalog(
+        string Version,
+        string Digest,
+        string BehaviorDigest,
+        int EventCount,
+        IReadOnlyList<GoldenEventContract> Events);
+    private sealed record GoldenEventContract(
+        string Discriminator,
+        string ContractDigest,
+        string Durability,
+        bool RequiresDurable,
+        string ModuleId);
 
     [JsonSourceGenerationOptions(
         PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
@@ -20,6 +35,7 @@ public sealed partial class AgentEventCodecTests
     [JsonSerializable(typeof(LiveCodecTestEvent))]
     [JsonSerializable(typeof(ConflictingCodecTestEvent))]
     [JsonSerializable(typeof(ReservedCodecTestEvent))]
+    [JsonSerializable(typeof(ShapeEvent))]
     private partial class CodecTestJsonContext : JsonSerializerContext;
 
     private static readonly AgentEventCodec CoreCodec = CoreAgentEventComposition.Instance.Codec;
@@ -33,6 +49,41 @@ public sealed partial class AgentEventCodecTests
         json.Should().Contain("\"version\":\"1.0\"");
         json.Should().Contain("\"type\":\"TOOL_CALL_START\"");
         CoreCodec.DeserializeEvent(json).Should().BeEquivalentTo(value);
+    }
+
+    [Fact]
+    public void CoreEvent_RejectsMissingOrUnsupportedEnvelopeVersion()
+    {
+        var json = CoreCodec.Serialize(new ToolCallStartEvent("call-1", "Search", "message-1"));
+        var invalidEnvelopes = new[]
+        {
+            json.Replace("\"version\":\"1.0\",", string.Empty, StringComparison.Ordinal),
+            json.Replace("\"version\":\"1.0\"", "\"version\":\"2.0\"", StringComparison.Ordinal),
+            json.Replace("\"version\":\"1.0\"", "\"version\":null", StringComparison.Ordinal)
+        };
+
+        foreach (var invalid in invalidEnvelopes)
+        {
+            var action = () => CoreCodec.DeserializeEvent(invalid);
+            action.Should().Throw<JsonException>().WithMessage("*version '1.0'*");
+        }
+    }
+
+    [Fact]
+    public void ComputedErrorConveniences_AreNotSerialized()
+    {
+        var value = new MessageTurnErrorEvent(
+            "turn-1",
+            "rate limit exceeded",
+            MessageTurnUsageSummary.Empty,
+            new HttpRequestException("rate limit exceeded", null, System.Net.HttpStatusCode.TooManyRequests));
+
+        var json = CoreCodec.Serialize(value);
+
+        json.Should().NotContain("\"errorCode\"");
+        json.Should().NotContain("\"isModelNotFound\"");
+        json.Should().NotContain("\"isRetryable\"");
+        json.Should().Contain("\"errorMessage\":\"rate limit exceeded\"");
     }
 
     [Fact]
@@ -118,6 +169,162 @@ public sealed partial class AgentEventCodecTests
 
         first.Digest.Should().Be(second.Digest);
         first.Catalog.Events.Should().Equal(second.Catalog.Events);
+    }
+
+    [Fact]
+    public void DurabilityPolicy_ChangesBehaviorWithoutChangingStructuralCatalog()
+    {
+        var original = CoreAgentEventComposition.Instance;
+        var effective = original.WithDurabilityPolicy(
+            AgentEventDurabilityPolicy.Empty.Set<StateSnapshotEvent>(AgentEventDurability.Durable));
+
+        effective.Digest.Should().Be(original.Digest);
+        effective.BehaviorDigest.Should().NotBe(original.BehaviorDigest);
+        effective.Codec.TryGetByType(typeof(StateSnapshotEvent), out var descriptor).Should().BeTrue();
+        descriptor.Durability.Should().Be(AgentEventDurability.Durable);
+    }
+
+    [Fact]
+    public void DurabilityPolicy_CanDemoteOverridableDurableEvents()
+    {
+        var composition = AgentEventComposition.Create([CreateTestFragment()]);
+        var effective = composition.WithDurabilityPolicy(
+            AgentEventDurabilityPolicy.Empty.Set<DurableCodecTestEvent>(AgentEventDurability.LiveOnly));
+
+        effective.Codec.TryGetByType(typeof(DurableCodecTestEvent), out var descriptor).Should().BeTrue();
+        descriptor.Durability.Should().Be(AgentEventDurability.LiveOnly);
+    }
+
+    [Fact]
+    public void DurabilityPolicy_CannotDemoteRequiredDurableEvents()
+    {
+        var action = () => CoreAgentEventComposition.Instance.WithDurabilityPolicy(
+            AgentEventDurabilityPolicy.Empty.Set<PermissionRequestEvent>(AgentEventDurability.LiveOnly));
+
+        action.Should().Throw<InvalidOperationException>()
+            .WithMessage("*PERMISSION_REQUEST*required-durable*");
+    }
+
+    [Fact]
+    public void AuditAndSubAgentInvocationLifecycle_RemainOverridableDurable()
+    {
+        foreach (var type in new[]
+                 {
+                     typeof(FunctionInvocationAuditedEvent),
+                     typeof(SubAgentInvocationStartedEvent),
+                     typeof(SubAgentInvocationCompletedEvent),
+                     typeof(SubAgentInvocationFailedEvent),
+                     typeof(SubAgentInvocationCancelledEvent)
+                 })
+        {
+            CoreAgentEventComposition.Instance.Codec.TryGetByType(type, out var descriptor).Should().BeTrue();
+            descriptor.Durability.Should().Be(AgentEventDurability.Durable);
+            descriptor.RequiresDurable.Should().BeFalse();
+        }
+    }
+
+    [Fact]
+    public void DurabilityPolicy_RejectsUnknownOverrides()
+    {
+        var byDiscriminator = () => CoreAgentEventComposition.Instance.WithDurabilityPolicy(
+            AgentEventDurabilityPolicy.Empty.Set("UNKNOWN_EVENT", AgentEventDurability.Durable));
+        var byType = () => CoreAgentEventComposition.Instance.WithDurabilityPolicy(
+            AgentEventDurabilityPolicy.Empty.Set<DurableCodecTestEvent>(AgentEventDurability.Durable));
+
+        byDiscriminator.Should().Throw<InvalidOperationException>()
+            .WithMessage("*unknown discriminator 'UNKNOWN_EVENT'*");
+        byType.Should().Throw<InvalidOperationException>()
+            .WithMessage("*unknown event type*DurableCodecTestEvent*");
+    }
+
+    [Fact]
+    public void CoreCatalog_ExposesJsonContractDigests()
+    {
+        var entries = CoreAgentEventComposition.Instance.Catalog.Events;
+
+        entries.Should().OnlyContain(entry =>
+            entry.ContractDigest.Length == 64 &&
+            entry.ContractDigest.All(static value => char.IsAsciiHexDigitLower(value)));
+    }
+
+    [Fact]
+    public void StructuralDigest_ChangesWhenSerializedPropertyShapeChanges()
+    {
+        var original = AgentEventComposition.Create([
+            ShapeFragment(CodecTestJsonContext.Default.GetTypeInfo(typeof(ShapeEvent))!)
+        ]);
+        var options = new JsonSerializerOptions
+        {
+            TypeInfoResolver = new DefaultJsonTypeInfoResolver
+            {
+                Modifiers =
+                {
+                    static typeInfo =>
+                    {
+                        if (typeInfo.Type == typeof(ShapeEvent))
+                            typeInfo.Properties.RemoveAt(0);
+                    }
+                }
+            }
+        };
+        var changed = AgentEventComposition.Create([
+            ShapeFragment(options.GetTypeInfo(typeof(ShapeEvent))!)
+        ]);
+
+        original.Digest.Should().NotBe(changed.Digest);
+
+        static AgentEventModuleFragment ShapeFragment(JsonTypeInfo typeInfo) => new()
+        {
+            ModuleId = "test.shape",
+            Events =
+            [
+                new AgentEventDescriptor
+                {
+                    EventType = typeof(ShapeEvent),
+                    Discriminator = "SHAPE_EVENT",
+                    JsonTypeInfo = typeInfo,
+                    Durability = AgentEventDurability.LiveOnly,
+                    ModuleId = "test.shape"
+                }
+            ]
+        };
+    }
+
+    [Fact]
+    public void CoreEventContracts_MatchGoldenManifest()
+    {
+        var path = Path.Combine(
+            AppContext.BaseDirectory,
+            "Serialization",
+            "CoreEventContracts.golden.json");
+        var expected = JsonSerializer.Deserialize<GoldenEventCatalog>(File.ReadAllText(path));
+        var composition = CoreAgentEventComposition.Instance;
+        var actual = new GoldenEventCatalog(
+            "1.0",
+            composition.Digest,
+            composition.BehaviorDigest,
+            composition.Catalog.Events.Count,
+            composition.Catalog.Events.Select(entry =>
+            {
+                composition.Codec.TryGetByDiscriminator(entry.Discriminator, out var descriptor)
+                    .Should().BeTrue();
+                return new GoldenEventContract(
+                    entry.Discriminator,
+                    entry.ContractDigest,
+                    entry.Durability.ToString(),
+                    descriptor.RequiresDurable,
+                    entry.ModuleId);
+            }).ToArray());
+        var updatePath = System.Environment.GetEnvironmentVariable("HPD_UPDATE_EVENT_GOLDEN");
+        if (!string.IsNullOrWhiteSpace(updatePath))
+        {
+            File.WriteAllText(
+                updatePath,
+                JsonSerializer.Serialize(actual, new JsonSerializerOptions { WriteIndented = true }) +
+                System.Environment.NewLine);
+            return;
+        }
+        expected.Should().BeEquivalentTo(actual, options => options.WithStrictOrdering());
     }
 
     [Fact]
@@ -286,11 +493,66 @@ public sealed partial class AgentEventCodecTests
 
         string.Join(", ", concreteOutputs.Except(classified).Select(type => type.FullName)).Should().BeEmpty();
         string.Join(", ", classified.Except(concreteOutputs).Select(type => type.FullName)).Should().BeEmpty();
+
+        var expectedLiveOnly = new HashSet<Type>
+        {
+            typeof(AgentCapabilityRefreshStartedEvent),
+            typeof(AgentCompletionEvent),
+            typeof(AgentDecisionEvent),
+            typeof(AgentOperationNotificationSuppressedEvent),
+            typeof(AgentOperationTombstoneEvictedEvent),
+            typeof(AgentTurnStartedEvent),
+            typeof(CircuitBreakerTriggeredEvent),
+            typeof(CollapsedToolsVisibleEvent),
+            typeof(CollapsingStateEvent),
+            typeof(ContainerExpandedEvent),
+            typeof(ContentCaptureFinalizedEvent),
+            typeof(ContentReadEvent),
+            typeof(ContentReferenceResolutionFailedEvent),
+            typeof(ContentReferenceResolvedEvent),
+            typeof(ContentScopeCleanedEvent),
+            typeof(ContentUploadedEvent),
+            typeof(ContentUploadFailedEvent),
+            typeof(DeltaSendingActivatedEvent),
+            typeof(DocumentProcessedEvent),
+            typeof(EventDroppedEvent),
+            typeof(FunctionRetryEvent),
+            typeof(HostedFileUploadedEvent),
+            typeof(HostedFileUploadFailedEvent),
+            typeof(InternalMessagePreparedEvent),
+            typeof(InternalParallelToolExecutionEvent),
+            typeof(IterationStartEvent),
+            typeof(MiddlewareStateChangedEvent),
+            typeof(MiddlewareStateSnapshotEvent),
+            typeof(ModelCallRetryEvent),
+            typeof(NestedAgentInvokedEvent),
+            typeof(OperationExecutionOwnerCleanupFailedEvent),
+            typeof(ProviderValuationObservationEvent),
+            typeof(RequestEventProcessedEvent),
+            typeof(RuntimeAgentLiveEvent),
+            typeof(SkillActivatedEvent),
+            typeof(SkillActivationFailedEvent),
+            typeof(SkillActivationStartedEvent),
+            typeof(SkillResourceReadCompletedEvent),
+            typeof(SkillResourceReadFailedEvent),
+            typeof(SkillResourceReadStartedEvent),
+            typeof(SkillScriptCompletedEvent),
+            typeof(SkillScriptFailedEvent),
+            typeof(SkillScriptStartedEvent),
+            typeof(SkillScriptTimedOutEvent),
+            typeof(StateSnapshotEvent),
+            typeof(StructuredOutputCompleteEvent),
+            typeof(StructuredOutputPartialEvent),
+            typeof(StructuredOutputStartEvent),
+            typeof(ToolOutputProjectedEvent),
+            typeof(ToolOutputProjectionFailedEvent)
+        };
+
         CoreAgentEventModule.Fragment.Events.Should().OnlyContain(descriptor =>
-            descriptor.Durability == (descriptor.EventType == typeof(RuntimeAgentLiveEvent)
+            descriptor.Durability == (expectedLiveOnly.Contains(descriptor.EventType)
                 ? AgentEventDurability.LiveOnly
                 : AgentEventDurability.Durable),
-            "runtime extension live events are observable but cannot enter the canonical journal");
+            "the checked-in event catalog distinguishes canonical recovery facts from live diagnostics");
     }
 
     private static AgentEventModuleFragment CreateTestFragment() => new()

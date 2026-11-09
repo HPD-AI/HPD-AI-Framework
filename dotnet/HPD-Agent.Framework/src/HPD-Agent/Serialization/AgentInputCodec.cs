@@ -69,14 +69,13 @@ public sealed class AgentInputCodec
     }
 
     /// <summary>Serializes one semantic input and its typed provider run configuration.</summary>
-    public string Serialize(AgentInputEvent input, string version = "1.0")
+    public string Serialize(AgentInputEvent input)
     {
         ArgumentNullException.ThrowIfNull(input);
-        ArgumentException.ThrowIfNullOrWhiteSpace(version);
         if (!_byType.TryGetValue(input.GetType(), out var entry))
             throw new JsonException($"Agent input type '{input.GetType().FullName}' is not supported by this input codec.");
         var payload = JsonSerializer.Serialize(input, entry.JsonTypeInfo);
-        var prefix = $"\"version\":{JsonSerializer.Serialize(version, AgentEventJsonContext.Default.String)}," +
+        var prefix = $"\"version\":{JsonSerializer.Serialize(AgentEventWireFormat.Version, AgentEventJsonContext.Default.String)}," +
             $"\"type\":{JsonSerializer.Serialize(entry.Discriminator, AgentEventJsonContext.Default.String)}";
         var envelope = payload == "{}" ? $"{{{prefix}}}" : payload.Insert(1, prefix + ",");
         if (input.RunConfig is null && input.SubAgentRunConfig is null)
@@ -113,6 +112,7 @@ public sealed class AgentInputCodec
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(json);
         using var document = JsonDocument.Parse(json);
+        AgentEventWireFormat.Validate(document.RootElement, "input");
         if (!document.RootElement.TryGetProperty("type", out var typeProperty) || typeProperty.ValueKind != JsonValueKind.String)
             throw new JsonException("Agent input envelope requires a string 'type' property.");
         var discriminator = typeProperty.GetString()!;

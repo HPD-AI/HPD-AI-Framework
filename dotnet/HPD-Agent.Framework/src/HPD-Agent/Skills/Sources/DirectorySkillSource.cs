@@ -89,6 +89,12 @@ public sealed class DirectorySkillSource : IWatchableSkillSource
         var document = await File.ReadAllTextAsync(skillPath, cancellationToken).ConfigureAwait(false);
         var (frontmatter, instructions) = ParseSkillDocument(document, skillPath);
         var name = Required(frontmatter, "name", skillPath);
+        if (!SkillModelName.IsValid(name))
+        {
+            throw new InvalidDataException(
+                $"Skill document '{skillPath}' has an invalid model-facing name '{name}'. " +
+                "Use 1-64 ASCII letters, digits, underscores, or hyphens, and start with a letter or underscore.");
+        }
         var description = Required(frontmatter, "description", skillPath);
         var id = frontmatter.GetValueOrDefault("id") ?? name;
         var version = frontmatter.GetValueOrDefault("version") ?? "directory";
@@ -102,6 +108,11 @@ public sealed class DirectorySkillSource : IWatchableSkillSource
             {
                 var relative = Path.GetRelativePath(skillRoot, path).Replace(Path.DirectorySeparatorChar, '/');
                 var capabilityName = ToCapabilityName("read_" + Path.GetFileNameWithoutExtension(path));
+                if (!SkillModelName.IsValid(capabilityName))
+                {
+                    throw new InvalidDataException(
+                        $"Resource '{relative}' derives invalid model-facing capability name '{capabilityName}'.");
+                }
                 var resourceDescription = metadata.ResourceDescriptions.GetValueOrDefault(relative) ??
                     DeriveOrThrow(relative, "resource");
                 await using var stream = File.OpenRead(path);
@@ -123,9 +134,15 @@ public sealed class DirectorySkillSource : IWatchableSkillSource
                 metadata.Scripts.TryGetValue(relative, out var scriptMetadata);
                 var scriptDescription = scriptMetadata?.Description ?? DeriveOrThrow(relative, "script");
                 var runtime = scriptMetadata?.Runtime ?? RuntimeFromExtension(path);
+                var capabilityName = ToCapabilityName(Path.GetFileNameWithoutExtension(path));
+                if (!SkillModelName.IsValid(capabilityName))
+                {
+                    throw new InvalidDataException(
+                        $"Script '{relative}' derives invalid model-facing capability name '{capabilityName}'.");
+                }
                 await using var stream = File.OpenRead(path);
                 var address = await StoreSnapshotAsync(relative, "application/octet-stream", stream, cancellationToken).ConfigureAwait(false);
-                capabilities.Add(new SkillScript(ToCapabilityName(Path.GetFileNameWithoutExtension(path)), scriptDescription)
+                capabilities.Add(new SkillScript(capabilityName, scriptDescription)
                 {
                     Reference = new ContentStoreScriptReference(address, runtime),
                     RequiresPermission = scriptMetadata?.RequiresPermission ?? true,
@@ -157,26 +174,98 @@ public sealed class DirectorySkillSource : IWatchableSkillSource
         if (!File.Exists(path))
             return new DirectoryMetadata();
         EnsureSafeDescendant(path);
-        using var document = JsonDocument.Parse(File.ReadAllBytes(path));
+        JsonDocument document;
+        try
+        {
+            document = JsonDocument.Parse(File.ReadAllBytes(path));
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException($"Skill metadata '{path}' is not valid JSON.", exception);
+        }
+
+        using var _ = document;
+        if (document.RootElement.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException($"Skill metadata '{path}' must contain a JSON object.");
+
         var result = new DirectoryMetadata();
         if (document.RootElement.TryGetProperty("resources", out var resources))
         {
+            if (resources.ValueKind != JsonValueKind.Object)
+                throw new InvalidDataException($"Skill metadata '{path}' property 'resources' must be an object.");
             foreach (var property in resources.EnumerateObject())
-                result.ResourceDescriptions[property.Name] = property.Value.GetString() ?? string.Empty;
+            {
+                if (property.Value.ValueKind != JsonValueKind.String ||
+                    string.IsNullOrWhiteSpace(property.Value.GetString()))
+                {
+                    throw new InvalidDataException(
+                        $"Skill metadata '{path}' resource '{property.Name}' requires a non-empty string description.");
+                }
+                result.ResourceDescriptions[property.Name] = property.Value.GetString()!;
+            }
         }
         if (document.RootElement.TryGetProperty("scripts", out var scripts))
         {
+            if (scripts.ValueKind != JsonValueKind.Object)
+                throw new InvalidDataException($"Skill metadata '{path}' property 'scripts' must be an object.");
             foreach (var property in scripts.EnumerateObject())
             {
                 var value = property.Value;
+                if (value.ValueKind != JsonValueKind.Object)
+                {
+                    throw new InvalidDataException(
+                        $"Skill metadata '{path}' script '{property.Name}' must be an object.");
+                }
+
+                var description = RequiredMetadataString(value, "description", path, property.Name);
+                var runtime = RequiredMetadataString(value, "runtime", path, property.Name);
+                if (!value.TryGetProperty("parameters", out var parameters))
+                {
+                    throw new InvalidDataException(
+                        $"Skill metadata '{path}' script '{property.Name}' requires 'parameters'.");
+                }
+                if (parameters.ValueKind != JsonValueKind.Object)
+                {
+                    throw new InvalidDataException(
+                        $"Skill metadata '{path}' script '{property.Name}' property 'parameters' must be an object.");
+                }
+
+                var requiresPermission = true;
+                if (value.TryGetProperty("requiresPermission", out var permission))
+                {
+                    if (permission.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    {
+                        throw new InvalidDataException(
+                            $"Skill metadata '{path}' script '{property.Name}' property " +
+                            "'requiresPermission' must be a boolean.");
+                    }
+                    requiresPermission = permission.GetBoolean();
+                }
+
                 result.Scripts[property.Name] = new DirectoryScriptMetadata(
-                    value.GetProperty("description").GetString() ?? string.Empty,
-                    value.GetProperty("runtime").GetString() ?? string.Empty,
-                    value.TryGetProperty("requiresPermission", out var permission) ? permission.GetBoolean() : true,
-                    value.GetProperty("parameters").Clone());
+                    description,
+                    runtime,
+                    requiresPermission,
+                    parameters.Clone());
             }
         }
         return result;
+    }
+
+    private static string RequiredMetadataString(
+        JsonElement value,
+        string propertyName,
+        string metadataPath,
+        string scriptPath)
+    {
+        if (!value.TryGetProperty(propertyName, out var property) ||
+            property.ValueKind != JsonValueKind.String ||
+            string.IsNullOrWhiteSpace(property.GetString()))
+        {
+            throw new InvalidDataException(
+                $"Skill metadata '{metadataPath}' script '{scriptPath}' requires a non-empty string '{propertyName}'.");
+        }
+        return property.GetString()!;
     }
 
     private JsonElement ResolveParametersSchema(

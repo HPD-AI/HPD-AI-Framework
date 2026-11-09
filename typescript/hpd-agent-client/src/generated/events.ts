@@ -1,10 +1,5 @@
 /* eslint-disable */
 import type {
-  ExecuteCommandAutoBackgroundedEvent,
-  ExecuteCommandOutputChunkEvent,
-  ExecuteCommandProcessExitedEvent,
-  ExecuteCommandProcessStartedEvent,
-  ExecuteCommandProgressEvent,
   HPDAgentAgentCapabilityRefreshPublishedEvent,
   HPDAgentAgentCapabilityRefreshRejectedEvent,
   HPDAgentAgentCapabilityRefreshStartedEvent,
@@ -40,11 +35,6 @@ import type {
   HPDAgentContinuationResponseEvent,
   HPDAgentDeltaSendingActivatedEvent,
   HPDAgentDocumentProcessedEvent,
-  HPDAgentEvaluationsIntegrationAnnotationRequestedEvent,
-  HPDAgentEvaluationsIntegrationAnnotationResponseEvent,
-  HPDAgentEvaluationsIntegrationEvalFailedEvent,
-  HPDAgentEvaluationsIntegrationEvalPolicyViolationEvent,
-  HPDAgentEvaluationsIntegrationEvalScoreEvent,
   HPDAgentEventDroppedEvent,
   HPDAgentFunctionInvocationAuditedEvent,
   HPDAgentFunctionRetryEvent,
@@ -71,7 +61,6 @@ import type {
   HPDAgentInternalMessagePreparedEvent,
   HPDAgentInternalParallelToolExecutionEvent,
   HPDAgentInterruptionHandledEvent,
-  HPDAgentIterationContextSnapshotEvent,
   HPDAgentIterationStartEvent,
   HPDAgentMaxConsecutiveErrorsExceededEvent,
   HPDAgentMessageTurnErrorEvent,
@@ -106,15 +95,6 @@ import type {
   HPDAgentRuntimeAgentDurableEvent,
   HPDAgentRuntimeAgentInputEvent,
   HPDAgentRuntimeAgentLiveEvent,
-  HPDAgentSandboxHostProcessEventsLocalProcessInvocationCancelledEvent,
-  HPDAgentSandboxHostProcessEventsLocalProcessInvocationCompletedEvent,
-  HPDAgentSandboxHostProcessEventsLocalProcessInvocationFailedEvent,
-  HPDAgentSandboxHostProcessEventsLocalProcessInvocationKilledEvent,
-  HPDAgentSandboxHostProcessEventsLocalProcessInvocationStartedEvent,
-  HPDAgentSandboxHostProcessEventsLocalProcessInvocationStartingEvent,
-  HPDAgentSandboxHostProcessEventsLocalProcessInvocationTimedOutEvent,
-  HPDAgentSandboxHostProcessEventsProcessIsolationInitializedEvent,
-  HPDAgentSandboxHostProcessEventsProcessIsolationViolationEvent,
   HPDAgentSkillActivatedEvent,
   HPDAgentSkillActivationFailedEvent,
   HPDAgentSkillActivationStartedEvent,
@@ -163,8 +143,6 @@ import type {
   HPDAgentToolCallEndEvent,
   HPDAgentToolCallResultEvent,
   HPDAgentToolCallStartEvent,
-  HPDAgentToolHarnessCodingDebuggingDebugRunInTerminalRequestEvent,
-  HPDAgentToolHarnessCodingDebuggingDebugRunInTerminalResponseEvent,
   HPDAgentToolOutputProjectedEvent,
   HPDAgentToolOutputProjectionFailedEvent,
   HPDAgentTotalErrorThresholdExceededEvent,
@@ -173,53 +151,7 @@ import type {
   HPDAgentUserAudioTranscriptFailedEvent,
   HPDAgentUserMessageEvent,
   HPDAgentUserMessagesInputEvent,
-  HPDAgentUserQuestionRequestEvent,
-  HPDOSToolHarnessesMiddlewareDebugBreakpointChangedEvent,
-  HPDOSToolHarnessesMiddlewareDebugBreakpointSelectionAppliedEvent,
-  HPDOSToolHarnessesMiddlewareDebugCapabilitiesChangedEvent,
-  HPDOSToolHarnessesMiddlewareDebugChildSessionStartedEvent,
-  HPDOSToolHarnessesMiddlewareDebugExecutionActivatingEvent,
-  HPDOSToolHarnessesMiddlewareDebugExecutionActivationFailedEvent,
-  HPDOSToolHarnessesMiddlewareDebugExecutionCommandAppliedEvent,
-  HPDOSToolHarnessesMiddlewareDebugExecutionPlannedEvent,
-  HPDOSToolHarnessesMiddlewareDebugHostProcessExitedEvent,
-  HPDOSToolHarnessesMiddlewareDebugHostProcessStartedEvent,
-  HPDOSToolHarnessesMiddlewareDebugHostReadyEvent,
-  HPDOSToolHarnessesMiddlewareDebugLoadedSourceChangedEvent,
-  HPDOSToolHarnessesMiddlewareDebugMemoryChangedEvent,
-  HPDOSToolHarnessesMiddlewareDebugModuleChangedEvent,
-  HPDOSToolHarnessesMiddlewareDebugOutputAvailableEvent,
-  HPDOSToolHarnessesMiddlewareDebugOwnedResourceCleanupFailedEvent,
-  HPDOSToolHarnessesMiddlewareDebugPrimaryStopAvailableEvent,
-  HPDOSToolHarnessesMiddlewareDebugProcessChangedEvent,
-  HPDOSToolHarnessesMiddlewareDebugProgressCompletedEvent,
-  HPDOSToolHarnessesMiddlewareDebugProgressStartedEvent,
-  HPDOSToolHarnessesMiddlewareDebugProgressUpdatedEvent,
-  HPDOSToolHarnessesMiddlewareDebugRestartTransitionEvent,
-  HPDOSToolHarnessesMiddlewareDebugSessionContinuedEvent,
-  HPDOSToolHarnessesMiddlewareDebugSessionExitedEvent,
-  HPDOSToolHarnessesMiddlewareDebugSessionFailedEvent,
-  HPDOSToolHarnessesMiddlewareDebugSessionStateChangedEvent,
-  HPDOSToolHarnessesMiddlewareDebugSessionStoppedEvent,
-  HPDOSToolHarnessesMiddlewareDebugSessionTerminatedEvent,
-  HPDOSToolHarnessesMiddlewareDebugStateInvalidatedEvent,
-  HPDOSToolHarnessesMiddlewareDebugStateMutationAppliedEvent,
-  HPDOSToolHarnessesMiddlewareDebugTerminalRecordEvictedEvent,
-  HPDOSToolHarnessesMiddlewareDebugTerminalRecordRetainedEvent,
-  HPDOSToolHarnessesMiddlewareDebugThreadChangedEvent,
-  HPDOSToolHarnessesMiddlewareDebugTreeCompletedEvent,
-  HPDOSToolHarnessesMiddlewareDebugTreeFaultedEvent,
-  HPDOSToolHarnessesMiddlewareDebugTreeStartedEvent,
-  HPDOSToolHarnessesMiddlewareDebugTreeTerminatedEvent,
-  HPDOSToolHarnessesMiddlewareFileEditAppliedEvent,
-  HPDOSToolHarnessesMiddlewareFileWriteAppliedEvent,
-  HPDOSToolHarnessesMiddlewareLanguageServerDiagnosticsReceivedEvent,
-  HPDOSToolHarnessesMiddlewareLanguageServerDocumentChangedEvent,
-  HPDOSToolHarnessesMiddlewareLanguageServerDocumentClosedEvent,
-  HPDOSToolHarnessesMiddlewareLanguageServerDocumentOpenedEvent,
-  HPDOSToolHarnessesMiddlewareLanguageServerDocumentSavedEvent,
-  HPDOSToolHarnessesMiddlewareLanguageServerStatusSnapshotEvent,
-  HPDOSToolHarnessesMiddlewareLanguageServerWatchedFileChangedEvent
+  HPDAgentUserQuestionRequestEvent
 } from './models.js';
 
 export type HpdAgentResponseInput =
@@ -229,11 +161,6 @@ export type HpdAgentResponseInput =
   | HPDAgentQuestionResponseEvent;
 
 export type HpdAgentEvent =
-  | ExecuteCommandAutoBackgroundedEvent
-  | ExecuteCommandOutputChunkEvent
-  | ExecuteCommandProcessExitedEvent
-  | ExecuteCommandProcessStartedEvent
-  | ExecuteCommandProgressEvent
   | HPDAgentAgentCapabilityRefreshPublishedEvent
   | HPDAgentAgentCapabilityRefreshRejectedEvent
   | HPDAgentAgentCapabilityRefreshStartedEvent
@@ -265,11 +192,6 @@ export type HpdAgentEvent =
   | HPDAgentContinuationResponseEvent
   | HPDAgentDeltaSendingActivatedEvent
   | HPDAgentDocumentProcessedEvent
-  | HPDAgentEvaluationsIntegrationAnnotationRequestedEvent
-  | HPDAgentEvaluationsIntegrationAnnotationResponseEvent
-  | HPDAgentEvaluationsIntegrationEvalFailedEvent
-  | HPDAgentEvaluationsIntegrationEvalPolicyViolationEvent
-  | HPDAgentEvaluationsIntegrationEvalScoreEvent
   | HPDAgentEventDroppedEvent
   | HPDAgentFunctionInvocationAuditedEvent
   | HPDAgentFunctionRetryEvent
@@ -295,7 +217,6 @@ export type HpdAgentEvent =
   | HPDAgentInternalMessagePreparedEvent
   | HPDAgentInternalParallelToolExecutionEvent
   | HPDAgentInterruptionHandledEvent
-  | HPDAgentIterationContextSnapshotEvent
   | HPDAgentIterationStartEvent
   | HPDAgentMaxConsecutiveErrorsExceededEvent
   | HPDAgentMessageTurnErrorEvent
@@ -329,15 +250,6 @@ export type HpdAgentEvent =
   | HPDAgentRequestEventProcessedEvent
   | HPDAgentRuntimeAgentDurableEvent
   | HPDAgentRuntimeAgentLiveEvent
-  | HPDAgentSandboxHostProcessEventsLocalProcessInvocationCancelledEvent
-  | HPDAgentSandboxHostProcessEventsLocalProcessInvocationCompletedEvent
-  | HPDAgentSandboxHostProcessEventsLocalProcessInvocationFailedEvent
-  | HPDAgentSandboxHostProcessEventsLocalProcessInvocationKilledEvent
-  | HPDAgentSandboxHostProcessEventsLocalProcessInvocationStartedEvent
-  | HPDAgentSandboxHostProcessEventsLocalProcessInvocationStartingEvent
-  | HPDAgentSandboxHostProcessEventsLocalProcessInvocationTimedOutEvent
-  | HPDAgentSandboxHostProcessEventsProcessIsolationInitializedEvent
-  | HPDAgentSandboxHostProcessEventsProcessIsolationViolationEvent
   | HPDAgentSkillActivatedEvent
   | HPDAgentSkillActivationFailedEvent
   | HPDAgentSkillActivationStartedEvent
@@ -386,8 +298,6 @@ export type HpdAgentEvent =
   | HPDAgentToolCallEndEvent
   | HPDAgentToolCallResultEvent
   | HPDAgentToolCallStartEvent
-  | HPDAgentToolHarnessCodingDebuggingDebugRunInTerminalRequestEvent
-  | HPDAgentToolHarnessCodingDebuggingDebugRunInTerminalResponseEvent
   | HPDAgentToolOutputProjectedEvent
   | HPDAgentToolOutputProjectionFailedEvent
   | HPDAgentTotalErrorThresholdExceededEvent
@@ -395,53 +305,7 @@ export type HpdAgentEvent =
   | HPDAgentUserAudioTranscriptDeltaEvent
   | HPDAgentUserAudioTranscriptFailedEvent
   | HPDAgentUserMessageEvent
-  | HPDAgentUserQuestionRequestEvent
-  | HPDOSToolHarnessesMiddlewareDebugBreakpointChangedEvent
-  | HPDOSToolHarnessesMiddlewareDebugBreakpointSelectionAppliedEvent
-  | HPDOSToolHarnessesMiddlewareDebugCapabilitiesChangedEvent
-  | HPDOSToolHarnessesMiddlewareDebugChildSessionStartedEvent
-  | HPDOSToolHarnessesMiddlewareDebugExecutionActivatingEvent
-  | HPDOSToolHarnessesMiddlewareDebugExecutionActivationFailedEvent
-  | HPDOSToolHarnessesMiddlewareDebugExecutionCommandAppliedEvent
-  | HPDOSToolHarnessesMiddlewareDebugExecutionPlannedEvent
-  | HPDOSToolHarnessesMiddlewareDebugHostProcessExitedEvent
-  | HPDOSToolHarnessesMiddlewareDebugHostProcessStartedEvent
-  | HPDOSToolHarnessesMiddlewareDebugHostReadyEvent
-  | HPDOSToolHarnessesMiddlewareDebugLoadedSourceChangedEvent
-  | HPDOSToolHarnessesMiddlewareDebugMemoryChangedEvent
-  | HPDOSToolHarnessesMiddlewareDebugModuleChangedEvent
-  | HPDOSToolHarnessesMiddlewareDebugOutputAvailableEvent
-  | HPDOSToolHarnessesMiddlewareDebugOwnedResourceCleanupFailedEvent
-  | HPDOSToolHarnessesMiddlewareDebugPrimaryStopAvailableEvent
-  | HPDOSToolHarnessesMiddlewareDebugProcessChangedEvent
-  | HPDOSToolHarnessesMiddlewareDebugProgressCompletedEvent
-  | HPDOSToolHarnessesMiddlewareDebugProgressStartedEvent
-  | HPDOSToolHarnessesMiddlewareDebugProgressUpdatedEvent
-  | HPDOSToolHarnessesMiddlewareDebugRestartTransitionEvent
-  | HPDOSToolHarnessesMiddlewareDebugSessionContinuedEvent
-  | HPDOSToolHarnessesMiddlewareDebugSessionExitedEvent
-  | HPDOSToolHarnessesMiddlewareDebugSessionFailedEvent
-  | HPDOSToolHarnessesMiddlewareDebugSessionStateChangedEvent
-  | HPDOSToolHarnessesMiddlewareDebugSessionStoppedEvent
-  | HPDOSToolHarnessesMiddlewareDebugSessionTerminatedEvent
-  | HPDOSToolHarnessesMiddlewareDebugStateInvalidatedEvent
-  | HPDOSToolHarnessesMiddlewareDebugStateMutationAppliedEvent
-  | HPDOSToolHarnessesMiddlewareDebugTerminalRecordEvictedEvent
-  | HPDOSToolHarnessesMiddlewareDebugTerminalRecordRetainedEvent
-  | HPDOSToolHarnessesMiddlewareDebugThreadChangedEvent
-  | HPDOSToolHarnessesMiddlewareDebugTreeCompletedEvent
-  | HPDOSToolHarnessesMiddlewareDebugTreeFaultedEvent
-  | HPDOSToolHarnessesMiddlewareDebugTreeStartedEvent
-  | HPDOSToolHarnessesMiddlewareDebugTreeTerminatedEvent
-  | HPDOSToolHarnessesMiddlewareFileEditAppliedEvent
-  | HPDOSToolHarnessesMiddlewareFileWriteAppliedEvent
-  | HPDOSToolHarnessesMiddlewareLanguageServerDiagnosticsReceivedEvent
-  | HPDOSToolHarnessesMiddlewareLanguageServerDocumentChangedEvent
-  | HPDOSToolHarnessesMiddlewareLanguageServerDocumentClosedEvent
-  | HPDOSToolHarnessesMiddlewareLanguageServerDocumentOpenedEvent
-  | HPDOSToolHarnessesMiddlewareLanguageServerDocumentSavedEvent
-  | HPDOSToolHarnessesMiddlewareLanguageServerStatusSnapshotEvent
-  | HPDOSToolHarnessesMiddlewareLanguageServerWatchedFileChangedEvent;
+  | HPDAgentUserQuestionRequestEvent;
 
 export type HpdAgentInputEvent =
   | HPDAgentAgentOperationNotificationInputEvent
@@ -469,8 +333,6 @@ export const EventTypes = {
   AGENT_TURN_CAPABILITIES_PINNED: "AGENT_TURN_CAPABILITIES_PINNED",
   AGENT_TURN_FINISHED: "AGENT_TURN_FINISHED",
   AGENT_TURN_STARTED: "AGENT_TURN_STARTED",
-  ANNOTATION_REQUESTED: "ANNOTATION_REQUESTED",
-  ANNOTATION_RESPONSE: "ANNOTATION_RESPONSE",
   CIRCUIT_BREAKER_TRIGGERED: "CIRCUIT_BREAKER_TRIGGERED",
   CLIENT_TOOL_INVOKE_OUTCOME: "CLIENT_TOOL_INVOKE_OUTCOME",
   CLIENT_TOOL_INVOKE_REQUEST: "CLIENT_TOOL_INVOKE_REQUEST",
@@ -488,58 +350,9 @@ export const EventTypes = {
   CONTENT_UPLOAD_FAILED: "CONTENT_UPLOAD_FAILED",
   CONTINUATION_REQUEST: "CONTINUATION_REQUEST",
   CONTINUATION_RESPONSE: "CONTINUATION_RESPONSE",
-  DEBUG_BREAKPOINT_CHANGED: "DEBUG_BREAKPOINT_CHANGED",
-  DEBUG_BREAKPOINT_SELECTION_APPLIED: "DEBUG_BREAKPOINT_SELECTION_APPLIED",
-  DEBUG_CAPABILITIES_CHANGED: "DEBUG_CAPABILITIES_CHANGED",
-  DEBUG_CHILD_SESSION_STARTED: "DEBUG_CHILD_SESSION_STARTED",
-  DEBUG_EXECUTION_ACTIVATING: "DEBUG_EXECUTION_ACTIVATING",
-  DEBUG_EXECUTION_ACTIVATION_FAILED: "DEBUG_EXECUTION_ACTIVATION_FAILED",
-  DEBUG_EXECUTION_COMMAND_APPLIED: "DEBUG_EXECUTION_COMMAND_APPLIED",
-  DEBUG_EXECUTION_PLANNED: "DEBUG_EXECUTION_PLANNED",
-  DEBUG_HOST_PROCESS_EXITED: "DEBUG_HOST_PROCESS_EXITED",
-  DEBUG_HOST_PROCESS_STARTED: "DEBUG_HOST_PROCESS_STARTED",
-  DEBUG_HOST_READY: "DEBUG_HOST_READY",
-  DEBUG_LOADED_SOURCE_CHANGED: "DEBUG_LOADED_SOURCE_CHANGED",
-  DEBUG_MEMORY_CHANGED: "DEBUG_MEMORY_CHANGED",
-  DEBUG_MODULE_CHANGED: "DEBUG_MODULE_CHANGED",
-  DEBUG_OUTPUT_AVAILABLE: "DEBUG_OUTPUT_AVAILABLE",
-  DEBUG_OWNED_RESOURCE_CLEANUP_FAILED: "DEBUG_OWNED_RESOURCE_CLEANUP_FAILED",
-  DEBUG_PRIMARY_STOP_AVAILABLE: "DEBUG_PRIMARY_STOP_AVAILABLE",
-  DEBUG_PROCESS_CHANGED: "DEBUG_PROCESS_CHANGED",
-  DEBUG_PROGRESS_COMPLETED: "DEBUG_PROGRESS_COMPLETED",
-  DEBUG_PROGRESS_STARTED: "DEBUG_PROGRESS_STARTED",
-  DEBUG_PROGRESS_UPDATED: "DEBUG_PROGRESS_UPDATED",
-  DEBUG_RESTART_TRANSITION: "DEBUG_RESTART_TRANSITION",
-  DEBUG_RUN_IN_TERMINAL_REQUEST: "DEBUG_RUN_IN_TERMINAL_REQUEST",
-  DEBUG_RUN_IN_TERMINAL_RESPONSE: "DEBUG_RUN_IN_TERMINAL_RESPONSE",
-  DEBUG_SESSION_CONTINUED: "DEBUG_SESSION_CONTINUED",
-  DEBUG_SESSION_EXITED: "DEBUG_SESSION_EXITED",
-  DEBUG_SESSION_FAILED: "DEBUG_SESSION_FAILED",
-  DEBUG_SESSION_STATE_CHANGED: "DEBUG_SESSION_STATE_CHANGED",
-  DEBUG_SESSION_STOPPED: "DEBUG_SESSION_STOPPED",
-  DEBUG_SESSION_TERMINATED: "DEBUG_SESSION_TERMINATED",
-  DEBUG_STATE_INVALIDATED: "DEBUG_STATE_INVALIDATED",
-  DEBUG_STATE_MUTATION_APPLIED: "DEBUG_STATE_MUTATION_APPLIED",
-  DEBUG_TERMINAL_RECORD_EVICTED: "DEBUG_TERMINAL_RECORD_EVICTED",
-  DEBUG_TERMINAL_RECORD_RETAINED: "DEBUG_TERMINAL_RECORD_RETAINED",
-  DEBUG_THREAD_CHANGED: "DEBUG_THREAD_CHANGED",
-  DEBUG_TREE_COMPLETED: "DEBUG_TREE_COMPLETED",
-  DEBUG_TREE_FAULTED: "DEBUG_TREE_FAULTED",
-  DEBUG_TREE_STARTED: "DEBUG_TREE_STARTED",
-  DEBUG_TREE_TERMINATED: "DEBUG_TREE_TERMINATED",
   DELTA_SENDING_ACTIVATED: "DELTA_SENDING_ACTIVATED",
   DOCUMENT_PROCESSED: "DOCUMENT_PROCESSED",
-  EVAL_FAILED: "EVAL_FAILED",
-  EVAL_POLICY_VIOLATION: "EVAL_POLICY_VIOLATION",
-  EVAL_SCORE: "EVAL_SCORE",
   EVENT_DROPPED: "EVENT_DROPPED",
-  EXECUTE_COMMAND_AUTO_BACKGROUNDED: "EXECUTE_COMMAND_AUTO_BACKGROUNDED",
-  EXECUTE_COMMAND_OUTPUT_CHUNK: "EXECUTE_COMMAND_OUTPUT_CHUNK",
-  EXECUTE_COMMAND_PROCESS_EXITED: "EXECUTE_COMMAND_PROCESS_EXITED",
-  EXECUTE_COMMAND_PROCESS_STARTED: "EXECUTE_COMMAND_PROCESS_STARTED",
-  EXECUTE_COMMAND_PROGRESS: "EXECUTE_COMMAND_PROGRESS",
-  FILE_EDIT_APPLIED: "FILE_EDIT_APPLIED",
-  FILE_WRITE_APPLIED: "FILE_WRITE_APPLIED",
   FUNCTION_INVOCATION_AUDITED: "FUNCTION_INVOCATION_AUDITED",
   FUNCTION_RETRY: "FUNCTION_RETRY",
   GOAL_AWAITING_INPUT: "GOAL_AWAITING_INPUT",
@@ -566,22 +379,7 @@ export const EventTypes = {
   INTERNAL_MESSAGE_PREPARED: "INTERNAL_MESSAGE_PREPARED",
   INTERNAL_PARALLEL_TOOL_EXECUTION: "INTERNAL_PARALLEL_TOOL_EXECUTION",
   INTERRUPTION_HANDLED: "INTERRUPTION_HANDLED",
-  ITERATION_CONTEXT_SNAPSHOT: "ITERATION_CONTEXT_SNAPSHOT",
   ITERATION_START: "ITERATION_START",
-  LANGUAGE_SERVER_DIAGNOSTICS_RECEIVED: "LANGUAGE_SERVER_DIAGNOSTICS_RECEIVED",
-  LANGUAGE_SERVER_DOCUMENT_CHANGED: "LANGUAGE_SERVER_DOCUMENT_CHANGED",
-  LANGUAGE_SERVER_DOCUMENT_CLOSED: "LANGUAGE_SERVER_DOCUMENT_CLOSED",
-  LANGUAGE_SERVER_DOCUMENT_OPENED: "LANGUAGE_SERVER_DOCUMENT_OPENED",
-  LANGUAGE_SERVER_DOCUMENT_SAVED: "LANGUAGE_SERVER_DOCUMENT_SAVED",
-  LANGUAGE_SERVER_STATUS_SNAPSHOT: "LANGUAGE_SERVER_STATUS_SNAPSHOT",
-  LANGUAGE_SERVER_WATCHED_FILE_CHANGED: "LANGUAGE_SERVER_WATCHED_FILE_CHANGED",
-  LOCAL_PROCESS_INVOCATION_CANCELLED: "LOCAL_PROCESS_INVOCATION_CANCELLED",
-  LOCAL_PROCESS_INVOCATION_COMPLETED: "LOCAL_PROCESS_INVOCATION_COMPLETED",
-  LOCAL_PROCESS_INVOCATION_FAILED: "LOCAL_PROCESS_INVOCATION_FAILED",
-  LOCAL_PROCESS_INVOCATION_KILLED: "LOCAL_PROCESS_INVOCATION_KILLED",
-  LOCAL_PROCESS_INVOCATION_STARTED: "LOCAL_PROCESS_INVOCATION_STARTED",
-  LOCAL_PROCESS_INVOCATION_STARTING: "LOCAL_PROCESS_INVOCATION_STARTING",
-  LOCAL_PROCESS_INVOCATION_TIMED_OUT: "LOCAL_PROCESS_INVOCATION_TIMED_OUT",
   MAX_CONSECUTIVE_ERRORS_EXCEEDED: "MAX_CONSECUTIVE_ERRORS_EXCEEDED",
   MESSAGE_TURN_ERROR: "MESSAGE_TURN_ERROR",
   MESSAGE_TURN_FINISHED: "MESSAGE_TURN_FINISHED",
@@ -599,8 +397,6 @@ export const EventTypes = {
   PERMISSION_RESPONSE: "PERMISSION_RESPONSE",
   PII_DETECTED: "PII_DETECTED",
   PLAN_UPDATED: "PLAN_UPDATED",
-  PROCESS_ISOLATION_INITIALIZED: "PROCESS_ISOLATION_INITIALIZED",
-  PROCESS_ISOLATION_VIOLATION: "PROCESS_ISOLATION_VIOLATION",
   PROVIDER_OPERATION_USAGE: "PROVIDER_OPERATION_USAGE",
   PROVIDER_VALUATION_OBSERVATION: "PROVIDER_VALUATION_OBSERVATION",
   QUESTION_RESPONSE: "QUESTION_RESPONSE",
@@ -634,14 +430,14 @@ export const EventTypes = {
   SUBAGENT_CONTROLLER_GRANTED: "SUBAGENT_CONTROLLER_GRANTED",
   SUBAGENT_CREATION_ADVANCED: "SUBAGENT_CREATION_ADVANCED",
   SUBAGENT_CREATION_RESERVED: "SUBAGENT_CREATION_RESERVED",
+  SUBAGENT_EXECUTION_CONTROLLER: "SUBAGENT_EXECUTION_CONTROLLER",
   SUBAGENT_INVOCATION_CANCELLED: "SUBAGENT_INVOCATION_CANCELLED",
   SUBAGENT_INVOCATION_COMPLETED: "SUBAGENT_INVOCATION_COMPLETED",
   SUBAGENT_INVOCATION_FAILED: "SUBAGENT_INVOCATION_FAILED",
   SUBAGENT_INVOCATION_STARTED: "SUBAGENT_INVOCATION_STARTED",
+  SUBAGENT_QUESTION_RAISED: "SUBAGENT_QUESTION_RAISED",
   SUBAGENT_REGISTRY_SEED: "SUBAGENT_REGISTRY_SEED",
-  SUB_AGENT_EXECUTION_CONTROLLER: "SUB_AGENT_EXECUTION_CONTROLLER",
-  SUB_AGENT_QUESTION_RAISED: "SUB_AGENT_QUESTION_RAISED",
-  SUB_AGENT_RESULT_SUBMITTED: "SUB_AGENT_RESULT_SUBMITTED",
+  SUBAGENT_RESULT_SUBMITTED: "SUBAGENT_RESULT_SUBMITTED",
   TEXT_DELTA: "TEXT_DELTA",
   TEXT_MESSAGE_END: "TEXT_MESSAGE_END",
   TEXT_MESSAGE_START: "TEXT_MESSAGE_START",

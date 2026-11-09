@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: FSL-1.1-ALv2
 
 using FluentAssertions;
+using System.Reflection;
 using Microsoft.Extensions.AI;
 using HPD.Agent;
 using HPD.Agent.Evaluations.Integration;
@@ -302,6 +303,36 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         call.Response!.Text.Should().Contain("<S2>true</S2>");
     }
 
+    [Fact]
+    public async Task OnlineScoring_StoreFailure_EmitsPersistenceFailureEvent()
+    {
+        var client = new StubChatClient();
+        client.EnqueueText("Done.");
+        var store = FailingWriteScoreStore.Create();
+        var persistenceFailure = new TaskCompletionSource<EvalPersistenceFailedEvent>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client)).WithChatClient(client);
+        builder
+            .UseScoreStore(store)
+            .AddEvaluator(new StubDeterministicEvaluator("Persisted"));
+        var agent = await builder.BuildAsync(CancellationToken.None);
+
+        using var subscription = agent.SubscribeAny(evt =>
+        {
+            if (evt is EvalPersistenceFailedEvent failure)
+                persistenceFailure.TrySetResult(failure);
+            return ValueTask.CompletedTask;
+        });
+
+        await RunAgentAsync(agent, "Hello");
+
+        var failure = await persistenceFailure.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        failure.EvaluatorName.Should().Be(nameof(StubDeterministicEvaluator));
+        failure.Source.Should().Be(EvaluationSource.Live);
+        failure.ErrorMessage.Should().Be("score store unavailable");
+    }
+
     // ── LiveEvaluationMiddleware direct API ───────────────────────────────────────
 
     [Fact]
@@ -380,5 +411,19 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         }
 
         return [];
+    }
+
+    private class FailingWriteScoreStore : DispatchProxy
+    {
+        public static IScoreStore Create() =>
+            DispatchProxy.Create<IScoreStore, FailingWriteScoreStore>();
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name == nameof(IScoreStore.WriteScoreAsync))
+                return ValueTask.FromException(new InvalidOperationException("score store unavailable"));
+
+            throw new NotSupportedException(targetMethod?.Name);
+        }
     }
 }

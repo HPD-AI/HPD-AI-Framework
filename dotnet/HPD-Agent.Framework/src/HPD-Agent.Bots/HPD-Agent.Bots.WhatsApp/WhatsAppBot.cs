@@ -10,6 +10,8 @@ using HPD.Agent.Bots.Streaming;
 using HPD.Agent.Hosting.Lifecycle;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 [assembly: InternalsVisibleTo("HPD-Agent.Bots.Tests")]
@@ -31,6 +33,7 @@ public partial class WhatsAppBot
     private readonly string _appSecret;
     private readonly string _verifyToken;
     private readonly string _phoneNumberId;
+    private readonly ILogger _logger;
 
     public WhatsAppBot(
         IOptions<WhatsAppBotConfig> options,
@@ -38,7 +41,8 @@ public partial class WhatsAppBot
         AgentManager? agentManager = null,
         PlatformSessionMapper? sessionMapper = null,
         WhatsAppApiClient? api = null,
-        WhatsAppFormatConverter? formatter = null)
+        WhatsAppFormatConverter? formatter = null,
+        ILogger<WhatsAppBot>? logger = null)
     {
         _config = options.Value;
         _sessionManager = sessionManager;
@@ -46,6 +50,7 @@ public partial class WhatsAppBot
         _sessionMapper = sessionMapper;
         _api = api;
         _formatter = formatter ?? new WhatsAppFormatConverter();
+        _logger = logger ?? NullLogger<WhatsAppBot>.Instance;
         _appSecret = _config.ResolveAppSecret();
         _verifyToken = _config.ResolveVerifyToken();
         _phoneNumberId = _config.ResolvePhoneNumberId();
@@ -542,6 +547,14 @@ public partial class WhatsAppBot
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "WhatsApp agent stream failed. SessionId={SessionId}, ThreadId={ThreadId}",
+                sessionId,
+                threadId);
         }
     }
 

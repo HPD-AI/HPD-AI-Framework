@@ -34,7 +34,7 @@ public sealed record AgentOperationNotificationInputEvent(
 /// Records that an operation notification was durably admitted for same-turn or
 /// subsequent queued delivery.
 /// </summary>
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("AGENT_OPERATION_NOTIFICATION_QUEUED")]
 public sealed record AgentOperationNotificationQueuedEvent : AgentEvent
 {
@@ -47,7 +47,7 @@ public sealed record AgentOperationNotificationQueuedEvent : AgentEvent
 }
 
 /// <summary>Records successful semantic delivery of one operation notification.</summary>
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("AGENT_OPERATION_NOTIFICATION_DELIVERED")]
 public sealed record AgentOperationNotificationDeliveredEvent : AgentEvent
 {
@@ -60,7 +60,6 @@ public sealed record AgentOperationNotificationDeliveredEvent : AgentEvent
 }
 
 /// <summary>Records a policy or deduplication suppression decision.</summary>
-[HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("AGENT_OPERATION_NOTIFICATION_SUPPRESSED")]
 public sealed record AgentOperationNotificationSuppressedEvent : AgentEvent
 {

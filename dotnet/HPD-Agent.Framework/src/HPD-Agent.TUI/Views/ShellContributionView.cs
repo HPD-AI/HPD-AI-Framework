@@ -5,7 +5,7 @@ using HPD.TUI.Core;
 
 namespace HPD.Agent.TUI.Views;
 
-public sealed class ShellContributionView : Component
+internal sealed class ShellContributionView : Component
 {
     private readonly IComponent _component;
 

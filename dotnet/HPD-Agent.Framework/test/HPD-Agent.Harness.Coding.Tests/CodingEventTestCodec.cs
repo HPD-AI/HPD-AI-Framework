@@ -8,7 +8,7 @@ internal static class CodingEventTestCodec
 {
     internal static AgentEventComposition Composition { get; } = AgentEventComposition.Create([
         CoreAgentEventModule.Fragment,
-        GeneratedAgentEventModule_HPD_Agent_Harness_Coding_ab3285cb.Fragment
+        HPD_Agent_Harness_CodingGeneratedAgentEventModule.Fragment
     ]);
     internal static AgentEventCodec Codec => Composition.Codec;
 

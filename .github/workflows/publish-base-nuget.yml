@@ -15,6 +15,23 @@ on:
         description: 'Already-published HPD-Auth Core and ControlPlane.AspNetCore version.'
         required: true
         type: string
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version to publish'
+        required: true
+        type: string
+      hpd_events_version:
+        description: 'Published HPD-Events version'
+        required: true
+        type: string
+      hpd_auth_version:
+        description: 'Published HPD-Auth Core and ControlPlane.AspNetCore version'
+        required: true
+        type: string
+    secrets:
+      NUGET_API_KEY:
+        required: true
 
 jobs:
   determine-version:
@@ -197,6 +214,43 @@ jobs:
             --source https://api.nuget.org/v3/index.json \
             --api-key "$NUGET_KEY" \
             --skip-duplicate
+
+      - name: Wait for NuGet package availability
+        env:
+          PACKAGE_VERSION: ${{ needs.determine-version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACKAGE_IDS=(
+            "HPD.Base.Generators"
+            "HPD.Base"
+            "HPD.Base.Sqlite"
+            "HPD.Base.AspNetCore"
+            "HPD.Base.Auth"
+            "HPD.Base.Testing"
+          )
+          VERSION_LOWER="${PACKAGE_VERSION,,}"
+
+          for attempt in {1..60}; do
+            all_available=true
+            for PACKAGE_ID in "${PACKAGE_IDS[@]}"; do
+              PACKAGE_ID_LOWER="${PACKAGE_ID,,}"
+              PACKAGE_URL="https://api.nuget.org/v3-flatcontainer/$PACKAGE_ID_LOWER/$VERSION_LOWER/$PACKAGE_ID_LOWER.$VERSION_LOWER.nupkg"
+              if ! curl -fsSL -o /dev/null "$PACKAGE_URL"; then
+                all_available=false
+              fi
+            done
+
+            if [[ "$all_available" == "true" ]]; then
+              echo "All HPD Base $PACKAGE_VERSION packages are available from NuGet."
+              exit 0
+            fi
+            echo "Waiting for HPD Base $PACKAGE_VERSION to become available (attempt $attempt/60)..."
+            sleep 10
+          done
+
+          echo "::error::HPD Base $PACKAGE_VERSION did not become available within 10 minutes."
+          exit 1
 
       - name: Summary
         shell: bash

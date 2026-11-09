@@ -1,8 +1,9 @@
 using HPD.Agent.MCP;
+using System.ComponentModel;
 
 namespace HPD.Agent;
 
-/// <summary>Describes one generated ToolHarness-owned MCP source without importing protocol types.</summary>
+/// <summary>Generated integration descriptor for one ToolHarness-owned MCP source.</summary>
 /// <param name="Name">The generated source name.</param>
 /// <param name="Description">The optional model-facing description.</param>
 /// <param name="ParentToolHarness">The owning ToolHarness name.</param>
@@ -11,6 +12,7 @@ namespace HPD.Agent;
 /// <param name="ManifestServerName">An optional server registration selected from that manifest.</param>
 /// <param name="PermissionOverride">An optional generated server permission binding.</param>
 /// <param name="FactoryProvider">A generated direct capability-source factory delegate.</param>
+[EditorBrowsable(EditorBrowsableState.Never)]
 public sealed record McpServerSource(
     string Name,
     string? Description,

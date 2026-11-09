@@ -7,14 +7,16 @@ using Microsoft.Extensions.AI;
 namespace HPD.Agent;
 
 /// <summary>The controller that admitted one child execution, independent of thread creation.</summary>
-[DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
+[HPD.Agent.Serialization.EventType("SUBAGENT_EXECUTION_CONTROLLER")]
 public sealed record SubAgentExecutionControllerEvent(string ExecutionId, ThreadKey Controller) : AgentEvent
 {
     public string? OperationId { get; init; }
 }
 
 /// <summary>An explicit, immutable result submitted by one controlled execution.</summary>
-[DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
+[HPD.Agent.Serialization.EventType("SUBAGENT_RESULT_SUBMITTED")]
 public sealed record SubAgentResultSubmittedEvent(
     string ExecutionId, string CallId, ThreadKey Controller, string Report) : AgentEvent;
 

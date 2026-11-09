@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -7,6 +8,7 @@ using HPD.Agent.Middleware;
 using HPD.OpenApi.Core;
 using HPD.OpenApi.Core.Model;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 
 namespace HPD.Agent.OpenApi;
 
@@ -19,7 +21,7 @@ namespace HPD.Agent.OpenApi;
 ///
 /// Throw-vs-return error bridging:
 /// - 429, 5xx, 401, 408 → throw <see cref="OpenApiRequestException"/> →
-///   FunctionRetryMiddleware catches via OpenApiErrorHandler, retries with backoff
+///   FunctionRetryMiddleware applies the configured retry policy
 /// - 400, 404, 422, other 4xx → return a model-facing error payload →
 ///   LLM self-corrects its request (retrying a bad request won't help)
 /// </summary>
@@ -31,22 +33,42 @@ internal static partial class OpenApiFunctionFactory
         OpenApiOperationRunner runner,
         string? namePrefix = null,
         string? parentContainer = null,
-        bool collapseWithinToolHarness = false)
+        bool collapseWithinToolHarness = false,
+        ILogger? logger = null)
     {
         var functions = new List<AIFunction>();
+        var containerName = collapseWithinToolHarness
+            ? $"OpenApi_{namePrefix ?? "spec"}"
+            : null;
+        var containerId = containerName is null
+            ? (CapabilityId?)null
+            : CapabilityId.Create(
+                $"openapi:{parentContainer ?? "standalone"}:{namePrefix ?? "spec"}:container");
 
         foreach (var operation in spec.Operations)
         {
             try
             {
                 functions.Add(CreateFunction(
-                    operation, runner, config, namePrefix, parentContainer, collapseWithinToolHarness));
+                    operation,
+                    runner,
+                    config,
+                    namePrefix,
+                    parentContainer,
+                    collapseWithinToolHarness,
+                    containerId));
             }
             catch (Exception ex)
             {
-                // One bad operation schema doesn't block the rest (same pattern as SK)
-                System.Diagnostics.Debug.WriteLine(
-                    $"[HPD-Agent.OpenApi] Skipping operation '{operation.Id}': {ex.Message}");
+                logger?.LogWarning(
+                    ex,
+                    "Skipped OpenAPI operation {OperationId} from source {SourceName}. " +
+                    "Method {Method}, path {Path}, reason {Reason}.",
+                    operation.Id,
+                    namePrefix ?? "standalone",
+                    operation.Method,
+                    operation.Path,
+                    ex.Message);
             }
         }
 
@@ -55,14 +77,26 @@ internal static partial class OpenApiFunctionFactory
         // the container becomes a top-level tool with no parent (same as CodingToolHarness).
         if (collapseWithinToolHarness && functions.Count > 0)
         {
-            var containerName = $"OpenApi_{namePrefix ?? "spec"}";
             var (container, collapsedFunctions) =
                 ExternalToolCollapsingWrapper.WrapOpenApiTools(
-                    containerName,
+                    containerName!,
                     functions,
                     parentContainer: parentContainer);
 
-            return [container, ..collapsedFunctions];
+            var metadata = new HPDCapabilityMetadata
+            {
+                Id = containerId!.Value,
+                Kind = HPDCapabilityKind.ToolHarnessActivation,
+                ParentContainerIds = CreateParentContainerIds(parentContainer),
+                Reveals = collapsedFunctions
+                    .Select(ReadCapabilityMetadata)
+                    .Select(static value => value.Id)
+                    .ToImmutableArray()
+            };
+            var taggedContainer = HPDAIFunctionFactory.Project(
+                container,
+                ReplaceCapabilityMetadata(container, metadata));
+            return [taggedContainer, ..collapsedFunctions];
         }
 
         return functions;
@@ -74,7 +108,8 @@ internal static partial class OpenApiFunctionFactory
         OpenApiConfig config,
         string? namePrefix,
         string? parentContainer,
-        bool collapseWithinToolHarness)
+        bool collapseWithinToolHarness,
+        CapabilityId? containerId)
     {
         var functionName = BuildFunctionName(operation, namePrefix);
         var schema = BuildParameterSchema(operation, config);
@@ -103,6 +138,13 @@ internal static partial class OpenApiFunctionFactory
         // - collapseWithinToolHarness=true → parentContainer is stamped on the wrapper
         //   container (in CreateFunctions above), not on individual functions
         var effectiveParent = collapseWithinToolHarness ? null : parentContainer;
+        var parentContainerIds = collapseWithinToolHarness
+            ? containerId is { } parent
+                ? ImmutableArray.Create(parent)
+                : []
+            : CreateParentContainerIds(parentContainer);
+        var capabilityId = CapabilityId.Create(
+            $"openapi:{parentContainer ?? "standalone"}:{namePrefix ?? "spec"}:{operation.Id}");
 
         return HPDAIFunctionFactory.Create(
             InvokeAsync,
@@ -121,9 +163,41 @@ internal static partial class OpenApiFunctionFactory
                     ["SourceType"] = "OpenApi",
                     ["openapi.path"] = operation.Path,
                     ["openapi.method"] = operation.Method.ToString(),
-                    ["openapi.operationId"] = operation.Id
+                    ["openapi.operationId"] = operation.Id,
+                    [HPDCapabilityMetadata.AdditionalPropertiesKey] = new HPDCapabilityMetadata
+                    {
+                        Id = capabilityId,
+                        Kind = HPDCapabilityKind.OpenApi,
+                        ParentContainerIds = parentContainerIds
+                    }
                 }
             });
+    }
+
+    private static ImmutableArray<CapabilityId> CreateParentContainerIds(string? parentContainer) =>
+        parentContainer is null
+            ? []
+            : [CapabilityId.Create($"generated:{parentContainer}:harness")];
+
+    private static HPDCapabilityMetadata ReadCapabilityMetadata(AIFunction function) =>
+        function.AdditionalProperties?.TryGetValue(
+            HPDCapabilityMetadata.AdditionalPropertiesKey,
+            out var value) == true &&
+        value is HPDCapabilityMetadata metadata
+            ? metadata
+            : throw new InvalidOperationException(
+                $"OpenAPI function '{function.Name}' has no typed capability metadata.");
+
+    private static Dictionary<string, object?> ReplaceCapabilityMetadata(
+        AIFunction function,
+        HPDCapabilityMetadata metadata)
+    {
+        var properties = function.AdditionalProperties?.ToDictionary(
+            static pair => pair.Key,
+            static pair => pair.Value,
+            StringComparer.Ordinal) ?? new Dictionary<string, object?>(StringComparer.Ordinal);
+        properties[HPDCapabilityMetadata.AdditionalPropertiesKey] = metadata;
+        return properties;
     }
 
     private static bool IsRetryableStatusCode(int statusCode) =>

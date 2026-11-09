@@ -1,11 +1,23 @@
+using System.Text.Json.Serialization;
+
 namespace HPD.Agent;
 
 /// <summary>
 /// Identifies an agent capability independently from its model-facing function name.
 /// </summary>
 /// <param name="Value">The stable, non-empty capability identifier.</param>
-public readonly record struct CapabilityId(string Value)
+public readonly record struct CapabilityId
 {
+    [JsonConstructor]
+    internal CapabilityId(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        Value = value;
+    }
+
+    /// <summary>Gets the stable, non-empty capability identifier.</summary>
+    public string Value { get; }
+
     /// <summary>
     /// Creates and validates a capability identifier.
     /// </summary>

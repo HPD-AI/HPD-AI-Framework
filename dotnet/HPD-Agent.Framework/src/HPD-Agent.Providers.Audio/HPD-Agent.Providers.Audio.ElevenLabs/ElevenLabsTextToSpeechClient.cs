@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
+using HPD.Agent.ErrorHandling;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Providers.Audio.ElevenLabs;
@@ -116,6 +117,9 @@ public sealed class ElevenLabsTextToSpeechClient : ITextToSpeechClient
 
     public object? GetService(Type serviceType, object? serviceKey = null)
     {
+        if (serviceType == typeof(IProviderErrorHandler))
+            return new ElevenLabsErrorHandler();
+
         if (serviceType == typeof(HttpClient))
             return _httpClient;
 

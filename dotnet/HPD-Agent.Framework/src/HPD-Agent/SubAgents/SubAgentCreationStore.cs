@@ -74,15 +74,15 @@ public sealed record SubAgentCreationRecord
 }
 
 /// <summary>Returns an existing allocation or a newly committed reservation.</summary>
-public sealed record SubAgentCreationReservationResult(
+internal sealed record SubAgentCreationReservationResult(
     SubAgentCreationRecord Record,
     bool Created);
 
 /// <summary>Condition used to advance one creation state machine.</summary>
-public readonly record struct SubAgentCreationWriteCondition(long ExpectedRevision);
+internal readonly record struct SubAgentCreationWriteCondition(long ExpectedRevision);
 
 /// <summary>Durable authority for child allocation, replay, and crash recovery.</summary>
-public interface ISubAgentCreationStore
+internal interface ISubAgentCreationStore
 {
     /// <summary>Atomically allocates or returns one creation identity.</summary>
     ValueTask<SubAgentCreationReservationResult> TryReserveSubAgentCreationAsync(
@@ -277,12 +277,12 @@ internal sealed class JournalSubAgentCreationStore(ISessionStore store) : ISubAg
 }
 
 /// <summary>Commits a newly allocated child creation.</summary>
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("SUBAGENT_CREATION_RESERVED")]
 public sealed record SubAgentCreationReservedEvent(SubAgentCreationRecord Record) : AgentEvent;
 
 /// <summary>Commits an idempotent phase transition for a child creation.</summary>
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("SUBAGENT_CREATION_ADVANCED")]
 public sealed record SubAgentCreationAdvancedEvent(SubAgentCreationRecord Record) : AgentEvent;
 

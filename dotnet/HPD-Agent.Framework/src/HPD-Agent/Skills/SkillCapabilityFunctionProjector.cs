@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using HPD.Agent.Middleware;
@@ -8,9 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace HPD.Agent;
 
 /// <summary>Projects structured skill children into native HPD functions.</summary>
-/// <remarks>This API is public only for source-generated registration code.</remarks>
-[EditorBrowsable(EditorBrowsableState.Never)]
-public static class SkillCapabilityFunctionProjector
+internal static class SkillCapabilityFunctionProjector
 {
     /// <summary>Creates resource and script functions declared by a skill.</summary>
     public static IEnumerable<AIFunction> CreateChildren(

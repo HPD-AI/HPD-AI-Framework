@@ -1,12 +1,8 @@
 /// <summary>Specifies how long a skill activation remains effective.</summary>
 public enum SkillActivationLifetime
 {
-    /// <summary>Activation lasts for one model iteration.</summary>
-    ModelIteration,
     /// <summary>Activation lasts for the current user-message turn.</summary>
-    MessageTurn,
-    /// <summary>Activation lasts for the current session.</summary>
-    Session
+    MessageTurn
 }
 
 /// <summary>Describes where a skill definition originated and how it can be audited.</summary>
@@ -38,7 +34,4 @@ public sealed class SkillRuntimeOptions
 {
     /// <summary>Gets or sets how instructions are delivered.</summary>
     public SkillInstructionDelivery InstructionDelivery { get; set; } = SkillInstructionDelivery.ToolResult;
-
-    /// <summary>Gets or sets the default activation lifetime.</summary>
-    public SkillActivationLifetime ActivationLifetime { get; set; } = SkillActivationLifetime.MessageTurn;
 }

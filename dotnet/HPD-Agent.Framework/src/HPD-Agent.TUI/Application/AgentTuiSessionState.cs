@@ -5,7 +5,7 @@ using HPD.TUI.Components;
 
 namespace HPD.Agent.TUI.Application;
 
-public sealed class AgentTuiSessionState
+internal sealed class AgentTuiSessionState
 {
     private const string ProjectionFaultStatusMarker = "projection faults: ";
     private readonly HpdAgentTuiRegistry _registry;
@@ -332,7 +332,7 @@ public sealed class AgentTuiSessionState
 }
 
 /// <summary>Describes one contained TUI contribution failure.</summary>
-public sealed record AgentTuiProjectionFailure(
+internal sealed record AgentTuiProjectionFailure(
     string ContributionKey,
     string EventType,
     string DiagnosticCode,
@@ -340,7 +340,7 @@ public sealed record AgentTuiProjectionFailure(
     string Message);
 
 /// <summary>Describes a commit or render failure outside the handler failure boundary.</summary>
-public sealed record AgentTuiProjectionInfrastructureFailure(
+internal sealed record AgentTuiProjectionInfrastructureFailure(
     string ContributionKey,
     string EventType,
     string Stage,

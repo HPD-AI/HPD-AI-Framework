@@ -4,7 +4,7 @@ using HPD.Agent.Audio.Providers;
 
 namespace HPD.Agent.Audio.Runtime.Providers;
 
-public sealed class FakeAudioInteractionSession : IAudioInteractionSession
+internal sealed class FakeAudioInteractionSession : IAudioInteractionSession
 {
     private readonly List<AudioInteractionUpdate> _updates = [];
     private readonly RuntimeClock _clock;
@@ -112,7 +112,7 @@ public sealed class FakeAudioInteractionSession : IAudioInteractionSession
                 SessionId = Id,
                 ObservedAt = _clock.Tick(),
                 RouteEpochId = Plan.RouteEpoch.Id,
-                Stage = TranscriptProjectionStageV1.Final,
+                Stage = TranscriptProjectionStage.Final,
                 Text = _transcriptFactory(inputContent.Content),
                 Confidence = 1.0f,
                 InputContentId = inputContent.Content.Id,
@@ -237,7 +237,7 @@ public sealed class FakeAudioInteractionSession : IAudioInteractionSession
     }
 }
 
-public sealed record FakeAudioInteractionSessionOptions
+internal sealed record FakeAudioInteractionSessionOptions
 {
     public string? ScriptedTranscript { get; init; } = "hello from audio";
 
@@ -248,12 +248,12 @@ public sealed record FakeAudioInteractionSessionOptions
     public FakeRealtimeToolCall? ScriptedToolCall { get; init; }
 }
 
-public sealed record FakeRealtimeToolCall(
+internal sealed record FakeRealtimeToolCall(
     string ToolCallId,
     string Name,
     string? ArgumentsJson);
 
-public sealed class FakeAudioInteractionSessionFactory : IAudioInteractionSessionFactory
+internal sealed class FakeAudioInteractionSessionFactory : IAudioInteractionSessionFactory
 {
     private readonly RuntimeIdFactory _ids;
     private readonly RuntimeClock _clock;

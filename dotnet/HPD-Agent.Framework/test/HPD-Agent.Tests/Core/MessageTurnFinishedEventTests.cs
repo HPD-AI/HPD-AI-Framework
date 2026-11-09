@@ -166,6 +166,7 @@ public class MessageTurnFinishedEventTests : AgentTestBase
 
         await Assert.ThrowsAnyAsync<Exception>(() => agent.RunAsync("hi", cancellationToken: TestCancellationToken));
 
+        await WaitForAsync(() => events.OfType<MessageTurnErrorEvent>().Any());
         var usage = Assert.Single(events.OfType<MessageTurnErrorEvent>()).Usage;
         Assert.Contains(usage.Operations, operation => operation.OperationKind == ProviderOperationKind.TextToSpeech);
         Assert.Contains(usage.Operations, operation => operation.OperationKind == ProviderOperationKind.ChatModelResponse);

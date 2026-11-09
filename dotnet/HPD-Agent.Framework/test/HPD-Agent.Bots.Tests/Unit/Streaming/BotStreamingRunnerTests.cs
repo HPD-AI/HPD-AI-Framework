@@ -16,7 +16,9 @@ public class BotStreamingRunnerTests
     public async Task RunAsync_BufferAndPost_CompletesTextWithoutIntermediateUpdates()
     {
         var chatClient = new StreamingChatClient(["hel", "lo"]);
-        var agent = new HpdAgent(CreateAgentConfig(), chatClient, mergedOptions: null);
+        await using var agent = await new AgentBuilder(CreateAgentConfig())
+            .WithChatClient(chatClient)
+            .BuildAsync();
         await agent.CreateSessionAsync("session-1");
         var runner = new BotStreamingRunner(
             new TestSessionManager(new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec)),
@@ -59,7 +61,9 @@ public class BotStreamingRunnerTests
     public async Task RunAsync_PostAndEdit_UpdatesTextBeforeCompletion()
     {
         var chatClient = new StreamingChatClient(["hel", "lo"], TimeSpan.FromMilliseconds(25));
-        var agent = new HpdAgent(CreateAgentConfig(), chatClient, mergedOptions: null);
+        await using var agent = await new AgentBuilder(CreateAgentConfig())
+            .WithChatClient(chatClient)
+            .BuildAsync();
         await agent.CreateSessionAsync("session-1");
         var runner = new BotStreamingRunner(
             new TestSessionManager(new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec)),

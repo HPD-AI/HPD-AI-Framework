@@ -100,16 +100,6 @@ public sealed class TracingObserver : IDisposable
                     ["decision_type", e.DecisionType, "iteration", e.Iteration.ToString()]);
                 break;
 
-            case IterationContextSnapshotEvent e:
-                AddEventToIteration(e.TraceId!, "context.snapshot",
-                    [
-                        "iteration", e.Iteration.ToString(),
-                        "total_message_count", e.TotalMessageCount.ToString(),
-                        "context_message_count", e.ContextMessageCount.ToString(),
-                        "tool_count", e.ToolCount.ToString()
-                    ]);
-                break;
-
             case PermissionRequestEvent e:
                 AddEventToIteration(e.TraceId!, "permission.request",
                     ["permission_id", e.PermissionId, "authority", e.Authority ?? ""]);

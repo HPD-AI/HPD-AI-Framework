@@ -15,7 +15,7 @@ internal static class LanguageServerStatusPage
             Hidden = true
         };
 
-    private sealed class Component(AgentTuiStateBag state, CodingHarnessTuiTheme theme) : HPD.TUI.Core.Component
+    private sealed class Component(IAgentTuiStateStore state, CodingHarnessTuiTheme theme) : HPD.TUI.Core.Component
     {
         public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
             => new(Math.Min(20, constraints.MaxWidth), Math.Min(120, constraints.MaxWidth), 1);

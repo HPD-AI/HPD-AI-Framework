@@ -25,7 +25,7 @@ public sealed class AudioRuntimeAttachmentOptions
     public bool ProjectCommittedTranscriptsIntoUserMessage { get; set; } = true;
 
     /// <summary>Gets or sets the borrowed L52A authority that owns retained Audio-session commands.</summary>
-    public IAudioSessionControlAuthorityV1? SessionControlAuthority { get; set; }
+    public IAudioSessionControlAuthority? SessionControlAuthority { get; set; }
 
     public AudioPolicySet PolicySet { get; set; } = new();
 
@@ -75,5 +75,5 @@ public sealed class AudioRuntimeAttachmentOptions
 
     public float? AssistantOutputSpeed { get; set; }
 
-    internal Func<string?, PreparedOutputExecutionV2?>? PreparedOutputResolver { get; set; }
+    internal Func<string?, PreparedOutputExecution?>? PreparedOutputResolver { get; set; }
 }

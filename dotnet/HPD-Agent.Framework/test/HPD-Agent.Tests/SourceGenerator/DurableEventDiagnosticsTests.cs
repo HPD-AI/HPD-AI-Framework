@@ -16,7 +16,10 @@ public sealed class DurableEventDiagnosticsTests
         namespace HPD.Agent.Serialization
         {
             [System.AttributeUsage(System.AttributeTargets.All)]
-            public sealed class DurableEventAttribute : System.Attribute { }
+            public sealed class DurableEventAttribute : System.Attribute
+            {
+                public bool Required { get; set; }
+            }
             [System.AttributeUsage(System.AttributeTargets.Class, Inherited = false)]
             public sealed class EventRegistrationExcludedAttribute : System.Attribute { }
         }
@@ -75,6 +78,41 @@ public sealed class DurableEventDiagnosticsTests
         var result = driver.RunGenerators(compilation).GetRunResult();
 
         Assert.DoesNotContain(result.Diagnostics, static item => item.Id == "HPDAEVT001");
+    }
+
+    [Fact]
+    public void Required_durable_event_emits_required_metadata()
+    {
+        var source = """
+            using System.Text.Json.Serialization;
+            using HPD.Agent.Serialization;
+
+            [DurableEvent(Required = true)]
+            public sealed record RequiredEvent : HPD.Agent.AgentEvent;
+
+            [JsonSerializable(typeof(RequiredEvent))]
+            internal partial class RequiredEventJsonContext : JsonSerializerContext;
+            """;
+        var references = ((string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES"))!
+            .Split(Path.PathSeparator)
+            .Select(static path => MetadataReference.CreateFromFile(path));
+        var compilation = CSharpCompilation.Create(
+            "required-durable-event",
+            [CSharpSyntaxTree.ParseText(Contracts), CSharpSyntaxTree.ParseText(source)],
+            references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            new CustomEventSourceGenerator().AsSourceGenerator());
+
+        var result = driver.RunGenerators(compilation).GetRunResult();
+        var generated = result.Results
+            .SelectMany(static item => item.GeneratedSources)
+            .Select(static item => item.SourceText.ToString())
+            .ToArray();
+
+        Assert.Contains(generated, sourceText =>
+            sourceText.Contains("Durability = AgentEventDurability.Durable", StringComparison.Ordinal) &&
+            sourceText.Contains("RequiresDurable = true", StringComparison.Ordinal));
     }
 
     [Fact]

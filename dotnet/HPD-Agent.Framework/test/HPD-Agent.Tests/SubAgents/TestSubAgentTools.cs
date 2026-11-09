@@ -155,6 +155,7 @@ public class TestSubAgentTools
             });
     }
 
+#pragma warning disable CS0618 // Keep cross-assembly registration coverage during the deprecation window.
     [SubAgent]
     public SubAgent SubAgentWithToolss()
     {
@@ -171,4 +172,5 @@ public class TestSubAgentTools
             contextPolicy: SubAgentContextPolicy.Handoff,
             toolharnessTypes: [typeof(HPD.Agent.ToolHarness.FileSystem.FileSystemTools)]);
     }
+#pragma warning restore CS0618
 }

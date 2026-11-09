@@ -8,7 +8,7 @@ using Microsoft.Extensions.AI.Evaluation;
 namespace HPD.Agent.Evaluations.Evaluators.Deterministic;
 
 /// <summary>BooleanMetric — the named tool was invoked at least once this turn.</summary>
-public sealed class ToolWasCalledEvaluator(string toolName) : HpdDeterministicEvaluatorBase
+internal sealed class ToolWasCalledEvaluator(string toolName) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Tool Was Called"];
 
@@ -37,7 +37,7 @@ public sealed class ToolWasCalledEvaluator(string toolName) : HpdDeterministicEv
 }
 
 /// <summary>BooleanMetric — the named tool was called exactly N times.</summary>
-public sealed class ToolCallCountEvaluator(string toolName, int expectedCount) : HpdDeterministicEvaluatorBase
+internal sealed class ToolCallCountEvaluator(string toolName, int expectedCount) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Tool Call Count"];
 
@@ -65,7 +65,7 @@ public sealed class ToolCallCountEvaluator(string toolName, int expectedCount) :
 }
 
 /// <summary>BooleanMetric — tool was called with a specific argument value.</summary>
-public sealed class ToolArgumentMatchesEvaluator(string toolName, string argumentName, string expectedValue)
+internal sealed class ToolArgumentMatchesEvaluator(string toolName, string argumentName, string expectedValue)
     : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Tool Argument Matches"];
@@ -111,7 +111,7 @@ public sealed class ToolArgumentMatchesEvaluator(string toolName, string argumen
 }
 
 /// <summary>BooleanMetric — a named tool's result contains expected text.</summary>
-public sealed class ToolResultContainsEvaluator(string toolName, string expectedText) : HpdDeterministicEvaluatorBase
+internal sealed class ToolResultContainsEvaluator(string toolName, string expectedText) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Tool Result Contains"];
 
@@ -150,7 +150,7 @@ public sealed class ToolResultContainsEvaluator(string toolName, string expected
 }
 
 /// <summary>BooleanMetric — agent responded without any tool calls.</summary>
-public sealed class NoToolsCalledEvaluator : HpdDeterministicEvaluatorBase
+internal sealed class NoToolsCalledEvaluator : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["No Tools Called"];
 
@@ -179,7 +179,7 @@ public sealed class NoToolsCalledEvaluator : HpdDeterministicEvaluatorBase
 }
 
 /// <summary>BooleanMetric — tools were called in the specified order (subsequence match).</summary>
-public sealed class ToolCallOrderEvaluator(string[] expectedOrder) : HpdDeterministicEvaluatorBase
+internal sealed class ToolCallOrderEvaluator(string[] expectedOrder) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Tool Call Order"];
 
@@ -218,7 +218,7 @@ public sealed class ToolCallOrderEvaluator(string[] expectedOrder) : HpdDetermin
 }
 
 /// <summary>NumericMetric 0-1 — unordered precision/recall/F1 over expected tool calls.</summary>
-public sealed class ToolCallF1Evaluator(params string[] expectedTools) : HpdDeterministicEvaluatorBase
+internal sealed class ToolCallF1Evaluator(params string[] expectedTools) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Tool Call F1"];
 

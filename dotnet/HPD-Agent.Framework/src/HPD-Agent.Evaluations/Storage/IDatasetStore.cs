@@ -2,8 +2,69 @@
 // SPDX-License-Identifier: FSL-1.1-ALv2
 
 using HPD.Agent.Evaluations.Batch;
+using Microsoft.Extensions.AI.Evaluation;
+using Microsoft.Extensions.AI.Evaluation.Reporting;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization.Metadata;
 
 namespace HPD.Agent.Evaluations.Storage;
+
+/// <summary>
+/// Restart-safe dataset serialization authority for one input and evaluator model.
+/// </summary>
+/// <remarks>
+/// Durable stores require this codec because <c>TInput</c> and evaluator instances
+/// cannot otherwise be reconstructed from the untyped <see cref="IDatasetStore"/> API.
+/// </remarks>
+public sealed class DatasetCodec<TInput>
+{
+    /// <summary>Creates a durable dataset codec.</summary>
+    public DatasetCodec(
+        JsonTypeInfo<TInput> inputTypeInfo,
+        Func<EvalCase<TInput>, string>? fingerprintCase = null,
+        Func<IEvaluator, JsonNode?>? serializeEvaluator = null,
+        Func<JsonNode?, IEvaluator>? deserializeEvaluator = null,
+        Func<IReportEvaluator, JsonNode?>? serializeReportEvaluator = null,
+        Func<JsonNode?, IReportEvaluator>? deserializeReportEvaluator = null)
+    {
+        ArgumentNullException.ThrowIfNull(inputTypeInfo);
+        if ((serializeEvaluator is null) != (deserializeEvaluator is null))
+        {
+            throw new ArgumentException(
+                "Dataset evaluator serialization and deserialization must be supplied together.");
+        }
+        if ((serializeReportEvaluator is null) != (deserializeReportEvaluator is null))
+        {
+            throw new ArgumentException(
+                "Report-evaluator serialization and deserialization must be supplied together.");
+        }
+
+        InputTypeInfo = inputTypeInfo;
+        FingerprintCase = fingerprintCase;
+        SerializeEvaluator = serializeEvaluator;
+        DeserializeEvaluator = deserializeEvaluator;
+        SerializeReportEvaluator = serializeReportEvaluator;
+        DeserializeReportEvaluator = deserializeReportEvaluator;
+    }
+
+    /// <summary>Gets the source-generated input JSON metadata.</summary>
+    public JsonTypeInfo<TInput> InputTypeInfo { get; }
+
+    /// <summary>Gets an optional stable case fingerprint.</summary>
+    public Func<EvalCase<TInput>, string>? FingerprintCase { get; }
+
+    /// <summary>Gets the evaluator serializer, when evaluator instances are persisted.</summary>
+    public Func<IEvaluator, JsonNode?>? SerializeEvaluator { get; }
+
+    /// <summary>Gets the evaluator parser, when evaluator instances are persisted.</summary>
+    public Func<JsonNode?, IEvaluator>? DeserializeEvaluator { get; }
+
+    /// <summary>Gets the report-evaluator serializer, when report evaluators are persisted.</summary>
+    public Func<IReportEvaluator, JsonNode?>? SerializeReportEvaluator { get; }
+
+    /// <summary>Gets the report-evaluator parser, when report evaluators are persisted.</summary>
+    public Func<JsonNode?, IReportEvaluator>? DeserializeReportEvaluator { get; }
+}
 
 /// <summary>
 /// Registry for immutable evaluation dataset versions and SCD-2 case history.

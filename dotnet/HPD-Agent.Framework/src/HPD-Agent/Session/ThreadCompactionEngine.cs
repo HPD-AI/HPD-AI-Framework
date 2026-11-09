@@ -18,7 +18,7 @@ public enum CompactionOrigin
     Fork
 }
 
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("COMPACTION")]
 public sealed record CompactionEvent(
     string AgentName,
@@ -106,7 +106,7 @@ public sealed class CompositeThreadJournalRebaseSeedProvider(
 }
 
 /// <summary>Preserves the latest exact child/controller authority through journal rebase.</summary>
-public sealed class SubAgentControllerAuthorityRebaseSeedProvider(ISessionStore store)
+internal sealed class SubAgentControllerAuthorityRebaseSeedProvider(ISessionStore store)
     : IThreadJournalRebaseSeedProvider
 {
     private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));
@@ -141,7 +141,7 @@ public sealed class SubAgentControllerAuthorityRebaseSeedProvider(ISessionStore 
 }
 
 /// <summary>Preserves execution ownership, explicit reports, and question settlement through a destructive rebase.</summary>
-public sealed class AgentCommunicationRebaseSeedProvider(ISessionStore store) : IThreadJournalRebaseSeedProvider
+internal sealed class AgentCommunicationRebaseSeedProvider(ISessionStore store) : IThreadJournalRebaseSeedProvider
 {
     private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));
 

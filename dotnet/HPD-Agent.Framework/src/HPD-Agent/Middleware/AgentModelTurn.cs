@@ -132,6 +132,11 @@ public sealed record AgentInputTranscriptUpdate(
     UsageDetails? Usage = null) : AgentModelUpdate
 {
     public bool IsFinal => Stage is AgentInputTranscriptStage.Final;
+
+    /// <summary>
+    /// Gets the structured provider error details when the transport supplies them.
+    /// </summary>
+    public ErrorHandling.ProviderErrorDetails? ErrorDetails { get; init; }
 }
 
 public enum AgentInputTranscriptStage

@@ -5,7 +5,7 @@ using HPD.TUI.Markdown;
 namespace HPD.Agent.TUI.Markdown;
 
 /// <summary>Creates finalized source-backed transcript cells for non-streaming projections and tests.</summary>
-public static class MarkdownMessageFactory
+internal static class MarkdownMessageFactory
 {
     /// <summary>Creates a finalized assistant message cell.</summary>
     /// <param name="messageId">The stable message identifier.</param>

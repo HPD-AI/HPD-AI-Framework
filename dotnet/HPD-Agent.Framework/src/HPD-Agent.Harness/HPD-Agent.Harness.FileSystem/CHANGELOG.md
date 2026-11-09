@@ -5,7 +5,17 @@ All notable changes to the HPD-Agent FileSystem ToolHarness will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2025-10-02
+## [1.0.0] - 2026-11-08
+
+### Deprecated
+- Deprecated the FileSystem ToolHarness. It remains packable for migration but
+  is not a supported workspace-isolation or command-execution security
+  boundary.
+- Added `CS0618` compiler warnings to `FileSystemTools` and
+  `FileSystemContext`.
+- Added migration guidance for `HPD-Agent.ToolHarness.Coding` and the
+  HPD sandbox runtimes.
+- Removed stale examples that referenced retired APIs and types.
 
 ### Added
 - Initial release of FileSystem ToolHarness
@@ -17,8 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Advanced Search:**
   - `FindFiles` - Glob pattern matching for file discovery
   - `SearchContent` - Regex-based content search (grep-like)
-- **Security Features:**
-  - Workspace isolation and validation
+- **Legacy constraints (not a security boundary):**
+  - Basic workspace path checks
   - Permission system integration via `[RequiresPermission]`
   - Configurable file size limits
   - Binary file detection
@@ -32,17 +42,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `DiffPlex` for diff generation
   - `Ude.NetStandard` for encoding detection
   - `MAB.DotIgnore` for .gitignore support
-
-  - Workspace-based security model
-
-## [Unreleased]
-
-### Planned Features
-- [ ] `.geminiignore` pattern support
-- [ ] `.gitignore` pattern support integration
-- [ ] Streaming file reads for very large files
-- [ ] Batch file operations
-- [ ] File watching capabilities
-- [ ] Symbolic link handling
-- [ ] Archive file support (zip, tar, etc.)
-- [ ] Image file metadata extraction

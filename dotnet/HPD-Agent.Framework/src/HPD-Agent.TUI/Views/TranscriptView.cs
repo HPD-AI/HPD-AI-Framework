@@ -12,13 +12,13 @@ using HPD.TUI.Terminal;
 
 namespace HPD.Agent.TUI.Views;
 
-public sealed class TranscriptView : Component, IScrollbackSource
+internal sealed class TranscriptView : Component, IScrollbackSource
 {
     private readonly TranscriptModel _model;
     private readonly AgentTuiTranscriptRendererRegistry _renderers;
     private readonly AgentTuiRuntimeScope? _scope;
     private readonly IHpdTuiPerformanceEventSink? _performanceSink;
-    private TranscriptSequence _entries = TranscriptSequence.Empty;
+    private IReadOnlyList<TranscriptEntry> _entries = TranscriptSequence.Empty;
     private readonly Dictionary<int, PreparedTranscriptEntry?> _renderedEntries = [];
     private readonly TranscriptLayoutCache _layoutCache;
     private readonly List<VisibleTranscriptRow> _visibleRows = [];
@@ -744,7 +744,7 @@ public sealed class TranscriptView : Component, IScrollbackSource
     }
 }
 
-public sealed record TranscriptViewDiagnostics(
+internal sealed record TranscriptViewDiagnostics(
     int EntriesVisited,
     int RowsMeasured,
     int RowsCaptured,

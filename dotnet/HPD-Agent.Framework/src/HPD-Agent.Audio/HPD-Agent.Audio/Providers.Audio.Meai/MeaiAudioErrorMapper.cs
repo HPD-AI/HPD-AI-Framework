@@ -25,7 +25,8 @@ internal static class MeaiAudioErrorMapper
             Code = fallbackCode,
             Message = $"{fallbackMessagePrefix}: {exception.Message}",
             Category = category,
-            IsRetryable = fallbackRetryable
+            IsRetryable = fallbackRetryable,
+            ErrorCategory = ClassifyByMessage(exception.Message, null)
         };
     }
 
@@ -56,6 +57,7 @@ internal static class MeaiAudioErrorMapper
             Message = normalizedMessage,
             Category = category,
             IsRetryable = IsRetryable(errorCategory),
+            ErrorCategory = errorCategory,
             Metadata = new AudioExtensionData(metadata)
         };
     }
@@ -90,6 +92,11 @@ internal static class MeaiAudioErrorMapper
             Message = details.Message,
             Category = category,
             IsRetryable = IsRetryable(details.Category),
+            ErrorCategory = details.Category,
+            StatusCode = details.StatusCode,
+            ErrorType = details.ErrorType,
+            RequestId = details.RequestId,
+            RetryAfter = details.RetryAfter,
             Metadata = new AudioExtensionData(metadata)
         };
     }

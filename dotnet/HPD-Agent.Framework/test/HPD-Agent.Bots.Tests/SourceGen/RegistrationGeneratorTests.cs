@@ -213,6 +213,17 @@ public class RegistrationGeneratorTests
         source!.Should().Contain("HandleWebhookAsync");
     }
 
+    [Fact]
+    public void Registration_MapWebhook_ExecutesGeneratedResult()
+    {
+        var result = SourceGenHelper.RunGenerator(MinimalSlackBot, out _);
+        var source = SourceGenHelper.GetGeneratedFile(result, "SlackBotRegistration.g.cs");
+
+        source.Should().NotBeNull();
+        source!.Should().Contain("var result = await adapter.HandleWebhookAsync(ctx);");
+        source.Should().Contain("await result.ExecuteAsync(ctx);");
+    }
+
     // ── Pascal casing ─────────────────────────────────────────────────
 
     [Fact]

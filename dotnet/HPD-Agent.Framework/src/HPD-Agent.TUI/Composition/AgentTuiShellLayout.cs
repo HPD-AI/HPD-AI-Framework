@@ -21,6 +21,8 @@ public interface IAgentTuiShellView : IComponent, IAgentTuiFramePreparable, IScr
 
 public sealed class AgentTuiShellLayoutContext
 {
+    private readonly AgentTuiStateBag _state;
+
     public AgentTuiShellLayoutContext(
         ChatShellModel shell,
         PromptView prompt,
@@ -30,7 +32,7 @@ public sealed class AgentTuiShellLayoutContext
     {
     }
 
-    public AgentTuiShellLayoutContext(
+    internal AgentTuiShellLayoutContext(
         ChatShellModel shell,
         PromptView prompt,
         HpdAgentTuiRegistry registry,
@@ -41,7 +43,7 @@ public sealed class AgentTuiShellLayoutContext
         Prompt = prompt ?? throw new ArgumentNullException(nameof(prompt));
         Registry = registry ?? throw new ArgumentNullException(nameof(registry));
         Chrome = chrome ?? throw new ArgumentNullException(nameof(chrome));
-        State = state ?? throw new ArgumentNullException(nameof(state));
+        _state = state ?? throw new ArgumentNullException(nameof(state));
     }
 
     public ChatShellModel Shell { get; }
@@ -52,5 +54,7 @@ public sealed class AgentTuiShellLayoutContext
 
     public AgentTuiShellChrome Chrome { get; }
 
-    public AgentTuiStateBag State { get; }
+    public IAgentTuiStateStore State => _state;
+
+    internal AgentTuiStateBag StateBag => _state;
 }

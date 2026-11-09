@@ -4,7 +4,7 @@ using HPD.TUI.Core;
 
 namespace HPD.Agent.TUI.Views;
 
-public sealed class WidgetSlotView : Component
+internal sealed class WidgetSlotView : Component
 {
     private readonly WidgetSlotModel _model;
     private readonly Text _empty;

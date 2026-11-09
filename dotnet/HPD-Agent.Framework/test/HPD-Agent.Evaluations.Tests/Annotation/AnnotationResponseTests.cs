@@ -128,7 +128,7 @@ public sealed class AnnotationResponseTests
         return await new AgentBuilder(config, new StubProviderRegistry(new StubChatClient()))
             .WithEventComposition(AgentEventComposition.Create([
                 CoreAgentEventModule.Fragment,
-                GeneratedAgentEventModule_HPD_Agent_Evaluations_301bac1e.Fragment
+                HPD_Agent_EvaluationsGeneratedAgentEventModule.Fragment
             ]))
             .BuildAsync(CancellationToken.None);
     }

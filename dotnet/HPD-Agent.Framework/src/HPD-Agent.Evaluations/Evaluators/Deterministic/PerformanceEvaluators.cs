@@ -7,7 +7,7 @@ using Microsoft.Extensions.AI.Evaluation;
 namespace HPD.Agent.Evaluations.Evaluators.Deterministic;
 
 /// <summary>BooleanMetric — turn completed within the specified time limit.</summary>
-public sealed class MaxDurationEvaluator(double maxSeconds) : HpdDeterministicEvaluatorBase
+internal sealed class MaxDurationEvaluator(double maxSeconds) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Max Duration"];
 
@@ -34,7 +34,7 @@ public sealed class MaxDurationEvaluator(double maxSeconds) : HpdDeterministicEv
 }
 
 /// <summary>BooleanMetric — turn used ≤ N LLM calls.</summary>
-public sealed class MaxIterationsEvaluator(int maxIterations) : HpdDeterministicEvaluatorBase
+internal sealed class MaxIterationsEvaluator(int maxIterations) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Max Iterations"];
 
@@ -61,7 +61,7 @@ public sealed class MaxIterationsEvaluator(int maxIterations) : HpdDeterministic
 }
 
 /// <summary>BooleanMetric — total tokens ≤ N.</summary>
-public sealed class MaxTokensEvaluator(int maxTokens) : HpdDeterministicEvaluatorBase
+internal sealed class MaxTokensEvaluator(int maxTokens) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Max Tokens"];
 
@@ -89,7 +89,7 @@ public sealed class MaxTokensEvaluator(int maxTokens) : HpdDeterministicEvaluato
 }
 
 /// <summary>BooleanMetric — input tokens ≤ N.</summary>
-public sealed class MaxInputTokensEvaluator(int maxTokens) : HpdDeterministicEvaluatorBase
+internal sealed class MaxInputTokensEvaluator(int maxTokens) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Max Input Tokens"];
 
@@ -117,7 +117,7 @@ public sealed class MaxInputTokensEvaluator(int maxTokens) : HpdDeterministicEva
 }
 
 /// <summary>BooleanMetric — output tokens ≤ N.</summary>
-public sealed class MaxOutputTokensEvaluator(int maxTokens) : HpdDeterministicEvaluatorBase
+internal sealed class MaxOutputTokensEvaluator(int maxTokens) : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Max Output Tokens"];
 
@@ -145,7 +145,7 @@ public sealed class MaxOutputTokensEvaluator(int maxTokens) : HpdDeterministicEv
 }
 
 /// <summary>NumericMetric — reports turn latency in seconds.</summary>
-public sealed class LatencyEvaluator : HpdDeterministicEvaluatorBase
+internal sealed class LatencyEvaluator : HpdDeterministicEvaluatorBase
 {
     public override IReadOnlyCollection<string> EvaluationMetricNames => ["Latency"];
 
@@ -173,7 +173,7 @@ public sealed class LatencyEvaluator : HpdDeterministicEvaluatorBase
 }
 
 /// <summary>BooleanMetric — estimated turn cost is within the configured limit.</summary>
-public sealed class MaxCostEvaluator(double maxCostUsd) : HpdDeterministicEvaluatorBase
+internal sealed class MaxCostEvaluator(double maxCostUsd) : HpdDeterministicEvaluatorBase
 {
     private static readonly string[] CostMetricKeys =
     [

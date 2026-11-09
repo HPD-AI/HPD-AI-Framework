@@ -20,7 +20,7 @@ namespace HPD.Agent.Evaluations.Evaluators.LlmJudge;
 /// Written by LiveEvaluationMiddleware.AfterMessageTurnAsync via UpdateMiddlewareState.
 /// </summary>
 [MiddlewareState(Persistent = true, Scope = StateScope.Thread)]
-public sealed record ConversationEvalStateData
+internal sealed record ConversationEvalStateData
 {
     /// <summary>Goal established in the first user turn (if detectable).</summary>
     public string? EstablishedGoal { get; init; }

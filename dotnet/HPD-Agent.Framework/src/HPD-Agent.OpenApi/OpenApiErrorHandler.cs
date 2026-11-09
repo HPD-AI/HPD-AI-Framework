@@ -5,7 +5,6 @@ namespace HPD.Agent.OpenApi;
 
 /// <summary>
 /// Classifies <see cref="OpenApiRequestException"/> into the agent's <see cref="ErrorCategory"/> system.
-/// Registered automatically when OpenAPI functions are added to the agent.
 ///
 /// Plugs into FunctionRetryMiddleware's 3-tier retry pipeline:
 ///   1. Custom strategy (if user provided)
@@ -14,7 +13,7 @@ namespace HPD.Agent.OpenApi;
 ///
 /// Same pattern as AnthropicErrorHandler, OpenAIErrorHandler, etc.
 /// </summary>
-public sealed class OpenApiErrorHandler : IProviderErrorHandler
+internal sealed class OpenApiErrorHandler : IProviderErrorHandler
 {
     public ProviderErrorDetails? ParseError(Exception exception)
     {

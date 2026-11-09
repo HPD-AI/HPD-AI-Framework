@@ -40,6 +40,40 @@ The document adds HPD-specific descriptions for:
 - client-tool-provider WebSocket metadata;
 - the immutable agent event catalog.
 
+## Authentication and clients
+
+Authentication remains owned by the consuming ASP.NET Core application. The generated document does not invent a security scheme or attach one to every operation. Add the document transformer, security scheme, and operation requirements that match your host's middleware before using the contract for protected endpoints:
+
+```csharp
+using Microsoft.OpenApi;
+
+builder.Services.AddHPDAgentOpenApi(configure: options =>
+{
+    options.AddDocumentTransformer((document, _, _) =>
+    {
+        document.Components ??= new OpenApiComponents();
+        document.Components.SecuritySchemes ??=
+            new Dictionary<string, IOpenApiSecurityScheme>();
+        document.Components.SecuritySchemes["Bearer"] =
+            new OpenApiSecurityScheme
+            {
+                Type = SecuritySchemeType.Http,
+                Scheme = "bearer",
+                BearerFormat = "JWT"
+            };
+        return Task.CompletedTask;
+    });
+});
+```
+
+Place the transformer after `AddHPDAgentOpenApi` and add operation-level security requirements with your normal ASP.NET Core OpenAPI conventions. The generated contract is OpenAPI 3.1 and can be consumed by Kiota, OpenAPI Generator, or another 3.1-capable client generator.
+
+HPD also provides a deterministic C# client generator for its canonical hosted
+contract. See the
+[client generator guide](../HPD-Agent.ClientGenerator/README.md) for runtime
+event unions, resumable SSE, client-tool WebSockets, authentication, and generated
+API-change checks.
+
 Customize the standard `OpenApiOptions` through the optional callback:
 
 ```csharp

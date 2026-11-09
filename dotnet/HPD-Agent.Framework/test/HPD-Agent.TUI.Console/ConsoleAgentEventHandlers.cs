@@ -20,7 +20,7 @@ public sealed class ToolLifecycleHandler : IAgentTuiEventHandler
     {
         var rows = context.State.GetOrCreate(
             ToolRowsKey,
-            static () => new Dictionary<string, ToolRowState>(StringComparer.Ordinal));
+            static () => new AgentTuiProjectionDictionary<string, ToolRowState>(StringComparer.Ordinal));
 
         switch (evt)
         {

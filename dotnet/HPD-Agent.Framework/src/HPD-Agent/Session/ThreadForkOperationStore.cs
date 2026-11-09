@@ -199,12 +199,12 @@ internal sealed class JournalThreadForkOperationStore(ISessionStore store, Threa
     }
 }
 
-[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("THREAD_FORK_OPERATION_CHANGED")]
 public sealed record ThreadForkOperationChangedEvent(ThreadForkOperationRecord Operation) : AgentEvent;
 
 /// <summary>Preserves the latest durable fork-operation facts across a destructive journal rebase.</summary>
-public sealed class ThreadForkOperationRebaseSeedProvider(ISessionStore store)
+internal sealed class ThreadForkOperationRebaseSeedProvider(ISessionStore store)
     : IThreadJournalRebaseSeedProvider
 {
     private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));

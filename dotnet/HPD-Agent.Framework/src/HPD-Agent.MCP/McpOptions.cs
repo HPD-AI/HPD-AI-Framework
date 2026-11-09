@@ -173,9 +173,17 @@ public interface IMcpInputAuthorizer
 }
 
 /// <summary>Identifies one normalized MCP resource registration independently from display name.</summary>
-/// <param name="Value">The normalized registration identifier.</param>
-public readonly record struct McpResourceRegistrationId(string Value)
+public sealed record McpResourceRegistrationId
 {
+    private McpResourceRegistrationId(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        Value = value;
+    }
+
+    /// <summary>Gets the normalized registration identifier.</summary>
+    public string Value { get; }
+
     /// <summary>Creates a validated resource-registration identifier.</summary>
     public static McpResourceRegistrationId Create(string value)
     {

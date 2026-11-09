@@ -9,29 +9,29 @@ using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
 using HPD.Agent.Providers.Audio.Silero;
 
-var limits = new VoiceActivityOperationalLimitsV1(
+var limits = new VoiceActivityOperationalLimits(
     maximumSources: 2,
     maximumObservationHistory: 32,
     maximumCorrectionHistory: 4,
     maximumWindow: TimeSpan.FromSeconds(1),
     maximumProcessingLatency: TimeSpan.FromMilliseconds(250));
-var request = new VoiceActivityRequestV1(
-    VoiceActivityProfileV1.Fused,
-    ActivityResponsivenessV1.Balanced,
-    VoiceActivityNoiseEnvironmentV1.Variable,
-    VoiceActivitySpeechContinuityV1.Natural,
+var request = new VoiceActivityRequest(
+    VoiceActivityProfile.Fused,
+    ActivityResponsiveness.Balanced,
+    VoiceActivityNoiseEnvironment.Variable,
+    VoiceActivitySpeechContinuity.Natural,
     TimeSpan.FromMilliseconds(200),
     [
-        new ActivitySourceRequestV1("local", ActivitySourceKindV1.LocalDetector,
-            ActivitySourceRoleV1.Authoritative, required: true),
-        new ActivitySourceRequestV1("provider", ActivitySourceKindV1.ProviderNative,
-            ActivitySourceRoleV1.Corroborating, required: false),
+        new ActivitySourceRequest("local", ActivitySourceKind.LocalDetector,
+            ActivitySourceRole.Authoritative, required: true),
+        new ActivitySourceRequest("provider", ActivitySourceKind.ProviderNative,
+            ActivitySourceRole.Corroborating, required: false),
     ],
-    ActivityDegradationPolicyV1.AllowOptionalSources,
+    ActivityDegradationPolicy.AllowOptionalSources,
     limits);
 
-var encoded = JsonSerializer.SerializeToUtf8Bytes(request, VoiceActivityJsonContextV1.Default.VoiceActivityRequestV1);
-var decoded = JsonSerializer.Deserialize(encoded, VoiceActivityJsonContextV1.Default.VoiceActivityRequestV1)
+var encoded = JsonSerializer.SerializeToUtf8Bytes(request, VoiceActivityJsonContext.Default.VoiceActivityRequest);
+var decoded = JsonSerializer.Deserialize(encoded, VoiceActivityJsonContext.Default.VoiceActivityRequest)
     ?? throw new InvalidOperationException("The request did not roundtrip.");
 
 if (decoded.Profile != request.Profile || decoded.Sources.Count != 2 || decoded.Sources[0].SourceKey != "local")
@@ -44,7 +44,7 @@ var product = await CreateProductAsync(provider,
     new ProviderClientConfig { Provider = new ProviderReference { Key = provider.ProviderKey }, ModelName = "native-vad" },
     new ProviderComponentLifetimeContext(AudioSessionId: "native-audio",
         Lifetime: ProviderFamilyLifetime.StatefulPerAudioSession));
-if (product is not VoiceActivitySourceProductV1.BorrowedSynchronous)
+if (product is not VoiceActivitySourceProduct.BorrowedSynchronous)
     throw new InvalidOperationException("The typed provider product did not survive native binding.");
 
 var sileroModel = System.Environment.GetEnvironmentVariable("HPD_SILERO_VAD_MODEL_PATH");
@@ -60,7 +60,7 @@ if (!string.IsNullOrWhiteSpace(sileroModel))
         },
         new ProviderComponentLifetimeContext(AudioSessionId: "native-silero",
             Lifetime: ProviderFamilyLifetime.StatefulPerAudioSession));
-    var source = ((VoiceActivitySourceProductV1.BorrowedSynchronous)sileroProduct).Source;
+    var source = ((VoiceActivitySourceProduct.BorrowedSynchronous)sileroProduct).Source;
     var bytes = new byte[1_024];
     var graph = HPD.Agent.Authority.GraphGenerationId.Create();
     var clock = HPD.Agent.Authority.ClockDomainId.Create();
@@ -72,11 +72,11 @@ if (!string.IsNullOrWhiteSpace(sileroModel))
     var soakStarted = System.Diagnostics.Stopwatch.GetTimestamp();
     for (var index = 1; index <= soakWindows; index++)
     {
-        var outcome = source.Observe(new VoiceActivityBorrowedWindowV1(bytes,
-            new VoiceActivityInputFormatV1(VoiceActivitySampleEncodingV1.SignedPcm16, 16_000, 1),
-            new VoiceActivityMediaExtentV1(graph, (long)(index - 1) * 512, (long)index * 512, true),
+        var outcome = source.Observe(new VoiceActivityBorrowedWindow(bytes,
+            new VoiceActivityInputFormat(VoiceActivitySampleEncoding.SignedPcm16, 16_000, 1),
+            new VoiceActivityMediaExtent(graph, (long)(index - 1) * 512, (long)index * 512, true),
             new HPD.Agent.Authority.MonotonicStampV1(clock, boot, (ulong)index)));
-        if (outcome is not VoiceActivitySourceOutcomeV1.Observed)
+        if (outcome is not VoiceActivitySourceOutcome.Observed)
             throw new InvalidOperationException("The real Silero ONNX source did not execute under NativeAOT.");
     }
     var soakElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(soakStarted);
@@ -90,11 +90,11 @@ Console.WriteLine("voice-activity-aot=pass");
 
 // Binds one voice-activity provider the way ProviderFamilyClientRuntime does, without the
 // provider-composition and credential plumbing this NativeAOT smoke does not exercise.
-static async Task<VoiceActivitySourceProductV1> CreateProductAsync<TProvider>(
+static async Task<VoiceActivitySourceProduct> CreateProductAsync<TProvider>(
     TProvider provider,
     ProviderClientConfig configuration,
     ProviderComponentLifetimeContext lifetime)
-    where TProvider : IProviderClientFactory<VoiceActivitySourceProductV1>
+    where TProvider : IProviderClientFactory<VoiceActivitySourceProduct>
 {
     var emptyPayload = new ProviderPayloadSnapshot
     {
@@ -186,7 +186,7 @@ static async Task<VoiceActivitySourceProductV1> CreateProductAsync<TProvider>(
     return construction.Client;
 }
 
-sealed class SmokeProvider : IVoiceActivitySourceProviderV1
+sealed class SmokeProvider : IVoiceActivitySourceProvider
 {
     public string ProviderKey => "native-smoke";
     public string DisplayName => "Native smoke";
@@ -209,7 +209,7 @@ sealed class SmokeProvider : IVoiceActivitySourceProviderV1
     public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor) =>
         ProviderClientCredentialBinding.RequestTime;
 
-    public ValueTask<ProviderClientConstruction<VoiceActivitySourceProductV1>> CreateAsync(
+    public ValueTask<ProviderClientConstruction<VoiceActivitySourceProduct>> CreateAsync(
         ProviderClientConstructionContext context,
         CancellationToken cancellationToken = default)
     {
@@ -218,9 +218,9 @@ sealed class SmokeProvider : IVoiceActivitySourceProviderV1
         if (context.Lifetime.Lifetime != ProviderFamilyLifetime.StatefulPerAudioSession)
             throw new ArgumentException("The smoke source requires one isolated source per audio session.", nameof(context));
 
-        return ValueTask.FromResult(new ProviderClientConstruction<VoiceActivitySourceProductV1>
+        return ValueTask.FromResult(new ProviderClientConstruction<VoiceActivitySourceProduct>
         {
-            Client = new VoiceActivitySourceProductV1.BorrowedSynchronous(new SmokeSource()),
+            Client = new VoiceActivitySourceProduct.BorrowedSynchronous(new SmokeSource()),
             Owner = ProviderClientConstructionUtilities.Own()
         });
     }
@@ -228,22 +228,22 @@ sealed class SmokeProvider : IVoiceActivitySourceProviderV1
     public IProviderErrorHandler CreateErrorHandler() => throw new NotSupportedException();
 }
 
-sealed class SmokeSource : IBorrowedSynchronousVoiceActivitySourceV1
+sealed class SmokeSource : IBorrowedSynchronousVoiceActivitySource
 {
-    public VoiceActivitySourceCapabilitiesV1 Capabilities { get; } = new(
-        VoiceActivityInputOwnershipV1.BorrowedSynchronous,
-        [new VoiceActivityInputFormatV1(VoiceActivitySampleEncodingV1.SignedPcm16, 16_000, 1)],
-        new VoiceActivityWindowCapabilityV1(TimeSpan.FromMilliseconds(10), TimeSpan.FromSeconds(1),
+    public VoiceActivitySourceCapabilities Capabilities { get; } = new(
+        VoiceActivityInputOwnership.BorrowedSynchronous,
+        [new VoiceActivityInputFormat(VoiceActivitySampleEncoding.SignedPcm16, 16_000, 1)],
+        new VoiceActivityWindowCapability(TimeSpan.FromMilliseconds(10), TimeSpan.FromSeconds(1),
             TimeSpan.FromMilliseconds(10), 1),
-        new VoiceActivityMeasurementDescriptorV1(VoiceActivityMeasurementKindV1.BinaryDecision,
+        new VoiceActivityMeasurementDescriptor(VoiceActivityMeasurementKind.BinaryDecision,
             new HPD.Agent.Authority.BoundedAscii("decision"), 0, 1, null),
-        VoiceActivitySourceStateModelV1.Stateless, VoiceActivitySourceConcurrencyV1.Serial,
-        VoiceActivitySourceControlV1.Unsupported, VoiceActivitySourceControlV1.Unsupported,
-        VoiceActivitySourceControlV1.Unsupported, VoiceActivitySourceControlV1.ReplacementRequired,
+        VoiceActivitySourceStateModel.Stateless, VoiceActivitySourceConcurrency.Serial,
+        VoiceActivitySourceControl.Unsupported, VoiceActivitySourceControl.Unsupported,
+        VoiceActivitySourceControl.Unsupported, VoiceActivitySourceControl.ReplacementRequired,
         true, false, 1);
 
-    public VoiceActivitySourceOutcomeV1 Observe(scoped in VoiceActivityBorrowedWindowV1 window) =>
-        new VoiceActivitySourceOutcomeV1.NoObservation(VoiceActivityNoObservationReasonV1.Gap);
+    public VoiceActivitySourceOutcome Observe(scoped in VoiceActivityBorrowedWindow window) =>
+        new VoiceActivitySourceOutcome.NoObservation(VoiceActivityNoObservationReason.Gap);
 }
 
 // The smoke binds anonymous, locally-owned providers, so credential preparation and acquisition

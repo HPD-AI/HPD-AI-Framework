@@ -221,7 +221,6 @@ public static partial class EventTypes
         public const string REQUEST_EVENT_PROCESSED = "REQUEST_EVENT_PROCESSED";
         public const string AGENT_DECISION = "AGENT_DECISION";
         public const string AGENT_COMPLETION = "AGENT_COMPLETION";
-        public const string ITERATION_CONTEXT_SNAPSHOT = "ITERATION_CONTEXT_SNAPSHOT";
         public const string MIDDLEWARE_STATE_SNAPSHOT = "MIDDLEWARE_STATE_SNAPSHOT";
         public const string MIDDLEWARE_STATE_CHANGED = "MIDDLEWARE_STATE_CHANGED";
         public const string COLLAPSING_STATE = "COLLAPSING_STATE";

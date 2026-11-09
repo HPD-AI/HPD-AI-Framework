@@ -1689,7 +1689,7 @@ public sealed class ExecuteCommandTests : IDisposable
             EventComposition = AgentEventComposition.Create(
             [
                 CoreAgentEventModule.Fragment,
-                GeneratedAgentEventModule_HPD_Agent_Harness_Coding_ab3285cb.Fragment
+                HPD_Agent_Harness_CodingGeneratedAgentEventModule.Fragment
             ])
         };
 

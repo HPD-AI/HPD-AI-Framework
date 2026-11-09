@@ -1,0 +1,1836 @@
+{
+  "TypeCount": 73,
+  "MethodCount": 346,
+  "ConstructorCount": 46,
+  "PropertyCount": 255,
+  "FieldCount": 39,
+  "EventCount": 2,
+  "Fingerprint": "6470a7d21ac83bd6ce907784972504ba2e23590b96351339ef2e6d27cc966c8a",
+  "Types": [
+    {
+      "FullName": "HPD.Agent.MultiAgent.AspNetCore.EndpointMapping.MultiAgentRunAcceptedResult",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.Agent.MultiAgent.AspNetCore.EndpointMapping.MultiAgentRunAcceptedResult\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.Agent.MultiAgent.AspNetCore.EndpointMapping.MultiAgentRunAcceptedResult \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.MultiAgent.AspNetCore.EndpointMapping.MultiAgentRunAcceptedResult? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]System.String ActivationId { get; init; }",
+        "System.String[]System.String Disposition { get; init; }",
+        "System.String[]System.String ExecutionId { get; init; }",
+        "System.String[]System.String State { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.MultiAgent.AspNetCore.EndpointMapping.MultiAgentRunRequest",
+      "Attributes": [
+        "[JsonUnmappedMemberHandlingAttribute(1)]"
+      ],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.Agent.MultiAgent.AspNetCore.EndpointMapping.MultiAgentRunRequest\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.Agent.MultiAgent.AspNetCore.EndpointMapping.MultiAgentRunRequest \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.MultiAgent.AspNetCore.EndpointMapping.MultiAgentRunRequest? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]System.Nullable\u003CSystem.Int64\u003E? DueAtUnixMilliseconds { get; init; }",
+        "System.String[]System.String? ExecutionId { get; init; }",
+        "System.String[]System.Text.Json.JsonElement Input { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.MultiAgent.AspNetCore.EndpointMapping.MultiAgentWorkflowListResponse",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.Agent.MultiAgent.AspNetCore.EndpointMapping.MultiAgentWorkflowListResponse\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.Agent.MultiAgent.AspNetCore.EndpointMapping.MultiAgentWorkflowListResponse \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.MultiAgent.AspNetCore.EndpointMapping.MultiAgentWorkflowListResponse? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.MultiAgent.AspNetCore.EndpointMapping.MultiAgentWorkflowSummaryDto\u003E Workflows { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.MultiAgent.AspNetCore.EndpointMapping.MultiAgentWorkflowSummaryDto",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.Agent.MultiAgent.AspNetCore.EndpointMapping.MultiAgentWorkflowSummaryDto\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.Agent.MultiAgent.AspNetCore.EndpointMapping.MultiAgentWorkflowSummaryDto \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.MultiAgent.AspNetCore.EndpointMapping.MultiAgentWorkflowSummaryDto? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]System.Int32 DefinitionVersion { get; init; }",
+        "System.String[]System.String GraphChecksum { get; init; }",
+        "System.String[]System.String GraphVersion { get; init; }",
+        "System.String[]System.String WorkflowId { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentAspNetCoreServiceCollectionExtensions",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [
+        "System.String[]System.String[]static Microsoft.Extensions.DependencyInjection.IServiceCollection AddHPDMultiAgentAspNetCore(System.String[]Microsoft.Extensions.DependencyInjection.IServiceCollection services)"
+      ],
+      "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentEndpointOptions",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [],
+      "Properties": [
+        "System.String[]System.Action\u003CMicrosoft.AspNetCore.Routing.RouteGroupBuilder\u003E? ConfigureRoutes { get; set; }",
+        "System.String[]System.String RoutePrefix { get; set; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentEndpointRouteBuilderExtensions",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [
+        "System.String[]System.String[]static Microsoft.AspNetCore.Routing.RouteGroupBuilder MapHPDMultiAgentApi(System.String[]Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints)",
+        "System.String[]System.String[]static Microsoft.AspNetCore.Routing.RouteGroupBuilder MapHPDMultiAgentApi(System.String[]Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints,System.String[]System.Action\u003CHPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentEndpointOptions\u003E? configure)",
+        "System.String[]System.String[]static Microsoft.AspNetCore.Routing.RouteGroupBuilder MapHPDMultiAgentApi(System.String[]Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints,System.String[]System.String routePrefix)"
+      ],
+      "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentHttpHeaders",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [],
+      "Properties": [],
+      "Fields": [
+        "System.String[]const System.String IdempotencyKey = \u0022Idempotency-Key\u0022"
+      ],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentRunAdmission",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentRunAdmission\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentRunAdmission \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentRunAdmission? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]System.String ActivationId { get; init; }",
+        "System.String[]System.String Disposition { get; init; }",
+        "System.String[]System.String ExecutionId { get; init; }",
+        "System.String[]System.String State { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentRunCommand",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentRunCommand\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentRunCommand \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentRunCommand? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]System.Nullable\u003CSystem.DateTimeOffset\u003E? DueAt { get; init; }",
+        "System.String[]System.String IdempotencyKey { get; init; }",
+        "System.String[]System.String WorkflowId { get; init; }",
+        "System.String[]System.String? ExecutionId { get; init; }",
+        "System.String[]System.Text.Json.JsonElement Input { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentRunSubmission",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentRunSubmission\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentRunSubmission \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentRunSubmission? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()",
+        "System.String[]System.String[]static HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentRunSubmission Accepted(System.String[]HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentRunAdmission admission)",
+        "System.String[]System.String[]static HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentRunSubmission Failed(System.String[]System.Int32 statusCode,System.String[]System.String errorCode)"
+      ],
+      "Properties": [
+        "System.String[]HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentRunAdmission? Admission { get; init; }",
+        "System.String[]System.Boolean IsSuccess { get; }",
+        "System.String[]System.Int32 StatusCode { get; init; }",
+        "System.String[]System.String? ErrorCode { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentWorkflow",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentWorkflow\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentWorkflow \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentWorkflow? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]System.Int32 DefinitionVersion { get; init; }",
+        "System.String[]System.String Checksum { get; init; }",
+        "System.String[]System.String WorkflowId { get; init; }",
+        "System.String[]System.String WorkflowVersion { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.MultiAgent.AspNetCore.IHPDMultiAgentWorkflowBackend",
+      "Attributes": [],
+      "BaseType": null,
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [
+        "System.String[]System.String[]abstract System.Threading.Tasks.ValueTask\u003CHPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentRunSubmission\u003E EnqueueAsync(System.String[]HPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentRunCommand command,System.String[]Microsoft.AspNetCore.Http.HttpContext context,System.String[]System.Threading.CancellationToken cancellationToken)"
+      ],
+      "Properties": [
+        "System.String[]System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.MultiAgent.AspNetCore.HPDMultiAgentWorkflow\u003E Workflows { get; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.MultiAgent.HpdBase.HPDMultiAgentHpdBaseServiceCollectionExtensions",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [
+        "System.String[]System.String[]static Microsoft.Extensions.DependencyInjection.IServiceCollection AddHPDMultiAgentHpdBase(System.String[]Microsoft.Extensions.DependencyInjection.IServiceCollection services,System.String[]params HPD.Graph.Base.BaseGraphActivationDefinition[] graphs)"
+      ],
+      "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.Serialization.HPD_Agent_MultiAgentGeneratedAgentEventModule",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [],
+      "Properties": [
+        "System.String[]static HPD.Agent.Serialization.AgentEventModuleFragment Fragment { get; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.AgentNodeOptions",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions OnErrorFallback(System.String[]System.String fallbackAgentId,System.String[]HPD.MultiAgent.Config.ErrorMode exhaustionMode)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions OnErrorIsolate()",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions OnErrorSkipDependents()",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions OnErrorStop()",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions RequiresApproval(System.String[]HPD.MultiAgent.Config.ApprovalConfig config)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions RequiresApproval(System.String[]System.Func\u003CHPD.MultiAgent.Config.ApprovalContext,System.Boolean\u003E when,System.String[]System.Func\u003CHPD.MultiAgent.Config.ApprovalContext,System.String\u003E? message = null,System.String[]System.Nullable\u003CSystem.TimeSpan\u003E? timeout = null)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions RequiresApproval(System.String[]System.String message = \u0022Approval required\u0022,System.String[]System.Nullable\u003CSystem.TimeSpan\u003E? timeout = null)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions RequiresApprovalWhen(System.String[]System.String field,System.String[]System.Object value,System.String[]System.String? message = null)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions RequiresApprovalWhenExists(System.String[]System.String field,System.String[]System.String? message = null)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions StructuredOutput\u003CT\u003E(System.String[]HPD.MultiAgent.StructuredOutputMode mode = Native)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions UnionOutput\u003CT1,T2,T3,T4,T5\u003E(System.String[]HPD.MultiAgent.StructuredOutputMode mode = Native)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions UnionOutput\u003CT1,T2,T3,T4\u003E(System.String[]HPD.MultiAgent.StructuredOutputMode mode = Native)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions UnionOutput\u003CT1,T2,T3\u003E(System.String[]HPD.MultiAgent.StructuredOutputMode mode = Native)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions UnionOutput\u003CT1,T2\u003E(System.String[]HPD.MultiAgent.StructuredOutputMode mode = Native)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions WithHandoff(System.String[]System.String targetId,System.String[]System.String description)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions WithHandoffs(System.String[]params System.ValueTuple\u003CSystem.String,System.String\u003E[] handoffs)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions WithInputKey(System.String[]System.String key)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions WithInputTemplate(System.String[]System.String template)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions WithOutputKey(System.String[]System.String key)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions WithRetry(System.String[]HPD.Graph.Abstractions.Graph.RetryPolicy policy)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions WithRetry(System.String[]System.Int32 maxAttempts,System.String[]HPD.Graph.Abstractions.Graph.BackoffStrategy strategy = Exponential)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions WithRetryTransient(System.String[]System.Int32 maxAttempts,System.String[]HPD.Graph.Abstractions.Graph.BackoffStrategy strategy = Exponential)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions WithTimeout(System.String[]System.TimeSpan timeout)"
+      ],
+      "Properties": [
+        "System.String[]HPD.Agent.AgentClientInheritance ClientInheritance { get; set; }",
+        "System.String[]HPD.Agent.AgentRunConfig RunConfig { get; set; }",
+        "System.String[]HPD.Graph.Abstractions.Graph.RetryPolicy? RetryPolicy { get; set; }",
+        "System.String[]HPD.MultiAgent.AgentOutputMode OutputMode { get; set; }",
+        "System.String[]HPD.MultiAgent.Config.ApprovalConfig? Approval { get; set; }",
+        "System.String[]HPD.MultiAgent.Config.ErrorMode ErrorMode { get; set; }",
+        "System.String[]HPD.MultiAgent.StructuredOutputMode StructuredOutputMode { get; set; }",
+        "System.String[]System.Boolean RecoveryOnly { get; set; }",
+        "System.String[]System.Collections.Generic.Dictionary\u003CSystem.String,System.String\u003E? HandoffTargets { get; set; }",
+        "System.String[]System.Collections.Generic.Dictionary\u003CSystem.String,System.String\u003E? Metadata { get; set; }",
+        "System.String[]System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? AffectedNodes { get; set; }",
+        "System.String[]System.Nullable\u003CHPD.MultiAgent.Config.ErrorMode\u003E? ExhaustionMode { get; set; }",
+        "System.String[]System.Nullable\u003CSystem.Int32\u003E? MaxConcurrentExecutions { get; set; }",
+        "System.String[]System.Nullable\u003CSystem.TimeSpan\u003E? Timeout { get; set; }",
+        "System.String[]System.String? FallbackAgentId { get; set; }",
+        "System.String[]System.String? InputKey { get; set; }",
+        "System.String[]System.String? InputTemplate { get; set; }",
+        "System.String[]System.String? OutputKey { get; set; }",
+        "System.String[]System.Type? StructuredType { get; set; }",
+        "System.String[]System.Type[]? UnionTypes { get; set; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.AgentOutputMode",
+      "Attributes": [],
+      "BaseType": "System.Enum",
+      "Interfaces": [
+        "System.IComparable",
+        "System.IConvertible",
+        "System.IFormattable",
+        "System.ISpanFormattable"
+      ],
+      "Constructors": [],
+      "Methods": [],
+      "Properties": [],
+      "Fields": [
+        "System.String[]System.Int32 value__",
+        "System.String[]const HPD.MultiAgent.AgentOutputMode Handoff = 3",
+        "System.String[]const HPD.MultiAgent.AgentOutputMode String = 0",
+        "System.String[]const HPD.MultiAgent.AgentOutputMode Structured = 1",
+        "System.String[]const HPD.MultiAgent.AgentOutputMode Union = 2"
+      ],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.AgentWorkflow",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [
+        "System.String[]System.String[]static HPD.MultiAgent.MultiAgent Create()",
+        "System.String[]System.String[]static HPD.MultiAgent.MultiAgent FromFile(System.String[]System.String path)",
+        "System.String[]System.String[]static HPD.MultiAgent.MultiAgent FromFile(System.String[]System.String path,System.String[]HPD.MultiAgent.WorkflowHostBinding host)"
+      ],
+      "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.AgentWorkflowInstance",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "HPD.Agent.IMultiAgentWorkflow"
+      ],
+      "Constructors": [],
+      "Methods": [
+        "System.String[]System.String[]System.Collections.Generic.IAsyncEnumerable\u003CHPD.Events.Event\u003E ExecuteStreamingAsync(System.String[]System.String input,System.String[]HPD.Events.IEventCoordinator? parentCoordinator,System.String[]HPD.Agent.AgentMetadata? parentAgentMetadata,System.String[]System.Threading.CancellationToken cancellationToken = null)",
+        "System.String[]System.String[]System.Collections.Generic.IAsyncEnumerable\u003CHPD.Events.Event\u003E ExecuteStreamingAsync(System.String[]System.String input,System.String[]HPD.Events.IEventCoordinator? parentCoordinator,System.String[]System.Threading.CancellationToken cancellationToken = null)",
+        "System.String[]System.String[]System.Collections.Generic.IAsyncEnumerable\u003CHPD.Events.Event\u003E ExecuteStreamingAsync(System.String[]System.String input,System.String[]HPD.MultiAgent.WorkflowEventCoordinator coordinator,System.String[]System.Threading.CancellationToken cancellationToken = null)",
+        "System.String[]System.String[]System.Collections.Generic.IAsyncEnumerable\u003CHPD.Events.Event\u003E ExecuteStreamingAsync(System.String[]System.String input,System.String[]System.Threading.CancellationToken cancellationToken = null)",
+        "System.String[]System.String[]System.IDisposable Subscribe\u003CTEvent\u003E where TEvent : HPD.Events.Event(System.String[]System.Action\u003CTEvent\u003E handler)",
+        "System.String[]System.String[]System.IDisposable Subscribe\u003CTEvent\u003E where TEvent : HPD.Events.Event(System.String[]System.Func\u003CTEvent,System.Threading.Tasks.Task\u003E handler)",
+        "System.String[]System.String[]System.IDisposable Subscribe\u003CTEvent\u003E where TEvent : HPD.Events.Event(System.String[]System.Func\u003CTEvent,System.Threading.Tasks.ValueTask\u003E handler)",
+        "System.String[]System.String[]System.IDisposable SubscribeAny(System.String[]System.Action\u003CHPD.Events.Event\u003E handler)",
+        "System.String[]System.String[]System.IDisposable SubscribeAny(System.String[]System.Func\u003CHPD.Events.Event,System.Threading.Tasks.Task\u003E handler)",
+        "System.String[]System.String[]System.IDisposable SubscribeAny(System.String[]System.Func\u003CHPD.Events.Event,System.Threading.Tasks.ValueTask\u003E handler)",
+        "System.String[]System.String[]System.String ExportConfig(System.String[]HPD.Serialization.HpdConfigFormat format)",
+        "System.String[]System.String[]System.String ExportConfigJson()",
+        "System.String[]System.String[]System.String ExportConfigYaml()",
+        "System.String[]System.String[]System.String ToDiagram()",
+        "System.String[]System.String[]System.Threading.Tasks.Task\u003CHPD.MultiAgent.WorkflowResult\u003E RunAsync(System.String[]System.String input,System.String[]System.Threading.CancellationToken cancellationToken = null)"
+      ],
+      "Properties": [
+        "System.String[]HPD.Graph.Abstractions.Graph.Graph Graph { get; }",
+        "System.String[]HPD.MultiAgent.WorkflowEventCoordinator Events { get; }",
+        "System.String[]System.String WorkflowName { get; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.ApprovalWorkflowExtensions",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [
+        "System.String[]System.String[]static HPD.Events.RespondResult Approve(System.String[]HPD.Events.IEventCoordinator coordinator,System.String[]System.String requestId,System.String[]System.String? reason = null,System.String[]System.Object? resumeData = null)",
+        "System.String[]System.String[]static HPD.Events.RespondResult Deny(System.String[]HPD.Events.IEventCoordinator coordinator,System.String[]System.String requestId,System.String[]System.String reason = \u0022Denied by user\u0022)",
+        "System.String[]System.String[]static HPD.Graph.Abstractions.Events.NodeApprovalResponseEvent CreateApprovalResponse(System.String[]System.String requestId,System.String[]System.Boolean approved,System.String[]System.String? reason = null,System.String[]System.Object? resumeData = null)"
+      ],
+      "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Config.AgentNodeConfig",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.MultiAgent.Config.AgentNodeConfig\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.Config.AgentNodeConfig \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.Config.AgentNodeConfig? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]HPD.Agent.AgentClientInheritance? ClientInheritance { get; init; }",
+        "System.String[]HPD.Agent.AgentConfig? Agent { get; init; }",
+        "System.String[]HPD.Agent.AgentRunConfig? RunConfig { get; init; }",
+        "System.String[]HPD.MultiAgent.AgentOutputMode OutputMode { get; init; }",
+        "System.String[]HPD.MultiAgent.Config.ErrorConfig? OnError { get; init; }",
+        "System.String[]HPD.MultiAgent.Config.RetryConfig? Retry { get; init; }",
+        "System.String[]HPD.MultiAgent.StructuredOutputMode StructuredOutputMode { get; init; }",
+        "System.String[]System.Boolean RecoveryOnly { get; init; }",
+        "System.String[]System.Collections.Generic.Dictionary\u003CSystem.String,System.String\u003E? HandoffTargets { get; init; }",
+        "System.String[]System.Collections.Generic.Dictionary\u003CSystem.String,System.String\u003E? Metadata { get; init; }",
+        "System.String[]System.Collections.Generic.List\u003CSystem.String\u003E? UnionTypeNames { get; init; }",
+        "System.String[]System.Nullable\u003CSystem.Int32\u003E? MaxConcurrent { get; init; }",
+        "System.String[]System.Nullable\u003CSystem.TimeSpan\u003E? Timeout { get; init; }",
+        "System.String[]System.String? AgentFile { get; init; }",
+        "System.String[]System.String? InputKey { get; init; }",
+        "System.String[]System.String? InputTemplate { get; init; }",
+        "System.String[]System.String? OutputKey { get; init; }",
+        "System.String[]System.String? StructuredOutputType { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Config.ApprovalConfig",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.MultiAgent.Config.ApprovalConfig\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.Config.ApprovalConfig \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.Config.ApprovalConfig? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]HPD.MultiAgent.Config.ApprovalTimeoutBehavior TimeoutBehavior { get; init; }",
+        "System.String[]System.Func\u003CHPD.MultiAgent.Config.ApprovalContext,System.Boolean\u003E? Condition { get; init; }",
+        "System.String[]System.Func\u003CHPD.MultiAgent.Config.ApprovalContext,System.String\u003E? Description { get; init; }",
+        "System.String[]System.Func\u003CHPD.MultiAgent.Config.ApprovalContext,System.String\u003E? Message { get; init; }",
+        "System.String[]System.TimeSpan Timeout { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Config.ApprovalContext",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]System.Boolean HasOutput(System.String[]System.String key)",
+        "System.String[]System.String[]T? GetOutput\u003CT\u003E(System.String[]System.String key)"
+      ],
+      "Properties": [
+        "System.String[]System.Collections.Generic.IReadOnlyDictionary\u003CSystem.String,System.Object\u003E Outputs { get; init; }",
+        "System.String[]System.Collections.Generic.IReadOnlyDictionary\u003CSystem.String,System.Object\u003E? WorkflowData { get; init; }",
+        "System.String[]System.String NodeId { get; init; }",
+        "System.String[]System.String? OriginalInput { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Config.ApprovalTimeoutBehavior",
+      "Attributes": [],
+      "BaseType": "System.Enum",
+      "Interfaces": [
+        "System.IComparable",
+        "System.IConvertible",
+        "System.IFormattable",
+        "System.ISpanFormattable"
+      ],
+      "Constructors": [],
+      "Methods": [],
+      "Properties": [],
+      "Fields": [
+        "System.String[]System.Int32 value__",
+        "System.String[]const HPD.MultiAgent.Config.ApprovalTimeoutBehavior AutoApprove = 1",
+        "System.String[]const HPD.MultiAgent.Config.ApprovalTimeoutBehavior Deny = 0",
+        "System.String[]const HPD.MultiAgent.Config.ApprovalTimeoutBehavior SuspendIndefinitely = 2"
+      ],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Config.ConditionConfig",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.MultiAgent.Config.ConditionConfig\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.Config.ConditionConfig \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.Config.ConditionConfig? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]HPD.Graph.Abstractions.Graph.ConditionType Type { get; init; }",
+        "System.String[]System.Collections.Generic.List\u003CHPD.MultiAgent.Config.ConditionConfig\u003E? Conditions { get; init; }",
+        "System.String[]System.Nullable\u003CSystem.Text.Json.JsonElement\u003E? Value { get; init; }",
+        "System.String[]System.String? Field { get; init; }",
+        "System.String[]System.String? RegexOptions { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Config.EdgeConfig",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.MultiAgent.Config.EdgeConfig\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.Config.EdgeConfig \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.Config.EdgeConfig? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]HPD.MultiAgent.Config.ConditionConfig? When { get; init; }",
+        "System.String[]System.String From { get; init; }",
+        "System.String[]System.String To { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Config.ErrorConfig",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.MultiAgent.Config.ErrorConfig\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.Config.ErrorConfig \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.Config.ErrorConfig? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]HPD.MultiAgent.Config.ErrorMode Mode { get; init; }",
+        "System.String[]System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? AffectedNodes { get; init; }",
+        "System.String[]System.Nullable\u003CHPD.MultiAgent.Config.ErrorMode\u003E? ExhaustionMode { get; init; }",
+        "System.String[]System.String? FallbackAgent { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Config.ErrorMode",
+      "Attributes": [],
+      "BaseType": "System.Enum",
+      "Interfaces": [
+        "System.IComparable",
+        "System.IConvertible",
+        "System.IFormattable",
+        "System.ISpanFormattable"
+      ],
+      "Constructors": [],
+      "Methods": [],
+      "Properties": [],
+      "Fields": [
+        "System.String[]System.Int32 value__",
+        "System.String[]const HPD.MultiAgent.Config.ErrorMode Fallback = 3",
+        "System.String[]const HPD.MultiAgent.Config.ErrorMode Isolate = 2",
+        "System.String[]const HPD.MultiAgent.Config.ErrorMode SkipDependents = 1",
+        "System.String[]const HPD.MultiAgent.Config.ErrorMode Stop = 0"
+      ],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Config.IterationOptionsConfig",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.MultiAgent.Config.IterationOptionsConfig\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.Config.IterationOptionsConfig \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.Config.IterationOptionsConfig? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]System.Boolean EnableAutoConvergence { get; init; }",
+        "System.String[]System.Collections.Generic.List\u003CSystem.String\u003E? AlwaysDirtyNodes { get; init; }",
+        "System.String[]System.Collections.Generic.List\u003CSystem.String\u003E? IgnoreFieldsForChangeDetection { get; init; }",
+        "System.String[]System.Int32 MaxIterations { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Config.MultiAgentWorkflowConfig",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.MultiAgent.Config.MultiAgentWorkflowConfig\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.Config.MultiAgentWorkflowConfig \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.Config.MultiAgentWorkflowConfig? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]HPD.MultiAgent.Config.WorkflowSettingsConfig Settings { get; init; }",
+        "System.String[]System.Collections.Generic.Dictionary\u003CSystem.String,HPD.MultiAgent.Config.AgentNodeConfig\u003E Agents { get; init; }",
+        "System.String[]System.Collections.Generic.List\u003CHPD.MultiAgent.Config.EdgeConfig\u003E Edges { get; init; }",
+        "System.String[]System.String Name { get; init; }",
+        "System.String[]System.String Version { get; init; }",
+        "System.String[]System.String? Description { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Config.RetryConfig",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.MultiAgent.Config.RetryConfig\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.Config.RetryConfig \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.Config.RetryConfig? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]HPD.Graph.Abstractions.Graph.BackoffStrategy Strategy { get; init; }",
+        "System.String[]System.Boolean OnlyTransient { get; init; }",
+        "System.String[]System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? RetryableExceptionTypeNames { get; init; }",
+        "System.String[]System.Int32 MaxAttempts { get; init; }",
+        "System.String[]System.Nullable\u003CSystem.TimeSpan\u003E? MaxDelay { get; init; }",
+        "System.String[]System.TimeSpan InitialDelay { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Config.StreamingMode",
+      "Attributes": [],
+      "BaseType": "System.Enum",
+      "Interfaces": [
+        "System.IComparable",
+        "System.IConvertible",
+        "System.IFormattable",
+        "System.ISpanFormattable"
+      ],
+      "Constructors": [],
+      "Methods": [],
+      "Properties": [],
+      "Fields": [
+        "System.String[]System.Int32 value__",
+        "System.String[]const HPD.MultiAgent.Config.StreamingMode PerLayer = 1",
+        "System.String[]const HPD.MultiAgent.Config.StreamingMode PerNode = 0"
+      ],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Config.WorkflowSettingsConfig",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.MultiAgent.Config.WorkflowSettingsConfig\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.Config.WorkflowSettingsConfig \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.Config.WorkflowSettingsConfig? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]HPD.MultiAgent.Config.IterationOptionsConfig? IterationOptions { get; init; }",
+        "System.String[]HPD.MultiAgent.Config.StreamingMode StreamingMode { get; init; }",
+        "System.String[]HPD.MultiAgent.MultiAgentConversationConfig Conversation { get; init; }",
+        "System.String[]System.Boolean EnableMetrics { get; init; }",
+        "System.String[]System.Int32 MaxIterations { get; init; }",
+        "System.String[]System.Nullable\u003CSystem.Int32\u003E? MaxConcurrency { get; init; }",
+        "System.String[]System.Nullable\u003CSystem.TimeSpan\u003E? DefaultTimeout { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.IMultiAgentFactory",
+      "Attributes": [],
+      "BaseType": null,
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [
+        "System.String[]System.String[]abstract HPD.MultiAgent.MultiAgent CreateBuilder(System.String[]HPD.MultiAgent.Config.MultiAgentWorkflowConfig config)",
+        "System.String[]System.String[]abstract HPD.MultiAgent.MultiAgent CreateBuilderFromFile(System.String[]System.String path)",
+        "System.String[]System.String[]abstract System.Threading.Tasks.Task\u003CHPD.MultiAgent.AgentWorkflowInstance\u003E BuildAsync(System.String[]HPD.MultiAgent.Config.MultiAgentWorkflowConfig config,System.String[]System.Threading.CancellationToken cancellationToken = null)",
+        "System.String[]System.String[]abstract System.Threading.Tasks.Task\u003CHPD.MultiAgent.AgentWorkflowInstance\u003E BuildFromFileAsync(System.String[]System.String path,System.String[]System.Threading.CancellationToken cancellationToken = null)"
+      ],
+      "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.LogLevel",
+      "Attributes": [],
+      "BaseType": "System.Enum",
+      "Interfaces": [
+        "System.IComparable",
+        "System.IConvertible",
+        "System.IFormattable",
+        "System.ISpanFormattable"
+      ],
+      "Constructors": [],
+      "Methods": [],
+      "Properties": [],
+      "Fields": [
+        "System.String[]System.Int32 value__",
+        "System.String[]const HPD.MultiAgent.LogLevel Critical = 5",
+        "System.String[]const HPD.MultiAgent.LogLevel Debug = 1",
+        "System.String[]const HPD.MultiAgent.LogLevel Error = 4",
+        "System.String[]const HPD.MultiAgent.LogLevel Information = 2",
+        "System.String[]const HPD.MultiAgent.LogLevel Trace = 0",
+        "System.String[]const HPD.MultiAgent.LogLevel Warning = 3"
+      ],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.MultiAgent",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.MultiAgent AddAgent(System.String[]System.String id,System.String[]HPD.Agent.Agent agent,System.String[]System.Action\u003CHPD.MultiAgent.AgentNodeOptions\u003E? configure = null)",
+        "System.String[]System.String[]HPD.MultiAgent.MultiAgent AddAgent(System.String[]System.String id,System.String[]HPD.Agent.AgentConfig config,System.String[]System.Action\u003CHPD.MultiAgent.AgentNodeOptions\u003E? configure = null)",
+        "System.String[]System.String[]HPD.MultiAgent.MultiAgent AddAgent(System.String[]System.String id,System.String[]System.Action\u003CHPD.Agent.AgentBuilder\u003E configureAgent,System.String[]System.Action\u003CHPD.MultiAgent.AgentNodeOptions\u003E? configureNode = null)",
+        "System.String[]System.String[]HPD.MultiAgent.MultiAgent WithConversation(System.String[]HPD.MultiAgent.MultiAgentConversationConfig conversation)",
+        "System.String[]System.String[]HPD.MultiAgent.MultiAgent WithFileSessionStore(System.String[]System.String rootDirectory,System.String[]HPD.Agent.Serialization.AgentEventComposition eventComposition)",
+        "System.String[]System.String[]HPD.MultiAgent.MultiAgent WithHost(System.String[]HPD.MultiAgent.WorkflowHostBinding host)",
+        "System.String[]System.String[]HPD.MultiAgent.MultiAgent WithInMemorySessionStore(System.String[]HPD.Agent.Serialization.AgentEventComposition eventComposition)",
+        "System.String[]System.String[]HPD.MultiAgent.MultiAgent WithMaxIterations(System.String[]System.Int32 maxIterations)",
+        "System.String[]System.String[]HPD.MultiAgent.MultiAgent WithName(System.String[]System.String name)",
+        "System.String[]System.String[]HPD.MultiAgent.MultiAgent WithSessionStore(System.String[]HPD.Agent.ISessionStore store)",
+        "System.String[]System.String[]HPD.MultiAgent.MultiAgent WithTimeout(System.String[]System.TimeSpan timeout)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeBuilder From(System.String[]params System.String[] sourceNodes)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.RouterAgentBuilder AddRouterAgent(System.String[]System.String id,System.String[]HPD.Agent.Agent agent)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.RouterAgentBuilder AddRouterAgent(System.String[]System.String id,System.String[]HPD.Agent.AgentConfig config)",
+        "System.String[]System.String[]System.Threading.Tasks.Task\u003CHPD.MultiAgent.AgentWorkflowInstance\u003E BuildAsync(System.String[]System.Threading.CancellationToken cancellationToken = null)",
+        "System.String[]System.String[]static HPD.MultiAgent.MultiAgent FromFile(System.String[]System.String path)",
+        "System.String[]System.String[]static HPD.MultiAgent.MultiAgent FromFile(System.String[]System.String path,System.String[]HPD.MultiAgent.WorkflowHostBinding host)"
+      ],
+      "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.MultiAgentConversationConfig",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.MultiAgent.MultiAgentConversationConfig\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.MultiAgentConversationConfig \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.MultiAgentConversationConfig? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]HPD.MultiAgent.MultiAgentConversationMode Mode { get; init; }",
+        "System.String[]System.String RootThreadId { get; init; }",
+        "System.String[]System.String ThreadPrefix { get; init; }",
+        "System.String[]System.String? SessionId { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.MultiAgentConversationMode",
+      "Attributes": [],
+      "BaseType": "System.Enum",
+      "Interfaces": [
+        "System.IComparable",
+        "System.IConvertible",
+        "System.IFormattable",
+        "System.ISpanFormattable"
+      ],
+      "Constructors": [],
+      "Methods": [],
+      "Properties": [],
+      "Fields": [
+        "System.String[]System.Int32 value__",
+        "System.String[]const HPD.MultiAgent.MultiAgentConversationMode ForkThreadPerAgent = 3",
+        "System.String[]const HPD.MultiAgent.MultiAgentConversationMode None = 0",
+        "System.String[]const HPD.MultiAgent.MultiAgentConversationMode SharedWorkflowThread = 1",
+        "System.String[]const HPD.MultiAgent.MultiAgentConversationMode ThreadPerAgent = 2"
+      ],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.MultiAgentConversationPolicies",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [
+        "System.String[]System.String[]static HPD.MultiAgent.MultiAgentConversationConfig ForkThreadPerAgent(System.String[]System.String? sessionId = null,System.String[]System.String rootThreadId = \u0022workflow\u0022,System.String[]System.String threadPrefix = \u0022workflow-agent\u0022)",
+        "System.String[]System.String[]static HPD.MultiAgent.MultiAgentConversationConfig None()",
+        "System.String[]System.String[]static HPD.MultiAgent.MultiAgentConversationConfig SharedWorkflowThread(System.String[]System.String? sessionId = null,System.String[]System.String rootThreadId = \u0022workflow\u0022)",
+        "System.String[]System.String[]static HPD.MultiAgent.MultiAgentConversationConfig ThreadPerAgent(System.String[]System.String? sessionId = null,System.String[]System.String threadPrefix = \u0022workflow-agent\u0022)"
+      ],
+      "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.MultiAgentFactory",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "HPD.MultiAgent.IMultiAgentFactory"
+      ],
+      "Constructors": [
+        "System.String[].ctor(System.String[]HPD.MultiAgent.WorkflowHostBinding? host = null)"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.MultiAgent CreateBuilder(System.String[]HPD.MultiAgent.Config.MultiAgentWorkflowConfig config)",
+        "System.String[]System.String[]HPD.MultiAgent.MultiAgent CreateBuilderFromFile(System.String[]System.String path)",
+        "System.String[]System.String[]System.Threading.Tasks.Task\u003CHPD.MultiAgent.AgentWorkflowInstance\u003E BuildAsync(System.String[]HPD.MultiAgent.Config.MultiAgentWorkflowConfig config,System.String[]System.Threading.CancellationToken cancellationToken = null)",
+        "System.String[]System.String[]System.Threading.Tasks.Task\u003CHPD.MultiAgent.AgentWorkflowInstance\u003E BuildFromFileAsync(System.String[]System.String path,System.String[]System.Threading.CancellationToken cancellationToken = null)"
+      ],
+      "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.MultiAgentGraphBuilderExtensions",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [
+        "System.String[]System.String[]static HPD.Graph.Core.Builders.GraphBuilder AddMultiAgent(System.String[]HPD.Graph.Core.Builders.GraphBuilder builder,System.String[]System.String nodeId,System.String[]HPD.MultiAgent.AgentWorkflowInstance workflow,System.String[]System.Action\u003CHPD.Graph.Core.Builders.NodeBuilder\u003E? configure = null)",
+        "System.String[]System.String[]static HPD.Graph.Core.Builders.GraphBuilder AddMultiAgent(System.String[]HPD.Graph.Core.Builders.GraphBuilder builder,System.String[]System.String nodeId,System.String[]HPD.MultiAgent.Config.MultiAgentWorkflowConfig config,System.String[]System.Action\u003CHPD.Graph.Core.Builders.NodeBuilder\u003E? configure = null)"
+      ],
+      "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.MultiAgentGraphSerializationExtensions",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [
+        "System.String[]System.String[]static Microsoft.Extensions.DependencyInjection.IServiceCollection AddMultiAgentGraphSerialization(System.String[]Microsoft.Extensions.DependencyInjection.IServiceCollection services)"
+      ],
+      "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Observability.MetricsObserver",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [
+        "System.String[].ctor(System.String[]System.Int32 maxCompletedWorkflows = 100)"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.Observability.WorkflowMetrics? GetActiveWorkflow(System.String[]System.String executionId)",
+        "System.String[]System.String[]System.Threading.Tasks.ValueTask HandleAsync(System.String[]HPD.Events.Event evt)",
+        "System.String[]System.String[]System.Void Clear()"
+      ],
+      "Properties": [
+        "System.String[]System.Collections.Generic.IReadOnlyCollection\u003CHPD.MultiAgent.Observability.WorkflowMetrics\u003E ActiveWorkflows { get; }",
+        "System.String[]System.Collections.Generic.IReadOnlyCollection\u003CHPD.MultiAgent.Observability.WorkflowMetrics\u003E CompletedWorkflows { get; }"
+      ],
+      "Fields": [],
+      "Events": [
+        "System.String[]System.Action\u003CHPD.MultiAgent.Observability.WorkflowMetrics\u003E? OnMetricsUpdated",
+        "System.String[]System.Action\u003CHPD.MultiAgent.Observability.WorkflowMetrics\u003E? OnWorkflowCompleted"
+      ]
+    },
+    {
+      "FullName": "HPD.MultiAgent.Observability.NodeMetrics",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [],
+      "Properties": [
+        "System.String[]System.Boolean RequiredApproval { get; set; }",
+        "System.String[]System.Boolean WasSkipped { get; set; }",
+        "System.String[]System.Collections.Generic.Dictionary\u003CSystem.String,System.Object\u003E Metadata { get; }",
+        "System.String[]System.Collections.Generic.List\u003CSystem.String\u003E ToolsCalled { get; }",
+        "System.String[]System.Int32 InputTokens { get; set; }",
+        "System.String[]System.Int32 Iteration { get; set; }",
+        "System.String[]System.Int32 OutputTokens { get; set; }",
+        "System.String[]System.Int32 RetryCount { get; set; }",
+        "System.String[]System.Int32 ToolCallCount { get; set; }",
+        "System.String[]System.Int32 TotalTokens { get; }",
+        "System.String[]System.Nullable\u003CSystem.Boolean\u003E? ApprovalGranted { get; set; }",
+        "System.String[]System.Nullable\u003CSystem.Boolean\u003E? Success { get; set; }",
+        "System.String[]System.Nullable\u003CSystem.DateTimeOffset\u003E? CompletedAt { get; set; }",
+        "System.String[]System.Nullable\u003CSystem.DateTimeOffset\u003E? StartedAt { get; set; }",
+        "System.String[]System.Nullable\u003CSystem.TimeSpan\u003E? ApprovalWaitTime { get; set; }",
+        "System.String[]System.Nullable\u003CSystem.TimeSpan\u003E? Duration { get; set; }",
+        "System.String[]System.String NodeId { get; init; }",
+        "System.String[]System.String? ErrorMessage { get; set; }",
+        "System.String[]System.String? SkipReason { get; set; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Observability.SpanInfo",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.MultiAgent.Observability.SpanInfo\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.Observability.SpanInfo \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.Observability.SpanInfo? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]HPD.MultiAgent.Observability.SpanStatus Status { get; init; }",
+        "System.String[]System.Collections.Generic.Dictionary\u003CSystem.String,System.Object\u003E Tags { get; init; }",
+        "System.String[]System.DateTimeOffset StartTime { get; init; }",
+        "System.String[]System.Nullable\u003CSystem.DateTimeOffset\u003E? EndTime { get; init; }",
+        "System.String[]System.Nullable\u003CSystem.TimeSpan\u003E? Duration { get; }",
+        "System.String[]System.String OperationName { get; init; }",
+        "System.String[]System.String SpanId { get; init; }",
+        "System.String[]System.String TraceId { get; init; }",
+        "System.String[]System.String? ErrorMessage { get; init; }",
+        "System.String[]System.String? ParentSpanId { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Observability.SpanStatus",
+      "Attributes": [],
+      "BaseType": "System.Enum",
+      "Interfaces": [
+        "System.IComparable",
+        "System.IConvertible",
+        "System.IFormattable",
+        "System.ISpanFormattable"
+      ],
+      "Constructors": [],
+      "Methods": [],
+      "Properties": [],
+      "Fields": [
+        "System.String[]System.Int32 value__",
+        "System.String[]const HPD.MultiAgent.Observability.SpanStatus Error = 2",
+        "System.String[]const HPD.MultiAgent.Observability.SpanStatus Ok = 1",
+        "System.String[]const HPD.MultiAgent.Observability.SpanStatus Unset = 0"
+      ],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Observability.TracingObserver",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [
+        "System.String[].ctor()",
+        "System.String[].ctor(System.String[]System.Diagnostics.ActivitySource activitySource)"
+      ],
+      "Methods": [
+        "System.String[]System.String[]System.Threading.Tasks.ValueTask HandleAsync(System.String[]HPD.Events.Event evt)",
+        "System.String[]System.String[]System.Void Dispose()"
+      ],
+      "Properties": [
+        "System.String[]System.Diagnostics.ActivitySource ActivitySource { get; }"
+      ],
+      "Fields": [
+        "System.String[]const System.String ActivitySourceName = \u0022HPD.MultiAgent\u0022"
+      ],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Observability.WorkflowMetrics",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.Observability.NodeMetrics GetOrCreateNodeMetrics(System.String[]System.String nodeId)"
+      ],
+      "Properties": [
+        "System.String[]System.Collections.Concurrent.ConcurrentDictionary\u003CSystem.String,HPD.MultiAgent.Observability.NodeMetrics\u003E NodeMetrics { get; }",
+        "System.String[]System.Collections.Generic.Dictionary\u003CSystem.String,System.String\u003E Tags { get; }",
+        "System.String[]System.DateTimeOffset StartedAt { get; init; }",
+        "System.String[]System.Int32 FailedNodes { get; }",
+        "System.String[]System.Int32 IterationCount { get; set; }",
+        "System.String[]System.Int32 SkippedNodes { get; }",
+        "System.String[]System.Int32 SuccessfulNodes { get; }",
+        "System.String[]System.Int32 TotalInputTokens { get; }",
+        "System.String[]System.Int32 TotalNodesExecuted { get; }",
+        "System.String[]System.Int32 TotalOutputTokens { get; }",
+        "System.String[]System.Int32 TotalTokens { get; }",
+        "System.String[]System.Int32 TotalToolCalls { get; }",
+        "System.String[]System.Nullable\u003CSystem.Boolean\u003E? Success { get; set; }",
+        "System.String[]System.Nullable\u003CSystem.DateTimeOffset\u003E? CompletedAt { get; set; }",
+        "System.String[]System.String ExecutionId { get; init; }",
+        "System.String[]System.String? ErrorMessage { get; set; }",
+        "System.String[]System.String? WorkflowName { get; init; }",
+        "System.String[]System.TimeSpan Duration { get; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.RemoteAgentFamilySelectionDto",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.MultiAgent.RemoteAgentFamilySelectionDto\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.Agent.ProviderClientConfig Bind(System.String[]HPD.Agent.Providers.ProviderComposition providerComposition)",
+        "System.String[]System.String[]HPD.MultiAgent.RemoteAgentFamilySelectionDto \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.RemoteAgentFamilySelectionDto? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()",
+        "System.String[]System.String[]static HPD.MultiAgent.RemoteAgentFamilySelectionDto Create(System.String[]HPD.Agent.Providers.ProviderClientFamily family,System.String[]HPD.Agent.ProviderClientConfig configuration,System.String[]HPD.Agent.Providers.ProviderComposition providerComposition,System.String[]HPD.Agent.AgentInvocationDeadline? deadline = null)"
+      ],
+      "Properties": [
+        "System.String[]HPD.Agent.AgentInvocationDeadline? Deadline { get; init; }",
+        "System.String[]HPD.Agent.Providers.ProviderClientFamily Family { get; init; }",
+        "System.String[]System.Int32 SchemaVersion { get; init; }",
+        "System.String[]System.Text.Json.Nodes.JsonObject Selection { get; init; }"
+      ],
+      "Fields": [
+        "System.String[]const System.Int32 CurrentSchemaVersion = 1"
+      ],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Routing.Condition",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [
+        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition Always()",
+        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition And(System.String[]params HPD.Graph.Abstractions.Graph.EdgeCondition[] conditions)",
+        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition Contains(System.String[]System.String field,System.String[]System.Object value)",
+        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition ContainsAll(System.String[]System.String field,System.String[]params System.Object[] values)",
+        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition ContainsAny(System.String[]System.String field,System.String[]params System.Object[] values)",
+        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition EndsWith(System.String[]System.String field,System.String[]System.String suffix)",
+        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition Equals(System.String[]System.String field,System.String[]System.Object value)",
+        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition Exists(System.String[]System.String field)",
+        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition GreaterThan(System.String[]System.String field,System.String[]System.Object value)",
+        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition IsEmpty(System.String[]System.String field)",
+        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition IsNotEmpty(System.String[]System.String field)",
+        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition LessThan(System.String[]System.String field,System.String[]System.Object value)",
+        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition MatchesRegex(System.String[]System.String field,System.String[]System.String pattern,System.String[]System.Text.RegularExpressions.RegexOptions options = None)",
+        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition Not(System.String[]HPD.Graph.Abstractions.Graph.EdgeCondition condition)",
+        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition NotEquals(System.String[]System.String field,System.String[]System.Object value)",
+        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition NotExists(System.String[]System.String field)",
+        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition Or(System.String[]params HPD.Graph.Abstractions.Graph.EdgeCondition[] conditions)",
+        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition StartsWith(System.String[]System.String field,System.String[]System.String prefix)"
+      ],
+      "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Routing.EdgeBuilder",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder To(System.String[]params System.String[] targetNodes)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.TypeRouteBuilder RouteByType()"
+      ],
+      "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Routing.EdgeConditionContext",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [
+        "System.String[]System.String[]System.Boolean HasKey(System.String[]System.String key)",
+        "System.String[]System.String[]T? Get\u003CT\u003E(System.String[]System.String key)"
+      ],
+      "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Routing.EdgeTargetBuilder",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeBuilder From(System.String[]params System.String[] sourceNodes)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder AsDefault()",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder When(System.String[]HPD.Graph.Abstractions.Graph.EdgeCondition condition)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder When(System.String[]System.Func\u003CHPD.MultiAgent.Routing.EdgeConditionContext,System.Boolean\u003E predicate)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder WhenContains(System.String[]System.String field,System.String[]System.Object value)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder WhenContainsAll(System.String[]System.String field,System.String[]params System.Object[] values)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder WhenContainsAny(System.String[]System.String field,System.String[]params System.Object[] values)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder WhenEmpty(System.String[]System.String field)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder WhenEndsWith(System.String[]System.String field,System.String[]System.String suffix)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder WhenEquals(System.String[]System.String field,System.String[]System.Object value)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder WhenExists(System.String[]System.String field)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder WhenGreaterThan(System.String[]System.String field,System.String[]System.Object value)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder WhenLessThan(System.String[]System.String field,System.String[]System.Object value)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder WhenMatchesRegex(System.String[]System.String field,System.String[]System.String pattern,System.String[]System.Text.RegularExpressions.RegexOptions options = None)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder WhenNotEmpty(System.String[]System.String field)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder WhenNotEquals(System.String[]System.String field,System.String[]System.Object value)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder WhenNotExists(System.String[]System.String field)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder WhenStartsWith(System.String[]System.String field,System.String[]System.String prefix)",
+        "System.String[]System.String[]System.Threading.Tasks.Task\u003CHPD.MultiAgent.AgentWorkflowInstance\u003E BuildAsync(System.String[]System.Threading.CancellationToken cancellationToken = null)"
+      ],
+      "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Routing.RouterAgentBuilder",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.MultiAgent AddAgent(System.String[]System.String id,System.String[]HPD.Agent.AgentConfig config,System.String[]System.Action\u003CHPD.MultiAgent.AgentNodeOptions\u003E? configure = null)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeBuilder From(System.String[]params System.String[] sourceNodes)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.RouterAgentBuilder AddRouterAgent(System.String[]System.String id,System.String[]HPD.Agent.AgentConfig config)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.RouterAgentBuilder Configure(System.String[]System.Action\u003CHPD.MultiAgent.AgentNodeOptions\u003E configure)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.RouterAgentBuilder WithDefaultHandoff(System.String[]System.String targetId)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.RouterAgentBuilder WithHandoff(System.String[]System.String targetId,System.String[]System.String description)",
+        "System.String[]System.String[]System.Threading.Tasks.Task\u003CHPD.MultiAgent.AgentWorkflowInstance\u003E BuildAsync(System.String[]System.Threading.CancellationToken cancellationToken = null)"
+      ],
+      "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Routing.TypeRouteBuilder",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeBuilder From(System.String[]params System.String[] sourceNodes)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.TypeRouteBuilder Default(System.String[]System.String targetNode)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.TypeRouteBuilder When\u003CT\u003E(System.String[]System.String targetNode)",
+        "System.String[]System.String[]System.Threading.Tasks.Task\u003CHPD.MultiAgent.AgentWorkflowInstance\u003E BuildAsync(System.String[]System.Threading.CancellationToken cancellationToken = null)"
+      ],
+      "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Serialization.MultiAgentConfigSerializer",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [
+        "System.String[]System.String[]static HPD.MultiAgent.Config.MultiAgentWorkflowConfig? Deserialize(System.String[]System.String text,System.String[]HPD.Agent.Providers.ProviderComposition composition,System.String[]HPD.Serialization.HpdConfigFormat format = Json)",
+        "System.String[]System.String[]static HPD.MultiAgent.Config.MultiAgentWorkflowConfig? Deserialize(System.String[]System.String text,System.String[]HPD.Serialization.HpdConfigFormat format = Json)",
+        "System.String[]System.String[]static HPD.MultiAgent.Config.MultiAgentWorkflowConfig? ReadFile(System.String[]System.String path)",
+        "System.String[]System.String[]static HPD.MultiAgent.Config.MultiAgentWorkflowConfig? ReadFile(System.String[]System.String path,System.String[]HPD.Agent.Providers.ProviderComposition composition)",
+        "System.String[]System.String[]static System.String Serialize(System.String[]HPD.MultiAgent.Config.MultiAgentWorkflowConfig config,System.String[]HPD.Agent.Providers.ProviderComposition composition,System.String[]HPD.Serialization.HpdConfigFormat format = Json)",
+        "System.String[]System.String[]static System.String Serialize(System.String[]HPD.MultiAgent.Config.MultiAgentWorkflowConfig config,System.String[]HPD.Serialization.HpdConfigFormat format = Json)",
+        "System.String[]System.String[]static System.Threading.Tasks.ValueTask WriteFileAsync(System.String[]System.String path,System.String[]HPD.MultiAgent.Config.MultiAgentWorkflowConfig config,System.String[]HPD.Agent.Providers.ProviderComposition composition,System.String[]System.Threading.CancellationToken cancellationToken = null)",
+        "System.String[]System.String[]static System.Threading.Tasks.ValueTask WriteFileAsync(System.String[]System.String path,System.String[]HPD.MultiAgent.Config.MultiAgentWorkflowConfig config,System.String[]System.Threading.CancellationToken cancellationToken = null)",
+        "System.String[]System.String[]static System.Threading.Tasks.ValueTask\u003CHPD.MultiAgent.Config.MultiAgentWorkflowConfig\u003E ReadFileAsync(System.String[]System.String path,System.String[]HPD.Agent.Providers.ProviderComposition composition,System.String[]System.Threading.CancellationToken cancellationToken = null)",
+        "System.String[]System.String[]static System.Threading.Tasks.ValueTask\u003CHPD.MultiAgent.Config.MultiAgentWorkflowConfig\u003E ReadFileAsync(System.String[]System.String path,System.String[]System.Threading.CancellationToken cancellationToken = null)",
+        "System.String[]System.String[]static System.Void WriteFile(System.String[]System.String path,System.String[]HPD.MultiAgent.Config.MultiAgentWorkflowConfig config)",
+        "System.String[]System.String[]static System.Void WriteFile(System.String[]System.String path,System.String[]HPD.MultiAgent.Config.MultiAgentWorkflowConfig config,System.String[]HPD.Agent.Providers.ProviderComposition composition)"
+      ],
+      "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.StructuredOutputMode",
+      "Attributes": [],
+      "BaseType": "System.Enum",
+      "Interfaces": [
+        "System.IComparable",
+        "System.IConvertible",
+        "System.IFormattable",
+        "System.ISpanFormattable"
+      ],
+      "Constructors": [],
+      "Methods": [],
+      "Properties": [],
+      "Fields": [
+        "System.String[]System.Int32 value__",
+        "System.String[]const HPD.MultiAgent.StructuredOutputMode Native = 0",
+        "System.String[]const HPD.MultiAgent.StructuredOutputMode Tool = 1"
+      ],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.WorkflowAgentCompletedEvent",
+      "Attributes": [
+        "[EventTypeAttribute(\u0022WORKFLOW_AGENT_COMPLETED\u0022)]"
+      ],
+      "BaseType": "HPD.Agent.AgentEvent",
+      "Interfaces": [
+        "HPD.Events.IEvent",
+        "System.IEquatable\u003CHPD.Agent.AgentEvent\u003E",
+        "System.IEquatable\u003CHPD.Events.Event\u003E",
+        "System.IEquatable\u003CHPD.MultiAgent.WorkflowAgentCompletedEvent\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.WorkflowAgentCompletedEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]HPD.Agent.AgentEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()",
+        "System.String[]System.String[]virtual HPD.MultiAgent.WorkflowAgentCompletedEvent \u003CClone\u003E$()"
+      ],
+      "Properties": [
+        "System.String[]HPD.Events.EventKind Kind { get; init; }",
+        "System.String[]System.Boolean Success { get; init; }",
+        "System.String[]System.Collections.Generic.IReadOnlyDictionary\u003CSystem.String,System.Object\u003E? Outputs { get; init; }",
+        "System.String[]System.Single Progress { get; init; }",
+        "System.String[]System.String AgentId { get; init; }",
+        "System.String[]System.String WorkflowName { get; init; }",
+        "System.String[]System.String? AgentName { get; init; }",
+        "System.String[]System.String? ErrorMessage { get; init; }",
+        "System.String[]System.TimeSpan Duration { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.WorkflowAgentSkippedEvent",
+      "Attributes": [
+        "[EventTypeAttribute(\u0022WORKFLOW_AGENT_SKIPPED\u0022)]"
+      ],
+      "BaseType": "HPD.Agent.AgentEvent",
+      "Interfaces": [
+        "HPD.Events.IEvent",
+        "System.IEquatable\u003CHPD.Agent.AgentEvent\u003E",
+        "System.IEquatable\u003CHPD.Events.Event\u003E",
+        "System.IEquatable\u003CHPD.MultiAgent.WorkflowAgentSkippedEvent\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.WorkflowAgentSkippedEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]HPD.Agent.AgentEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()",
+        "System.String[]System.String[]virtual HPD.MultiAgent.WorkflowAgentSkippedEvent \u003CClone\u003E$()"
+      ],
+      "Properties": [
+        "System.String[]HPD.Events.EventKind Kind { get; init; }",
+        "System.String[]System.String AgentId { get; init; }",
+        "System.String[]System.String Reason { get; init; }",
+        "System.String[]System.String WorkflowName { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.WorkflowAgentStartedEvent",
+      "Attributes": [
+        "[EventTypeAttribute(\u0022WORKFLOW_AGENT_STARTED\u0022)]"
+      ],
+      "BaseType": "HPD.Agent.AgentEvent",
+      "Interfaces": [
+        "HPD.Events.IEvent",
+        "System.IEquatable\u003CHPD.Agent.AgentEvent\u003E",
+        "System.IEquatable\u003CHPD.Events.Event\u003E",
+        "System.IEquatable\u003CHPD.MultiAgent.WorkflowAgentStartedEvent\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.WorkflowAgentStartedEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]HPD.Agent.AgentEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()",
+        "System.String[]System.String[]virtual HPD.MultiAgent.WorkflowAgentStartedEvent \u003CClone\u003E$()"
+      ],
+      "Properties": [
+        "System.String[]HPD.Events.EventKind Kind { get; init; }",
+        "System.String[]System.Nullable\u003CSystem.Int32\u003E? LayerIndex { get; init; }",
+        "System.String[]System.String AgentId { get; init; }",
+        "System.String[]System.String WorkflowName { get; init; }",
+        "System.String[]System.String? AgentName { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.WorkflowAttemptCompletedEvent",
+      "Attributes": [
+        "[EventTypeAttribute(\u0022WORKFLOW_ATTEMPT_COMPLETED\u0022)]"
+      ],
+      "BaseType": "HPD.Agent.AgentEvent",
+      "Interfaces": [
+        "HPD.Events.IEvent",
+        "System.IEquatable\u003CHPD.Agent.AgentEvent\u003E",
+        "System.IEquatable\u003CHPD.Events.Event\u003E",
+        "System.IEquatable\u003CHPD.MultiAgent.WorkflowAttemptCompletedEvent\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.WorkflowAttemptCompletedEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]HPD.Agent.AgentEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()",
+        "System.String[]System.String[]virtual HPD.MultiAgent.WorkflowAttemptCompletedEvent \u003CClone\u003E$()"
+      ],
+      "Properties": [
+        "System.String[]System.Boolean IsRecovery { get; init; }",
+        "System.String[]System.Boolean IsTransient { get; init; }",
+        "System.String[]System.Int32 Attempt { get; init; }",
+        "System.String[]System.String AgentId { get; init; }",
+        "System.String[]System.String ExecutionId { get; init; }",
+        "System.String[]System.String LogicalAgentId { get; init; }",
+        "System.String[]System.String Outcome { get; init; }",
+        "System.String[]System.String WorkflowName { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.WorkflowCompletedEvent",
+      "Attributes": [
+        "[EventTypeAttribute(\u0022WORKFLOW_COMPLETED\u0022)]"
+      ],
+      "BaseType": "HPD.Agent.AgentEvent",
+      "Interfaces": [
+        "HPD.Events.IEvent",
+        "System.IEquatable\u003CHPD.Agent.AgentEvent\u003E",
+        "System.IEquatable\u003CHPD.Events.Event\u003E",
+        "System.IEquatable\u003CHPD.MultiAgent.WorkflowCompletedEvent\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.WorkflowCompletedEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]HPD.Agent.AgentEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()",
+        "System.String[]System.String[]virtual HPD.MultiAgent.WorkflowCompletedEvent \u003CClone\u003E$()"
+      ],
+      "Properties": [
+        "System.String[]HPD.Events.EventKind Kind { get; init; }",
+        "System.String[]System.Boolean Success { get; }",
+        "System.String[]System.Int32 FailedNodes { get; init; }",
+        "System.String[]System.Int32 SkippedNodes { get; init; }",
+        "System.String[]System.Int32 SuccessfulNodes { get; init; }",
+        "System.String[]System.String WorkflowName { get; init; }",
+        "System.String[]System.TimeSpan Duration { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.WorkflowDiagnosticEvent",
+      "Attributes": [
+        "[EventTypeAttribute(\u0022WORKFLOW_DIAGNOSTIC\u0022)]"
+      ],
+      "BaseType": "HPD.Agent.AgentEvent",
+      "Interfaces": [
+        "HPD.Events.IEvent",
+        "System.IEquatable\u003CHPD.Agent.AgentEvent\u003E",
+        "System.IEquatable\u003CHPD.Events.Event\u003E",
+        "System.IEquatable\u003CHPD.MultiAgent.WorkflowDiagnosticEvent\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.WorkflowDiagnosticEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]HPD.Agent.AgentEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()",
+        "System.String[]System.String[]virtual HPD.MultiAgent.WorkflowDiagnosticEvent \u003CClone\u003E$()"
+      ],
+      "Properties": [
+        "System.String[]HPD.Events.EventKind Kind { get; init; }",
+        "System.String[]HPD.MultiAgent.LogLevel Level { get; init; }",
+        "System.String[]System.String Message { get; init; }",
+        "System.String[]System.String Source { get; init; }",
+        "System.String[]System.String WorkflowName { get; init; }",
+        "System.String[]System.String? NodeId { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.WorkflowEdgeTraversedEvent",
+      "Attributes": [
+        "[EventTypeAttribute(\u0022WORKFLOW_EDGE_TRAVERSED\u0022)]"
+      ],
+      "BaseType": "HPD.Agent.AgentEvent",
+      "Interfaces": [
+        "HPD.Events.IEvent",
+        "System.IEquatable\u003CHPD.Agent.AgentEvent\u003E",
+        "System.IEquatable\u003CHPD.Events.Event\u003E",
+        "System.IEquatable\u003CHPD.MultiAgent.WorkflowEdgeTraversedEvent\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.WorkflowEdgeTraversedEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]HPD.Agent.AgentEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()",
+        "System.String[]System.String[]virtual HPD.MultiAgent.WorkflowEdgeTraversedEvent \u003CClone\u003E$()"
+      ],
+      "Properties": [
+        "System.String[]HPD.Events.EventKind Kind { get; init; }",
+        "System.String[]System.Boolean HasCondition { get; init; }",
+        "System.String[]System.String FromNodeId { get; init; }",
+        "System.String[]System.String ToNodeId { get; init; }",
+        "System.String[]System.String WorkflowName { get; init; }",
+        "System.String[]System.String? ConditionDescription { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.WorkflowEventCoordinator",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IDisposable"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.Events.RespondResult Approve(System.String[]System.String requestId,System.String[]System.String? reason = null,System.String[]System.Object? resumeData = null)",
+        "System.String[]System.String[]HPD.Events.RespondResult Deny(System.String[]System.String requestId,System.String[]System.String reason = \u0022Denied by user\u0022)",
+        "System.String[]System.String[]System.IDisposable Subscribe\u003CTEvent\u003E where TEvent : HPD.Events.Event(System.String[]System.Func\u003CTEvent,System.Threading.Tasks.ValueTask\u003E handler,System.String[]HPD.Events.EventSubscriptionOptions? options = null)",
+        "System.String[]System.String[]System.IDisposable SubscribeAny(System.String[]System.Func\u003CHPD.Events.Event,System.Threading.Tasks.ValueTask\u003E handler,System.String[]HPD.Events.EventSubscriptionOptions? options = null)",
+        "System.String[]System.String[]System.Threading.Tasks.ValueTask PublishAsync(System.String[]HPD.Events.Event evt,System.String[]System.Threading.CancellationToken cancellationToken = null)",
+        "System.String[]System.String[]System.Void Dispose()"
+      ],
+      "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.WorkflowHostBinding",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [
+        "System.String[].ctor(System.String[]HPD.Agent.Providers.ProviderComposition? providers,System.String[]HPD.Agent.Serialization.AgentEventComposition events,System.String[]HPD.Agent.ISessionStore sessionStore,System.String[]HPD.Agent.AgentSecurityRunConfig authorization,System.String[]System.IServiceProvider? services = null)"
+      ],
+      "Methods": [
+        "System.String[]System.String[]virtual System.Threading.Tasks.ValueTask\u003CHPD.MultiAgent.WorkflowRunBinding\u003E BindAttemptAsync(System.String[]HPD.MultiAgent.WorkflowNodeIdentity identity,System.String[]HPD.Agent.AgentRunConfig intent,System.String[]System.Threading.CancellationToken cancellationToken)",
+        "System.String[]System.String[]virtual System.Type? ResolveType(System.String[]System.String name)",
+        "System.String[]System.String[]virtual System.Void ConfigureAgent(System.String[]HPD.MultiAgent.WorkflowNodeIdentity identity,System.String[]HPD.Agent.AgentBuilder builder)",
+        "System.String[]System.String[]virtual System.Void ValidateNode(System.String[]HPD.MultiAgent.WorkflowNodeIdentity identity,System.String[]HPD.Agent.AgentConfig? definition,System.String[]HPD.MultiAgent.AgentNodeOptions options)"
+      ],
+      "Properties": [
+        "System.String[]HPD.Agent.ISessionStore SessionStore { get; }",
+        "System.String[]HPD.Agent.Providers.ProviderComposition? Providers { get; }",
+        "System.String[]HPD.Agent.Serialization.AgentEventComposition Events { get; }",
+        "System.String[]System.IServiceProvider? Services { get; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.WorkflowLayerCompletedEvent",
+      "Attributes": [
+        "[EventTypeAttribute(\u0022WORKFLOW_LAYER_COMPLETED\u0022)]"
+      ],
+      "BaseType": "HPD.Agent.AgentEvent",
+      "Interfaces": [
+        "HPD.Events.IEvent",
+        "System.IEquatable\u003CHPD.Agent.AgentEvent\u003E",
+        "System.IEquatable\u003CHPD.Events.Event\u003E",
+        "System.IEquatable\u003CHPD.MultiAgent.WorkflowLayerCompletedEvent\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.WorkflowLayerCompletedEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]HPD.Agent.AgentEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()",
+        "System.String[]System.String[]virtual HPD.MultiAgent.WorkflowLayerCompletedEvent \u003CClone\u003E$()"
+      ],
+      "Properties": [
+        "System.String[]HPD.Events.EventKind Kind { get; init; }",
+        "System.String[]System.Int32 LayerIndex { get; init; }",
+        "System.String[]System.Int32 SuccessfulNodes { get; init; }",
+        "System.String[]System.String WorkflowName { get; init; }",
+        "System.String[]System.TimeSpan Duration { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.WorkflowLayerStartedEvent",
+      "Attributes": [
+        "[EventTypeAttribute(\u0022WORKFLOW_LAYER_STARTED\u0022)]"
+      ],
+      "BaseType": "HPD.Agent.AgentEvent",
+      "Interfaces": [
+        "HPD.Events.IEvent",
+        "System.IEquatable\u003CHPD.Agent.AgentEvent\u003E",
+        "System.IEquatable\u003CHPD.Events.Event\u003E",
+        "System.IEquatable\u003CHPD.MultiAgent.WorkflowLayerStartedEvent\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.WorkflowLayerStartedEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]HPD.Agent.AgentEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()",
+        "System.String[]System.String[]virtual HPD.MultiAgent.WorkflowLayerStartedEvent \u003CClone\u003E$()"
+      ],
+      "Properties": [
+        "System.String[]HPD.Events.EventKind Kind { get; init; }",
+        "System.String[]System.Int32 LayerIndex { get; init; }",
+        "System.String[]System.Int32 NodeCount { get; init; }",
+        "System.String[]System.String WorkflowName { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.WorkflowNodeIdentity",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.MultiAgent.WorkflowNodeIdentity\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor(System.String[]System.String WorkflowName,System.String[]System.String NodeId,System.String[]System.String? ExecutionId = null,System.String[]System.Int32 Attempt = 0)"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.WorkflowNodeIdentity \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.WorkflowNodeIdentity? other)",
+        "System.String[]System.String[]System.Void Deconstruct(System.String[]out System.String WorkflowName,System.String[]out System.String NodeId,System.String[]out System.String? ExecutionId,System.String[]out System.Int32 Attempt)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]System.Int32 Attempt { get; init; }",
+        "System.String[]System.String NodeId { get; init; }",
+        "System.String[]System.String WorkflowName { get; init; }",
+        "System.String[]System.String? ExecutionId { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.WorkflowRecoveryEvent",
+      "Attributes": [
+        "[EventTypeAttribute(\u0022WORKFLOW_RECOVERY\u0022)]"
+      ],
+      "BaseType": "HPD.Agent.AgentEvent",
+      "Interfaces": [
+        "HPD.Events.IEvent",
+        "System.IEquatable\u003CHPD.Agent.AgentEvent\u003E",
+        "System.IEquatable\u003CHPD.Events.Event\u003E",
+        "System.IEquatable\u003CHPD.MultiAgent.WorkflowRecoveryEvent\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.WorkflowRecoveryEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]HPD.Agent.AgentEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()",
+        "System.String[]System.String[]virtual HPD.MultiAgent.WorkflowRecoveryEvent \u003CClone\u003E$()"
+      ],
+      "Properties": [
+        "System.String[]System.Int32 Attempt { get; init; }",
+        "System.String[]System.String ExecutionId { get; init; }",
+        "System.String[]System.String PrimaryAgentId { get; init; }",
+        "System.String[]System.String RecoveryAgentId { get; init; }",
+        "System.String[]System.String State { get; init; }",
+        "System.String[]System.String WorkflowName { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.WorkflowResult",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.MultiAgent.WorkflowResult\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.WorkflowResult \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.WorkflowResult? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]System.Boolean Success { get; init; }",
+        "System.String[]System.Collections.Generic.Dictionary\u003CSystem.String,System.Object\u003E Outputs { get; init; }",
+        "System.String[]System.Exception? Exception { get; init; }",
+        "System.String[]System.String? Error { get; init; }",
+        "System.String[]System.String? FinalAnswer { get; init; }",
+        "System.String[]System.TimeSpan Duration { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.WorkflowRunBinding",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IAsyncDisposable"
+      ],
+      "Constructors": [
+        "System.String[].ctor(System.String[]HPD.Agent.AgentRunConfig config,System.String[]System.IAsyncDisposable? lifetime = null)"
+      ],
+      "Methods": [
+        "System.String[]System.String[]System.Threading.Tasks.ValueTask DisposeAsync()"
+      ],
+      "Properties": [
+        "System.String[]HPD.Agent.AgentRunConfig Config { get; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.WorkflowStartedEvent",
+      "Attributes": [
+        "[EventTypeAttribute(\u0022WORKFLOW_STARTED\u0022)]"
+      ],
+      "BaseType": "HPD.Agent.AgentEvent",
+      "Interfaces": [
+        "HPD.Events.IEvent",
+        "System.IEquatable\u003CHPD.Agent.AgentEvent\u003E",
+        "System.IEquatable\u003CHPD.Events.Event\u003E",
+        "System.IEquatable\u003CHPD.MultiAgent.WorkflowStartedEvent\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.WorkflowStartedEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]HPD.Agent.AgentEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()",
+        "System.String[]System.String[]virtual HPD.MultiAgent.WorkflowStartedEvent \u003CClone\u003E$()"
+      ],
+      "Properties": [
+        "System.String[]HPD.Events.EventKind Kind { get; init; }",
+        "System.String[]System.Int32 NodeCount { get; init; }",
+        "System.String[]System.Nullable\u003CSystem.Int32\u003E? LayerCount { get; init; }",
+        "System.String[]System.String WorkflowName { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    }
+  ]
+}

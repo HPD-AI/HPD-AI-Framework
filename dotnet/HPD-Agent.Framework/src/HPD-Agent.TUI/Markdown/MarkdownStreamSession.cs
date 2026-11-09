@@ -5,13 +5,13 @@ using HPD.TUI.Markdown;
 namespace HPD.Agent.TUI.Markdown;
 
 /// <summary>Describes a source append without forcing a parse.</summary>
-public readonly record struct MarkdownSourceChange(bool SourceChanged, bool CompletedPhysicalLine, long Revision);
+internal readonly record struct MarkdownSourceChange(bool SourceChanged, bool CompletedPhysicalLine, long Revision);
 
 /// <summary>Identifies the layout invalidation caused by one publication.</summary>
 public enum MarkdownInvalidationKind { None, MutableTail, StableAppendAndMutableTail, FullMessage, Finalized }
 
 /// <summary>Publishes an immutable message document and its invalidation boundary.</summary>
-public sealed record MarkdownStreamUpdate(
+internal sealed record MarkdownStreamUpdate(
     MarkdownMessageDocument Document,
     MarkdownInvalidationKind Invalidation,
     int PreviousStableSourceLength,
@@ -36,7 +36,7 @@ public readonly record struct MarkdownStreamDiagnosticsSnapshot(
     long PeakParseStateBytes = 0);
 
 /// <summary>Owns canonical source and policy-directed incremental parsing for one agent message.</summary>
-public sealed class MarkdownStreamSession
+internal sealed class MarkdownStreamSession
 {
     private readonly ChunkedMarkdownSource _source = new();
     private readonly IMarkdownDocumentParser _parser;

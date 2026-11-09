@@ -1,4 +1,7 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace HPD.Agent;
 
@@ -37,6 +40,7 @@ internal interface IOpenApiLoader
     /// </summary>
     Task<OpenApiLoadResult> LoadAllAsync(
         IReadOnlyList<OpenApiSourceRegistration> sources,
+        ILogger logger,
         CancellationToken cancellationToken);
 }
 
@@ -44,20 +48,28 @@ internal interface IOpenApiLoader
 internal sealed class OpenApiCapabilitySourceFactory(
     CapabilitySourceId id,
     OpenApiSourceRegistration registration,
-    IOpenApiLoader loader) : IAgentCapabilitySourceFactory
+    IOpenApiLoader loader,
+    ILoggerFactory? loggerFactory) : IAgentCapabilitySourceFactory
 {
     public CapabilitySourceId Id { get; } = id;
 
     public ValueTask<IAgentCapabilitySource> CreateAsync(
         IServiceProvider? services,
-        CancellationToken cancellationToken) =>
-        ValueTask.FromResult<IAgentCapabilitySource>(new OpenApiCapabilitySource(Id, registration, loader));
+        CancellationToken cancellationToken)
+    {
+        var logger = loggerFactory?.CreateLogger("HPD.Agent.OpenApi")
+            ?? services?.GetService<ILoggerFactory>()?.CreateLogger("HPD.Agent.OpenApi")
+            ?? NullLogger.Instance;
+        return ValueTask.FromResult<IAgentCapabilitySource>(
+            new OpenApiCapabilitySource(Id, registration, loader, logger));
+    }
 }
 
 internal sealed class OpenApiCapabilitySource(
     CapabilitySourceId id,
     OpenApiSourceRegistration registration,
-    IOpenApiLoader loader) : IAgentCapabilitySource
+    IOpenApiLoader loader,
+    ILogger logger) : IAgentCapabilitySource
 {
     private long _revision = -1;
     private int _disposed;
@@ -68,7 +80,8 @@ internal sealed class OpenApiCapabilitySource(
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        var result = await loader.LoadAllAsync([registration], cancellationToken).ConfigureAwait(false);
+        var result = await loader.LoadAllAsync([registration], logger, cancellationToken)
+            .ConfigureAwait(false);
         var revision = CapabilitySourceRevision.Create(Interlocked.Increment(ref _revision));
         return new(new OpenApiCapabilityRevisionOwner(Id, revision, result));
     }

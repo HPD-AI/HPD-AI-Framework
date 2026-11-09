@@ -470,7 +470,7 @@ public sealed class HostContainersSandboxAdapterTests
                 EventComposition = AgentEventComposition.Create(
                 [
                     CoreAgentEventModule.Fragment,
-                    GeneratedAgentEventModule_HPD_Agent_Harness_Coding_ab3285cb.Fragment,
+                    HPD_Agent_Harness_CodingGeneratedAgentEventModule.Fragment,
                 ]),
             });
         var before = agentContext.AsBeforeFunction(

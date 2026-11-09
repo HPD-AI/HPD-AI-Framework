@@ -47,6 +47,41 @@ public sealed class ProviderManifestContractsTests
     }
 
     [Fact]
+    public void Composition_MergesCompatibleBackendContributionsAcrossPackages()
+    {
+        var chat = new TestDescriptor(
+            "openai",
+            ProviderClientFamily.Chat,
+            [],
+            backend: Backend("platform", ProviderClientFamily.Chat));
+        var speech = new TestDescriptor(
+            "openai",
+            ProviderClientFamily.SpeechToText,
+            [],
+            backend: Backend("platform", ProviderClientFamily.SpeechToText));
+        var chatFactory = new ProviderRuntimeFactoryRegistration(
+            "openai", ["platform"], [ProviderClientFamily.Chat], static () => throw new NotSupportedException());
+        var speechFactory = new ProviderRuntimeFactoryRegistration(
+            "openai", ["platform"], [ProviderClientFamily.SpeechToText], static () => throw new NotSupportedException());
+        var composition = ProviderComposition.Create([
+            new([chat], [chatFactory], [], []),
+            new([speech], [speechFactory], [], [])]);
+
+        var descriptor = Assert.Single(composition.Descriptors.Providers);
+        Assert.Equal(2, descriptor.Families.Count);
+        var backend = Assert.Single(descriptor.Backends).Value;
+        Assert.True(backend.IsDefault);
+        Assert.Equal(2, backend.Families.Count);
+        var authentication = Assert.Single(backend.Authentication);
+        Assert.True(authentication.IsDefault);
+        Assert.Equal(
+            [ProviderClientFamily.Chat, ProviderClientFamily.SpeechToText],
+            authentication.SupportedFamilies.Order().ToArray());
+        Assert.Same(chatFactory, composition.Runtime.GetFactory("openai", "platform", ProviderClientFamily.Chat));
+        Assert.Same(speechFactory, composition.Runtime.GetFactory("openai", "platform", ProviderClientFamily.SpeechToText));
+    }
+
+    [Fact]
     public void Composition_RejectsConflictingFamilyContributions()
     {
         var exception = Assert.Throws<ProviderCompositionException>(() => ProviderComposition.Create([
@@ -170,6 +205,27 @@ public sealed class ProviderManifestContractsTests
         Assert.Equal(typeof(object), mismatch.ActualType);
     }
 
+    private static ProviderBackendDescriptor Backend(
+        string key,
+        params ProviderClientFamily[] families) => new()
+    {
+        BackendKey = key,
+        IsDefault = true,
+        Families = families.ToDictionary(
+            static family => family,
+            static family => new ProviderFamilyDescriptor { Family = family }),
+        Authentication =
+        [
+            new ProviderAuthenticationDescriptor
+            {
+                Kind = ProviderAuthenticationKind.ApiKey,
+                IsDefault = true,
+                DefaultSecretKey = "openai:ApiKey",
+                SupportedFamilies = families.ToHashSet()
+            }
+        ]
+    };
+
     private sealed class TestDescriptor : IProviderDescriptor
     {
         public TestDescriptor() : this("test", ProviderClientFamily.Chat, []) { }
@@ -177,7 +233,8 @@ public sealed class ProviderManifestContractsTests
             string key,
             ProviderClientFamily family,
             IReadOnlyList<string> aliases,
-            ProviderFamilyLifetime lifetime = ProviderFamilyLifetime.ReusableClient)
+            ProviderFamilyLifetime lifetime = ProviderFamilyLifetime.ReusableClient,
+            ProviderBackendDescriptor? backend = null)
         {
             ProviderKey = key;
             Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
@@ -185,14 +242,16 @@ public sealed class ProviderManifestContractsTests
                 [family] = new() { Family = family, Lifetime = lifetime }
             };
             Aliases = aliases;
+            Backends = backend is null
+                ? new Dictionary<string, ProviderBackendDescriptor>()
+                : new Dictionary<string, ProviderBackendDescriptor> { [backend.BackendKey] = backend };
         }
         public string ProviderKey { get; }
         public string DisplayName => "Test";
         public Uri? DocumentationUri => null;
         public IReadOnlyDictionary<ProviderClientFamily, ProviderFamilyDescriptor> Families { get; } =
             new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>();
-        public IReadOnlyDictionary<string, ProviderBackendDescriptor> Backends { get; } =
-            new Dictionary<string, ProviderBackendDescriptor>();
+        public IReadOnlyDictionary<string, ProviderBackendDescriptor> Backends { get; }
         public IReadOnlyList<string> Aliases { get; }
     }
 }

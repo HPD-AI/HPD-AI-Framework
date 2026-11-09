@@ -36,12 +36,13 @@ internal static class SkillDiagnostics
         "HPDSKILL014", "Unsupported runtime skill metadata", "Skill method '{0}' uses identity metadata that cannot be analyzed at compile time.");
     public static readonly DiagnosticDescriptor RegistryNameCollision = Error(
         "HPDSKILL015", "Generated registry name collision", "Model-visible name '{0}' conflicts with another generated capability '{1}'.");
-    public static readonly DiagnosticDescriptor UnsupportedLifetime = Error(
-        "HPDSKILL016", "Unsupported activation lifetime", "Skill '{0}' uses an activation lifetime not supported by this runtime.");
     public static readonly DiagnosticDescriptor InaccessibleMember = Error(
         "HPDSKILL017", "Inaccessible generated member", "Skill member '{0}' must be public so generated registration can call it directly.");
     public static readonly DiagnosticDescriptor ReflectionDeclarationRejected = Error(
         "HPDSKILL018", "Reflection-only skill declaration rejected", "Skill method '{0}' must directly return Skill.Create(...); reflection fallback is not available.");
+    public static readonly DiagnosticDescriptor InvalidName = Error(
+        "HPDSKILL019", "Invalid model-facing skill name",
+        "Skill name '{0}' must contain 1-64 ASCII letters, digits, underscores, or hyphens and start with a letter or underscore.");
 
     private static DiagnosticDescriptor Error(string id, string title, string message)
         => new(id, title, message, Category, DiagnosticSeverity.Error, isEnabledByDefault: true);

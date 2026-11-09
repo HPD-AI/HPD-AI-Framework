@@ -3,7 +3,7 @@ using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Audio.AgentIntegration.Output;
 
-public sealed class AssistantTextExtractor
+internal sealed class AssistantTextExtractor
 {
     public string Extract(AfterMessageTurnContext context)
     {

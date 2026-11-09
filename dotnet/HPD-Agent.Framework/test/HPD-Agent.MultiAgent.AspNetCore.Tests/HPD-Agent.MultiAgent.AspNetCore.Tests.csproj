@@ -25,7 +25,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/HPD-Agent.MultiAgent.AspNetCore/HPD-Agent.MultiAgent.AspNetCore.csproj" />
-    <ProjectReference Include="../../../HPD-Graph.Framework/src/HPD-Graph.Base/HPD-Graph.Base.csproj" />
   </ItemGroup>
 
 </Project>
