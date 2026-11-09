@@ -35,7 +35,7 @@ public sealed class GraphExecutableFactoryCatalogSourceGeneratorTests
                     "48d1c4d9322126384d31760e8e6dd433",
                 ];
             }
-            """, evidence.TrimEnd());
+            """.ReplaceLineEndings("\n"), evidence.TrimEnd().ReplaceLineEndings("\n"));
         Assert.DoesNotContain("public ", evidence, StringComparison.Ordinal);
         Assert.DoesNotContain(compilation.GetDiagnostics(), x => x.Severity == DiagnosticSeverity.Error);
     }
