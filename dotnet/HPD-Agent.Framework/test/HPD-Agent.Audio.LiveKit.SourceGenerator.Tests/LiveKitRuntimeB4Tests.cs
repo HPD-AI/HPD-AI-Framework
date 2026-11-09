@@ -12,6 +12,13 @@ public sealed class LiveKitRuntimeB4Tests
     {
         var artifact = LiveKitRuntimeSupport.VerifyCurrentArtifact();
 
+        if (LiveKitRuntimeSupport.Current.Disposition != LiveKitRuntimeSupportDisposition.Qualified)
+        {
+            Assert.Equal(LiveKitNativeArtifactDisposition.Unsupported, artifact.Disposition);
+            Assert.Null(artifact.Path);
+            return;
+        }
+
         Assert.Equal(LiveKitNativeArtifactDisposition.Verified, artifact.Disposition);
         Assert.NotNull(artifact.Path);
         Assert.EndsWith("liblivekit_ffi.dylib", artifact.Path, StringComparison.Ordinal);

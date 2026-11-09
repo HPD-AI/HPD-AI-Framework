@@ -35,6 +35,16 @@ public sealed class SessionWorkspaceToolTests
                                 RootId = "workspace",
                             },
                         ],
+                        Isolation =
+                            ProcessIsolationPolicy.Default with
+                            {
+                                Violations =
+                                    ProcessViolationPolicy.Default with
+                                    {
+                                        Action =
+                                            ProcessViolationAction.ObserveOnly,
+                                    },
+                            },
                     });
             await sandbox.InitializeAsync();
             ISandboxSession session = sandbox.Session!;

@@ -31,7 +31,8 @@ fi
 
 ran=0
 for relative_project in "${TEST_PROJECTS[@]}"; do
-  if [[ "$relative_project" == *"/HPD-Environment.Virtualization.Apple.Tests/"* && "$(uname -s)" != "Darwin" ]]; then
+  normalized_project="${relative_project//\\//}"
+  if [[ "$normalized_project" == *"/HPD-Environment.Virtualization.Apple.Tests/"* && "$(uname -s)" != "Darwin" ]]; then
     echo "Skipping macOS-only test project $relative_project"
     continue
   fi
