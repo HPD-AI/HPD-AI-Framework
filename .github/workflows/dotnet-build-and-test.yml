@@ -358,6 +358,7 @@ jobs:
         TEMP_DIR=$(mktemp -d)
         ARTIFACTS_DIR=$(pwd)/artifacts
         INSTALL_FAILED=false
+        dotnet nuget add source "$ARTIFACTS_DIR" --name local
 
         # Create test console app for each framework
         for framework in net10.0 net9.0 net8.0; do
@@ -368,9 +369,6 @@ jobs:
           dotnet new console -f $framework --name testapp --output "$APP_DIR"
 
           cd "$APP_DIR"
-
-          # Add local source
-          dotnet nuget add source "$ARTIFACTS_DIR" --name local
 
           # Try to install main package
           if dotnet add package HPD-Agent.Framework --prerelease 2>/dev/null; then
