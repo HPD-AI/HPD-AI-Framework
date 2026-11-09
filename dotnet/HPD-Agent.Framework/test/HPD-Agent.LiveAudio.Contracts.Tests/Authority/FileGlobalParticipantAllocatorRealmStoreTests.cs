@@ -10,12 +10,19 @@ public sealed class FileGlobalParticipantAllocatorRealmStoreTests
     {
         await Assert.ThrowsAsync<ArgumentException>(async()=>await FileGlobalParticipantAllocatorRealmStore.BindAsync("relative",default));
         var root=Path.Combine(Path.GetTempPath(),"hpd-d27e-"+Guid.NewGuid().ToString("N"));
-        await using var store=await FileGlobalParticipantAllocatorRealmStore.BindAsync(root,default);
-        var request=new GlobalParticipantAllocatorRealmCreateRequestV1(GlobalParticipantAllocatorJournalId.FromValue(StableId128.FromBytes(Enumerable.Repeat((byte)1,16).ToArray())),new(Hash256.FromBytes(Enumerable.Repeat((byte)2,32).ToArray())));
-        var result=await ((IGlobalParticipantAllocatorRealmPortV1)store).CreateAsync(request,default);
-        if(!OperatingSystem.IsLinux())Assert.IsType<GlobalParticipantAllocatorRealmCreateResultV1.Unsupported>(result);
-        else Assert.True(result is GlobalParticipantAllocatorRealmCreateResultV1.Created or GlobalParticipantAllocatorRealmCreateResultV1.StoreUnavailable);
-        if(Directory.Exists(root))Directory.Delete(root,true);
+        Directory.CreateDirectory(root);
+        try
+        {
+            await using var store=await FileGlobalParticipantAllocatorRealmStore.BindAsync(root,default);
+            var request=new GlobalParticipantAllocatorRealmCreateRequestV1(GlobalParticipantAllocatorJournalId.FromValue(StableId128.FromBytes(Enumerable.Repeat((byte)1,16).ToArray())),new(Hash256.FromBytes(Enumerable.Repeat((byte)2,32).ToArray())));
+            var result=await ((IGlobalParticipantAllocatorRealmPortV1)store).CreateAsync(request,default);
+            if(!OperatingSystem.IsLinux())Assert.IsType<GlobalParticipantAllocatorRealmCreateResultV1.Unsupported>(result);
+            else Assert.True(result is GlobalParticipantAllocatorRealmCreateResultV1.Created or GlobalParticipantAllocatorRealmCreateResultV1.StoreUnavailable);
+        }
+        finally
+        {
+            if(Directory.Exists(root))Directory.Delete(root,true);
+        }
     }
 
     [Fact]
