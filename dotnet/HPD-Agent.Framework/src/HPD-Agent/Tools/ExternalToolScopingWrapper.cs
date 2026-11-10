@@ -1,5 +1,6 @@
 using Microsoft.Extensions.AI;
 using System.Text.Json;
+using System.Collections.Immutable;
 using HPD.Agent;
 using HPD.Agent.Middleware;
 
@@ -20,6 +21,7 @@ public static class ExternalToolCollapsingWrapper
     /// <param name="FunctionResult">Ephemeral instructions returned in function result after expansion</param>
     /// <param name="SystemPrompt">Persistent instructions injected into system prompt after expansion</param>
     /// <param name="customDescription">Optional custom description from JSON config. If provided, replaces auto-generated description.</param>
+    /// <param name="parentContainer">Optional parent harness identity for legacy grouping.</param>
     /// <returns>Container function and Collapsed tools with metadata</returns>
     public static (AIFunction container, List<AIFunction> CollapsedTools) WrapMcpServerTools(
         string serverName,
@@ -28,7 +30,20 @@ public static class ExternalToolCollapsingWrapper
         string? FunctionResult = null,
         string?SystemPrompt = null,
         string? customDescription = null,
-        string? parentContainer = null)
+        string? parentContainer = null) =>
+        WrapMcpServerTools(serverName, tools, maxFunctionNamesInDescription, FunctionResult,
+            SystemPrompt, customDescription, parentContainer, null);
+
+    /// <summary>Wraps MCP tools with typed parent activation metadata.</summary>
+    public static (AIFunction container, List<AIFunction> CollapsedTools) WrapMcpServerTools(
+        string serverName,
+        List<AIFunction> tools,
+        int maxFunctionNamesInDescription,
+        string? FunctionResult,
+        string? SystemPrompt,
+        string? customDescription,
+        string? parentContainer,
+        CapabilityId? parentCapabilityId)
     {
         if (string.IsNullOrEmpty(serverName))
             throw new ArgumentException("Server name cannot be null or empty", nameof(serverName));
@@ -37,6 +52,7 @@ public static class ExternalToolCollapsingWrapper
             throw new ArgumentException("Tools list cannot be null or empty", nameof(tools));
 
         var containerName = $"MCP_{serverName}";
+        var containerId = CapabilityId.Create($"mcp:{serverName}:container");
         var allFunctionNames = tools.Select(t => t.Name).ToList();
 
         // Build function list suffix (used for all description types)
@@ -84,6 +100,17 @@ public static class ExternalToolCollapsingWrapper
                 SchemaProvider = () => CreateEmptyContainerSchema(),
                 AdditionalProperties = new Dictionary<string, object?>
                 {
+                    [HPDCapabilityMetadata.AdditionalPropertiesKey] = new HPDCapabilityMetadata
+                    {
+                        Id = containerId,
+                        Kind = HPDCapabilityKind.ToolHarnessActivation,
+                        ParentContainerIds = parentCapabilityId is { } parentId ? [parentId] : [],
+                        Reveals = tools.Select(tool => tool.AdditionalProperties.TryGetValue(
+                                HPDCapabilityMetadata.AdditionalPropertiesKey, out var value)
+                                ? value as HPDCapabilityMetadata : null)
+                            .Where(metadata => metadata is not null)
+                            .Select(metadata => metadata!.Id).ToImmutableArray()
+                    },
                     ["IsContainer"] = true,
                     ["ToolHarnessName"] = containerName,
                     ["ParentContainer"] = parentContainer, // null for standalone WithMcp(), toolharness name for [McpServer]
@@ -98,7 +125,7 @@ public static class ExternalToolCollapsingWrapper
             });
 
         // Add metadata to individual tools
-        var CollapsedTools = tools.Select(tool => AddParentToolMetadata(tool, containerName, "MCP")).ToList();
+        var CollapsedTools = tools.Select(tool => AddParentToolMetadata(tool, containerName, "MCP", parentCapabilityId: containerId)).ToList();
 
         return (container, CollapsedTools);
     }
@@ -336,7 +363,7 @@ public static class ExternalToolCollapsingWrapper
     /// <param name="sourceType">Source type (MCP, Client, clientToolHarness)</param>
     /// <param name="parentContainer">Optional parent container for nested visibility (e.g., parent toolharness name for flat MCP tools)</param>
     /// <returns>New AIFunction with metadata</returns>
-    internal static AIFunction AddParentToolMetadata(AIFunction tool, string parentToolHarnessName, string sourceType, string? parentContainer = null)
+    internal static AIFunction AddParentToolMetadata(AIFunction tool, string parentToolHarnessName, string sourceType, string? parentContainer = null, CapabilityId? parentCapabilityId = null)
     {
         // Check if tool already has Collapsing metadata (avoid double-wrapping)
         if (tool.AdditionalProperties?.ContainsKey("ParentToolHarness") == true)
@@ -352,6 +379,16 @@ public static class ExternalToolCollapsingWrapper
         additionalProperties["IsContainer"] = false;
         additionalProperties["SourceType"] = sourceType;
 
+        if (parentCapabilityId is { } parentId &&
+            additionalProperties.TryGetValue(HPDCapabilityMetadata.AdditionalPropertiesKey, out var value) &&
+            value is HPDCapabilityMetadata metadata)
+        {
+            additionalProperties[HPDCapabilityMetadata.AdditionalPropertiesKey] = metadata with
+            {
+                ParentContainerIds = metadata.ParentContainerIds.Contains(parentId)
+                    ? metadata.ParentContainerIds : metadata.ParentContainerIds.Add(parentId)
+            };
+        }
         return HPDAIFunctionFactory.Project(tool, additionalProperties);
     }
 

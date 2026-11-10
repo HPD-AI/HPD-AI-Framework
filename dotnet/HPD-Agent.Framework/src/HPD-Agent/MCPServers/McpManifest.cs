@@ -131,6 +131,9 @@ public sealed class McpServerConfig
     /// <summary>Gets the generated parent ToolHarness identity.</summary>
     [JsonIgnore]
     public string? ParentToolHarness { get; internal set; }
+    /// <summary>Gets the exact generated parent activation capability, when the harness is collapsed.</summary>
+    [JsonIgnore]
+    public CapabilityId? ParentCapabilityId { get; internal set; }
     /// <summary>Gets whether generated ToolHarness ownership adds a nested MCP container.</summary>
     [JsonIgnore]
     public bool CollapseWithinToolHarness { get; internal set; }

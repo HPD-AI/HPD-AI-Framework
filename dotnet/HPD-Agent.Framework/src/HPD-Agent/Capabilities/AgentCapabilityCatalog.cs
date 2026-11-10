@@ -473,6 +473,29 @@ internal sealed class AgentCapabilityCatalog : IAsyncDisposable
             throw new InvalidOperationException("Every capability function must have exactly one descriptor.");
 
         var graph = CapabilityGraph.CreateFromFunctions(functionArray);
+        // External MCP children are discovered after generated harness containers are built.
+        // Project their membership per epoch without mutating source-owned functions (which
+        // may still be leased by a previous epoch).
+        var projected = functionArray.ToBuilder();
+        for (var index = 0; index < projected.Count; index++)
+        {
+            var metadata = (HPDCapabilityMetadata)projected[index].AdditionalProperties[
+                HPDCapabilityMetadata.AdditionalPropertiesKey]!;
+            if (metadata.Kind != HPDCapabilityKind.ToolHarnessActivation)
+                continue;
+            var externalChildren = graph.Nodes.Values.Where(node =>
+                node.ParentContainerIds.Contains(metadata.Id) &&
+                (node.Kind == HPDCapabilityKind.Mcp ||
+                 node.Function.AdditionalProperties.TryGetValue("SourceType", out var source) && source is "MCP"))
+                .Select(node => node.Id).ToArray();
+            if (externalChildren.All(metadata.Reveals.Contains))
+                continue;
+            var children = metadata.Reveals.Concat(externalChildren).Distinct()
+                .Select(id => graph.Nodes[id].Function).ToArray();
+            projected[index] = ContainerFunctionProjection.WithMaterializedChildren(projected[index], children);
+        }
+        functionArray = projected.ToImmutable();
+        graph = CapabilityGraph.CreateFromFunctions(functionArray);
         foreach (var id in graph.Nodes.Keys)
         {
             if (!descriptors.ContainsKey(id))

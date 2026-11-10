@@ -64,9 +64,13 @@ internal class MCPServerCapability : BaseCapability
         var ownerIdentity = $"{toolharness.AssemblyName}:{toolharness.Namespace}:{toolharness.EffectiveName}";
         var sourceId = $"mcp.toolharness:{ownerIdentity}:{Name}";
         var permission = Permission?.ToCode() ?? "null";
+        var harnessType = string.IsNullOrEmpty(toolharness.Namespace)
+            ? toolharness.ClassName : $"{toolharness.Namespace}.{toolharness.ClassName}";
+        var parentCapability = toolharness.IsCollapsed
+            ? $"\"generated:{EscapeString(harnessType)}:harness\"" : "null";
         var factory = FromManifest is null
-            ? $"static {(IsStatic ? "_" : "instance")} => HPD.Agent.MCP.McpCapabilitySourceFactory.FromServer(\"{EscapeString(sourceId)}\", {provider}!, \"{EscapeString(ownerIdentity)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission})"
-            : $"static _ => HPD.Agent.MCP.McpCapabilitySourceFactory.FromManifestServer(\"{EscapeString(sourceId)}\", \"{EscapeString(FromManifest)}\", \"{EscapeString(ManifestServerName ?? Name)}\", \"{EscapeString(ownerIdentity)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission})";
+            ? $"static {(IsStatic ? "_" : "instance")} => HPD.Agent.MCP.McpCapabilitySourceFactory.FromServer(\"{EscapeString(sourceId)}\", {provider}!, \"{EscapeString(ownerIdentity)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission}, options: null, parentCapabilityId: {parentCapability})"
+            : $"static _ => HPD.Agent.MCP.McpCapabilitySourceFactory.FromManifestServer(\"{EscapeString(sourceId)}\", \"{EscapeString(FromManifest)}\", \"{EscapeString(ManifestServerName ?? Name)}\", \"{EscapeString(ownerIdentity)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission}, options: null, parentCapabilityId: {parentCapability})";
         return $"new HPD.Agent.McpServerSource(\"{EscapeString(Name)}\", \"{EscapeString(Description)}\", \"{EscapeString(toolharness.EffectiveName)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {(FromManifest is null ? "null" : $"\"{EscapeString(FromManifest)}\"")}, {(FromManifest is null ? "null" : $"\"{EscapeString(ManifestServerName ?? Name)}\"")}, {permission}, {factory})";
     }
 
@@ -82,9 +86,13 @@ internal class MCPServerCapability : BaseCapability
         var ownerIdentity = $"{toolharness.AssemblyName}:{toolharness.Namespace}:{toolharness.EffectiveName}";
         var sourceId = $"mcp.toolharness:{ownerIdentity}:{Name}";
         var permission = Permission?.ToCode() ?? "null";
+        var harnessType = string.IsNullOrEmpty(toolharness.Namespace)
+            ? toolharness.ClassName : $"{toolharness.Namespace}.{toolharness.ClassName}";
+        var parentCapability = toolharness.IsCollapsed
+            ? $"\"generated:{EscapeString(harnessType)}:harness\"" : "null";
         var factoryProvider = FromManifest is null
-            ? $"static {(IsStatic ? "_" : "instance")} => HPD.Agent.MCP.McpCapabilitySourceFactory.FromServer(\"{EscapeString(sourceId)}\", {provider}!, \"{EscapeString(ownerIdentity)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission})"
-            : $"static _ => HPD.Agent.MCP.McpCapabilitySourceFactory.FromManifestServer(\"{EscapeString(sourceId)}\", \"{EscapeString(FromManifest)}\", \"{EscapeString(ManifestServerName ?? Name)}\", \"{EscapeString(ownerIdentity)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission})";
+            ? $"static {(IsStatic ? "_" : "instance")} => HPD.Agent.MCP.McpCapabilitySourceFactory.FromServer(\"{EscapeString(sourceId)}\", {provider}!, \"{EscapeString(ownerIdentity)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission}, options: null, parentCapabilityId: {parentCapability})"
+            : $"static _ => HPD.Agent.MCP.McpCapabilitySourceFactory.FromManifestServer(\"{EscapeString(sourceId)}\", \"{EscapeString(FromManifest)}\", \"{EscapeString(ManifestServerName ?? Name)}\", \"{EscapeString(ownerIdentity)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission}, options: null, parentCapabilityId: {parentCapability})";
 
         return
             "            __mcpCollector(new HPD.Agent.McpServerSource(\n" +

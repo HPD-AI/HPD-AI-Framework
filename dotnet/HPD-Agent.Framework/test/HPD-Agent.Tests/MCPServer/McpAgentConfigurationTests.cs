@@ -275,6 +275,242 @@ public sealed class McpAgentConfigurationTests
         Assert.NotNull(error.LineNumber);
     }
 
+    [Theory]
+    [InlineData("content")]
+    [InlineData("file")]
+    [InlineData("nested")]
+    [InlineData("flat")]
+    [InlineData("selectedNested")]
+    [InlineData("selectedFlat")]
+    public async Task CollapsedSource_PreservesTypedGraphAcrossRefresh(string mode)
+    {
+        var handler = new DeclarativeMcpHandler();
+        using var http = new HttpClient(handler);
+        var options = new McpOptions { HttpClientFactory = _ => http };
+        const string manifest = """
+            {"servers":[{"name":"inline","transport":"http","endpoint":"https://inline.test/mcp","enableCollapsing":true,"permission":{"policy":"test.mcp.policy"}}]}
+            """;
+        var path = Path.Combine(Path.GetTempPath(), $"hpd-mcp-collapse-{Guid.NewGuid():N}.json");
+        var parentId = CapabilityId.Create("generated:Example.RealHarness:harness");
+        var nested = mode is "nested" or "selectedNested";
+        var owned = nested || mode is "flat" or "selectedFlat";
+        var file = mode is "file" or "selectedNested" or "selectedFlat";
+        try
+        {
+            if (file)
+                await File.WriteAllTextAsync(path, manifest);
+            var factory = mode is "selectedNested" or "selectedFlat"
+                ? McpCapabilitySourceFactory.FromManifestServer("mcp.test:selected", path, "inline",
+                    "Assembly:Example:DisplayName", nested, permissionOverride: null, options: options, parentCapabilityId: parentId.Value)
+                : owned ? McpCapabilitySourceFactory.FromServer("mcp.test:nested", new McpServerConfig
+                {
+                    Name = "inline", Transport = "http", Endpoint = new Uri("https://inline.test/mcp"),
+                    Permission = new McpPermissionConfig { Policy = "test.mcp.policy" }
+                }, "Assembly:Example:DisplayName", nested, permissionOverride: null, options: options,
+                    parentCapabilityId: parentId.Value)
+                : new McpCapabilitySourceFactory(CapabilitySourceId.Create("mcp.test:collapsed"),
+                    mode == "file" ? path : null, mode == "content" ? manifest : null,
+                    options, null, null);
+            await using var source = await factory.CreateAsync(null, default);
+            CapabilityId? firstContainerId = null;
+            for (var epoch = 0; epoch < 2; epoch++)
+            {
+                var loaded = await source.LoadAsync(new CapabilityLoadContext(epoch, null), default);
+                await using var owner = loaded.Owner;
+                var functions = owner.Snapshot.Functions.ToList();
+                var child = functions.Single(function => function.Name == "inline_echo");
+                var childMetadata = (HPDCapabilityMetadata)child.AdditionalProperties[HPDCapabilityMetadata.AdditionalPropertiesKey]!;
+                Assert.Equal("mcp:inline:tool:inline_echo", childMetadata.Id.Value);
+                var declaration = Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(child).PermissionDeclaration;
+                Assert.NotNull(declaration);
+                Assert.Equal("test.mcp.policy", declaration.PolicyDescriptorId);
+                Assert.True(declaration.RequiresPermission);
+                if (owned && !nested)
+                {
+                    Assert.Single(functions);
+                    Assert.Equal(parentId, Assert.Single(childMetadata.ParentContainerIds));
+                }
+                else
+                {
+                    var container = functions.Single(function => function.Name == "MCP_inline");
+                    Assert.Null(Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(container).PermissionDeclaration);
+                    var metadata = (HPDCapabilityMetadata)container.AdditionalProperties[HPDCapabilityMetadata.AdditionalPropertiesKey]!;
+                    Assert.Equal(HPDCapabilityKind.ToolHarnessActivation, metadata.Kind);
+                    Assert.Equal(childMetadata.Id, Assert.Single(metadata.Reveals));
+                    Assert.Equal(metadata.Id, Assert.Single(childMetadata.ParentContainerIds));
+                    Assert.Equal(firstContainerId ?? metadata.Id, metadata.Id);
+                    firstContainerId = metadata.Id;
+                    if (nested)
+                        Assert.Equal(parentId, Assert.Single(metadata.ParentContainerIds));
+                    else
+                        Assert.Empty(metadata.ParentContainerIds);
+                }
+                if (owned)
+                    functions.Add(HPDAIFunctionFactory.Create((_, _, _) => Task.FromResult<object?>("expanded"), new()
+                    {
+                        Name = "DisplayName",
+                        AdditionalProperties = new()
+                        {
+                            [HPDCapabilityMetadata.AdditionalPropertiesKey] = new HPDCapabilityMetadata
+                            { Id = parentId, Kind = HPDCapabilityKind.ToolHarnessActivation }
+                        }
+                    }));
+                var graph = CapabilityGraph.CreateFromFunctions(functions);
+                if (owned)
+                {
+                    var parentOwner = new MaterializedCapabilityRevisionOwner(
+                        CapabilitySourceId.Create("test.parent"), CapabilitySourceRevision.Create(epoch),
+                        [functions.Last()]);
+                    await using var catalog = new AgentCapabilityCatalog(epoch, [parentOwner, owner]);
+                    await using var lease = catalog.Acquire();
+                    Assert.Contains(nested ? firstContainerId!.Value : childMetadata.Id,
+                        lease.Snapshot.Graph.Nodes[parentId].Children);
+                    Assert.Empty(graph.Nodes[parentId].Children);
+                }
+                var active = new HashSet<CapabilityId>();
+                Assert.False(CapabilityGraph.IsVisible(graph.Nodes[childMetadata.Id], active));
+                if (owned)
+                    active.Add(parentId);
+                if (!owned || nested)
+                {
+                    var containerNode = graph.Nodes[firstContainerId!.Value];
+                    Assert.True(CapabilityGraph.IsVisible(containerNode, active));
+                    Assert.False(CapabilityGraph.IsVisible(graph.Nodes[childMetadata.Id], active));
+                    active.Add(containerNode.Id);
+                    Assert.False(CapabilityGraph.IsVisible(containerNode, active));
+                }
+                Assert.True(CapabilityGraph.IsVisible(graph.Nodes[childMetadata.Id], active));
+                Assert.Equal(owner.Snapshot.Functions.Length, owner.Snapshot.Descriptors.Count);
+            }
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AgentBuilder_HarnessOwnedMcp_ExpandsAfterRefresh(bool nested)
+    {
+        var handler = new DeclarativeMcpHandler();
+        using var http = new HttpClient(handler);
+        var chat = new FakeChatClient();
+        chat.EnqueueToolCalls((nameof(McpCollapseParentHarness), "expand-parent", new Dictionary<string, object?>()));
+        if (nested)
+            chat.EnqueueToolCalls(("MCP_inline", "expand-server", new Dictionary<string, object?>()));
+        chat.EnqueueToolCalls(("inline_echo", "invoke", new Dictionary<string, object?>()));
+        chat.EnqueueTextResponse("Completed.");
+        var factory = McpCapabilitySourceFactory.FromServer("mcp.test:owned", new McpServerConfig
+        {
+            Name = "inline", Transport = "http", Endpoint = new Uri("https://inline.test/mcp")
+        }, "Assembly:Namespace:DisplayName", nested, permissionOverride: null,
+            options: new McpOptions { HttpClientFactory = _ => http },
+            parentCapabilityId: "generated:HPD.Agent.Tests.MCPServer.McpCollapseParentHarness:harness");
+        await using var agent = await new AgentBuilder()
+            .WithEventApplicationIdentity(typeof(McpCollapseParentHarness).Assembly.GetName().Name!)
+            .WithChatClient(chat)
+            .WithToolHarness<McpCollapseParentHarness>()
+            .AddCapabilitySource(new AgentCapabilitySourceRegistration(factory,
+                CapabilitySourceInitialLoadPolicy.Required, CapabilitySourceRefreshFailurePolicy.RejectCandidate))
+            .BuildAsync();
+        var refresh = await agent.RefreshCapabilitiesAsync();
+        Assert.True(refresh.Published, refresh.Error);
+
+        var result = await agent.RunAsync("Use the harness's MCP server.");
+
+        Assert.Equal("Completed.", result.Text);
+        Assert.Contains(nameof(McpCollapseParentHarness), chat.CapturedRequestSnapshots[0].ToolNames);
+        Assert.DoesNotContain("MCP_inline", chat.CapturedRequestSnapshots[0].ToolNames);
+        Assert.DoesNotContain("inline_echo", chat.CapturedRequestSnapshots[0].ToolNames);
+        if (nested)
+        {
+            Assert.Contains("MCP_inline", chat.CapturedRequestSnapshots[1].ToolNames);
+            Assert.DoesNotContain("inline_echo", chat.CapturedRequestSnapshots[1].ToolNames);
+        }
+        Assert.Contains("inline_echo", chat.CapturedRequestSnapshots[nested ? 2 : 1].ToolNames);
+        Assert.Single(handler.InvokedTools);
+    }
+
+    [Fact]
+    public async Task CollapsedSource_RefreshRemovesEmptyContainerAndRestoresStableIdentity()
+    {
+        var handler = new DeclarativeMcpHandler();
+        using var http = new HttpClient(handler);
+        var factory = McpCapabilitySourceFactory.FromServers("mcp.test:changing",
+            [new McpServerConfig
+            {
+                Name = "inline", Transport = "http", Endpoint = new Uri("https://inline.test/mcp"),
+                EnableCollapsing = true
+            }], new McpOptions { HttpClientFactory = _ => http });
+        await using var source = await factory.CreateAsync(null, default);
+        for (var epoch = 0; epoch < 3; epoch++)
+        {
+            handler.ReturnTools = epoch != 1;
+            var loaded = await source.LoadAsync(new CapabilityLoadContext(epoch, null), default);
+            await using var owner = loaded.Owner;
+            var graph = CapabilityGraph.CreateFromFunctions(owner.Snapshot.Functions);
+            if (epoch == 1)
+            {
+                Assert.Empty(graph.Nodes);
+                Assert.Empty(owner.Snapshot.Descriptors);
+            }
+            else
+            {
+                var container = graph.Nodes[CapabilityId.Create("mcp:inline:container")];
+                Assert.Equal(CapabilityId.Create("mcp:inline:tool:inline_echo"), Assert.Single(container.Children));
+                Assert.Equal(2, graph.Nodes.Count);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AgentBuilder_CollapsedMcp_BuildsExpandsAndInvokes(bool collapsing)
+    {
+        var handler = new DeclarativeMcpHandler();
+        using var http = new HttpClient(handler);
+        var chat = new FakeChatClient();
+        var config = new AgentConfig
+        {
+            EventComposition = TestEventComposition.Current,
+            Mcp = new AgentMcpConfig
+            {
+                Servers = [new McpServerConfig
+                {
+                    Name = "inline", Transport = "http",
+                    Endpoint = new Uri("https://inline.test/mcp"),
+                    EnableCollapsing = collapsing
+                }]
+            }
+        };
+        if (collapsing)
+            chat.EnqueueToolCalls(("MCP_inline", "expand", new Dictionary<string, object?>()));
+        chat.EnqueueToolCalls(("inline_echo", "invoke", new Dictionary<string, object?>()));
+        chat.EnqueueTextResponse("Completed.");
+        await using var agent = await new AgentBuilder(config)
+            .WithChatClient(chat)
+            .WithMcpOptions(options => options.HttpClientFactory = _ => http)
+            .BuildAsync();
+
+        var result = await agent.RunAsync("Use the inline server.");
+
+        Assert.Equal("Completed.", result.Text);
+        if (collapsing)
+        {
+            Assert.Contains("MCP_inline", chat.CapturedRequestSnapshots[0].ToolNames);
+            Assert.DoesNotContain("inline_echo", chat.CapturedRequestSnapshots[0].ToolNames);
+            Assert.DoesNotContain("MCP_inline", chat.CapturedRequestSnapshots[1].ToolNames);
+            Assert.Contains("inline_echo", chat.CapturedRequestSnapshots[1].ToolNames);
+        }
+        else
+            Assert.Contains("inline_echo", chat.CapturedRequestSnapshots[0].ToolNames);
+        Assert.Single(handler.InvokedTools);
+        Assert.Contains("https://inline.test/mcp:inline_echo", handler.InvokedTools);
+    }
+
     [Fact]
     public async Task AgentBuilder_LoadsAndInvokesInlineAndManifestServers()
     {
@@ -406,8 +642,10 @@ public sealed class McpAgentConfigurationTests
         }
     }
 
-    [Fact]
-    public async Task DuplicateModelFacingToolName_FailsWithMcpDiagnostic()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DuplicateModelFacingToolName_FailsWithMcpDiagnostic(bool collapsing)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"hpd-mcp-tool-conflict-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -442,7 +680,8 @@ public sealed class McpAgentConfigurationTests
                         {
                             Name = "inline",
                             Transport = "http",
-                            Endpoint = new Uri("https://inline.test/mcp")
+                            Endpoint = new Uri("https://inline.test/mcp"),
+                            EnableCollapsing = collapsing
                         }
                     ],
                     Manifests = [new McpManifestReference { Path = manifestPath }]
@@ -731,6 +970,7 @@ public sealed class McpAgentConfigurationTests
 
     private sealed class DeclarativeMcpHandler(bool sameToolName = false) : HttpMessageHandler
     {
+        internal bool ReturnTools { get; set; } = true;
         private readonly object _gate = new();
         private readonly List<string> _invokedTools = [];
         private readonly List<string> _toolCallBodies = [];
@@ -774,6 +1014,8 @@ public sealed class McpAgentConfigurationTests
         private HttpResponseMessage ListTools(JsonElement root, string toolName)
         {
             Interlocked.Increment(ref _toolsListRequests);
+            if (!ReturnTools)
+                return JsonResponse(root, """{"resultType":"complete","tools":[],"ttlMs":0,"cacheScope":"private"}""");
             return JsonResponse(
                 root,
                 """
@@ -815,4 +1057,11 @@ public sealed class McpAgentConfigurationTests
             };
         }
     }
+}
+
+[Collapse("Harness containing an MCP server")]
+public partial class McpCollapseParentHarness
+{
+    [AIFunction]
+    public string Local() => "local";
 }

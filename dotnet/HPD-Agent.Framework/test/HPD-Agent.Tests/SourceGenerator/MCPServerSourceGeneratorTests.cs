@@ -989,6 +989,7 @@ namespace TestToolHarnesses
 
         // Container generated for [Collapse]
         Assert.Contains("CreateDevToolHarnessContainer", generatedCode!);
+        Assert.Contains("parentCapabilityId: \"generated:TestToolHarnesses.DevToolHarness:harness\"", generatedCode!);
 
         // MCP server source collection generated.
         Assert.Contains("McpServerSource", generatedCode!);

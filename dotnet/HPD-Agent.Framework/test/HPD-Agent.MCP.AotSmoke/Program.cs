@@ -51,6 +51,7 @@ File.WriteAllText(
         - name: inline
           transport: http
           endpoint: https://inline.test/mcp
+          enableCollapsing: true
           allowedTools:
             - inline_echo
           permission:
@@ -68,6 +69,7 @@ File.WriteAllText(
           "name": "external",
           "transport": "http",
           "endpoint": "https://external.test/mcp",
+          "enableCollapsing": true,
           "allowedTools": ["external_echo"],
           "permission": {
             "policy": "hpd.smoke.confirm-policy.v1"
@@ -232,7 +234,24 @@ sealed class SmokeMcpChatClient : IChatClient
             .SelectMany(static message => message.Contents)
             .OfType<FunctionResultContent>()
             .Select(static result => result.Result?.ToString() ?? "<null>"));
-        if (call <= 2)
+        if (call == 1)
+        {
+            var names = options?.Tools?.OfType<AIFunction>().Select(function => function.Name).ToHashSet() ?? [];
+            if (!names.Contains("MCP_inline") || !names.Contains("MCP_external") ||
+                names.Contains("inline_echo") || names.Contains("external_echo"))
+                throw new InvalidOperationException("Collapsed MCP visibility is incorrect.");
+            yield return new ChatResponseUpdate
+            {
+                Contents =
+                [
+                    new FunctionCallContent("expand-inline", "MCP_inline", new Dictionary<string, object?>()),
+                    new FunctionCallContent("expand-external", "MCP_external", new Dictionary<string, object?>())
+                ],
+                FinishReason = ChatFinishReason.ToolCalls
+            };
+            yield break;
+        }
+        if (call <= 3)
         {
             var names = options?.Tools?.OfType<AIFunction>()
                 .Select(static function => function.Name)
@@ -244,8 +263,8 @@ sealed class SmokeMcpChatClient : IChatClient
                 Contents =
                 [
                     new FunctionCallContent(
-                        call == 1 ? "call-inline" : "call-external",
-                        call == 1 ? "inline_echo" : "external_echo",
+                        call == 2 ? "call-inline" : "call-external",
+                        call == 2 ? "inline_echo" : "external_echo",
                         new Dictionary<string, object?>())
                 ],
                 FinishReason = ChatFinishReason.ToolCalls

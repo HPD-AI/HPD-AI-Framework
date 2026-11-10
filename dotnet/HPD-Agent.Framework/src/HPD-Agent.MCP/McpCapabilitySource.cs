@@ -25,6 +25,7 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
     private readonly McpServerConfig? _serverConfig;
     private readonly string? _selectedServerName;
     private readonly string? _parentToolHarness;
+    private readonly CapabilityId? _parentCapabilityId;
     private readonly bool _collapseWithinToolHarness;
     private readonly McpPermissionConfig? _permissionOverride;
     private readonly McpCatalogPageCache _catalogPages;
@@ -40,7 +41,8 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
         string? selectedServerName = null,
         string? parentToolHarness = null,
         bool collapseWithinToolHarness = false,
-        McpPermissionConfig? permissionOverride = null)
+        McpPermissionConfig? permissionOverride = null,
+        CapabilityId? parentCapabilityId = null)
     {
         Id = id;
         _manifestPath = manifestPath;
@@ -51,6 +53,7 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
         _serverConfig = serverConfig;
         _selectedServerName = selectedServerName;
         _parentToolHarness = parentToolHarness;
+        _parentCapabilityId = parentCapabilityId;
         _collapseWithinToolHarness = collapseWithinToolHarness;
         _permissionOverride = SnapshotPermission(permissionOverride);
         _catalogPages = new McpCatalogPageCache(options.Catalog);
@@ -64,6 +67,17 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
         bool collapseWithinToolHarness,
         McpPermissionConfig? permissionOverride = null,
         McpOptions? options = null) =>
+        FromServer(sourceId, server, parentToolHarness, collapseWithinToolHarness, permissionOverride, options, null);
+
+    /// <summary>Creates a generated MCP source with an exact parent activation capability.</summary>
+    public static McpCapabilitySourceFactory FromServer(
+        string sourceId,
+        McpServerConfig server,
+        string parentToolHarness,
+        bool collapseWithinToolHarness,
+        McpPermissionConfig? permissionOverride,
+        McpOptions? options,
+        string? parentCapabilityId) =>
         new(
             CapabilitySourceId.Create(sourceId),
             null,
@@ -71,7 +85,8 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
             options ?? new McpOptions(),
             null,
             null,
-            PrepareServer(server, parentToolHarness, collapseWithinToolHarness, permissionOverride));
+            PrepareServer(server, parentToolHarness, collapseWithinToolHarness, permissionOverride,
+                parentCapabilityId is null ? null : CapabilityId.Create(parentCapabilityId)));
 
     /// <summary>Creates a source factory selecting one server from a final manifest file.</summary>
     public static McpCapabilitySourceFactory FromManifestServer(
@@ -82,6 +97,18 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
         bool collapseWithinToolHarness,
         McpPermissionConfig? permissionOverride = null,
         McpOptions? options = null) =>
+        FromManifestServer(sourceId, manifestPath, serverName, parentToolHarness, collapseWithinToolHarness, permissionOverride, options, null);
+
+    /// <summary>Creates a generated MCP source with an exact parent activation capability.</summary>
+    public static McpCapabilitySourceFactory FromManifestServer(
+        string sourceId,
+        string manifestPath,
+        string serverName,
+        string parentToolHarness,
+        bool collapseWithinToolHarness,
+        McpPermissionConfig? permissionOverride,
+        McpOptions? options,
+        string? parentCapabilityId) =>
         new(
             CapabilitySourceId.Create(sourceId),
             Path.GetFullPath(manifestPath),
@@ -92,7 +119,8 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
             selectedServerName: serverName,
             parentToolHarness: parentToolHarness,
             collapseWithinToolHarness: collapseWithinToolHarness,
-            permissionOverride: permissionOverride);
+            permissionOverride: permissionOverride,
+            parentCapabilityId: parentCapabilityId is null ? null : CapabilityId.Create(parentCapabilityId));
 
     /// <summary>Creates a source factory from inline MCP server declarations.</summary>
     internal static McpCapabilitySourceFactory FromServers(
@@ -117,7 +145,8 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
         McpServerConfig server,
         string parentToolHarness,
         bool collapseWithinToolHarness,
-        McpPermissionConfig? permissionOverride)
+        McpPermissionConfig? permissionOverride,
+        CapabilityId? parentCapabilityId)
     {
         ArgumentNullException.ThrowIfNull(server);
         var json = JsonSerializer.Serialize(server, McpJsonSerializerContext.Default.McpServerConfig);
@@ -126,6 +155,7 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
                 McpJsonSerializerContext.Default.McpServerConfig)
             ?? throw new InvalidOperationException($"Failed to snapshot MCP server '{server.Name}'.");
         snapshot.ParentToolHarness = parentToolHarness;
+        snapshot.ParentCapabilityId = parentCapabilityId;
         snapshot.CollapseWithinToolHarness = collapseWithinToolHarness;
         if (permissionOverride is not null)
             snapshot.Permission = MergePermission(
@@ -175,7 +205,8 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
             _parentToolHarness,
             _collapseWithinToolHarness,
             _permissionOverride,
-            _catalogPages));
+            _catalogPages,
+            _parentCapabilityId));
 }
 
 /// <summary>Loads MCP functions into immutable, lease-owned source revisions.</summary>
@@ -196,6 +227,7 @@ internal sealed class McpCapabilitySource : IAgentCapabilitySource
     private readonly McpServerConfig? _serverConfig;
     private readonly string? _selectedServerName;
     private readonly string? _parentToolHarness;
+    private readonly CapabilityId? _parentCapabilityId;
     private readonly bool _collapseWithinToolHarness;
     private readonly McpPermissionConfig? _permissionOverride;
     private readonly McpCatalogPageCache _catalogPages;
@@ -214,7 +246,8 @@ internal sealed class McpCapabilitySource : IAgentCapabilitySource
         string? parentToolHarness,
         bool collapseWithinToolHarness,
         McpPermissionConfig? permissionOverride,
-        McpCatalogPageCache catalogPages)
+        McpCatalogPageCache catalogPages,
+        CapabilityId? parentCapabilityId = null)
     {
         Id = id;
         _manifestPath = manifestPath;
@@ -225,6 +258,7 @@ internal sealed class McpCapabilitySource : IAgentCapabilitySource
         _serverConfig = serverConfig;
         _selectedServerName = selectedServerName;
         _parentToolHarness = parentToolHarness;
+        _parentCapabilityId = parentCapabilityId;
         _collapseWithinToolHarness = collapseWithinToolHarness;
         _permissionOverride = permissionOverride;
         _catalogPages = catalogPages;
@@ -261,6 +295,7 @@ internal sealed class McpCapabilitySource : IAgentCapabilitySource
                     ?? throw new InvalidOperationException(
                         $"MCP manifest does not contain server '{_selectedServerName}'.");
                 server.ParentToolHarness = _parentToolHarness;
+                server.ParentCapabilityId = _parentCapabilityId;
                 server.CollapseWithinToolHarness = _collapseWithinToolHarness;
                 if (_permissionOverride is not null)
                     server.Permission = MergePermission(server.Permission, _permissionOverride);

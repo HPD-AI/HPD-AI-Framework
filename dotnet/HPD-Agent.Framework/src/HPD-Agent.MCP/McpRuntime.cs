@@ -1618,7 +1618,8 @@ internal sealed class McpRuntime : IAsyncDisposable
                 FunctionResult: null,
                 SystemPrompt: null,
                 customDescription: config.Description,
-                parentContainer: config.ParentToolHarness);
+                parentContainer: config.ParentToolHarness,
+                parentCapabilityId: config.ParentCapabilityId);
 
             var result = new List<AIFunction> { container };
             result.AddRange(collapsedTools);
@@ -1633,7 +1634,8 @@ internal sealed class McpRuntime : IAsyncDisposable
             // Flat mode: stamp ParentContainer directly on each tool
             var flatTools = functions.Select(tool =>
                 ExternalToolCollapsingWrapper.AddParentToolMetadata(
-                    tool, config.ParentToolHarness ?? config.Name, "MCP", parentContainer: config.ParentToolHarness))
+                    tool, config.ParentToolHarness ?? config.Name, "MCP", parentContainer: config.ParentToolHarness,
+                    parentCapabilityId: config.ParentCapabilityId))
                 .ToList();
 
             _logger.LogInformation("Loaded {Count} MCP functions from server '{ServerName}' (flat under {ParentToolHarness})",
