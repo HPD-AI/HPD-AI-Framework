@@ -1,11 +1,11 @@
 {
-  "TypeCount": 1558,
-  "MethodCount": 6062,
-  "ConstructorCount": 1013,
-  "PropertyCount": 5374,
-  "FieldCount": 1170,
+  "TypeCount": 1557,
+  "MethodCount": 6056,
+  "ConstructorCount": 1012,
+  "PropertyCount": 5371,
+  "FieldCount": 1169,
   "EventCount": 1,
-  "Fingerprint": "80196244fb2c27eadd692b41d172dd407436af3d21f84f0a94ae140bc6bec76e",
+  "Fingerprint": "7bc7b74193d94388dfa3b9b5025c815dafe359c5800033b9bde10817cac902cd",
   "Types": [
     {
       "FullName": "AIDescriptionAttribute",
@@ -3022,37 +3022,6 @@
         "System.String[]System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E ProviderDeduplicationKeys { get; init; }",
         "System.String[]System.DateTimeOffset FinishedAt { get; init; }",
         "System.String[]System.Int64 FinalVersion { get; init; }",
-        "System.String[]System.String OperationId { get; init; }"
-      ],
-      "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "HPD.Agent.AgentOperationTombstoneEvictedEvent",
-      "Attributes": [
-        "[EventTypeAttribute(\u0022AGENT_OPERATION_TOMBSTONE_EVICTED\u0022)]"
-      ],
-      "BaseType": "HPD.Agent.AgentEvent",
-      "Interfaces": [
-        "HPD.Events.IEvent",
-        "System.IEquatable\u003CHPD.Agent.AgentEvent\u003E",
-        "System.IEquatable\u003CHPD.Agent.AgentOperationTombstoneEvictedEvent\u003E",
-        "System.IEquatable\u003CHPD.Events.Event\u003E"
-      ],
-      "Constructors": [
-        "System.String[].ctor()"
-      ],
-      "Methods": [
-        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.AgentOperationTombstoneEvictedEvent? other)",
-        "System.String[]System.String[]override System.Boolean Equals(System.String[]HPD.Agent.AgentEvent? other)",
-        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
-        "System.String[]System.String[]override System.Int32 GetHashCode()",
-        "System.String[]System.String[]override System.String ToString()",
-        "System.String[]System.String[]virtual HPD.Agent.AgentOperationTombstoneEvictedEvent \u003CClone\u003E$()"
-      ],
-      "Properties": [
-        "System.String[]HPD.Events.EventKind Kind { get; init; }",
-        "System.String[]System.DateTimeOffset EvictedAt { get; init; }",
         "System.String[]System.String OperationId { get; init; }"
       ],
       "Fields": [],
@@ -30963,7 +30932,6 @@
         "System.String[]const System.String AGENT_OPERATION_NOTIFICATION_SUPPRESSED = \u0022AGENT_OPERATION_NOTIFICATION_SUPPRESSED\u0022",
         "System.String[]const System.String AGENT_OPERATION_REGISTERED = \u0022AGENT_OPERATION_REGISTERED\u0022",
         "System.String[]const System.String AGENT_OPERATION_TOMBSTONED = \u0022AGENT_OPERATION_TOMBSTONED\u0022",
-        "System.String[]const System.String AGENT_OPERATION_TOMBSTONE_EVICTED = \u0022AGENT_OPERATION_TOMBSTONE_EVICTED\u0022",
         "System.String[]const System.String AGENT_OPERATION_TRANSITIONED = \u0022AGENT_OPERATION_TRANSITIONED\u0022"
       ],
       "Events": []

@@ -161,7 +161,7 @@ public sealed class AgentOperationTests
     }
 
     [Fact]
-    public async Task CompactionJournalsTombstoneThenEvictionAndRejectsLateControl()
+    public async Task CompactionJournalsTombstoneThenExpiresItAndRejectsLateControl()
     {
         var sink = new TestEventSink();
         var retention = new AgentOperationRetentionPolicy
@@ -202,7 +202,6 @@ public sealed class AgentOperationTests
 
         await registry.CompactAsync(initial.RegisteredAt.AddMinutes(4), default);
         Assert.Empty(registry.Tombstones());
-        Assert.Contains(sink.Events, static evt => evt is AgentOperationTombstoneEvictedEvent);
     }
 
     [Fact]
@@ -247,7 +246,7 @@ public sealed class AgentOperationTests
     }
 
     [Fact]
-    public async Task EvictedTombstoneRejectsLateTransitionAndNeverRecreatesOperation()
+    public async Task TombstonedOperationRejectsLateTransitionAndNeverRecreatesOperation()
     {
         var initial = CreateSnapshot();
         var tombstone = new AgentOperationTombstone
@@ -270,11 +269,6 @@ public sealed class AgentOperationTests
         await registry.RehydrateAsync([
             new AgentOperationRegisteredEvent { Operation = initial },
             new AgentOperationTombstonedEvent { Tombstone = tombstone },
-            new AgentOperationTombstoneEvictedEvent
-            {
-                OperationId = initial.OperationId,
-                EvictedAt = initial.RegisteredAt.AddMinutes(2)
-            },
             new AgentOperationTransitionedEvent
             {
                 OperationId = initial.OperationId,
@@ -285,7 +279,7 @@ public sealed class AgentOperationTests
         ]);
 
         Assert.Empty(registry.Snapshot());
-        Assert.Empty(registry.Tombstones());
+        Assert.Single(registry.Tombstones());
         await Assert.ThrowsAsync<KeyNotFoundException>(() =>
             registry.RequestCancellationAsync(initial.OperationId, default).AsTask());
     }

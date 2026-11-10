@@ -122,7 +122,6 @@ public static partial class EventTypes
         public const string AGENT_OPERATION_NOTIFICATION_DELIVERED = "AGENT_OPERATION_NOTIFICATION_DELIVERED";
         public const string AGENT_OPERATION_NOTIFICATION_SUPPRESSED = "AGENT_OPERATION_NOTIFICATION_SUPPRESSED";
         public const string AGENT_OPERATION_TOMBSTONED = "AGENT_OPERATION_TOMBSTONED";
-        public const string AGENT_OPERATION_TOMBSTONE_EVICTED = "AGENT_OPERATION_TOMBSTONE_EVICTED";
     }
 
     /// <summary>Complete capability-catalog refresh events.</summary>

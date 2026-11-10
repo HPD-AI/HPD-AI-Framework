@@ -1,8 +1,8 @@
 {
   "Version": "1.0",
-  "Digest": "d9344c856232f2cac6881d721968b3d57f5538b9c0d1b957f0f05f1bae0bfe13",
-  "BehaviorDigest": "a1de80c75efc508249133567c08f0810c27119303730619832f439cbaf9650f4",
-  "EventCount": 145,
+  "Digest": "feb077dbb5841d8d592baecff47b296e3538b52abf57c199b48e415a6eddb6ac",
+  "BehaviorDigest": "a8f47ebc846d8b09f9e42e42af0468a21ed674cd4d332a02e8e6861abfb755d2",
+  "EventCount": 144,
   "Events": [
     {
       "Discriminator": "AGENT_CAPABILITY_REFRESH_PUBLISHED",
@@ -72,13 +72,6 @@
       "ContractDigest": "2b2aeedd65566838e61835bdbd61e11a9b1b152440ef654cd58ac1bc5681903c",
       "Durability": "Durable",
       "RequiresDurable": true,
-      "ModuleId": "hpd.agent.core"
-    },
-    {
-      "Discriminator": "AGENT_OPERATION_TOMBSTONE_EVICTED",
-      "ContractDigest": "5d0ff8bcc60ed633f084a55a042b8e639a998a4867a8ba02b02f6c2aab209997",
-      "Durability": "LiveOnly",
-      "RequiresDurable": false,
       "ModuleId": "hpd.agent.core"
     },
     {

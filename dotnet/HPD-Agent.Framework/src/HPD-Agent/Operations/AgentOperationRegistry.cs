@@ -171,10 +171,6 @@ internal sealed class AgentOperationRegistry : IAsyncDisposable
                         await compacted.DisposeAsync().ConfigureAwait(false);
                     _tombstones[tombstoned.Tombstone.OperationId] = tombstoned.Tombstone;
                     break;
-                case AgentOperationTombstoneEvictedEvent evicted:
-                    _retiredOperationIds[evicted.OperationId] = 0;
-                    _tombstones.TryRemove(evicted.OperationId, out _);
-                    break;
             }
         }
 
@@ -234,15 +230,7 @@ internal sealed class AgentOperationRegistry : IAsyncDisposable
         {
             if (now - tombstone.FinishedAt <= _retention.ProviderDeduplicationRetention)
                 continue;
-            if (!_tombstones.TryRemove(tombstone.OperationId, out _))
-                continue;
-            await _events.AppendAsync(new AgentOperationTombstoneEvictedEvent
-            {
-                OperationId = tombstone.OperationId,
-                EvictedAt = now,
-                SessionId = tombstone.Address.SessionId,
-                ThreadId = tombstone.Address.ThreadId
-            }, cancellationToken).ConfigureAwait(false);
+            _tombstones.TryRemove(tombstone.OperationId, out _);
         }
     }
 

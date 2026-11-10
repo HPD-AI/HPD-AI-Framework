@@ -500,7 +500,6 @@ public sealed partial class AgentEventCodecTests
             typeof(AgentCompletionEvent),
             typeof(AgentDecisionEvent),
             typeof(AgentOperationNotificationSuppressedEvent),
-            typeof(AgentOperationTombstoneEvictedEvent),
             typeof(AgentTurnStartedEvent),
             typeof(CircuitBreakerTriggeredEvent),
             typeof(CollapsedToolsVisibleEvent),

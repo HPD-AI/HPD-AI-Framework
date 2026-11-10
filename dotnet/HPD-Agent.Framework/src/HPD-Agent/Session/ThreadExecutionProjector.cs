@@ -37,7 +37,7 @@ public static class ThreadExecutionProjector
     public static bool IsProjectionEvent(AgentEvent evt) => evt is
         ThreadExecutionStartedEvent or ThreadExecutionFinishedEvent or
         AgentOperationRegisteredEvent or AgentOperationTransitionedEvent or
-        AgentOperationTombstonedEvent or AgentOperationTombstoneEvictedEvent;
+        AgentOperationTombstonedEvent;
 
     /// <summary>Projects ordered journal facts for one agent thread.</summary>
     public static IReadOnlyList<ThreadExecutionProjection> Project(

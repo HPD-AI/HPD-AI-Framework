@@ -49,15 +49,3 @@ public sealed record AgentOperationTombstonedEvent : AgentEvent
     /// <summary>Gets the retained terminal tombstone.</summary>
     public required AgentOperationTombstone Tombstone { get; init; }
 }
-
-/// <summary>Records expiry of terminal replay protection.</summary>
-[HPD.Agent.Serialization.EventType("AGENT_OPERATION_TOMBSTONE_EVICTED")]
-public sealed record AgentOperationTombstoneEvictedEvent : AgentEvent
-{
-    /// <inheritdoc />
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    /// <summary>Gets the operation whose tombstone expired.</summary>
-    public required string OperationId { get; init; }
-    /// <summary>Gets the eviction time.</summary>
-    public required DateTimeOffset EvictedAt { get; init; }
-}
