@@ -5,6 +5,7 @@ using HPD.Events;
 using HPD.Events.Core;
 using HPD.MultiAgent.Config;
 using HPD.MultiAgent.Internal;
+using HPD.MultiAgent.Observability;
 using HPD.MultiAgent.Routing;
 using HPD.Serialization;
 using HPD.Graph.Abstractions.Events;
@@ -213,6 +214,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
     private readonly IServiceProvider _serviceProvider;
     private readonly string _workflowName;
     private readonly WorkflowSettingsConfig _settings;
+    private readonly MetricsObserver? _metricsObserver;
     private readonly ISessionStore? _workflowSessionStore;
     private readonly WorkflowEventCoordinator _eventCoordinator = new();
 
@@ -235,6 +237,9 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
         _serviceProvider = serviceProvider;
         _workflowName = workflowName ?? graph.Name ?? "Workflow";
         _settings = settings ?? new WorkflowSettingsConfig();
+        _metricsObserver = _settings.EnableMetrics
+            ? new MetricsObserver()
+            : null;
         _workflowSessionStore = workflowSessionStore;
     }
 
@@ -242,6 +247,12 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
     /// The workflow name for identification in execution context.
     /// </summary>
     public string WorkflowName => _workflowName;
+
+    /// <summary>
+    /// Gets the workflow metrics collector when enabled by
+    /// <see cref="WorkflowSettingsConfig.EnableMetrics"/>.
+    /// </summary>
+    public MetricsObserver? Metrics => _metricsObserver;
 
     /// <summary>
     /// Event coordinator used by this workflow instance for public workflow and child agent events.
@@ -623,16 +634,48 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
             }
         }, CancellationToken.None);
 
+        var layerBuffer = new List<Event>();
+        var perLayer = _settings.StreamingMode == StreamingMode.PerLayer;
+        var insideLayer = false;
+
         // Drain terminal events too; a completed graph may still have queued public events.
         try
         {
             await foreach (var evt in eventInbox.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
+                if (_metricsObserver is not null)
+                    await _metricsObserver.HandleAsync(evt).ConfigureAwait(false);
+
                 var wrappedEvent = WrapGraphEvent(evt, workflowContext);
                 if (wrappedEvent is null) continue;
                 await _eventCoordinator.PublishAsync(wrappedEvent, cancellationToken).ConfigureAwait(false);
                 if (parentCoordinator is not null && !ReferenceEquals(parentCoordinator, _eventCoordinator.Inner))
                     await parentCoordinator.EmitAsync(wrappedEvent, cancellationToken).ConfigureAwait(false);
+
+                if (perLayer && evt is LayerExecutionStartedEvent)
+                {
+                    insideLayer = true;
+                    yield return wrappedEvent;
+                    continue;
+                }
+
+                if (perLayer && insideLayer)
+                {
+                    if (evt is LayerExecutionCompletedEvent)
+                    {
+                        yield return wrappedEvent;
+                        foreach (var buffered in layerBuffer)
+                            yield return buffered;
+                        layerBuffer.Clear();
+                        insideLayer = false;
+                    }
+                    else
+                    {
+                        layerBuffer.Add(wrappedEvent);
+                    }
+                    continue;
+                }
+
                 yield return wrappedEvent;
             }
         }
@@ -644,6 +687,9 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
             if (!executionTask.IsCompleted) await executionLifetime.CancelAsync().ConfigureAwait(false);
             await executionTask.ConfigureAwait(false);
         }
+
+        foreach (var buffered in layerBuffer)
+            yield return buffered;
     }
 
     private IMultiAgentConversationRuntime CreateConversationRuntime(
@@ -727,6 +773,28 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
                 Metadata = workflowContext
             },
 
+            NodeApprovalRequestEvent n => new WorkflowApprovalRequestedEvent
+            {
+                WorkflowName = _workflowName,
+                RequestId = n.RequestId,
+                SourceName = n.SourceName,
+                AgentId = n.NodeId,
+                Message = n.Message,
+                Description = n.Description,
+                Details = n.Metadata,
+                Metadata = workflowContext
+            },
+
+            NodeApprovalTimeoutEvent n => new WorkflowApprovalTimedOutEvent
+            {
+                WorkflowName = _workflowName,
+                RequestId = n.RequestId,
+                SourceName = n.SourceName,
+                AgentId = n.NodeId,
+                WaitedFor = n.WaitedFor,
+                Metadata = workflowContext
+            },
+
             // Layer events → WorkflowLayer events
             LayerExecutionStartedEvent l => new WorkflowLayerStartedEvent
             {
@@ -801,7 +869,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
     /// <summary>
     /// Get the underlying graph definition.
     /// </summary>
-    public GraphDefinition Graph => _graph;
+    internal GraphDefinition Graph => _graph;
 
     /// <summary>
     /// Get Mermaid diagram of the workflow.
@@ -898,7 +966,8 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
             .Select(e =>
             {
                 ConditionConfig? when = null;
-                if (e.Condition is { } c && c.Type != HPD.Graph.Abstractions.Graph.ConditionType.Always)
+                if (e.Condition is { } c &&
+                    c.Type != HPD.Graph.Abstractions.Graph.ConditionType.Always)
                 {
                     when = MapEdgeConditionToConfig(c);
                 }
@@ -935,13 +1004,45 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
     private static ConditionConfig MapEdgeConditionToConfig(HPD.Graph.Abstractions.Graph.EdgeCondition c) =>
         new ConditionConfig
         {
-            Type = c.Type,
+            Type = MapConditionType(c.Type),
             Field = c.Field,
             Value = c.Value is null ? null
                   : c.Value is JsonElement je ? je
                   : SerializeWorkflowValue(c.Value),
             RegexOptions = c.RegexOptions,
             Conditions = c.Conditions?.Select(MapEdgeConditionToConfig).ToList()
+        };
+
+    private static Config.ConditionType MapConditionType(
+        HPD.Graph.Abstractions.Graph.ConditionType type) =>
+        type switch
+        {
+            HPD.Graph.Abstractions.Graph.ConditionType.Always => Config.ConditionType.Always,
+            HPD.Graph.Abstractions.Graph.ConditionType.FieldEquals => Config.ConditionType.FieldEquals,
+            HPD.Graph.Abstractions.Graph.ConditionType.FieldNotEquals => Config.ConditionType.FieldNotEquals,
+            HPD.Graph.Abstractions.Graph.ConditionType.FieldGreaterThan => Config.ConditionType.FieldGreaterThan,
+            HPD.Graph.Abstractions.Graph.ConditionType.FieldGreaterThanOrEqual => Config.ConditionType.FieldGreaterThanOrEqual,
+            HPD.Graph.Abstractions.Graph.ConditionType.FieldLessThan => Config.ConditionType.FieldLessThan,
+            HPD.Graph.Abstractions.Graph.ConditionType.FieldLessThanOrEqual => Config.ConditionType.FieldLessThanOrEqual,
+            HPD.Graph.Abstractions.Graph.ConditionType.FieldExists => Config.ConditionType.FieldExists,
+            HPD.Graph.Abstractions.Graph.ConditionType.FieldNotExists => Config.ConditionType.FieldNotExists,
+            HPD.Graph.Abstractions.Graph.ConditionType.FieldContains => Config.ConditionType.FieldContains,
+            HPD.Graph.Abstractions.Graph.ConditionType.Default => Config.ConditionType.Default,
+            HPD.Graph.Abstractions.Graph.ConditionType.UpstreamOneSuccess => Config.ConditionType.UpstreamOneSuccess,
+            HPD.Graph.Abstractions.Graph.ConditionType.UpstreamAllDone => Config.ConditionType.UpstreamAllDone,
+            HPD.Graph.Abstractions.Graph.ConditionType.UpstreamAllDoneOneSuccess => Config.ConditionType.UpstreamAllDoneOneSuccess,
+            HPD.Graph.Abstractions.Graph.ConditionType.And => Config.ConditionType.And,
+            HPD.Graph.Abstractions.Graph.ConditionType.Or => Config.ConditionType.Or,
+            HPD.Graph.Abstractions.Graph.ConditionType.Not => Config.ConditionType.Not,
+            HPD.Graph.Abstractions.Graph.ConditionType.FieldStartsWith => Config.ConditionType.FieldStartsWith,
+            HPD.Graph.Abstractions.Graph.ConditionType.FieldEndsWith => Config.ConditionType.FieldEndsWith,
+            HPD.Graph.Abstractions.Graph.ConditionType.FieldMatchesRegex => Config.ConditionType.FieldMatchesRegex,
+            HPD.Graph.Abstractions.Graph.ConditionType.FieldIsEmpty => Config.ConditionType.FieldIsEmpty,
+            HPD.Graph.Abstractions.Graph.ConditionType.FieldIsNotEmpty => Config.ConditionType.FieldIsNotEmpty,
+            HPD.Graph.Abstractions.Graph.ConditionType.FieldContainsAny => Config.ConditionType.FieldContainsAny,
+            HPD.Graph.Abstractions.Graph.ConditionType.FieldContainsAll => Config.ConditionType.FieldContainsAll,
+            _ => throw new InvalidOperationException(
+                $"Unknown graph condition type '{type}'.")
         };
 
     private static JsonElement SerializeWorkflowValue(object value)
@@ -1004,7 +1105,7 @@ public static class ApprovalWorkflowExtensions
     /// <summary>
     /// Create an approval response event.
     /// </summary>
-    public static NodeApprovalResponseEvent CreateApprovalResponse(
+    internal static NodeApprovalResponseEvent CreateApprovalResponse(
         string requestId,
         bool approved,
         string? reason = null,

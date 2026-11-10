@@ -39,11 +39,11 @@
     <ItemGroup>
       <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-x64"
                               Condition="Exists('$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-x64')">
-        <PackagePath>runtimes/linux-x64/native/apply-seccomp-x64</PackagePath>
+        <PackagePath>runtimes/linux-x64/native/</PackagePath>
       </TfmSpecificPackageFile>
       <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-arm64"
                               Condition="Exists('$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-arm64')">
-        <PackagePath>runtimes/linux-arm64/native/apply-seccomp-arm64</PackagePath>
+        <PackagePath>runtimes/linux-arm64/native/</PackagePath>
       </TfmSpecificPackageFile>
     </ItemGroup>
   </Target>

@@ -31,7 +31,8 @@ public sealed record DebugAdapterDiagnosticSnapshot(
     string StandardError,
     long DroppedChunks,
     long DroppedBytes,
-    DebugTransportExit? Exit);
+    DebugTransportExit? Exit,
+    string? AdapterError = null);
 
 public sealed record DebugProtocolClientHealth(
     int QueuedEvents,

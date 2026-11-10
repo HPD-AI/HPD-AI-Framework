@@ -160,7 +160,8 @@ public sealed class HostProcessAdapterTests
     {
         Skip.If(OperatingSystem.IsWindows(), "Host Process sandboxing is unavailable on Windows.");
 
-        await using var middleware = new HostProcessSandboxMiddleware();
+        await using var middleware =
+            new HostProcessSandboxMiddleware(options: ObservationOnlyOptions());
         await middleware.InitializeAsync();
 
         middleware.IsInitialized.Should().BeTrue();
@@ -187,7 +188,8 @@ public sealed class HostProcessAdapterTests
     {
         Skip.If(OperatingSystem.IsWindows(), "Host Process sandboxing is unavailable on Windows.");
 
-        var middleware = new HostProcessSandboxMiddleware();
+        var middleware =
+            new HostProcessSandboxMiddleware(options: ObservationOnlyOptions());
         await middleware.InitializeAsync();
         InMemoryEnvironmentRuntime runtime =
             (InMemoryEnvironmentRuntime)middleware.Runtime!;
@@ -199,4 +201,16 @@ public sealed class HostProcessAdapterTests
         middleware.Registry.Should().BeNull();
         middleware.Runtime.Should().BeNull();
     }
+
+    private static HostProcessSandboxOptions ObservationOnlyOptions() =>
+        new()
+        {
+            Isolation = ProcessIsolationPolicy.Default with
+            {
+                Violations = ProcessViolationPolicy.Default with
+                {
+                    Action = ProcessViolationAction.ObserveOnly,
+                },
+            },
+        };
 }

@@ -106,6 +106,7 @@ public class MultiAgentBuildAsyncWiringTests
     [Fact]
     public async Task BuildAsync_PassesSettingsToInstance()
     {
+        var timeout = TimeSpan.FromSeconds(12);
         var config = new MultiAgentWorkflowConfig
         {
             Name = "W",
@@ -117,7 +118,9 @@ public class MultiAgentBuildAsyncWiringTests
             Settings = new WorkflowSettingsConfig
             {
                 MaxIterations = 42,
-                EnableMetrics = true
+                DefaultTimeout = timeout,
+                EnableMetrics = false,
+                StreamingMode = StreamingMode.PerLayer
             }
         };
 
@@ -125,6 +128,33 @@ public class MultiAgentBuildAsyncWiringTests
         var settings = GetSettings(instance);
 
         settings.MaxIterations.Should().Be(42);
-        settings.EnableMetrics.Should().BeTrue();
+        settings.DefaultTimeout.Should().Be(timeout);
+        settings.EnableMetrics.Should().BeFalse();
+        settings.StreamingMode.Should().Be(StreamingMode.PerLayer);
+        instance.Graph.MaxIterations.Should().Be(42);
+        instance.Graph.ExecutionTimeout.Should().Be(timeout);
+        instance.Metrics.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task BuildAsync_EnableMetrics_CreatesCollector()
+    {
+        var config = new MultiAgentWorkflowConfig
+        {
+            Name = "W",
+            Agents = new Dictionary<string, AgentNodeConfig>
+            {
+                ["a"] = new() { Agent = Cfg() }
+            },
+            Edges = [],
+            Settings = new WorkflowSettingsConfig
+            {
+                EnableMetrics = true
+            }
+        };
+
+        var instance = await new MultiAgentFactory().BuildAsync(config);
+
+        instance.Metrics.Should().NotBeNull();
     }
 }

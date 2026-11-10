@@ -118,8 +118,12 @@ public sealed class BuiltInDebugAdapterConfigurationComposer : IDebugAdapterConf
             writer.WriteString("cwd", configuration.WorkingDirectory);
             if (configuration.ProcessId is { } processId)
             {
-                WriteProcessId(writer, "pid", processId);
-                WriteProcessId(writer, "processId", processId);
+                WriteProcessId(
+                    writer,
+                    descriptor.Id is "netcoredbg" or "debugpy" or "delve"
+                        ? "processId"
+                        : "pid",
+                    processId);
             }
             writer.WriteEndObject();
         });

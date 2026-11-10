@@ -1,6 +1,4 @@
 using HPD.MultiAgent.Config;
-using HPD.Graph.Abstractions;
-using HPD.Graph.Abstractions.Graph;
 using HPD.Agent;
 
 namespace HPD.MultiAgent;
@@ -49,6 +47,18 @@ public enum StructuredOutputMode
     /// Tool-based structured output (can mix with other tools).
     /// </summary>
     Tool
+}
+
+/// <summary>Retry policy for one multi-agent workflow node.</summary>
+public sealed record RetryPolicy
+{
+    public bool OnlyTransient { get; init; } = true;
+    public required int MaxAttempts { get; init; }
+    public required TimeSpan InitialDelay { get; init; }
+    public BackoffStrategy Strategy { get; init; } =
+        BackoffStrategy.Exponential;
+    public TimeSpan? MaxDelay { get; init; }
+    public IReadOnlyList<Type>? RetryableExceptions { get; init; }
 }
 
 /// <summary>

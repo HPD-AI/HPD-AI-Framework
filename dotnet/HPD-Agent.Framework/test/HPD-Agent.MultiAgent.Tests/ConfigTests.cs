@@ -3,8 +3,6 @@ using HPD.Agent;
 using HPD.MultiAgent;
 using HPD.MultiAgent.Config;
 using HPD.MultiAgent.Serialization;
-using HPD.Graph.Abstractions;
-using HPD.Graph.Abstractions.Graph;
 
 namespace HPD.MultiAgent.Tests;
 
@@ -174,7 +172,7 @@ public class ConfigTests
             {
                 MaxAttempts = 3,
                 InitialDelay = TimeSpan.FromSeconds(1),
-                Strategy = HPD.Graph.Abstractions.Graph.BackoffStrategy.Exponential,
+                Strategy = BackoffStrategy.Exponential,
                 OnlyTransient = true
             }
         };

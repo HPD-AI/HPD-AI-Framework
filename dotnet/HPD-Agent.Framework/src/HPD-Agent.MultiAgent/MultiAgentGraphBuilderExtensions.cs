@@ -6,7 +6,7 @@ namespace HPD.MultiAgent;
 /// <summary>
 /// Graph builder extensions that embed MultiAgent workflows as HPD.Graph subgraphs.
 /// </summary>
-public static class MultiAgentGraphBuilderExtensions
+internal static class MultiAgentGraphBuilderExtensions
 {
     /// <summary>
     /// Adds a MultiAgent workflow configuration as a graph subgraph node.

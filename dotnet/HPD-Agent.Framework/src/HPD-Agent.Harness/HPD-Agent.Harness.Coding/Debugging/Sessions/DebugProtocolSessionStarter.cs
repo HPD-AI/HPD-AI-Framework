@@ -127,6 +127,14 @@ internal sealed class DebugProtocolSessionStarter(
             if (session is not null)
             {
                 var diagnostics = session.Protocol.AdapterDiagnostics;
+                if (exception is DebugAdapterRequestException adapterFailure)
+                {
+                    diagnostics = diagnostics with
+                    {
+                        AdapterError = adapterFailure.Error.ResponseMessage ??
+                            adapterFailure.Error.Format
+                    };
+                }
                 await session.DisposeAsync().ConfigureAwait(false);
                 if (exception is OperationCanceledException or
                     DebugStartPlanningException or

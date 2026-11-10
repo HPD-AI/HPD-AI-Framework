@@ -86,9 +86,9 @@ public sealed record DebugEnvironmentCapabilities
                     CapabilityState.Unsupported,
             Launch = process &&
                 Supports(DebugEnvironmentCapabilityIds.Launch, true),
-            Attach = Supports(
+            Attach = process && Supports(
                 DebugEnvironmentCapabilityIds.Attach,
-                baseline: false),
+                baseline: true),
             ProcessControl = process &&
                 Supports(DebugEnvironmentCapabilityIds.ProcessControl, true),
             UnitOwnership = process &&

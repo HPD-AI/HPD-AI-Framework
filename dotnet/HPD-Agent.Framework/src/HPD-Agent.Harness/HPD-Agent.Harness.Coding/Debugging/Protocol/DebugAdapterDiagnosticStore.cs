@@ -11,7 +11,8 @@ public sealed record DebugAdapterDiagnosticRecord(
     int? ExitCode,
     string StandardError,
     long DroppedChunks,
-    long DroppedBytes);
+    long DroppedBytes,
+    string? AdapterError);
 
 public interface IDebugAdapterDiagnosticStore
 {
@@ -38,6 +39,9 @@ public sealed class DebugAdapterDiagnosticStore : IDebugAdapterDiagnosticStore
         var stderr = snapshot.StandardError;
         if (stderr.Length > 64 * 1024)
             stderr = stderr[..(64 * 1024)];
+        var adapterError = snapshot.AdapterError;
+        if (adapterError is { Length: > 16 * 1024 })
+            adapterError = adapterError[..(16 * 1024)];
         _records[reference] = new(
             reference,
             DateTimeOffset.UtcNow,
@@ -47,7 +51,8 @@ public sealed class DebugAdapterDiagnosticStore : IDebugAdapterDiagnosticStore
             snapshot.Exit?.ExitCode,
             stderr,
             snapshot.DroppedChunks,
-            snapshot.DroppedBytes);
+            snapshot.DroppedBytes,
+            adapterError);
         _order.Enqueue(reference);
         while (_records.Count > MaximumRecords && _order.TryDequeue(out var oldest))
             _records.TryRemove(oldest, out _);

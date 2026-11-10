@@ -31,6 +31,8 @@ public sealed class MultiAgent
     { _host = host ?? throw new ArgumentNullException(nameof(host)); _sessionStore = host.SessionStore; return this; }
     private readonly List<Action<IServiceCollection>> _serviceConfigurators = new();
     private string? _workflowName;
+    private int? _explicitMaxIterations;
+    private TimeSpan? _explicitTimeout;
 
     /// <summary>
     /// Creates a new workflow builder.
@@ -250,6 +252,7 @@ public sealed class MultiAgent
     /// </summary>
     public MultiAgent WithMaxIterations(int maxIterations)
     {
+        _explicitMaxIterations = maxIterations;
         _graphBuilder.WithMaxIterations(maxIterations);
         return this;
     }
@@ -259,6 +262,7 @@ public sealed class MultiAgent
     /// </summary>
     public MultiAgent WithTimeout(TimeSpan timeout)
     {
+        _explicitTimeout = timeout;
         _graphBuilder.WithExecutionTimeout(timeout);
         return this;
     }
@@ -324,20 +328,34 @@ public sealed class MultiAgent
         // Configure graph
         _graphBuilder.WithName(_workflowName ?? "MultiAgentWorkflow");
 
-        // Wire iteration options if configured
-        if (_settings.IterationOptions != null)
-        {
-            _graphBuilder.WithIterationOptions(new HPD.Graph.Abstractions.Graph.IterationOptions
+        // Wire iteration options. The top-level MaxIterations remains the
+        // simple setting; IterationOptions can override it when supplied.
+        var iterationOptions = _settings.IterationOptions;
+        var maxIterations = _explicitMaxIterations ??
+            iterationOptions?.MaxIterations ??
+            _settings.MaxIterations;
+        _graphBuilder.WithMaxIterations(maxIterations);
+        _graphBuilder.WithIterationOptions(
+            new HPD.Graph.Abstractions.Graph.IterationOptions
             {
-                MaxIterations = _settings.IterationOptions.MaxIterations,
-                EnableAutoConvergence = _settings.IterationOptions.EnableAutoConvergence,
-                IgnoreFieldsForChangeDetection = _settings.IterationOptions.IgnoreFieldsForChangeDetection != null
-                    ? new HashSet<string>(_settings.IterationOptions.IgnoreFieldsForChangeDetection)
-                    : null,
-                AlwaysDirtyNodes = _settings.IterationOptions.AlwaysDirtyNodes != null
-                    ? new HashSet<string>(_settings.IterationOptions.AlwaysDirtyNodes)
-                    : null
+                MaxIterations = maxIterations,
+                EnableAutoConvergence =
+                    iterationOptions?.EnableAutoConvergence ?? true,
+                IgnoreFieldsForChangeDetection =
+                    iterationOptions?.IgnoreFieldsForChangeDetection != null
+                        ? new HashSet<string>(
+                            iterationOptions.IgnoreFieldsForChangeDetection)
+                        : null,
+                AlwaysDirtyNodes =
+                    iterationOptions?.AlwaysDirtyNodes != null
+                        ? new HashSet<string>(
+                            iterationOptions.AlwaysDirtyNodes)
+                        : null
             });
+
+        if ((_explicitTimeout ?? _settings.DefaultTimeout) is { } timeout)
+        {
+            _graphBuilder.WithExecutionTimeout(timeout);
         }
 
         // Add START and END nodes
@@ -363,7 +381,7 @@ public sealed class MultiAgent
                     node.WithTimeout(opts.Timeout.Value);
 
                 if (opts.RetryPolicy != null)
-                    node.WithRetryPolicy(opts.RetryPolicy);
+                    node.WithRetryPolicy(ToGraphRetryPolicy(opts.RetryPolicy));
 
                 if (opts.MaxConcurrentExecutions.HasValue)
                     node.WithMaxParallelExecutions(opts.MaxConcurrentExecutions.Value);
@@ -400,7 +418,10 @@ public sealed class MultiAgent
     }
 
     // Internal methods for EdgeBuilder
-    internal void AddEdgeInternal(string from, string to, EdgeCondition? condition)
+    internal void AddEdgeInternal(
+        string from,
+        string to,
+        WorkflowCondition? condition)
     {
         _declaredEdges.Add((from, to));
 
@@ -408,12 +429,15 @@ public sealed class MultiAgent
         {
             if (condition != null)
             {
-                edge.WithCondition(condition);
+                edge.WithCondition(ToGraphCondition(condition));
             }
         });
     }
 
-    internal void UpdateEdgeCondition(string from, string to, EdgeCondition? condition)
+    internal void UpdateEdgeCondition(
+        string from,
+        string to,
+        WorkflowCondition? condition)
     {
         AddEdgeInternal(from, to, condition);
     }
@@ -467,7 +491,7 @@ public sealed class MultiAgent
         return _agents.Keys.Union(_agentConfigs.Keys).Distinct();
     }
 
-    private static EdgeCondition MapCondition(Config.ConditionConfig c) => new EdgeCondition
+    private static WorkflowCondition MapCondition(ConditionConfig c) => new()
     {
         Type = c.Type,
         Field = c.Field,
@@ -475,6 +499,63 @@ public sealed class MultiAgent
         RegexOptions = c.RegexOptions,
         Conditions = c.Conditions?.Select(MapCondition).ToList()
     };
+
+    private static HPD.Graph.Abstractions.Graph.EdgeCondition ToGraphCondition(
+        WorkflowCondition condition) =>
+        new()
+        {
+            Type = MapConditionType(condition.Type),
+            Field = condition.Field,
+            Value = condition.Value,
+            RegexOptions = condition.RegexOptions,
+            Conditions = condition.Conditions?
+                .Select(ToGraphCondition)
+                .ToList()
+        };
+
+    private static HPD.Graph.Abstractions.Graph.ConditionType MapConditionType(
+        Config.ConditionType type) =>
+        type switch
+        {
+            Config.ConditionType.Always => HPD.Graph.Abstractions.Graph.ConditionType.Always,
+            Config.ConditionType.FieldEquals => HPD.Graph.Abstractions.Graph.ConditionType.FieldEquals,
+            Config.ConditionType.FieldNotEquals => HPD.Graph.Abstractions.Graph.ConditionType.FieldNotEquals,
+            Config.ConditionType.FieldGreaterThan => HPD.Graph.Abstractions.Graph.ConditionType.FieldGreaterThan,
+            Config.ConditionType.FieldGreaterThanOrEqual => HPD.Graph.Abstractions.Graph.ConditionType.FieldGreaterThanOrEqual,
+            Config.ConditionType.FieldLessThan => HPD.Graph.Abstractions.Graph.ConditionType.FieldLessThan,
+            Config.ConditionType.FieldLessThanOrEqual => HPD.Graph.Abstractions.Graph.ConditionType.FieldLessThanOrEqual,
+            Config.ConditionType.FieldExists => HPD.Graph.Abstractions.Graph.ConditionType.FieldExists,
+            Config.ConditionType.FieldNotExists => HPD.Graph.Abstractions.Graph.ConditionType.FieldNotExists,
+            Config.ConditionType.FieldContains => HPD.Graph.Abstractions.Graph.ConditionType.FieldContains,
+            Config.ConditionType.Default => HPD.Graph.Abstractions.Graph.ConditionType.Default,
+            Config.ConditionType.UpstreamOneSuccess => HPD.Graph.Abstractions.Graph.ConditionType.UpstreamOneSuccess,
+            Config.ConditionType.UpstreamAllDone => HPD.Graph.Abstractions.Graph.ConditionType.UpstreamAllDone,
+            Config.ConditionType.UpstreamAllDoneOneSuccess => HPD.Graph.Abstractions.Graph.ConditionType.UpstreamAllDoneOneSuccess,
+            Config.ConditionType.And => HPD.Graph.Abstractions.Graph.ConditionType.And,
+            Config.ConditionType.Or => HPD.Graph.Abstractions.Graph.ConditionType.Or,
+            Config.ConditionType.Not => HPD.Graph.Abstractions.Graph.ConditionType.Not,
+            Config.ConditionType.FieldStartsWith => HPD.Graph.Abstractions.Graph.ConditionType.FieldStartsWith,
+            Config.ConditionType.FieldEndsWith => HPD.Graph.Abstractions.Graph.ConditionType.FieldEndsWith,
+            Config.ConditionType.FieldMatchesRegex => HPD.Graph.Abstractions.Graph.ConditionType.FieldMatchesRegex,
+            Config.ConditionType.FieldIsEmpty => HPD.Graph.Abstractions.Graph.ConditionType.FieldIsEmpty,
+            Config.ConditionType.FieldIsNotEmpty => HPD.Graph.Abstractions.Graph.ConditionType.FieldIsNotEmpty,
+            Config.ConditionType.FieldContainsAny => HPD.Graph.Abstractions.Graph.ConditionType.FieldContainsAny,
+            Config.ConditionType.FieldContainsAll => HPD.Graph.Abstractions.Graph.ConditionType.FieldContainsAll,
+            _ => throw new InvalidOperationException(
+                $"Unknown workflow condition type '{type}'.")
+        };
+
+    private static HPD.Graph.Abstractions.Graph.RetryPolicy ToGraphRetryPolicy(
+        RetryPolicy policy) =>
+        new()
+        {
+            OnlyTransient = policy.OnlyTransient,
+            MaxAttempts = policy.MaxAttempts,
+            InitialDelay = policy.InitialDelay,
+            Strategy = MapBackoffStrategy(policy.Strategy),
+            MaxDelay = policy.MaxDelay,
+            RetryableExceptions = policy.RetryableExceptions
+        };
 
     private static Type? ResolveStructuredType(AgentNodeConfig config, WorkflowHostBinding? host)
     {
@@ -532,6 +613,22 @@ public sealed class MultiAgent
 
         return options;
     }
+
+    private static HPD.Graph.Abstractions.Graph.BackoffStrategy MapBackoffStrategy(
+        Config.BackoffStrategy strategy) =>
+        strategy switch
+        {
+            Config.BackoffStrategy.Constant =>
+                HPD.Graph.Abstractions.Graph.BackoffStrategy.Constant,
+            Config.BackoffStrategy.Exponential =>
+                HPD.Graph.Abstractions.Graph.BackoffStrategy.Exponential,
+            Config.BackoffStrategy.Linear =>
+                HPD.Graph.Abstractions.Graph.BackoffStrategy.Linear,
+            Config.BackoffStrategy.JitteredExponential =>
+                HPD.Graph.Abstractions.Graph.BackoffStrategy.JitteredExponential,
+            _ => throw new InvalidOperationException(
+                $"Unknown workflow backoff strategy '{strategy}'.")
+        };
 }
 
 /// <summary>

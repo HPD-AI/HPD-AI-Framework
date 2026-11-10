@@ -1,6 +1,6 @@
 using HPD.Agent;
 using HPD.MultiAgent;
-using HPD.Graph.Abstractions.Graph;
+using HPD.MultiAgent.Config;
 
 namespace HPD.MultiAgent.Tests;
 

@@ -178,6 +178,9 @@ public sealed class DebugRealAdapterQualificationTests
             "..",
             "..",
             "HPD-Agent.Harness.Coding.Tests.csproj"));
+        var buildConfiguration =
+            new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name ??
+            "Release";
         var start = new ProcessStartInfo(dotnet)
         {
             RedirectStandardOutput = true,
@@ -189,7 +192,8 @@ public sealed class DebugRealAdapterQualificationTests
         foreach (var argument in new[]
                  {
                      "test", project,
-                     "-f", "net10.0",
+                     "--configuration", buildConfiguration,
+                     "-f", "net8.0",
                      "--no-build",
                      "--no-restore",
                      "--nologo",

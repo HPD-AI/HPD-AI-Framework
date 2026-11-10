@@ -2,10 +2,46 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent;
 using HPD.MultiAgent;
-using HPD.Graph.Abstractions;
-using HPD.Graph.Abstractions.Graph;
 
 namespace HPD.MultiAgent.Config;
+
+/// <summary>Backoff strategy used by workflow node retries.</summary>
+public enum BackoffStrategy
+{
+    Constant,
+    Exponential,
+    Linear,
+    JitteredExponential
+}
+
+/// <summary>Condition used to decide whether an outgoing workflow edge is traversed.</summary>
+public enum ConditionType
+{
+    Always,
+    FieldEquals,
+    FieldNotEquals,
+    FieldGreaterThan,
+    FieldGreaterThanOrEqual,
+    FieldLessThan,
+    FieldLessThanOrEqual,
+    FieldExists,
+    FieldNotExists,
+    FieldContains,
+    Default,
+    UpstreamOneSuccess,
+    UpstreamAllDone,
+    UpstreamAllDoneOneSuccess,
+    And,
+    Or,
+    Not,
+    FieldStartsWith,
+    FieldEndsWith,
+    FieldMatchesRegex,
+    FieldIsEmpty,
+    FieldIsNotEmpty,
+    FieldContainsAny,
+    FieldContainsAll
+}
 
 /// <summary>
 /// Fully serializable multi-agent workflow configuration.
@@ -184,7 +220,7 @@ public sealed record ErrorConfig
 }
 
 /// <summary>
-/// Simplified error modes (maps to HPD.Graph's ErrorPropagationPolicy).
+/// Simplified error modes used by the multi-agent runtime.
 /// </summary>
 public enum ErrorMode
 {

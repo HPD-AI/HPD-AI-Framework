@@ -1,6 +1,5 @@
 using System.Text.RegularExpressions;
-using HPD.Graph.Abstractions;
-using HPD.Graph.Abstractions.Graph;
+using HPD.MultiAgent.Config;
 
 namespace HPD.MultiAgent.Routing;
 
@@ -48,7 +47,7 @@ public class EdgeTargetBuilder
     private readonly MultiAgent _workflowBuilder;
     private readonly string[] _sourceNodes;
     private readonly string[] _targetNodes;
-    private EdgeCondition? _condition;
+    private WorkflowCondition? _condition;
 
     internal EdgeTargetBuilder(
         MultiAgent workflowBuilder,
@@ -90,7 +89,7 @@ public class EdgeTargetBuilder
     /// </summary>
     public EdgeTargetBuilder WhenEquals(string field, object value)
     {
-        _condition = new EdgeCondition
+        _condition = new WorkflowCondition
         {
             Type = ConditionType.FieldEquals,
             Field = field,
@@ -105,7 +104,7 @@ public class EdgeTargetBuilder
     /// </summary>
     public EdgeTargetBuilder WhenNotEquals(string field, object value)
     {
-        _condition = new EdgeCondition
+        _condition = new WorkflowCondition
         {
             Type = ConditionType.FieldNotEquals,
             Field = field,
@@ -120,7 +119,7 @@ public class EdgeTargetBuilder
     /// </summary>
     public EdgeTargetBuilder WhenExists(string field)
     {
-        _condition = new EdgeCondition
+        _condition = new WorkflowCondition
         {
             Type = ConditionType.FieldExists,
             Field = field
@@ -134,7 +133,7 @@ public class EdgeTargetBuilder
     /// </summary>
     public EdgeTargetBuilder WhenNotExists(string field)
     {
-        _condition = new EdgeCondition
+        _condition = new WorkflowCondition
         {
             Type = ConditionType.FieldNotExists,
             Field = field
@@ -148,7 +147,7 @@ public class EdgeTargetBuilder
     /// </summary>
     public EdgeTargetBuilder WhenGreaterThan(string field, object value)
     {
-        _condition = new EdgeCondition
+        _condition = new WorkflowCondition
         {
             Type = ConditionType.FieldGreaterThan,
             Field = field,
@@ -163,7 +162,7 @@ public class EdgeTargetBuilder
     /// </summary>
     public EdgeTargetBuilder WhenLessThan(string field, object value)
     {
-        _condition = new EdgeCondition
+        _condition = new WorkflowCondition
         {
             Type = ConditionType.FieldLessThan,
             Field = field,
@@ -178,7 +177,7 @@ public class EdgeTargetBuilder
     /// </summary>
     public EdgeTargetBuilder WhenContains(string field, object value)
     {
-        _condition = new EdgeCondition
+        _condition = new WorkflowCondition
         {
             Type = ConditionType.FieldContains,
             Field = field,
@@ -192,7 +191,7 @@ public class EdgeTargetBuilder
     /// Add a declarative compound or leaf condition built via <see cref="Condition"/> factory methods.
     /// Unlike <see cref="When(Func{EdgeConditionContext, bool})"/>, this overload is fully serializable.
     /// </summary>
-    public EdgeTargetBuilder When(EdgeCondition condition)
+    public EdgeTargetBuilder When(WorkflowCondition condition)
     {
         _condition = condition ?? throw new ArgumentNullException(nameof(condition));
         UpdateEdges();
@@ -208,7 +207,7 @@ public class EdgeTargetBuilder
     /// </summary>
     public EdgeTargetBuilder WhenStartsWith(string field, string prefix)
     {
-        _condition = new EdgeCondition
+        _condition = new WorkflowCondition
         {
             Type = ConditionType.FieldStartsWith,
             Field = field,
@@ -223,7 +222,7 @@ public class EdgeTargetBuilder
     /// </summary>
     public EdgeTargetBuilder WhenEndsWith(string field, string suffix)
     {
-        _condition = new EdgeCondition
+        _condition = new WorkflowCondition
         {
             Type = ConditionType.FieldEndsWith,
             Field = field,
@@ -242,7 +241,7 @@ public class EdgeTargetBuilder
             ? null
             : string.Join(",", options.ToString().Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
 
-        _condition = new EdgeCondition
+        _condition = new WorkflowCondition
         {
             Type = ConditionType.FieldMatchesRegex,
             Field = field,
@@ -258,7 +257,7 @@ public class EdgeTargetBuilder
     /// </summary>
     public EdgeTargetBuilder WhenEmpty(string field)
     {
-        _condition = new EdgeCondition
+        _condition = new WorkflowCondition
         {
             Type = ConditionType.FieldIsEmpty,
             Field = field
@@ -272,7 +271,7 @@ public class EdgeTargetBuilder
     /// </summary>
     public EdgeTargetBuilder WhenNotEmpty(string field)
     {
-        _condition = new EdgeCondition
+        _condition = new WorkflowCondition
         {
             Type = ConditionType.FieldIsNotEmpty,
             Field = field
@@ -290,7 +289,7 @@ public class EdgeTargetBuilder
     /// </summary>
     public EdgeTargetBuilder WhenContainsAny(string field, params object[] values)
     {
-        _condition = new EdgeCondition
+        _condition = new WorkflowCondition
         {
             Type = ConditionType.FieldContainsAny,
             Field = field,
@@ -305,7 +304,7 @@ public class EdgeTargetBuilder
     /// </summary>
     public EdgeTargetBuilder WhenContainsAll(string field, params object[] values)
     {
-        _condition = new EdgeCondition
+        _condition = new WorkflowCondition
         {
             Type = ConditionType.FieldContainsAll,
             Field = field,
@@ -320,7 +319,7 @@ public class EdgeTargetBuilder
     /// </summary>
     public EdgeTargetBuilder AsDefault()
     {
-        _condition = new EdgeCondition
+        _condition = new WorkflowCondition
         {
             Type = ConditionType.Default
         };
@@ -424,7 +423,7 @@ public class TypeRouteBuilder
         _routes.Add((typeof(T), targetNode));
 
         // Register edge with FieldEquals condition on matched_type
-        _workflowBuilder.AddEdgeInternal(_sourceNode, targetNode, new EdgeCondition
+        _workflowBuilder.AddEdgeInternal(_sourceNode, targetNode, new WorkflowCondition
         {
             Type = ConditionType.FieldEquals,
             Field = "matched_type",
@@ -439,7 +438,7 @@ public class TypeRouteBuilder
     /// </summary>
     public TypeRouteBuilder Default(string targetNode)
     {
-        _workflowBuilder.AddEdgeInternal(_sourceNode, targetNode, new EdgeCondition
+        _workflowBuilder.AddEdgeInternal(_sourceNode, targetNode, new WorkflowCondition
         {
             Type = ConditionType.Default
         });

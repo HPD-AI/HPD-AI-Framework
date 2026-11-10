@@ -165,17 +165,24 @@ public sealed class DebugAdapterRuntimeInfrastructureTests
             .Which.Kind.Should().Be("adapter_program_kind_unsupported");
     }
 
-    [Fact]
-    public void Semantic_attach_configuration_emits_numeric_process_aliases()
+    [Theory]
+    [InlineData("netcoredbg", "processId")]
+    [InlineData("debugpy", "processId")]
+    [InlineData("delve", "processId")]
+    [InlineData("codelldb", "pid")]
+    [InlineData("lldb-dap", "pid")]
+    public void Semantic_attach_configuration_uses_adapter_process_field(
+        string adapterId,
+        string processProperty)
     {
-        var descriptor = Descriptor("delve", DebugTargetKind.Process);
+        var descriptor = Descriptor(adapterId, DebugTargetKind.Process);
         var value = new BuiltInDebugAdapterConfigurationComposer().ComposeAttach(
             descriptor, new("/workspace", ProcessId: "1234"));
 
         value.GetProperty("request").GetString().Should().Be("attach");
-        value.GetProperty("mode").GetString().Should().Be("local");
-        value.GetProperty("pid").GetInt64().Should().Be(1234);
-        value.GetProperty("processId").GetInt64().Should().Be(1234);
+        if (adapterId == "delve")
+            value.GetProperty("mode").GetString().Should().Be("local");
+        value.GetProperty(processProperty).GetInt64().Should().Be(1234);
     }
 
     private static DebugAdapterDescriptor Descriptor(string id, DebugTargetKind targetKinds) => new()

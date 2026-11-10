@@ -45,7 +45,7 @@ public sealed class DebugPublicHostedRealAdapterTests
                 new ApplicationProjectDebugTarget(
                     Path.GetDirectoryName(project)!,
                     ProjectPath: project,
-                    TargetFramework: "net10.0"),
+                    TargetFramework: "net8.0"),
                 AdapterId: "netcoredbg",
                 WorkspacePath: workspaceRoot,
                 InitialConfiguration: new DebugInitialConfigurationInput(
@@ -84,7 +84,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             Path.GetDirectoryName(project)!,
             "bin",
             "Debug",
-            "net10.0",
+            "net8.0",
             "HPD-Agent.Harness.Coding.RealAdapterFixture.dll");
 
         var xml = await CodingHarnessTestFactory.Create().Debug(
@@ -119,7 +119,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             new ApplicationProjectDebugTarget(
                 Path.GetDirectoryName(project)!,
                 ProjectPath: project,
-                TargetFramework: "net10.0"),
+                TargetFramework: "net8.0"),
             AdapterId: "netcoredbg",
             WorkspacePath: workspaceRoot,
             StopOnEntry: false,
@@ -815,7 +815,7 @@ public sealed class DebugPublicHostedRealAdapterTests
                 project,
                 DebugTestFramework.DotNet,
                 Filter: filter,
-                TargetFramework: "net10.0"),
+                TargetFramework: "net8.0"),
             AdapterId: "netcoredbg",
             WorkspacePath: FixtureWorkspace(project),
             StopOnEntry: true,
@@ -955,6 +955,8 @@ public sealed class DebugPublicHostedRealAdapterTests
         };
         start.ArgumentList.Add("build");
         start.ArgumentList.Add(project);
+        start.ArgumentList.Add("--framework");
+        start.ArgumentList.Add("net8.0");
         start.ArgumentList.Add("--nologo");
         start.ArgumentList.Add("--verbosity");
         start.ArgumentList.Add("quiet");
@@ -1022,9 +1024,54 @@ public sealed class DebugPublicHostedRealAdapterTests
             var services = new ServiceCollection();
             services.AddHPDCodingDebugging();
             services.AddHPDBuiltInDebugAdapters();
+            ConfigureAdapterLocations(services);
             services.Replace(ServiceDescriptor.Singleton<
                 IDebugAdapterTrustPolicy, AllowQualificationTrustPolicy>());
             _services = services.BuildServiceProvider();
+        }
+
+        private static void ConfigureAdapterLocations(
+            IServiceCollection services)
+        {
+            var locations = new List<ConfiguredDebugAdapterToolLocation>();
+            if (System.Environment.GetEnvironmentVariable(
+                    "HPD_NETCOREDBG") is { Length: > 0 } netcoredbg)
+            {
+                locations.Add(new ConfiguredDebugAdapterToolLocation
+                {
+                    AdapterId = "netcoredbg",
+                    Command = netcoredbg,
+                    ProbeArguments = ["--version"],
+                    SearchScope = DebugAdapterToolSearchScope.GlobalCommand,
+                    LocationIdentity = netcoredbg,
+                    LaunchArguments = ["--interpreter=vscode"]
+                });
+            }
+
+            if (System.Environment.GetEnvironmentVariable(
+                    "HPD_DEBUGPY_PYTHON") is { Length: > 0 } debugpy)
+            {
+                locations.Add(new ConfiguredDebugAdapterToolLocation
+                {
+                    AdapterId = "debugpy",
+                    Command = debugpy,
+                    ProbeArguments =
+                    [
+                        "-c",
+                        "import debugpy; import debugpy.adapter; print(debugpy.__version__)"
+                    ],
+                    SearchScope = DebugAdapterToolSearchScope.GlobalCommand,
+                    LocationIdentity = debugpy,
+                    LaunchArguments = ["-m", "debugpy.adapter"]
+                });
+            }
+
+            if (locations.Count > 0)
+            {
+                services.Replace(ServiceDescriptor.Singleton<
+                    IDebugAdapterToolSearchPolicy>(
+                    new ConfiguredDebugAdapterToolSearchPolicy(locations)));
+            }
         }
 
         public DebugSessionManager Manager { get; }
@@ -1055,7 +1102,9 @@ public sealed class DebugPublicHostedRealAdapterTests
                     .TryGet(reference, out var diagnostic))
                 return xml;
             return $"{xml}; adapter phase={diagnostic.Phase}; " +
-                   $"exit={diagnostic.ExitCode}; stderr={diagnostic.StandardError}";
+                   $"exit={diagnostic.ExitCode}; " +
+                   $"adapter_error={diagnostic.AdapterError}; " +
+                   $"stderr={diagnostic.StandardError}";
         }
 
         public FunctionExecutionContext Context(
@@ -1067,6 +1116,8 @@ public sealed class DebugPublicHostedRealAdapterTests
                 "root",
                 workspaceRoot,
                 [new("root", workspaceRoot, AgentWorkspaceAccess.ReadWrite)]);
+            RuntimeWorkspaceBinding runtimeWorkspace =
+                TestRuntimeWorkspace.FromAgentWorkspace(workspace);
             var runConfig = new AgentRunConfig
             {
                 Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>
@@ -1094,12 +1145,14 @@ public sealed class DebugPublicHostedRealAdapterTests
             agent.RuntimeCapabilities.Set<IDebugSessionManager>(Manager);
             agent.RuntimeCapabilities.Set(Operations);
             agent.RuntimeCapabilities.Set(new DebugRuntimeBindingState());
+            agent.RuntimeCapabilities.Set(runtimeWorkspace);
             agent.RuntimeCapabilities.Set(new RuntimeProcessExecutionBinding
             {
                 EnvironmentId = "local",
                 EnvironmentRevision = 1,
                 ProcessProvider = _process,
-                ExecutionTarget = _executionTarget
+                ExecutionTarget = _executionTarget,
+                WorkspaceContent = runtimeWorkspace.Content
             });
             var function = AIFunctionFactory.Create(
                 () => "ok",

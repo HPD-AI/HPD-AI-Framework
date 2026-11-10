@@ -38,7 +38,8 @@ public sealed class DebugAdapterDiagnosticTests
                 new string('x', 70 * 1024),
                 2,
                 4096,
-                new DebugTransportExit(ProcessCompletionKind.Exited, 9, "EXITED")));
+                new DebugTransportExit(ProcessCompletionKind.Exited, 9, "EXITED"),
+                new string('e', 20 * 1024)));
 
         reference.Should().StartWith("debug-diagnostic-");
         store.TryGet(reference, out var record).Should().BeTrue();
@@ -46,6 +47,7 @@ public sealed class DebugAdapterDiagnosticTests
         record.AdapterId.Should().Be("netcoredbg");
         record.Phase.Should().Be("initialize");
         record.ExitCode.Should().Be(9);
+        record.AdapterError!.Length.Should().Be(16 * 1024);
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition)

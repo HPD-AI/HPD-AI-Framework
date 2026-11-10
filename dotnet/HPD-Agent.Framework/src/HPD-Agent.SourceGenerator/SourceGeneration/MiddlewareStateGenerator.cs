@@ -107,6 +107,9 @@ public class MiddlewareStateGenerator : IIncrementalGenerator
             return null;
 
         var diagnostics = new List<Diagnostic>();
+        var typeReference = typeSymbol.ToDisplayString(
+            SymbolDisplayFormat.FullyQualifiedFormat);
+        var fullyQualifiedName = typeReference.Replace("global::", "");
 
         // HPD001: Must be a record
         if (typeSymbol.TypeKind != TypeKind.Class || !typeSymbol.IsRecord)
@@ -117,6 +120,7 @@ public class MiddlewareStateGenerator : IIncrementalGenerator
                 typeSymbol.Name));
             return new StateInfo(
                 TypeName: typeSymbol.Name,
+                TypeReference: typeReference,
                 FullyQualifiedName: "",
                 PropertyName: "",
                 Namespace: "",
@@ -137,9 +141,9 @@ public class MiddlewareStateGenerator : IIncrementalGenerator
 
         // Extract info
         var typeName = typeSymbol.Name;
-        var fullyQualifiedName = typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
-            .Replace("global::", ""); // Remove global:: prefix
-        var namespaceName = typeSymbol.ContainingNamespace?.ToDisplayString() ?? "";
+        var namespaceName = typeSymbol.ContainingNamespace.IsGlobalNamespace
+            ? ""
+            : typeSymbol.ContainingNamespace.ToDisplayString();
         var propertyName = GetPropertyName(typeName);
 
         // Extract version, persistent, and scope from [MiddlewareState(Version = X, Persistent = Y, Scope = Z)] attribute
@@ -177,6 +181,7 @@ public class MiddlewareStateGenerator : IIncrementalGenerator
                 typeName));
             return new StateInfo(
                 TypeName: typeName,
+                TypeReference: typeReference,
                 FullyQualifiedName: fullyQualifiedName,
                 PropertyName: propertyName,
                 Namespace: namespaceName,
@@ -188,6 +193,7 @@ public class MiddlewareStateGenerator : IIncrementalGenerator
 
         return new StateInfo(
             TypeName: typeName,
+            TypeReference: typeReference,
             FullyQualifiedName: fullyQualifiedName,
             PropertyName: propertyName,
             Namespace: namespaceName,
@@ -316,13 +322,13 @@ public class MiddlewareStateGenerator : IIncrementalGenerator
         {
             sb.AppendLine($"        new MiddlewareStateFactory(");
             sb.AppendLine($"            FullyQualifiedName: \"{stateInfo.FullyQualifiedName}\",");
-            sb.AppendLine($"            StateType: typeof({stateInfo.FullyQualifiedName}),");
+            sb.AppendLine($"            StateType: typeof({stateInfo.TypeReference}),");
             sb.AppendLine($"            PropertyName: \"{stateInfo.PropertyName}\",");
             sb.AppendLine($"            Version: {stateInfo.Version},");
             sb.AppendLine($"            Persistent: {(stateInfo.Persistent ? "true" : "false")},");
             sb.AppendLine($"            Scope: StateScope.{stateInfo.Scope},");
-            sb.AppendLine($"            Deserialize: json => JsonSerializer.Deserialize(json, GetJsonTypeInfo<{stateInfo.FullyQualifiedName}>()),");
-            sb.AppendLine($"            Serialize: state => JsonSerializer.Serialize(({stateInfo.FullyQualifiedName})state, GetJsonTypeInfo<{stateInfo.FullyQualifiedName}>())");
+            sb.AppendLine($"            Deserialize: json => JsonSerializer.Deserialize(json, GetJsonTypeInfo<{stateInfo.TypeReference}>()),");
+            sb.AppendLine($"            Serialize: state => JsonSerializer.Serialize(({stateInfo.TypeReference})state, GetJsonTypeInfo<{stateInfo.TypeReference}>())");
             sb.AppendLine($"        ),");
         }
 
@@ -419,8 +425,8 @@ public class MiddlewareStateGenerator : IIncrementalGenerator
             sb.AppendLine($"    /// <summary>");
             sb.AppendLine($"    /// Gets {stateInfo.PropertyName} middleware state.");
             sb.AppendLine($"    /// </summary>");
-            sb.AppendLine($"    public static {stateInfo.FullyQualifiedName}? {stateInfo.PropertyName}(this MiddlewareState state)");
-            sb.AppendLine($"        => state.GetState<{stateInfo.FullyQualifiedName}>({stateInfo.PropertyName}Key);");
+            sb.AppendLine($"    public static {stateInfo.TypeReference}? {stateInfo.PropertyName}(this MiddlewareState state)");
+            sb.AppendLine($"        => state.GetState<{stateInfo.TypeReference}>({stateInfo.PropertyName}Key);");
             sb.AppendLine();
 
             // Generate WithX extension method
@@ -432,7 +438,7 @@ public class MiddlewareStateGenerator : IIncrementalGenerator
             sb.AppendLine($"    /// <returns>New container instance with updated state.</returns>");
             sb.AppendLine($"    public static MiddlewareState With{stateInfo.PropertyName}(");
             sb.AppendLine($"        this MiddlewareState state,");
-            sb.AppendLine($"        {stateInfo.FullyQualifiedName}? value)");
+            sb.AppendLine($"        {stateInfo.TypeReference}? value)");
             sb.AppendLine($"    {{");
             sb.AppendLine($"        return value == null ? state : state.SetState({stateInfo.PropertyName}Key, value);");
             sb.AppendLine($"    }}");
@@ -450,6 +456,7 @@ public class MiddlewareStateGenerator : IIncrementalGenerator
 
     private record StateInfo(
         string TypeName,
+        string TypeReference,
         string FullyQualifiedName,
         string PropertyName,
         string Namespace,

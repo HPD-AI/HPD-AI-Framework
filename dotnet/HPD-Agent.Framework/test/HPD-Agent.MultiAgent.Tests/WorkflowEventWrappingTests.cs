@@ -83,6 +83,28 @@ public class WorkflowEventWrappingTests
                 Metadata = context
             },
 
+            NodeApprovalRequestEvent n => new WorkflowApprovalRequestedEvent
+            {
+                WorkflowName = workflowName,
+                RequestId = n.RequestId,
+                SourceName = n.SourceName,
+                AgentId = n.NodeId,
+                Message = n.Message,
+                Description = n.Description,
+                Details = n.Metadata,
+                Metadata = context
+            },
+
+            NodeApprovalTimeoutEvent n => new WorkflowApprovalTimedOutEvent
+            {
+                WorkflowName = workflowName,
+                RequestId = n.RequestId,
+                SourceName = n.SourceName,
+                AgentId = n.NodeId,
+                WaitedFor = n.WaitedFor,
+                Metadata = context
+            },
+
             LayerExecutionStartedEvent l => new WorkflowLayerStartedEvent
             {
                 WorkflowName = workflowName,
@@ -300,6 +322,28 @@ public class WorkflowEventWrappingTests
         var workflowEvent = wrapped.Should().BeOfType<WorkflowAgentSkippedEvent>().Subject;
         workflowEvent.AgentId.Should().Be("optional_node");
         workflowEvent.Reason.Should().Be("Condition not met");
+    }
+
+    [Fact]
+    public void WrapGraphEvent_NodeApprovalRequest_MapsToWorkflowApprovalRequested()
+    {
+        var graphEvent = new NodeApprovalRequestEvent
+        {
+            RequestId = "approval-1",
+            SourceName = "publish",
+            NodeId = "publish",
+            Message = "Approve publishing?",
+            Description = "Release note"
+        };
+
+        var result = WrapGraphEvent(graphEvent, _testContext);
+
+        result.Should().BeOfType<WorkflowApprovalRequestedEvent>();
+        var approval = (WorkflowApprovalRequestedEvent)result!;
+        approval.WorkflowName.Should().Be("TestWorkflow");
+        approval.RequestId.Should().Be("approval-1");
+        approval.AgentId.Should().Be("publish");
+        approval.Description.Should().Be("Release note");
     }
 
     #endregion

@@ -185,6 +185,32 @@ public sealed record WorkflowAgentSkippedEvent : AgentEvent
     public new EventKind Kind { get; init; } = EventKind.Diagnostic;
 }
 
+/// <summary>Event emitted when a workflow node requires application approval.</summary>
+[EventType("WORKFLOW_APPROVAL_REQUESTED")]
+public sealed record WorkflowApprovalRequestedEvent : AgentEvent
+{
+    public required string WorkflowName { get; init; }
+    public required string RequestId { get; init; }
+    public required string SourceName { get; init; }
+    public required string AgentId { get; init; }
+    public required string Message { get; init; }
+    public string? Description { get; init; }
+    public IReadOnlyDictionary<string, object?>? Details { get; init; }
+    public new EventKind Kind { get; init; } = EventKind.Control;
+}
+
+/// <summary>Event emitted when a workflow approval request times out.</summary>
+[EventType("WORKFLOW_APPROVAL_TIMED_OUT")]
+public sealed record WorkflowApprovalTimedOutEvent : AgentEvent
+{
+    public required string WorkflowName { get; init; }
+    public required string RequestId { get; init; }
+    public required string SourceName { get; init; }
+    public required string AgentId { get; init; }
+    public required TimeSpan WaitedFor { get; init; }
+    public new EventKind Kind { get; init; } = EventKind.Control;
+}
+
 /// <summary>
 /// Event emitted when an edge is traversed in a workflow (routing between nodes).
 /// Useful for debugging workflow routing decisions.

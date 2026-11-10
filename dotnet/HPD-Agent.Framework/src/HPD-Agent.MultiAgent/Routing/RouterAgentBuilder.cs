@@ -1,4 +1,4 @@
-using HPD.Graph.Abstractions.Graph;
+using HPD.MultiAgent.Config;
 
 namespace HPD.MultiAgent.Routing;
 
@@ -38,7 +38,7 @@ public class RouterAgentBuilder
         options.HandoffTargets[targetId] = description;
 
         // Add conditional edge based on handoff_target field
-        _workflowBuilder.AddEdgeInternal(_routerNodeId, targetId, new EdgeCondition
+        _workflowBuilder.AddEdgeInternal(_routerNodeId, targetId, new WorkflowCondition
         {
             Type = ConditionType.FieldEquals,
             Field = "handoff_target",
@@ -58,7 +58,7 @@ public class RouterAgentBuilder
             throw new ArgumentException("Target ID cannot be empty", nameof(targetId));
 
         // Add default edge
-        _workflowBuilder.AddEdgeInternal(_routerNodeId, targetId, new EdgeCondition
+        _workflowBuilder.AddEdgeInternal(_routerNodeId, targetId, new WorkflowCondition
         {
             Type = ConditionType.Default
         });
