@@ -9,6 +9,13 @@ for 1.0, but breaking changes remain possible before 1.0.0 is released.
 
 ## Highlights
 
+- OpenAPI 3.1-driven SDK generation for C#, TypeScript, Python, and Go, backed
+  by a deterministic, versioned SDK IR, conformance fixtures, and the invariant
+  `HPD-Agent.Client` runtime for retries, resumable SSE, typed client tools, and
+  AOT-safe serialization.
+- Runtime extension schemas for tenant/application live events, durable events,
+  and trusted inputs, including persistent schema discovery, authorized schema
+  management, bounded JSON-schema validation, and typed generated SDK payloads.
 - Builder-owned agent and provider lifecycles.
 - Source-generated application composition shared by ASP.NET and Native AOT hosts.
 - Immutable event catalogs with explicit durable replay facts and live-only
@@ -20,6 +27,9 @@ for 1.0, but breaking changes remain possible before 1.0.0 is released.
 - Durable runtime extension events.
 - Unified permission authorization and sandbox capability escalation.
 - Bounded native tool-output projection and retrieval.
+- Explicit native tool-output offloading through `[Offload]`, with immutable
+  session/thread-owned content bundles, sensitivity classification, and bounded
+  retrieval through the generated `Content` tool.
 - Completed ToolHarness construction, middleware lifecycle, and retry contracts.
 - `OnErrorAsync` observes terminal model, function, iteration, turn, input,
   runtime, and thread-fork failures exactly once.
@@ -64,6 +74,12 @@ for 1.0, but breaking changes remain possible before 1.0.0 is released.
   failures and package-owned handlers for function sources; OpenAPI responses use
   their status and `Retry-After` classification automatically.
 - Native AOT MCP publish-and-run validation is a dedicated CI gate.
+- Backend-neutral Agent sandbox composition for Host Process, Host Containers,
+  and Apple Virtual Machine backends, with operating-system enforcement and
+  workspace access owned by HPD Environment.
+- Environment-owned verified ripgrep bundles for macOS arm64/x64 and Linux
+  x64/arm64, provisioned through the same process boundary as other workspace
+  commands with managed search as a compatibility fallback.
 - Bot adapters now preserve complete webhook responses, support mixed-host
   registry mapping, expose consistent logging, and ship package-level setup guides.
 - Skill names are validated against cross-provider function-name constraints,
@@ -115,6 +131,26 @@ and resource ownership to builder-owned construction.
 The NuGet package identifiers for HPD Base use the reserved-safe `HPD-Base.*`
 family, for example `HPD-Base`, `HPD-Base.AspNetCore`, and `HPD-Base.Auth`.
 Assembly names and `HPD.Base` namespaces are unchanged.
+
+Sandbox packages were reorganized around HPD Environment providers:
+
+- `HPD-Agent.Sandbox.Core` and `HPD-Agent.Sandbox.Local` were removed.
+- Use `HPD-Agent.Sandbox` for backend-neutral composition and capability
+  admission.
+- Use `HPD-Agent.Sandbox.HostProcess`, `HPD-Agent.Sandbox.HostContainers`, or
+  `HPD-Agent.Sandbox.VirtualMachine` for a concrete Environment backend.
+- The former `HPD-Agent.Sandbox.AppleVirtualization` package is now
+  `HPD-Agent.Sandbox.VirtualMachine`.
+
+Environment package identities also changed:
+
+- `HPD-Environment.Abstractions` is now `HPD-Environment.Contracts`.
+- `HPD-Environment.AppleVirtualization` is now
+  `HPD-Environment.Virtualization.Apple`, with dedicated
+  `HPD-Environment.Virtualization.Contracts` and
+  `HPD-Environment.Virtualization.GuestAgent` packages.
+- `HPD-Environment.Local` was replaced by separate
+  `HPD-Environment.HostProcess` and `HPD-Environment.HostContainers` providers.
 
 The durable `ITERATION_CONTEXT_SNAPSHOT` event was removed before the 1.0
 freeze. It was diagnostic-only and did not participate in compaction recovery

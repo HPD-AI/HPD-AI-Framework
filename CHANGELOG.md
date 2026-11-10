@@ -15,6 +15,31 @@ All notable changes to the HPD AI Framework are documented in this file.
   Applications that expose model-facing errors should set
   `IncludeDetailedErrorsInChat` to `false` when tool exception text is sensitive.
 
+### Added
+
+- Added an OpenAPI 3.1-driven SDK generation pipeline with a versioned,
+  deterministic SDK IR, conformance fixtures, and C#, TypeScript, Python, and Go
+  generators. Generated C# clients use the new `HPD-Agent.Client` runtime for
+  bounded retries, resumable SSE cursors, replay-safe request policy, typed
+  client tools, and AOT-safe serialization.
+- Added runtime-owned event and input extension schemas. Applications can
+  validate, persist, discover, authorize, publish, and dispatch tenant-defined
+  live or durable events and trusted inputs without recompiling core event
+  classes. Generated SDK clients can materialize typed runtime-extension
+  payloads from the runtime catalog.
+- Added backend-neutral `HPD-Agent.Sandbox` composition with capability
+  admission, shared process/workspace bindings, and adapters for HPD Environment
+  Host Process, Host Containers, and Apple Virtual Machine backends.
+- Added `HPD-Environment.Search.Ripgrep` with verified ripgrep bundles for
+  macOS arm64/x64 and Linux x64/arm64. Workspace search now provisions and
+  invokes the bundled executable through the selected Environment process
+  boundary, with managed search retained as the compatibility fallback.
+- Added explicit native tool-output offloading through `[Offload]`, run-level
+  `ToolOutputConfig`, immutable content bundles, sensitivity classification,
+  and bounded `Content` list/stat/read retrieval scoped to a session and owned
+  by a thread. Restricted content metadata remains inspectable while restricted
+  bodies are not model-retrievable.
+
 ### Changed
 
 - Agent applications construct runtimes through `AgentBuilder`; the prepared
@@ -49,6 +74,10 @@ All notable changes to the HPD AI Framework are documented in this file.
   capability relationships.
 - Provider composition now merges compatible backend contributions from
   packages that add different client families to the same provider.
+- Communication tools are now opt-in capabilities: `Parent` is enabled only for
+  controlled subagents or explicit builder configuration, and `AskUser` is
+  disabled by default. Function retry behavior resolves replay safety from the
+  exact HPD function or action contract.
 - Realtime user-transcript failures expose structured provider code, category,
   retryability, status, request ID, and retry-delay details.
 - `HPD-Agent.Audio.LiveKit` is packaged with its managed transport and verified
@@ -107,6 +136,21 @@ All notable changes to the HPD AI Framework are documented in this file.
 - Removed unsupported model-iteration and session skill activation lifetimes,
   along with the redundant `SkillRuntimeOptions.ActivationLifetime` setting.
   Skills activate for the remainder of the current message turn.
+- Sandbox package identities were reorganized around the Environment provider
+  boundary. `HPD-Agent.Sandbox.Core` and `HPD-Agent.Sandbox.Local` were removed;
+  use `HPD-Agent.Sandbox` plus the relevant `HPD-Agent.Sandbox.HostProcess`,
+  `HPD-Agent.Sandbox.HostContainers`, or `HPD-Agent.Sandbox.VirtualMachine`
+  adapter. The former
+  `HPD-Agent.Sandbox.AppleVirtualization` package is now
+  `HPD-Agent.Sandbox.VirtualMachine`.
+- Environment package identities were reorganized.
+  `HPD-Environment.Abstractions` became `HPD-Environment.Contracts`;
+  `HPD-Environment.AppleVirtualization` became
+  `HPD-Environment.Virtualization.Apple`; and `HPD-Environment.Local` was
+  replaced by the separate `HPD-Environment.HostProcess` and
+  `HPD-Environment.HostContainers` providers.
+- HPD Base NuGet IDs changed from `HPD.Base.*` to `HPD-Base.*`. Assembly names
+  and `HPD.Base` namespaces remain unchanged.
 
 ### Fixed
 
@@ -132,6 +176,15 @@ All notable changes to the HPD AI Framework are documented in this file.
   `HPDSKILL019` during source generation.
 - Malformed directory-skill metadata now identifies the exact skill file,
   script path, and missing or invalid field.
+- Windows coding file mutations now reject reserved device names and trailing
+  whitespace/dot variants before path resolution can redirect the operation to
+  a device. Command-output and language-server readers now share files with
+  concurrent Windows readers instead of failing on mandatory sharing locks.
+- Evaluation report percentages now use invariant numeric formatting.
+- Shipping projects now build warning-clean under warnings-as-errors.
+  Reflection-based serialization and enum paths were replaced with generated
+  metadata, nullable and AOT contracts were corrected, and analyzer release
+  tracking was added.
 
 ### Deprecated
 
@@ -144,6 +197,8 @@ All notable changes to the HPD AI Framework are documented in this file.
 ### Release and validation
 
 - NuGet publication now requires the reusable cross-platform build-and-test gate.
+- The release train validates checked-in DX, audio, evaluation, MultiAgent, MCP,
+  and OpenAPI public API baselines before publication.
 - The Agent package train includes the client, provider-neutral MultiAgent
   ASP.NET Core routes, and ASP.NET Core OpenAPI and evaluation integrations.
 - The release train now publishes HPD Base and `HPD-Graph.Base` between the
