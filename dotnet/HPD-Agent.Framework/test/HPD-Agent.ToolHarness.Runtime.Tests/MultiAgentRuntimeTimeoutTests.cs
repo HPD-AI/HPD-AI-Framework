@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using HPD.Agent.Middleware;
-using HPD.Events;
 
 namespace HPD.Agent.Tests;
 
@@ -105,7 +104,7 @@ public sealed class MultiAgentRuntimeTimeoutTests
         internal TaskCompletionSource Disposed { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public async IAsyncEnumerable<Event> ExecuteStreamingAsync(
+        public async IAsyncEnumerable<AgentEvent> ExecuteStreamingAsync(
             string input,
             FunctionExecutionContext? parentContext,
             [EnumeratorCancellation] CancellationToken cancellationToken = default)

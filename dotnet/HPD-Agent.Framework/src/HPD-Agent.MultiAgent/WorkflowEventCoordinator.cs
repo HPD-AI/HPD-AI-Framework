@@ -29,11 +29,12 @@ public sealed class WorkflowEventCoordinator : IDisposable
     /// Thread-scoped events must already have crossed their canonical commit boundary.
     /// </summary>
     public ValueTask PublishAsync(
-        HPD.Events.Event evt,
-        CancellationToken cancellationToken = default) =>
-        evt is AgentEvent agentEvent
-            ? _inner.EmitAsync(agentEvent, AgentEventRoutes.Create(_inner, agentEvent), cancellationToken)
-            : _inner.EmitAsync(evt, cancellationToken);
+        AgentEvent evt,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(evt);
+        return _inner.EmitAsync(evt, AgentEventRoutes.Create(_inner, evt), cancellationToken);
+    }
 
     // ── Approval ──────────────────────────────────────────────────────────────
 
@@ -43,16 +44,21 @@ public sealed class WorkflowEventCoordinator : IDisposable
     /// <param name="requestId">The <see cref="NodeApprovalRequestEvent.RequestId"/> from the event.</param>
     /// <param name="reason">Optional reason shown in audit logs.</param>
     /// <param name="resumeData">Optional data passed back into the node after approval.</param>
-    public RespondResult Approve(string requestId, string? reason = null, object? resumeData = null)
-        => _inner.Approve(requestId, reason, resumeData);
+    public WorkflowApprovalResult Approve(
+        string requestId,
+        string? reason = null,
+        object? resumeData = null) =>
+        ToWorkflowApprovalResult(_inner.Approve(requestId, reason, resumeData));
 
     /// <summary>
     /// Deny a pending <see cref="NodeApprovalRequestEvent"/>.
     /// </summary>
     /// <param name="requestId">The <see cref="NodeApprovalRequestEvent.RequestId"/> from the event.</param>
     /// <param name="reason">Reason for denial (shown to the workflow and in audit logs).</param>
-    public RespondResult Deny(string requestId, string reason = "Denied by user")
-        => _inner.Deny(requestId, reason);
+    public WorkflowApprovalResult Deny(
+        string requestId,
+        string reason = "Denied by user") =>
+        ToWorkflowApprovalResult(_inner.Deny(requestId, reason));
 
     // ── Subscriptions ─────────────────────────────────────────────────────────
 
@@ -60,21 +66,48 @@ public sealed class WorkflowEventCoordinator : IDisposable
     /// Register a removable typed subscription.
     /// </summary>
     public IDisposable Subscribe<TEvent>(
-        Func<TEvent, ValueTask> handler,
-        EventSubscriptionOptions? options = null)
-        where TEvent : HPD.Events.Event
-        => _inner.Subscribe(handler, options);
+        Func<TEvent, ValueTask> handler)
+        where TEvent : AgentEvent
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return _inner.Subscribe(handler);
+    }
 
     /// <summary>
     /// Register a removable broad subscription for all workflow events.
     /// </summary>
     public IDisposable SubscribeAny(
-        Func<HPD.Events.Event, ValueTask> handler,
-        EventSubscriptionOptions? options = null)
-        => _inner.SubscribeAny(handler, options);
+        Func<AgentEvent, ValueTask> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return _inner.SubscribeAny(
+            evt => evt is AgentEvent agentEvent
+                ? handler(agentEvent)
+                : ValueTask.CompletedTask);
+    }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     /// <inheritdoc/>
     public void Dispose() => _inner.Dispose();
+
+    private static WorkflowApprovalResult ToWorkflowApprovalResult(RespondResult result) =>
+        new(
+            result.Status switch
+            {
+                RespondStatus.Accepted => WorkflowApprovalStatus.Accepted,
+                RespondStatus.NotFound => WorkflowApprovalStatus.NotFound,
+                RespondStatus.AlreadyResolved => WorkflowApprovalStatus.AlreadyResolved,
+                RespondStatus.TimedOut => WorkflowApprovalStatus.TimedOut,
+                RespondStatus.Cancelled => WorkflowApprovalStatus.Cancelled,
+                RespondStatus.ResponseTypeMismatch => WorkflowApprovalStatus.ResponseTypeMismatch,
+                RespondStatus.TargetMismatch => WorkflowApprovalStatus.TargetMismatch,
+                RespondStatus.AmbiguousRequest => WorkflowApprovalStatus.AmbiguousRequest,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(result),
+                    result.Status,
+                    "Unknown event response status.")
+            },
+            result.RequestId,
+            result.Message);
 }

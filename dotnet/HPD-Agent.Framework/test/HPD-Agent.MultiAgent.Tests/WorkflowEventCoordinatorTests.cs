@@ -194,6 +194,19 @@ public class WorkflowEventCoordinatorTests
     }
 
     [Fact]
+    public void Approve_Returns_MultiAgent_Owned_Result()
+    {
+        var coordinator = new WorkflowEventCoordinator();
+
+        var result = coordinator.Approve("missing-request");
+
+        result.Should().BeOfType<WorkflowApprovalResult>();
+        result.RequestId.Should().Be("missing-request");
+        result.Status.Should().Be(WorkflowApprovalStatus.NotFound);
+        result.Accepted.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Deny_Default_Reason_String()
     {
         var coordinator = new WorkflowEventCoordinator();
@@ -233,10 +246,10 @@ public class WorkflowEventCoordinatorTests
     private sealed class RecordingObserver
     {
         private readonly object _gate = new();
-        private readonly List<HPD.Events.Event> _received = [];
+        private readonly List<AgentEvent> _received = [];
         private readonly TaskCompletionSource _receivedSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public IReadOnlyList<HPD.Events.Event> Received
+        public IReadOnlyList<AgentEvent> Received
         {
             get
             {
@@ -245,7 +258,7 @@ public class WorkflowEventCoordinatorTests
             }
         }
 
-        public ValueTask HandleAsync(HPD.Events.Event evt)
+        public ValueTask HandleAsync(AgentEvent evt)
         {
             lock (_gate)
                 _received.Add(evt);
@@ -271,7 +284,7 @@ public class WorkflowEventCoordinatorTests
 
     /// <summary>Records only TEvent-typed events.</summary>
     private sealed class TypedRecordingObserver<TEvent>
-        where TEvent : HPD.Events.Event
+        where TEvent : AgentEvent
     {
         private readonly object _gate = new();
         private readonly List<TEvent> _received = [];
@@ -315,7 +328,7 @@ public class WorkflowEventCoordinatorTests
     {
         public int HandleCallCount { get; private set; }
 
-        public ValueTask HandleAsync(HPD.Events.Event evt)
+        public ValueTask HandleAsync(AgentEvent evt)
         {
             if (evt is WorkflowAgentCompletedEvent)
                 HandleCallCount++;
@@ -327,7 +340,7 @@ public class WorkflowEventCoordinatorTests
     /// <summary>Always throws from HandleAsync.</summary>
     private sealed class ThrowingObserver
     {
-        public ValueTask HandleAsync(HPD.Events.Event evt)
+        public ValueTask HandleAsync(AgentEvent evt)
             => throw new InvalidOperationException("Observer intentionally blew up");
     }
 }

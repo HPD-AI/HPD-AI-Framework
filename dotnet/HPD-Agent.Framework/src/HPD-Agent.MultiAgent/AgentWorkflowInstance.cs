@@ -263,7 +263,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
     /// Registers a removable typed subscriber for workflow or child agent events.
     /// </summary>
     public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler)
-        where TEvent : Event
+        where TEvent : AgentEvent
     {
         ArgumentNullException.ThrowIfNull(handler);
         return _eventCoordinator.Subscribe(handler);
@@ -273,7 +273,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
     /// Registers a removable typed subscriber for workflow or child agent events.
     /// </summary>
     public IDisposable Subscribe<TEvent>(Func<TEvent, Task> handler)
-        where TEvent : Event
+        where TEvent : AgentEvent
     {
         ArgumentNullException.ThrowIfNull(handler);
         return Subscribe<TEvent>(evt => new ValueTask(handler(evt)));
@@ -283,7 +283,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
     /// Registers a removable typed subscriber for workflow or child agent events.
     /// </summary>
     public IDisposable Subscribe<TEvent>(Action<TEvent> handler)
-        where TEvent : Event
+        where TEvent : AgentEvent
     {
         ArgumentNullException.ThrowIfNull(handler);
         return Subscribe<TEvent>(evt =>
@@ -296,7 +296,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
     /// <summary>
     /// Registers a removable catch-all subscriber for workflow and child agent events.
     /// </summary>
-    public IDisposable SubscribeAny(Func<Event, ValueTask> handler)
+    public IDisposable SubscribeAny(Func<AgentEvent, ValueTask> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
         return _eventCoordinator.SubscribeAny(handler);
@@ -305,7 +305,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
     /// <summary>
     /// Registers a removable catch-all subscriber for workflow and child agent events.
     /// </summary>
-    public IDisposable SubscribeAny(Func<Event, Task> handler)
+    public IDisposable SubscribeAny(Func<AgentEvent, Task> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
         return SubscribeAny(evt => new ValueTask(handler(evt)));
@@ -314,7 +314,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
     /// <summary>
     /// Registers a removable catch-all subscriber for workflow and child agent events.
     /// </summary>
-    public IDisposable SubscribeAny(Action<Event> handler)
+    public IDisposable SubscribeAny(Action<AgentEvent> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
         return SubscribeAny(evt =>
@@ -435,7 +435,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
     /// Execute the workflow with streaming events.
     /// Returns unified stream of graph and agent events.
     /// </summary>
-    public IAsyncEnumerable<Event> ExecuteStreamingAsync(
+    public IAsyncEnumerable<AgentEvent> ExecuteStreamingAsync(
         string input,
         CancellationToken cancellationToken = default)
     {
@@ -455,7 +455,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
     /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Unified stream of graph and agent events.</returns>
-    public async IAsyncEnumerable<Event> ExecuteStreamingAsync(
+    public async IAsyncEnumerable<AgentEvent> ExecuteStreamingAsync(
         string input,
         WorkflowEventCoordinator coordinator,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -466,7 +466,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
         }
     }
 
-    async IAsyncEnumerable<Event> IMultiAgentWorkflow.ExecuteStreamingAsync(
+    async IAsyncEnumerable<AgentEvent> IMultiAgentWorkflow.ExecuteStreamingAsync(
         string input,
         HPD.Agent.Middleware.FunctionExecutionContext? parentContext,
         [EnumeratorCancellation] CancellationToken cancellationToken)
@@ -507,7 +507,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
     /// <param name="parentCoordinator">Optional parent event coordinator for hierarchical event bubbling.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Unified stream of graph and agent events.</returns>
-    public IAsyncEnumerable<Event> ExecuteStreamingAsync(
+    internal IAsyncEnumerable<AgentEvent> ExecuteStreamingAsync(
         string input,
         HPD.Events.IEventCoordinator? parentCoordinator,
         CancellationToken cancellationToken = default)
@@ -523,7 +523,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
     /// <param name="parentAgentMetadata">Optional parent execution context for agent hierarchy tracking.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Unified stream of graph and agent events.</returns>
-    public IAsyncEnumerable<Event> ExecuteStreamingAsync(
+    internal IAsyncEnumerable<AgentEvent> ExecuteStreamingAsync(
         string input,
         HPD.Events.IEventCoordinator? parentCoordinator,
         AgentMetadata? parentAgentMetadata,
@@ -532,7 +532,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
         return ExecuteStreamingCoreAsync(input, parentCoordinator, parentAgentMetadata, null, cancellationToken);
     }
 
-    private async IAsyncEnumerable<Event> ExecuteStreamingCoreAsync(
+    private async IAsyncEnumerable<AgentEvent> ExecuteStreamingCoreAsync(
         string input,
         HPD.Events.IEventCoordinator? parentCoordinator,
         AgentMetadata? parentAgentMetadata,
@@ -634,7 +634,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
             }
         }, CancellationToken.None);
 
-        var layerBuffer = new List<Event>();
+        var layerBuffer = new List<AgentEvent>();
         var perLayer = _settings.StreamingMode == StreamingMode.PerLayer;
         var insideLayer = false;
 
@@ -644,7 +644,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
             await foreach (var evt in eventInbox.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
                 if (_metricsObserver is not null)
-                    await _metricsObserver.HandleAsync(evt).ConfigureAwait(false);
+                    await _metricsObserver.HandleCoreAsync(evt).ConfigureAwait(false);
 
                 var wrappedEvent = WrapGraphEvent(evt, workflowContext);
                 if (wrappedEvent is null) continue;
@@ -719,7 +719,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
     /// Wraps internal graph events into public AgentEvent-derived workflow events.
     /// This allows consumers to use only HPD.Agent + HPD.MultiAgent without depending on HPD.Graph.
     /// </summary>
-    private Event? WrapGraphEvent(Event evt, AgentMetadata workflowContext)
+    private AgentEvent? WrapGraphEvent(Event evt, AgentMetadata workflowContext)
     {
         return evt switch
         {
@@ -1057,7 +1057,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
 /// <summary>
 /// Extension methods for handling approval workflow events.
 /// </summary>
-public static class ApprovalWorkflowExtensions
+internal static class ApprovalWorkflowExtensions
 {
     /// <summary>
     /// Respond to a node approval request (approve).
@@ -1066,7 +1066,7 @@ public static class ApprovalWorkflowExtensions
     /// <param name="requestId">The request ID from NodeApprovalRequestEvent.</param>
     /// <param name="reason">Optional reason for approval.</param>
     /// <param name="resumeData">Optional data to pass back to the node.</param>
-    public static RespondResult Approve(
+    internal static RespondResult Approve(
         this HPD.Events.IEventCoordinator coordinator,
         string requestId,
         string? reason = null,
@@ -1088,7 +1088,7 @@ public static class ApprovalWorkflowExtensions
     /// <param name="coordinator">The event coordinator.</param>
     /// <param name="requestId">The request ID from NodeApprovalRequestEvent.</param>
     /// <param name="reason">Reason for denial.</param>
-    public static RespondResult Deny(
+    internal static RespondResult Deny(
         this HPD.Events.IEventCoordinator coordinator,
         string requestId,
         string reason = "Denied by user")

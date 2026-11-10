@@ -26,7 +26,7 @@ public class MultiAgentRuntimeTests
 
     private sealed class NoopWorkflow : IMultiAgentWorkflow
     {
-        public async IAsyncEnumerable<HPD.Events.Event> ExecuteStreamingAsync(
+        public async IAsyncEnumerable<HPD.Agent.AgentEvent> ExecuteStreamingAsync(
             string input,
             global::HPD.Agent.Middleware.FunctionExecutionContext? parentContext,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)

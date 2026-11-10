@@ -516,11 +516,10 @@ public sealed class CompiledHarnessInheritanceTests
         var generated = Generate(Compilation("WorkflowInheritance", """
             using HPD.Agent;
             using HPD.Agent.Middleware;
-            using HPD.Events;
             namespace WorkflowPackage;
             public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
             {
-                public async System.Collections.Generic.IAsyncEnumerable<Event> ExecuteStreamingAsync(
+                public async System.Collections.Generic.IAsyncEnumerable<AgentEvent> ExecuteStreamingAsync(
                     string input, FunctionExecutionContext? parent, System.Threading.CancellationToken ct = default)
                 {
                     await System.Threading.Tasks.Task.CompletedTask;

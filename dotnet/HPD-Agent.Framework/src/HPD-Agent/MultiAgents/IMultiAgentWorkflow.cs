@@ -1,5 +1,4 @@
 using HPD.Agent.Middleware;
-using HPD.Events;
 
 namespace HPD.Agent;
 
@@ -12,7 +11,7 @@ public interface IMultiAgentWorkflow
     /// <param name="parentContext">The invoking function context, or <see langword="null"/> for a root invocation.</param>
     /// <param name="cancellationToken">Cancels the complete workflow invocation.</param>
     /// <returns>A one-shot asynchronous event stream.</returns>
-    IAsyncEnumerable<Event> ExecuteStreamingAsync(
+    IAsyncEnumerable<AgentEvent> ExecuteStreamingAsync(
         string input,
         FunctionExecutionContext? parentContext,
         CancellationToken cancellationToken = default);

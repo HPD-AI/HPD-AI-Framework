@@ -43,7 +43,13 @@ public class TracingObserver
     /// </summary>
     public ActivitySource ActivitySource => _activitySource;
 
-    public ValueTask HandleAsync(Event evt)
+    public ValueTask HandleAsync(AgentEvent evt)
+    {
+        ArgumentNullException.ThrowIfNull(evt);
+        return HandleCoreAsync(evt);
+    }
+
+    internal ValueTask HandleCoreAsync(Event evt)
     {
         if (evt is not (GraphEvent
             or WorkflowStartedEvent

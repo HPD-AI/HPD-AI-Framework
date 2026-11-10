@@ -1,5 +1,6 @@
 using System.Reflection;
 using FluentAssertions;
+using HPD.Agent;
 using HPD.MultiAgent;
 
 namespace HPD.MultiAgent.Tests;
@@ -29,6 +30,50 @@ public sealed class PublicSurfaceTests
         leaks.Should().BeEmpty(
             "HPD.Graph is an internal execution dependency; public " +
             "HPD.MultiAgent contracts must use multi-agent-owned types");
+    }
+
+    [Fact]
+    public void PublicApiDoesNotExposeHpdEventsImplementationTypes()
+    {
+        string[] implementationTypes =
+        [
+            "Event",
+            "IEventCoordinator",
+            "EventInbox`1",
+            "EventInboxOptions",
+            "EventSubscriptionOptions",
+            "PendingRequestSnapshot",
+            "RespondResult",
+            "RespondStatus"
+        ];
+
+        var leaks = typeof(MultiAgent).Assembly
+            .GetExportedTypes()
+            .SelectMany(type => PublicMembers(type).SelectMany(ReferencedTypes))
+            .Where(static type => type.Namespace == "HPD.Events")
+            .Where(type => implementationTypes.Contains(type.Name, StringComparer.Ordinal))
+            .Distinct()
+            .OrderBy(static type => type.FullName, StringComparer.Ordinal)
+            .ToArray();
+
+        leaks.Should().BeEmpty(
+            "HPD.Events remains a runtime dependency, but MultiAgent public " +
+            "contracts must use AgentEvent and multi-agent-owned event types");
+    }
+
+    [Fact]
+    public void MultiAgentWorkflowContractStreamsAgentEvents()
+    {
+        var execute = typeof(HPD.Agent.IMultiAgentWorkflow)
+            .GetMethod(nameof(HPD.Agent.IMultiAgentWorkflow.ExecuteStreamingAsync));
+
+        execute.Should().NotBeNull();
+        var streamType = execute!.ReturnType;
+
+        streamType.IsGenericType.Should().BeTrue();
+        streamType.GetGenericTypeDefinition().Should().Be(typeof(IAsyncEnumerable<>));
+        streamType.GetGenericArguments().Should().ContainSingle()
+            .Which.Should().Be(typeof(AgentEvent));
     }
 
     private static IEnumerable<MemberInfo> PublicMembers(Type type) =>

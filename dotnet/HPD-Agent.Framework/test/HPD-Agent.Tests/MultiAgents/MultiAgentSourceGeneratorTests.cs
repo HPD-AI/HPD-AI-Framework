@@ -181,7 +181,7 @@ public class MultiAgentSourceGeneratorTests
 
         // Act
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        var events = new List<HPD.Events.Event>();
+        var events = new List<AgentEvent>();
 
         try
         {

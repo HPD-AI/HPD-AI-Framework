@@ -56,9 +56,19 @@ public class MetricsObserver
     /// </summary>
     public IReadOnlyCollection<WorkflowMetrics> CompletedWorkflows => _completedWorkflows.ToList();
 
-    public ValueTask HandleAsync(Event evt)
+    public ValueTask HandleAsync(AgentEvent evt)
+    {
+        ArgumentNullException.ThrowIfNull(evt);
+        return HandleCoreAsync(evt);
+    }
+
+    internal ValueTask HandleCoreAsync(Event evt)
     {
         if (evt is not (GraphEvent
+            or WorkflowStartedEvent
+            or WorkflowCompletedEvent
+            or WorkflowAgentStartedEvent
+            or WorkflowAgentCompletedEvent
             or TextDeltaEvent
             or ToolCallStartEvent
             or ToolCallEndEvent
@@ -89,6 +99,23 @@ public class MetricsObserver
 
                 case NodeExecutionCompletedEvent nodeCompleted:
                     HandleNodeCompleted(nodeCompleted);
+                    break;
+
+                // Public workflow projection
+                case WorkflowStartedEvent workflowStarted:
+                    HandleWorkflowStarted(workflowStarted);
+                    break;
+
+                case WorkflowCompletedEvent workflowCompleted:
+                    HandleWorkflowCompleted(workflowCompleted);
+                    break;
+
+                case WorkflowAgentStartedEvent workflowNodeStarted:
+                    HandleWorkflowNodeStarted(workflowNodeStarted);
+                    break;
+
+                case WorkflowAgentCompletedEvent workflowNodeCompleted:
+                    HandleWorkflowNodeCompleted(workflowNodeCompleted);
                     break;
 
                 // Iteration events
@@ -149,18 +176,80 @@ public class MetricsObserver
         {
             metrics.CompletedAt = DateTimeOffset.UtcNow;
             metrics.Success = evt.FailedNodes == 0;
-
-            // Move to completed queue
-            _completedWorkflows.Enqueue(metrics);
-
-            // Trim if over limit
-            while (_completedWorkflows.Count > _maxCompletedWorkflows)
-            {
-                _completedWorkflows.TryDequeue(out _);
-            }
-
-            OnWorkflowCompleted?.Invoke(metrics);
+            EnqueueCompleted(metrics);
         }
+    }
+
+    private void EnqueueCompleted(WorkflowMetrics metrics)
+    {
+        _completedWorkflows.Enqueue(metrics);
+
+        while (_completedWorkflows.Count > _maxCompletedWorkflows)
+            _completedWorkflows.TryDequeue(out _);
+
+        OnWorkflowCompleted?.Invoke(metrics);
+    }
+
+    private void HandleWorkflowStarted(WorkflowStartedEvent evt)
+    {
+        var executionId = evt.Metadata?.AgentId ?? Guid.NewGuid().ToString();
+        var metrics = new WorkflowMetrics
+        {
+            ExecutionId = executionId,
+            WorkflowName = evt.WorkflowName,
+            StartedAt = evt.Timestamp
+        };
+
+        _activeWorkflows[executionId] = metrics;
+        OnMetricsUpdated?.Invoke(metrics);
+    }
+
+    private void HandleWorkflowCompleted(WorkflowCompletedEvent evt)
+    {
+        var executionId = evt.Metadata?.AgentId;
+        if (string.IsNullOrEmpty(executionId) ||
+            !_activeWorkflows.TryRemove(executionId, out var metrics))
+        {
+            return;
+        }
+
+        metrics.CompletedAt = evt.Timestamp;
+        metrics.Success = evt.Success;
+        EnqueueCompleted(metrics);
+    }
+
+    private void HandleWorkflowNodeStarted(WorkflowAgentStartedEvent evt)
+    {
+        var executionId = evt.Metadata?.AgentId;
+        var metrics = GetOrCreateWorkflowMetrics(executionId);
+        if (metrics == null) return;
+
+        var nodeMetrics = metrics.GetOrCreateNodeMetrics(evt.AgentId);
+        nodeMetrics.StartedAt = evt.Timestamp;
+        nodeMetrics.Iteration = evt.LayerIndex ?? 0;
+
+        if (!string.IsNullOrEmpty(executionId))
+            _activeNodePerExecution[executionId] = evt.AgentId;
+
+        OnMetricsUpdated?.Invoke(metrics);
+    }
+
+    private void HandleWorkflowNodeCompleted(WorkflowAgentCompletedEvent evt)
+    {
+        var executionId = evt.Metadata?.AgentId;
+        var metrics = GetOrCreateWorkflowMetrics(executionId);
+        if (metrics == null) return;
+
+        var nodeMetrics = metrics.GetOrCreateNodeMetrics(evt.AgentId);
+        nodeMetrics.CompletedAt = evt.Timestamp;
+        nodeMetrics.Duration = evt.Duration;
+        nodeMetrics.Success = evt.Success;
+        nodeMetrics.ErrorMessage = evt.ErrorMessage;
+
+        if (!string.IsNullOrEmpty(executionId))
+            _activeNodePerExecution.TryRemove(executionId, out _);
+
+        OnMetricsUpdated?.Invoke(metrics);
     }
 
     private void HandleNodeStarted(NodeExecutionStartedEvent evt)

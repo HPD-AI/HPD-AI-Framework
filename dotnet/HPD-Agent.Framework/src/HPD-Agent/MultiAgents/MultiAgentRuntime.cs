@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using System.Text;
 using HPD.Agent.Middleware;
-using HPD.Events;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent;
