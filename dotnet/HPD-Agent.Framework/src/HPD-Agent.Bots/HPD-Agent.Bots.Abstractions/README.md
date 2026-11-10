@@ -2,10 +2,11 @@
 
 Contracts, attributes, and source generation for connecting platform events to HPD agents.
 
-Use this package when building a custom adapter. For the built-in platforms, install the corresponding Slack, Discord, Telegram, WhatsApp, or Teams package.
+Use this package with `HPD-Agent.Bots.AspNetCore` when building a custom adapter. The generated registry references the ASP.NET Core bridge even when another transport drives the adapter. For the built-in platforms, install the corresponding Slack, Discord, Telegram, WhatsApp, or Teams package.
 
 ```bash
 dotnet add package HPD-Agent.Bots.Abstractions --version 1.0.0
+dotnet add package HPD-Agent.Bots.AspNetCore --version 1.0.0
 ```
 
 ## Custom adapter
@@ -25,7 +26,6 @@ public partial class ContosoBot
         => Task.FromResult(BotAdapterResponse.Text(payload.Text));
 }
 
-[HpdBotPayload]
 public sealed record ContosoMessage(string Text);
 
 [JsonSerializable(typeof(ContosoMessage))]

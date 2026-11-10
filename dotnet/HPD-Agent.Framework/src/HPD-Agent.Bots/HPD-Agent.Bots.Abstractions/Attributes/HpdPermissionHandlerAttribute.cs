@@ -2,20 +2,15 @@ namespace HPD.Agent.Bots;
 
 /// <summary>
 /// Marks a method as the permission-request renderer for this adapter.
-/// Only one method per adapter class may carry this attribute.
+/// This internal pre-1.0 marker is retained for future generator work; current
+/// dispatch does not invoke the attributed method automatically.
 /// </summary>
 /// <remarks>
 /// <para>
-/// When the agent emits a <c>PermissionRequestEvent</c>, the generator's dispatch loop:
-/// <list type="number">
-///   <item>Calls the decorated method to render the platform-specific permission UI
-///         (e.g. Block Kit approve/deny buttons in Slack).</item>
-///   <item>Calls <c>coordinator.WaitForResponseAsync&lt;PermissionResponseEvent&gt;</c>
-///         with the <c>PermissionId</c> as the request key.</item>
-///   <item>The response is delivered when a button-click handler calls
-///         <c>coordinator.SendResponse</c> with the same key.</item>
-/// </list>
+/// The production permission flow is currently implemented directly by each platform
+/// adapter's streaming callback. Do not document this marker as a supported extension
+/// point until generator routing is implemented and tested.
 /// </para>
 /// </remarks>
 [AttributeUsage(AttributeTargets.Method, Inherited = false)]
-public sealed class HpdPermissionHandlerAttribute : Attribute { }
+internal sealed class HpdPermissionHandlerAttribute : Attribute { }

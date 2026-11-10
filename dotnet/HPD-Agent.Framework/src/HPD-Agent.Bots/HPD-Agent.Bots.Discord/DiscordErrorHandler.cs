@@ -11,7 +11,7 @@ namespace HPD.Agent.Bots.Discord;
 [ErrorCode("50035", typeof(BotPermissionException))]
 [ErrorCode("20012", typeof(BotPermissionException))]
 [ErrorCode("40062", typeof(BotPermissionException))]
-public partial class DiscordErrorHandler
+internal partial class DiscordErrorHandler
 {
     public static void ThrowMapped(string discordErrorCode, Exception inner)
     {

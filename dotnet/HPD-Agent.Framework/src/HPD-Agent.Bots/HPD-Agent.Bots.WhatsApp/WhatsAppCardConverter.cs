@@ -4,24 +4,24 @@ using HPD.Agent.Bots.Contracts;
 
 namespace HPD.Agent.Bots.WhatsApp;
 
-public abstract record WhatsAppCardResult
+internal abstract record WhatsAppCardResult
 {
     public sealed record Interactive(WhatsAppInteractiveMessage Message) : WhatsAppCardResult;
 
     public sealed record Text(string Body) : WhatsAppCardResult;
 }
 
-public sealed record WhatsAppInteractiveMessage(
+internal sealed record WhatsAppInteractiveMessage(
     string Body,
     IReadOnlyList<WhatsAppInteractiveButton> Buttons,
     string? Header = null,
     string? Footer = null);
 
-public sealed record WhatsAppInteractiveButton(
+internal sealed record WhatsAppInteractiveButton(
     string Id,
     string Title);
 
-public static class WhatsAppCardConverter
+internal static class WhatsAppCardConverter
 {
     private const string CallbackPrefix = "chat:";
     private const int MaxButtons = 3;

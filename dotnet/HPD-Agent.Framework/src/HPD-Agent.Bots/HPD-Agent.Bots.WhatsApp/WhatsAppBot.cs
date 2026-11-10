@@ -41,7 +41,6 @@ public partial class WhatsAppBot
         AgentManager? agentManager = null,
         PlatformSessionMapper? sessionMapper = null,
         WhatsAppApiClient? api = null,
-        WhatsAppFormatConverter? formatter = null,
         ILogger<WhatsAppBot>? logger = null)
     {
         _config = options.Value;
@@ -49,7 +48,7 @@ public partial class WhatsAppBot
         _agentManager = agentManager;
         _sessionMapper = sessionMapper;
         _api = api;
-        _formatter = formatter ?? new WhatsAppFormatConverter();
+        _formatter = new WhatsAppFormatConverter();
         _logger = logger ?? NullLogger<WhatsAppBot>.Instance;
         _appSecret = _config.ResolveAppSecret();
         _verifyToken = _config.ResolveVerifyToken();

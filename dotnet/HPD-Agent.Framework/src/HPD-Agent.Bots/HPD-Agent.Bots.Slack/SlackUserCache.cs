@@ -8,7 +8,7 @@ namespace HPD.Agent.Bots.Slack;
 /// Cache entries are held for one hour — sufficient for the process lifetime
 /// of a typical bot deployment, with no external store required.
 /// </summary>
-public sealed class SlackUserCache(SlackApiClient api)
+internal sealed class SlackUserCache(SlackApiClient api)
 {
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(1);
 

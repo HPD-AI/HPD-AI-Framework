@@ -2,7 +2,7 @@ using HPD.Agent.Bots.Modals;
 
 namespace HPD.Agent.Bots.Teams;
 
-public sealed class TeamsModalConverter
+internal sealed class TeamsModalConverter
 {
     public TeamsTaskModuleResponse ToTaskFetchResponse(ModalElement modal)
         => Continue(modal);

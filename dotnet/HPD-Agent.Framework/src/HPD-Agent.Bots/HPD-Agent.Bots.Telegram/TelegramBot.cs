@@ -50,7 +50,6 @@ public partial class TelegramBot
         AgentManager? agentManager = null,
         PlatformSessionMapper? sessionMapper = null,
         ITelegramBotClient? bot = null,
-        TelegramFormatConverter? formatter = null,
         IOptionsMonitor<BotStreamingOptions>? streamingOptions = null,
         IHttpClientFactory? httpClientFactory = null,
         ILogger<TelegramBot>? logger = null)
@@ -59,7 +58,7 @@ public partial class TelegramBot
         _sessionManager = sessionManager;
         _agentManager = agentManager;
         _sessionMapper = sessionMapper;
-        _formatter = formatter ?? new TelegramFormatConverter();
+        _formatter = new TelegramFormatConverter();
         _streamingOptions = streamingOptions;
         _logger = logger ?? NullLogger<TelegramBot>.Instance;
         _secretToken = _config.ResolveSecretToken();

@@ -5,7 +5,7 @@ namespace HPD.Agent.Bots;
 /// <summary>
 /// Platform emoji output dialects supported by <see cref="BotEmojiResolver"/>.
 /// </summary>
-public enum BotEmojiFormat
+internal enum BotEmojiFormat
 {
     /// <summary>Render known emoji names as Unicode emoji characters.</summary>
     Unicode,
@@ -23,7 +23,7 @@ public enum BotEmojiFormat
 /// <summary>
 /// Shared emoji normalization helpers for bot adapters.
 /// </summary>
-public static class BotEmojiResolver
+internal static class BotEmojiResolver
 {
     /// <summary>
     /// Replaces <c>{{emoji:name}}</c> placeholders in text using the requested platform format.

@@ -6,7 +6,7 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace HPD.Agent.Bots.Telegram;
 
-public static class TelegramCardConverter
+internal static class TelegramCardConverter
 {
     private const int CallbackDataMaxBytes = 64;
     private const string CallbackPrefix = "chat:";

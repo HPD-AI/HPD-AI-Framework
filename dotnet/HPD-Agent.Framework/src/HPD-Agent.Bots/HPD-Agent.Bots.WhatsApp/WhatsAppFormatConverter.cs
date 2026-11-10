@@ -13,7 +13,7 @@ namespace HPD.Agent.Bots.WhatsApp;
 [Blockquote("{0}")]
 [ListItem("- {0}")]
 [OrderedListItem("{n}. {0}")]
-public sealed partial class WhatsAppFormatConverter
+internal sealed partial class WhatsAppFormatConverter
 {
     public string RenderPlain(string text)
         => Escape(BotEmojiResolver.ConvertPlaceholders(text, BotEmojiFormat.Unicode));

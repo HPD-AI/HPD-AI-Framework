@@ -25,7 +25,7 @@ namespace HPD.Agent.Bots.Slack;
 /// Carries the Slack context needed to post a permission request message.
 /// Passed to <see cref="SlackBot.RenderPermissionAsync"/> by <c>StreamToSlackAsync</c>.
 /// </summary>
-public record SlackPermissionContext(
+internal record SlackPermissionContext(
     string Channel,
     string ThreadTs,
     string SessionId,
@@ -91,13 +91,13 @@ public partial class SlackBot(
     AgentManager agentManager,
     PlatformSessionMapper sessionMapper,
     SlackApiClient api,
-    SlackFormatConverter formatter,
-    SlackUserCache userCache,
     IOptionsMonitor<BotStreamingOptions>? streamingOptions = null,
     ILogger<SlackBot>? logger = null)
 {
     private readonly SlackBotConfig _config = options.Value;
     private readonly ILogger _logger = logger ?? NullLogger<SlackBot>.Instance;
+    private readonly SlackFormatConverter _formatter = new();
+    private readonly SlackUserCache _userCache = new(api);
 
     // ── Pre-dispatch: signature verification ───────────────────────────────────
 
@@ -281,7 +281,7 @@ public partial class SlackBot(
     private async Task<BotAdapterResponse> HandleSlashCommandAsync(
         BotRequestContext ctx, SlackSlashCommandPayload payload)
     {
-        var userName    = await userCache.GetDisplayNameAsync(payload.UserId, ctx.CancellationToken);
+        var userName    = await _userCache.GetDisplayNameAsync(payload.UserId, ctx.CancellationToken);
         OnSlashCommand?.Invoke(new SlackSlashCommandReceivedEvent(payload, userName));
         var platformKey = SlackThreadId.Format(payload.ChannelId, ""); // slash commands have no thread
         var (sessionId, threadId) = await sessionMapper.ResolveAsync(platformKey, ctx.CancellationToken);
@@ -494,7 +494,7 @@ public partial class SlackBot(
         if (context.PlaceholderTs is null)
             return;
 
-        var mrkdwn = formatter.ToMrkdwn(content);
+        var mrkdwn = _formatter.ToMrkdwn(content);
         if (context.UseNative)
             await api.AppendStreamAsync(context.Channel, context.PlaceholderTs, mrkdwn, ct);
         else
@@ -506,7 +506,7 @@ public partial class SlackBot(
         if (context.PlaceholderTs is null)
             return;
 
-        var finalMrkdwn = formatter.ToMrkdwn(content);
+        var finalMrkdwn = _formatter.ToMrkdwn(content);
         _logger.LogDebug(
             "Completing Slack stream. SessionId={SessionId}, Length={Length}",
             context.SessionId,
@@ -555,9 +555,9 @@ public partial class SlackBot(
         SlackMessageEvent ev, CancellationToken ct)
     {
         var text     = ev.Text ?? "";
-        var userName = ev.Username ?? await userCache.GetDisplayNameAsync(ev.User ?? "unknown", ct);
-        var resolved = await userCache.ResolveInlineMentionsAsync(text, ev.User, ct);
-        var content  = formatter.ToPlainText(resolved);
+        var userName = ev.Username ?? await _userCache.GetDisplayNameAsync(ev.User ?? "unknown", ct);
+        var resolved = await _userCache.ResolveInlineMentionsAsync(text, ev.User, ct);
+        var content  = _formatter.ToPlainText(resolved);
 
         return new AgentInput(
             Text:        content,

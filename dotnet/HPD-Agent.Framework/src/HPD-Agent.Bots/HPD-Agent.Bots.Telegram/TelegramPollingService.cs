@@ -6,7 +6,7 @@ using Telegram.Bot.Polling;
 
 namespace HPD.Agent.Bots.Telegram;
 
-public sealed class TelegramPollingService(
+internal sealed class TelegramPollingService(
     ITelegramBotClient bot,
     TelegramBot telegramBot,
     IOptions<TelegramBotConfig> options,

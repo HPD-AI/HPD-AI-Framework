@@ -16,7 +16,7 @@ namespace HPD.Agent.Bots.Slack;
 [ErrorCode("token_revoked",     typeof(BotAuthenticationException))]
 [ErrorCode("missing_scope",     typeof(BotPermissionException))]
 [ErrorCode("account_inactive",  typeof(BotAuthenticationException))]
-public partial class SlackErrorHandler
+internal partial class SlackErrorHandler
 {
     // ── Error mapping (to be replaced by [BotErrors] source generator output) ──
 

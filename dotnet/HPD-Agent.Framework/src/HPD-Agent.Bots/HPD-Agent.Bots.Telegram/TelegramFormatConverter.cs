@@ -14,7 +14,7 @@ namespace HPD.Agent.Bots.Telegram;
 [Blockquote("> {0}")]
 [ListItem("- {0}")]
 [OrderedListItem("{n}. {0}")]
-public sealed partial class TelegramFormatConverter
+internal sealed partial class TelegramFormatConverter
 {
     public string RenderCardFallback(CardElement card, TelegramRenderMode mode = TelegramRenderMode.Plain)
     {

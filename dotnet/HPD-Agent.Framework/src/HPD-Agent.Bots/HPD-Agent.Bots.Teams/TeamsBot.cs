@@ -20,9 +20,7 @@ public sealed class TeamsBot(
     IOptions<TeamsBotConfig> options,
     SessionManager sessionManager,
     AgentManager agentManager,
-    PlatformSessionMapper sessionMapper,
-    TeamsCardRenderer? cardRenderer = null,
-    TeamsFormatConverter? formatter = null)
+    PlatformSessionMapper sessionMapper)
 {
     private const string PermissionChoiceActionId = "hpd.permission.select";
 
@@ -30,16 +28,16 @@ public sealed class TeamsBot(
     private readonly SessionManager _sessionManager = sessionManager;
     private readonly AgentManager _agentManager = agentManager;
     private readonly PlatformSessionMapper _sessionMapper = sessionMapper;
-    private readonly TeamsCardRenderer _cardRenderer = cardRenderer ?? new TeamsCardRenderer();
-    private readonly TeamsFormatConverter _formatter = formatter ?? new TeamsFormatConverter();
+    private readonly TeamsCardRenderer _cardRenderer = new();
+    private readonly TeamsFormatConverter _formatter = new();
 
-    public TeamsBotConfig Config => _config;
+    internal TeamsBotConfig Config => _config;
 
-    public SessionManager SessionManager => _sessionManager;
+    internal SessionManager SessionManager => _sessionManager;
 
-    public AgentManager AgentManager => _agentManager;
+    internal AgentManager AgentManager => _agentManager;
 
-    public PlatformSessionMapper SessionMapper => _sessionMapper;
+    internal PlatformSessionMapper SessionMapper => _sessionMapper;
 
     public event Action<TeamsCardActionEvent>? OnCardAction;
 
@@ -62,7 +60,7 @@ public sealed class TeamsBot(
     /// <summary>
     /// Processes a message turn through HPD session mapping and native Teams streaming.
     /// </summary>
-    public async Task<bool> ProcessMessageAsync(ITeamsTurn turn, CancellationToken ct)
+    internal async Task<bool> ProcessMessageAsync(ITeamsTurn turn, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(turn);
 
@@ -80,7 +78,7 @@ public sealed class TeamsBot(
     public Task ProcessReactionAsync(ITurnContext turnContext, CancellationToken ct)
         => ProcessReactionAsync(new TeamsSdkTurn(turnContext), added: true, ct);
 
-    public Task ProcessReactionAsync(ITeamsTurn turn, bool added, CancellationToken ct)
+    internal Task ProcessReactionAsync(ITeamsTurn turn, bool added, CancellationToken ct)
     {
         var threadId = TeamsThreadId.FormatRaw(turn.ConversationId, turn.ServiceUrl);
         var reaction = turn.Values.TryGetValue("reactionsAdded.0.type", out var addedReaction)
@@ -99,7 +97,7 @@ public sealed class TeamsBot(
     public Task ProcessActionAsync(ITurnContext turnContext, CancellationToken ct)
         => ProcessActionAsync(new TeamsSdkTurn(turnContext), ct);
 
-    public async Task ProcessActionAsync(ITeamsTurn turn, CancellationToken ct)
+    internal async Task ProcessActionAsync(ITeamsTurn turn, CancellationToken ct)
     {
         var threadId = TeamsThreadId.FormatRaw(turn.ConversationId, turn.ServiceUrl);
         var actionId = ExtractActionId(turn.Values);
@@ -121,10 +119,10 @@ public sealed class TeamsBot(
         OnCardAction?.Invoke(new TeamsCardActionEvent(actionId, turn.Values, threadId));
     }
 
-    public Task ProcessInvokeAsync(ITeamsTurn turn, CancellationToken ct)
+    internal Task ProcessInvokeAsync(ITeamsTurn turn, CancellationToken ct)
         => ProcessActionAsync(turn, ct);
 
-    public async Task ProcessPermissionActionAsync(
+    internal async Task ProcessPermissionActionAsync(
         string actionId,
         IReadOnlyDictionary<string, string> values,
         CancellationToken ct)
@@ -143,17 +141,17 @@ public sealed class TeamsBot(
 
     }
 
-    public Task<string> OpenDmAsync(string userId, CancellationToken ct = default)
+    internal Task<string> OpenDmAsync(string userId, CancellationToken ct = default)
         => throw new NotSupportedException(
             "Opening Teams direct messages requires proactive conversation wiring for the host tenant.");
 
-    public Task ProcessProactiveContinueAsync(ITurnContext turnContext, CancellationToken ct)
+    internal Task ProcessProactiveContinueAsync(ITurnContext turnContext, CancellationToken ct)
         => turnContext.SendActivityAsync("Teams proactive continuation received.", cancellationToken: ct);
 
-    public Task AddReactionAsync(string threadId, string messageId, string reaction, CancellationToken ct = default)
+    internal Task AddReactionAsync(string threadId, string messageId, string reaction, CancellationToken ct = default)
         => throw new NotSupportedException("Teams Bot API does not support adding reactions.");
 
-    public Task RemoveReactionAsync(string threadId, string messageId, string reaction, CancellationToken ct = default)
+    internal Task RemoveReactionAsync(string threadId, string messageId, string reaction, CancellationToken ct = default)
         => throw new NotSupportedException("Teams Bot API does not support removing reactions.");
 
     private async Task<bool> StreamNativeAsync(

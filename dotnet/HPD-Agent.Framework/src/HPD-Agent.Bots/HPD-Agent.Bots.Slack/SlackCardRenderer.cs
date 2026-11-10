@@ -8,7 +8,7 @@ namespace HPD.Agent.Bots.Slack;
 /// entry point, which calls the <c>partial</c> methods below in order.
 /// </summary>
 [CardRenderer]
-public partial class SlackCardRenderer
+internal partial class SlackCardRenderer
 {
     /// <summary>
     /// Renders the root card: header block (title), context block (subtitle),

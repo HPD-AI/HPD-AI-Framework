@@ -9,7 +9,7 @@ using Microsoft.Extensions.Options;
 
 namespace HPD.Agent.Bots.Discord.Gateway;
 
-public sealed class DiscordGatewayService(
+internal sealed class DiscordGatewayService(
     IOptions<DiscordBotConfig> options,
     DiscordGatewayClient client,
     DiscordApiClient api,

@@ -2,12 +2,12 @@ namespace HPD.Agent.Bots;
 
 /// <summary>
 /// Marks a partial class as the error handler for a specific adapter.
-/// The source generator emits a <c>ThrowMapped(string errorCode, Exception inner)</c>
-/// method using the <see cref="ErrorCodeAttribute"/> declarations on the same class.
+/// This internal pre-1.0 marker is retained for planned source generation. Platform
+/// packages currently implement their mappings by hand.
 /// </summary>
 /// <param name="adapterName">Lowercase adapter identifier matching <see cref="HpdBotAttribute.Name"/>.</param>
 [AttributeUsage(AttributeTargets.Class, Inherited = false)]
-public sealed class BotErrorsAttribute(string adapterName) : Attribute
+internal sealed class BotErrorsAttribute(string adapterName) : Attribute
 {
     /// <summary>Bot this error handler belongs to.</summary>
     public string BotName => adapterName;
@@ -22,7 +22,7 @@ public sealed class BotErrorsAttribute(string adapterName) : Attribute
 /// The <see cref="HPD.Agent.Bots.Contracts.BotException"/> subtype to throw.
 /// </param>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
-public sealed class ErrorCodeAttribute(string code, Type exceptionType) : Attribute
+internal sealed class ErrorCodeAttribute(string code, Type exceptionType) : Attribute
 {
     /// <summary>Platform error code string.</summary>
     public string Code => code;

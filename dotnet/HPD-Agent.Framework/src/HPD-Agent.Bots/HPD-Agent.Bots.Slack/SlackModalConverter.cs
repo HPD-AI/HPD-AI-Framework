@@ -15,7 +15,7 @@ namespace HPD.Agent.Bots.Slack;
 /// and the caller's own <c>privateMetadata</c> so both survive the platform round-trip
 /// without an external store.
 /// </remarks>
-public static partial class SlackModalConverter
+internal static partial class SlackModalConverter
 {
     // ── Metadata encode / decode ───────────────────────────────────────────────
 

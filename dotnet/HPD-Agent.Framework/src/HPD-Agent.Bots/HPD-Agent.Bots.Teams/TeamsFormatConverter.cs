@@ -12,7 +12,7 @@ namespace HPD.Agent.Bots.Teams;
 [Blockquote("> {0}")]
 [ListItem("- {0}")]
 [OrderedListItem("{n}. {0}")]
-public partial class TeamsFormatConverter
+internal partial class TeamsFormatConverter
 {
     public partial string RenderMention(string userId);
     public partial string RenderMention(string userId) => $"<at>{userId}</at>";

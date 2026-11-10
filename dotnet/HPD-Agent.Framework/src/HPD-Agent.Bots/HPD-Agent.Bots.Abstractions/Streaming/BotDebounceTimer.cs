@@ -4,7 +4,7 @@ namespace HPD.Agent.Bots.Streaming;
 /// Schedules a callback after a debounce window, cancelling any pending callback
 /// when another value arrives before the window elapses.
 /// </summary>
-public sealed class BotDebounceTimer(int debounceMs) : IDisposable
+internal sealed class BotDebounceTimer(int debounceMs) : IDisposable
 {
     private readonly object _lock = new();
     private CancellationTokenSource? _cts;

@@ -18,7 +18,7 @@ namespace HPD.Agent.Bots.Slack;
 [Blockquote("> {0}")]
 [ListItem("• {0}")]
 [OrderedListItem("{n}. {0}")]
-public partial class SlackFormatConverter
+internal partial class SlackFormatConverter
 {
     // Regex pattern for Slack user mention format: <@U...>
     private static readonly Regex MentionPattern =

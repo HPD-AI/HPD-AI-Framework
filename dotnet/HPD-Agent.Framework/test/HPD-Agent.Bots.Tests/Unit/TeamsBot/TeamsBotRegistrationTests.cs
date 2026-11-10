@@ -6,8 +6,12 @@ using HPD.Agent.Bots.Streaming;
 using HPD.Agent.Bots.Teams;
 using HPD.Agent.Bots.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Lifecycle;
+using Microsoft.Agents.Authentication;
 using Microsoft.Agents.Builder.App;
 using Microsoft.Agents.Storage;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -156,6 +160,33 @@ public class TeamsBotRegistrationTests
 
         options.Strategy.Should().Be(StreamingStrategy.Native);
         options.DebounceMs.Should().Be(0);
+    }
+
+    [Fact]
+    public void AddTeamsBot_RegistersAuthenticationAndAuthorizationServices()
+    {
+        using var sp = BuildProvider();
+
+        sp.GetService<IAuthenticationSchemeProvider>().Should().NotBeNull();
+        sp.GetService<IAuthorizationService>().Should().NotBeNull();
+    }
+
+    [Fact]
+    public void AddTeamsBot_ConfiguresDefaultAzureBotServiceTokenValidation()
+    {
+        using var sp = BuildProvider();
+
+        var options = sp.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>()
+            .Get(JwtBearerDefaults.AuthenticationScheme);
+
+        options.MetadataAddress.Should().Be(AuthenticationConstants.PublicAzureBotServiceOpenIdMetadataUrl);
+        options.SaveToken.Should().BeTrue();
+        options.TokenValidationParameters.ValidAudiences.Should().Contain("app-id");
+        options.TokenValidationParameters.ValidIssuers.Should()
+            .Contain(AuthenticationConstants.BotFrameworkTokenIssuer);
+        options.TokenValidationParameters.ValidateIssuer.Should().BeTrue();
+        options.TokenValidationParameters.ValidateAudience.Should().BeTrue();
+        options.TokenValidationParameters.ValidateIssuerSigningKey.Should().BeTrue();
     }
 
     [Fact]

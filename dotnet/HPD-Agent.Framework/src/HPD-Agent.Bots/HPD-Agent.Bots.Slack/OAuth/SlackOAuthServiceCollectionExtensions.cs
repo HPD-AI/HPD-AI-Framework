@@ -68,7 +68,7 @@ public static class SlackOAuthServiceCollectionExtensions
 /// from an <see cref="ISlackTokenStore"/>, then falls through to an optional base resolver
 /// for all other keys.
 /// </summary>
-public sealed class TokenStoreSecretResolver(
+internal sealed class TokenStoreSecretResolver(
     ISlackTokenStore tokenStore,
     ISecretResolver? baseResolver = null) : ISecretResolver
 {

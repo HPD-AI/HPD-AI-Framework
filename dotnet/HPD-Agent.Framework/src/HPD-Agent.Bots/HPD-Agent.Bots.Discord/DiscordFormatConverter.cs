@@ -12,7 +12,7 @@ namespace HPD.Agent.Bots.Discord;
 [Blockquote("> {0}")]
 [ListItem("- {0}")]
 [OrderedListItem("{n}. {0}")]
-public partial class DiscordFormatConverter
+internal partial class DiscordFormatConverter
 {
     public partial string RenderMention(string userId);
     public partial string RenderMention(string userId) => $"<@{userId}>";

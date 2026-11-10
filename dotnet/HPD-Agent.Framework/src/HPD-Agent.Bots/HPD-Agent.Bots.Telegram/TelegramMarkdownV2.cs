@@ -3,7 +3,7 @@ using Telegram.Bot.Types.Enums;
 
 namespace HPD.Agent.Bots.Telegram;
 
-public enum TelegramRenderMode
+internal enum TelegramRenderMode
 {
     Plain,
     MarkdownV2,

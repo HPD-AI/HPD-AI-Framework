@@ -22,7 +22,7 @@ internal sealed record ConnectionsOpenResponse(
 ///   <item><c>AckAsync</c> — serialises an envelope ACK payload for the caller to send.</item>
 /// </list>
 /// </summary>
-public sealed class SlackSocketModeClient(
+internal sealed class SlackSocketModeClient(
     IOptions<SlackBotConfig> options,
     IHttpClientFactory httpClientFactory)
 {

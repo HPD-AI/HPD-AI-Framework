@@ -10,9 +10,9 @@ namespace HPD.Agent.Bots;
 /// class, such as <c>SlackBotJsonContext</c>, and include each payload with
 /// <c>[JsonSerializable]</c>.
 /// <para>
-/// The type must be a <c>record</c> — the generator emits diagnostic <c>HPDA006</c>
-/// if a non-record type is decorated.
+/// This internal pre-1.0 marker is retained for future payload validation. The current
+/// generator does not use it to produce JSON metadata or reliably emit HPDA006.
 /// </para>
 /// </remarks>
 [AttributeUsage(AttributeTargets.Class, Inherited = false)]
-public sealed class HpdBotPayloadAttribute : Attribute { }
+internal sealed class HpdBotPayloadAttribute : Attribute { }

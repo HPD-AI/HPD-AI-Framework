@@ -10,7 +10,7 @@ namespace HPD.Agent.Bots.Slack.SocketMode;
 /// Slack's Socket Mode gateway. Registered automatically when
 /// <see cref="SlackBotConfig.AppToken"/> is non-null.
 /// </summary>
-public sealed class SlackSocketModeService(
+internal sealed class SlackSocketModeService(
     SlackSocketModeClient client,
     SlackBot adapter,
     ILogger<SlackSocketModeService> logger)

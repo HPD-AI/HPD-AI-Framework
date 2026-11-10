@@ -24,6 +24,28 @@ app.Run();
 
 `MapTeamsBot()` maps the standard Agents SDK endpoints and the proactive endpoints discovered from `[ContinueConversation]` handlers on `TeamsAgent`.
 
+`AddTeamsBot()` also registers the JWT bearer and authorization services required by
+`MapTeamsBot()`. The default bearer setup validates Azure Bot Service tokens against
+`https://login.botframework.com` using the configured `AppId` as the audience. The
+`TokenValidation` configuration section can override audiences, trusted issuers,
+tenant, cloud, and metadata URL.
+
+For a host with a custom ASP.NET Core authentication scheme, supply it explicitly:
+
+```csharp
+builder.AddTeamsBot(
+    options =>
+    {
+        options.AppId = builder.Configuration["Teams:AppId"]!;
+        options.AppPassword = builder.Configuration["Teams:AppPassword"];
+        options.AppTenantId = builder.Configuration["Teams:TenantId"];
+    },
+    configureAuthentication: services =>
+    {
+        // Register the host's authentication and JWT bearer options.
+    });
+```
+
 `AddTeamsBot()` also registers the SDK's M365 attachment downloader. Teams file uploads are downloaded by the Agents SDK and exposed through turn-state input files before HPD message processing runs.
 
 Graph-backed history APIs are opt-in. Register them only when the host already has a configured Microsoft Graph client:
@@ -34,7 +56,9 @@ builder.Services.AddTeamsGraphHistory(graphClient);
 
 ## Configuration Shape
 
-The host app must also provide the Agents SDK auth settings expected by `Microsoft.Agents.Hosting.AspNetCore`. The exact values depend on tenant/app registration, but the shape mirrors the official M365 Agents samples:
+The host app must also provide the outbound Agents SDK connection settings expected by
+`Microsoft.Agents.Hosting.AspNetCore`. The default inbound token validation reads the
+following HPD and Agents SDK settings:
 
 ```json
 {

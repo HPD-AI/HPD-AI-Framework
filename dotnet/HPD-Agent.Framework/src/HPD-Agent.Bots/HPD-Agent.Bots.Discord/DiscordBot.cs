@@ -57,12 +57,12 @@ public partial class DiscordBot(
     AgentManager? agentManager = null,
     PlatformSessionMapper? sessionMapper = null,
     DiscordApiClient? api = null,
-    DiscordFormatConverter? formatter = null,
     IOptionsMonitor<BotStreamingOptions>? streamingOptions = null,
     ILogger<DiscordBot>? logger = null)
 {
     private readonly DiscordBotConfig _config = options.Value;
     private readonly ILogger _logger = logger ?? NullLogger<DiscordBot>.Instance;
+    private readonly DiscordFormatConverter _formatter = new();
     private readonly ConcurrentDictionary<string, DiscordThreadParentCacheEntry> _threadParentCache = new();
     private static readonly TimeSpan ThreadParentCacheTtl = TimeSpan.FromMinutes(5);
 
@@ -332,7 +332,7 @@ public partial class DiscordBot(
         string? sourceMessageId,
         CancellationToken ct)
     {
-        if (sessionManager is null || agentManager is null || api is null || formatter is null)
+        if (sessionManager is null || agentManager is null || api is null)
             return;
 
         try
@@ -442,7 +442,7 @@ public partial class DiscordBot(
             context.PostChannelId,
             context.MessageId,
             new DiscordMessagePayload(
-                Content: TruncateContent(formatter!.ToDiscordMarkdown(content))),
+                Content: TruncateContent(_formatter.ToDiscordMarkdown(content))),
             ct);
     }
 
@@ -469,7 +469,7 @@ public partial class DiscordBot(
     private async Task EditInteractionAsync(string interactionToken, string content, CancellationToken ct)
     {
         var payload = new DiscordMessagePayload(
-            Content: TruncateContent(formatter?.ToDiscordMarkdown(content) ?? content));
+            Content: TruncateContent(_formatter.ToDiscordMarkdown(content)));
 
         await EditInteractionAsync(interactionToken, payload, ct);
     }
@@ -503,7 +503,7 @@ public partial class DiscordBot(
     private AgentInput BuildGatewayInput(DiscordGatewayMessage data)
         => new(
             Text: AppendAttachmentLinks(
-                formatter?.ToPlainText(data.Content) ?? StripMentions(data.Content),
+                _formatter.ToPlainText(data.Content),
                 data.Attachments),
             UserId: data.Author.Id,
             UserName: data.Author.GlobalName ?? data.Author.Username,

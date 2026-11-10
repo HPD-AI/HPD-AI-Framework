@@ -6,7 +6,7 @@ namespace HPD.Agent.Bots.Discord;
 /// <summary>
 /// Converts HPD card elements to Discord embeds and message components.
 /// </summary>
-public sealed class DiscordCardRenderer
+internal sealed class DiscordCardRenderer
 {
     private const int DiscordBlurple = 0x5865F2;
     private const int MaxDescriptionLength = 4096;

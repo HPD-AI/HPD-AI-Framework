@@ -10,7 +10,7 @@ namespace HPD.Agent.Bots;
 /// can't render rich blocks.
 /// Actions are excluded (buttons are not actionable as plain text).
 /// </summary>
-public static class CardFallbackText
+internal static class CardFallbackText
 {
     public static string From(CardElement card)
     {

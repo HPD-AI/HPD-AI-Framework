@@ -38,7 +38,7 @@ public sealed class WhatsAppApiClient
             WhatsAppBotJsonContext.Default.WhatsAppSendResponse,
             ct);
 
-    public Task<WhatsAppSendResponse> SendInteractiveAsync(
+    internal Task<WhatsAppSendResponse> SendInteractiveAsync(
         string to,
         WhatsAppInteractiveMessage interactive,
         CancellationToken ct = default)

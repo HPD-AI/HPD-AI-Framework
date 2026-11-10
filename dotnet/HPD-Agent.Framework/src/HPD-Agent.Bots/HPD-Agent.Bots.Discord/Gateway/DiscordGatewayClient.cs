@@ -4,7 +4,7 @@ using Microsoft.Extensions.Options;
 
 namespace HPD.Agent.Bots.Discord.Gateway;
 
-public sealed class DiscordGatewayClient(
+internal sealed class DiscordGatewayClient(
     IOptions<DiscordBotConfig> options,
     IHttpClientFactory httpClientFactory)
 {

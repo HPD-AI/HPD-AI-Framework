@@ -5,7 +5,7 @@ namespace HPD.Agent.Bots.Teams;
 /// <summary>
 /// Converts HPD card elements to Teams Adaptive Card payloads.
 /// </summary>
-public sealed class TeamsCardRenderer
+internal sealed class TeamsCardRenderer
 {
     public TeamsAdaptiveCard Render(CardElement card)
     {

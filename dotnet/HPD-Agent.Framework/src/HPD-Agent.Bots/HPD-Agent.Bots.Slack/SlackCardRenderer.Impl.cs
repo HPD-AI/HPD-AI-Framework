@@ -6,7 +6,7 @@ namespace HPD.Agent.Bots.Slack;
 /// Block Kit implementations of the <see cref="SlackCardRenderer"/> partial methods.
 /// Hand-written equivalent of the [CardRenderer] source generator output.
 /// </summary>
-public partial class SlackCardRenderer
+internal partial class SlackCardRenderer
 {
     public partial SlackBlock[] RenderCard(CardElement card)
     {

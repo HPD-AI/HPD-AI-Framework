@@ -19,7 +19,7 @@ public interface ITeamsHistoryService
         CancellationToken ct = default);
 }
 
-public sealed class NoopTeamsHistoryService : ITeamsHistoryService
+internal sealed class NoopTeamsHistoryService : ITeamsHistoryService
 {
     public Task<TeamsFetchMessagesResult> FetchMessagesAsync(
         string threadId,

@@ -7,7 +7,7 @@ namespace HPD.Agent.Bots.Slack.SocketMode;
 /// Envelope received over a Slack Socket Mode WebSocket connection.
 /// Every frame from Slack's socket is one of these.
 /// </summary>
-public record SlackSocketEnvelope(
+internal record SlackSocketEnvelope(
     [property: JsonPropertyName("envelope_id")] string EnvelopeId,
     [property: JsonPropertyName("type")]        string Type,
     [property: JsonPropertyName("payload")]     JsonElement? Payload,
