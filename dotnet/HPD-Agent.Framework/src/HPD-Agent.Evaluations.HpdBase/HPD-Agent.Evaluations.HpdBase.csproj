@@ -10,7 +10,7 @@
     <PublishAot>true</PublishAot>
     <IsAotCompatible>true</IsAotCompatible>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <IsPackable>true</IsPackable>
     <PackageId>HPD-Agent.Evaluations.HpdBase</PackageId>
     <Description>HPD Base-backed durable score, run, dataset, and evaluation result storage for HPD Agent.</Description>

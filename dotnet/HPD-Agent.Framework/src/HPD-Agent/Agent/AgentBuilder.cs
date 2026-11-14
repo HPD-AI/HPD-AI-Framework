@@ -2605,31 +2605,8 @@ public class AgentBuilder
         AgentBuildDependencies buildData,
         CancellationToken cancellationToken)
     {
-        var declarations = buildData.MergedOptions?.Tools?
-            .OfType<AIFunction>()
-            .Select(function => new
-            {
-                Definition = function.AdditionalProperties is not null &&
-                    function.AdditionalProperties.TryGetValue("SubAgentDefinition", out var value)
-                        ? value as SubAgent
-                        : null,
-                Owner = function.AdditionalProperties is not null &&
-                    function.AdditionalProperties.TryGetValue("ParentToolHarness", out var owner)
-                        ? owner?.ToString()
-                        : null,
-                Member = function.AdditionalProperties is not null &&
-                    function.AdditionalProperties.TryGetValue("SubAgentMember", out var member)
-                        ? member?.ToString()
-                        : null,
-                Assembly = function.AdditionalProperties is not null &&
-                    function.AdditionalProperties.TryGetValue("SubAgentAssembly", out var assembly)
-                        ? assembly?.ToString()
-                        : null
-            })
-            .Where(item => item.Definition is not null)
-            .ToArray() ?? [];
-
-        if (declarations.Length == 0)
+        var declarations = SubAgentAvailabilityMiddleware.ReadActions(buildData.MergedOptions?.Tools ?? []);
+        if (declarations.Count == 0)
             return;
 
         var store = _config.AgentStore ??= AgentBuilderDefaults.AgentStore;
@@ -2637,9 +2614,9 @@ public class AgentBuilder
         foreach (var declaration in declarations)
         {
             await materializer.MaterializeAsync(
-                declaration.Definition!,
+                declaration.Definition,
                 _config,
-                $"{declaration.Assembly ?? "unknown-assembly"}:{declaration.Owner ?? "unknown-toolharness"}.{declaration.Member ?? declaration.Definition!.Name}",
+                declaration.CapabilityId.Value,
                 cancellationToken).ConfigureAwait(false);
         }
     }

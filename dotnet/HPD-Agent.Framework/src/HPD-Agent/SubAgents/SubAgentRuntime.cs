@@ -1614,7 +1614,7 @@ internal static class SubAgentRuntime
     {
         var runId = Guid.NewGuid().ToString("N");
         var sessionId = contextPolicy == SubAgentContextPolicy.Isolated
-            ? BuildSessionId(subAgent, storageName, runId)
+            ? $"subagent-{runId}"
             : functionContext?.SessionId
                 ?? throw new InvalidOperationException("Parent-session subagents require a parent SessionId.");
         var threadId = BuildThreadId(subAgent, storageName, runId);
@@ -1870,9 +1870,6 @@ internal static class SubAgentRuntime
         var prefix = $"subagent/{Normalize(subAgent.Name)}";
         return $"{prefix}/{Normalize(storageName)}/{runId[..Math.Min(12, runId.Length)]}";
     }
-
-    private static string BuildSessionId(SubAgent subAgent, string storageName, string runId) =>
-        $"subagent/{Normalize(subAgent.Name)}/{Normalize(storageName)}/{runId[..Math.Min(12, runId.Length)]}";
 
     private static Dictionary<string, object> BuildMetadata(
         SubAgent subAgent,

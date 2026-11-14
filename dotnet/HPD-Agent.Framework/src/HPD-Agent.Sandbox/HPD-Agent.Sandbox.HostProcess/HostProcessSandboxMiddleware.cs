@@ -20,7 +20,7 @@ public sealed class HostProcessSandboxMiddleware
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private EnvironmentSandboxBackendFactory? _factory;
     private ISandboxSession? _session;
-    private string? _workspaceSelection;
+    private readonly Dictionary<string, (EnvironmentSandboxBackendFactory Factory, ISandboxSession Session)> _bindings = new(StringComparer.Ordinal);
     private int _disposed;
     private bool _initialized;
 
@@ -59,9 +59,8 @@ public sealed class HostProcessSandboxMiddleware
         BeforeStartContext context,
         CancellationToken cancellationToken)
     {
-        await EnsureInitializedAsync(context.RunConfig, cancellationToken)
+        await EnsureInitializedAsync(context.RunConfig, cancellationToken, context.RuntimeCapabilities)
             .ConfigureAwait(false);
-        PublishCapabilities(context.RuntimeCapabilities);
         context.RegisterAsyncDisposable(this);
         PlatformSpec platform =
             HostProcessProviderDescriptor.CurrentPlatform();
@@ -78,14 +77,8 @@ public sealed class HostProcessSandboxMiddleware
         BeforeMessageTurnContext context,
         CancellationToken cancellationToken)
     {
-        await EnsureInitializedAsync(context.RunConfig, cancellationToken)
+        await EnsureInitializedAsync(context.RunConfig, cancellationToken, context.RuntimeCapabilities)
             .ConfigureAwait(false);
-        if (context.RuntimeCapabilities.TryGet<ISandboxSession>(out _))
-        {
-            return;
-        }
-
-        PublishCapabilities(context.RuntimeCapabilities);
     }
 
     public async Task BeforeStopAsync(
@@ -98,17 +91,12 @@ public sealed class HostProcessSandboxMiddleware
 
     private async Task EnsureInitializedAsync(
         AgentRunConfig? runConfig,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IRuntimeCapabilityRegistry? capabilities = null)
     {
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _disposed) != 0,
             this);
-        if (_initialized)
-        {
-            EnsureSameWorkspace(runConfig);
-            return;
-        }
-
         await _initLock.WaitAsync(cancellationToken)
             .ConfigureAwait(false);
         try
@@ -116,21 +104,34 @@ public sealed class HostProcessSandboxMiddleware
             ObjectDisposedException.ThrowIf(
                 Volatile.Read(ref _disposed) != 0,
                 this);
-            if (_initialized)
-            {
-                EnsureSameWorkspace(runConfig);
-                return;
-            }
+
 
             IReadOnlyList<HostProcessWorkspaceOptions> workspaces =
                 ResolveWorkspaces(runConfig);
+            string selection = GetWorkspaceSelection(workspaces);
+            if (_bindings.TryGetValue(selection, out var existing))
+            {
+                (_factory, _session) = existing;
+                if (capabilities is not null)
+                    PublishCapabilities(capabilities);
+                return;
+            }
+
             var module = new HostProcessProviderModule();
-            _factory = new EnvironmentSandboxBackendFactory(
+            bool liveWorkspace = OperatingSystem.IsWindows() && workspaces.Count > 0 &&
+                workspaces.All(workspace => workspace.Access is AccessMode.ReadWrite or AccessMode.ReadOnly) &&
+                _options.Isolation.Filesystem.Rules.Count == 0 &&
+                _options.Isolation.Network.Mode == NetworkEgressMode.Blocked &&
+                _options.Isolation.Mode != ProcessIsolationMode.Disabled;
+            var factory = new EnvironmentSandboxBackendFactory(
                 new EnvironmentSandboxBackendDefinition
                 {
                     Kind = SandboxBackendKind.HostProcess,
                     Module = module,
                     EnforcementLocation = SandboxEnforcementLocation.Host,
+                    RefineCapabilities = (query, report) =>
+                        HostProcessProviderModule.RefineSandboxCapabilities(
+                            report, query.Isolation, query.Workspaces.Count != 0 && !liveWorkspace),
                     HostSpecFactory = request =>
                         new RuntimeHostSpec
                         {
@@ -142,23 +143,27 @@ public sealed class HostProcessSandboxMiddleware
                             LifecyclePolicy = request.Lifecycle,
                         },
                 });
-            _session = await _factory.CreateSessionAsync(
-                CreateSessionRequest(workspaces),
-                cancellationToken).ConfigureAwait(false);
-            _workspaceSelection = GetWorkspaceSelection(workspaces);
-            _initialized = true;
-            _logger?.LogInformation(
-                "Host Process sandbox session initialized.");
-        }
-        catch
-        {
-            if (_factory is not null)
+            ISandboxSession session;
+            try
             {
-                await _factory.DisposeAsync().ConfigureAwait(false);
-                _factory = null;
+                if (liveWorkspace && OperatingSystem.IsWindows())
+                    module.BindWindowsWorkspaces(
+                        workspaces.Select(workspace => (workspace.Path, workspace.Access)).ToArray(), cancellationToken);
+                session = await factory.CreateSessionAsync(
+                    CreateSessionRequest(workspaces), cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                await factory.DisposeAsync().ConfigureAwait(false);
+                throw;
             }
 
-            throw;
+            _bindings.Add(selection, (factory, session));
+            (_factory, _session) = (factory, session);
+            _initialized = true;
+            if (capabilities is not null)
+                PublishCapabilities(capabilities);
+            _logger?.LogInformation("Host Process sandbox workspace activated.");
         }
         finally
         {
@@ -187,31 +192,28 @@ public sealed class HostProcessSandboxMiddleware
 
     private async Task DisposeRuntimeAsync()
     {
-        ISandboxSession? session;
-        EnvironmentSandboxBackendFactory? factory;
-
         await _initLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            session = _session;
-            factory = _factory;
             _session = null;
             _factory = null;
             _initialized = false;
+
+            List<Exception> errors = [];
+            foreach (var (factory, session) in _bindings.Values)
+            {
+                try { await session.DisposeAsync().ConfigureAwait(false); }
+                catch (Exception error) { errors.Add(error); }
+                try { await factory.DisposeAsync().ConfigureAwait(false); }
+                catch (Exception error) { errors.Add(error); }
+            }
+            _bindings.Clear();
+            if (errors.Count > 0)
+                throw new AggregateException("Could not release all sandbox workspace bindings.", errors);
         }
         finally
         {
             _initLock.Release();
-        }
-
-        if (session is not null)
-        {
-            await session.DisposeAsync().ConfigureAwait(false);
-        }
-
-        if (factory is not null)
-        {
-            await factory.DisposeAsync().ConfigureAwait(false);
         }
     }
 
@@ -230,34 +232,21 @@ public sealed class HostProcessSandboxMiddleware
         _options.WorkspaceOptionsFactory?.Invoke(runConfig)
             ?? _options.Workspaces;
 
-    private void EnsureSameWorkspace(AgentRunConfig? runConfig)
-    {
-        if (_options.WorkspaceOptionsFactory is null)
-        {
-            return;
-        }
-
-        string requested = GetWorkspaceSelection(ResolveWorkspaces(runConfig));
-        if (!string.Equals(
-                requested,
-                _workspaceSelection,
-                StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                "The workspace selected by this run differs from the active sandbox workspace. Start a new session or thread before switching workspaces.");
-        }
-    }
-
     private static string GetWorkspaceSelection(
         IReadOnlyList<HostProcessWorkspaceOptions> workspaces) =>
-        string.Join(
-            '\n',
+        string.Concat(
             workspaces
                 .OrderBy(
                     static workspace => workspace.RootId,
                     StringComparer.Ordinal)
-                .Select(workspace =>
-                    $"{workspace.RootId}\t{Path.GetFullPath(workspace.Path)}\t{(int)workspace.Access}"));
+                .Select(workspace => string.Concat(
+                    EncodeSelectionPart(workspace.RootId),
+                    EncodeSelectionPart(Path.GetFullPath(workspace.Path)),
+                    EncodeSelectionPart(((int)workspace.Access).ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                    EncodeSelectionPart(workspace.DisplayName))));
+
+    private static string EncodeSelectionPart(string? value) =>
+        value is null ? "-1:" : FormattableString.Invariant($"{value.Length}:{value}");
 
     private static SandboxWorkspaceRequest CreateWorkspaceRequest(
         HostProcessWorkspaceOptions workspace)

@@ -2,6 +2,7 @@ using Xunit;
 using FluentAssertions;
 using Microsoft.Extensions.AI;
 using HPD.Agent.Collapsing;
+using HPD.Agent.Middleware;
 using System.Collections.Immutable;
 
 namespace HPD.Agent.Tests.Collapsing;
@@ -1323,327 +1324,53 @@ public class ToolVisibilityManagerTests
 
     #endregion
 
-    #region SubAgent Visibility Tests
-
-    /// <summary>
-    /// Regression test: SubAgents should use ParentToolHarness metadata, not ToolHarnessName.
-    /// This ensures SubAgents follow the same collapsing rules as Functions and Skills.
-    /// </summary>
-    [Fact]
-    public void SubAgent_UsesParentToolHarness_NotToolHarnessName()
+    [Theory]
+    [InlineData(0, 4, 0, true, false, false)]
+    [InlineData(0, 4, 0, true, true, true)]
+    [InlineData(0, 4, 0, false, false, true)]
+    [InlineData(1, 4, 0, true, true, false)]
+    [InlineData(1, 4, 2, true, true, true)]
+    [InlineData(2, 2, 4, true, true, false)]
+    public async Task SubAgentRolesFollowHarnessExpansionAndDepth(
+        int depth, int maxDepth, int roleDepth, bool requiresExpansion, bool expanded, bool visible)
     {
-        // Arrange: Create a SubAgent with ParentToolHarness metadata (correct)
-        var subAgent = CreateSubAgentFunction(
-            "ResearchAgent",
-            "Specialized research agent",
-            "MathToolHarness");
-
-        // Assert: Should have ParentToolHarness, not ToolHarnessName
-        subAgent.AdditionalProperties.Should().ContainKey("ParentToolHarness");
-        subAgent.AdditionalProperties.Should().NotContainKey("ToolHarnessName");
-        subAgent.AdditionalProperties?["ParentToolHarness"].Should().Be("MathToolHarness");
-    }
-
-    [Fact]
-    public void SubAgent_InsideCollapsedToolHarness_HiddenUntilToolHarnessExpanded()
-    {
-        // Arrange: Collapsed ToolHarness with functions and a SubAgent
-        var tools = new List<AIFunction>();
-
-        // ToolHarness container (collapsed)
-        tools.Add(CreateToolHarnessContainerWithNewFlag(
-            "MathToolHarness",
-            "Math operations with research capabilities"));
-
-        // Regular functions
-        tools.Add(CreateToolHarnessFunction("Add", "MathToolHarness", "Adds two numbers"));
-        tools.Add(CreateToolHarnessFunction("Multiply", "MathToolHarness", "Multiplies two numbers"));
-
-        // SubAgent inside the toolharness
-        tools.Add(CreateSubAgentFunction(
-            "ResearchAgent",
-            "Specialized research agent for math problems",
-            "MathToolHarness"));
-
-        var manager = new ToolVisibilityManager(tools, ImmutableHashSet<string>.Empty);
-
-        // Act: Initial state (no expansions)
-        var initialTools = manager.GetToolsForAgentTurn(
-            tools.ToList(),
-            ImmutableHashSet<string>.Empty);
-
-        // Assert: Only container visible, SubAgent hidden
-        initialTools.Should().Contain(t => t.Name == "MathToolHarness");
-        initialTools.Should().NotContain(t => t.Name == "Add");
-        initialTools.Should().NotContain(t => t.Name == "ResearchAgent",
-            "SubAgent should be hidden when parent toolharness is collapsed");
-        initialTools.Should().HaveCount(1);
-    }
-
-    [Fact]
-    public void SubAgent_InsideCollapsedToolHarness_VisibleAfterToolHarnessExpanded()
-    {
-        // Arrange: Collapsed ToolHarness with SubAgent
-        var tools = new List<AIFunction>();
-
-        tools.Add(CreateToolHarnessContainerWithNewFlag(
-            "MathToolHarness",
-            "Math operations with research capabilities"));
-
-        tools.Add(CreateToolHarnessFunction("Add", "MathToolHarness", "Adds two numbers"));
-        tools.Add(CreateSubAgentFunction(
-            "ResearchAgent",
-            "Specialized research agent",
-            "MathToolHarness"));
-
-        var manager = new ToolVisibilityManager(tools, ImmutableHashSet<string>.Empty);
-
-        // Act: Expand the toolharness
-        var expandedTools = manager.GetToolsForAgentTurn(
-            tools.ToList(),
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "MathToolHarness"));
-
-        // Assert: Container hidden, contents visible (including SubAgent)
-        expandedTools.Should().NotContain(t => t.Name == "MathToolHarness");
-        expandedTools.Should().Contain(t => t.Name == "Add");
-        expandedTools.Should().Contain(t => t.Name == "ResearchAgent",
-            "SubAgent should be visible when parent toolharness is expanded");
-    }
-
-    [Fact]
-    public void SubAgent_WithoutParentToolHarness_AlwaysVisible()
-    {
-        // Arrange: SubAgent without ParentToolHarness (standalone)
-        var tools = new List<AIFunction>();
-
-        // SubAgent without ParentToolHarness
-        var subAgent = AIFunctionFactory.Create(
-            async (AIFunctionArguments args, CancellationToken ct) => "Result",
-            new AIFunctionFactoryOptions
-            {
-                Name = "StandaloneAgent",
-                Description = "Standalone agent not in a toolharness",
-                AdditionalProperties = new Dictionary<string, object>
-                {
-                    ["IsSubAgent"] = true,
-                    ["ExecutionModel"] = "ThreadNative",
-                    ["SubAgentDefinition"] = CreateSubAgentDefinition("StandaloneAgent")
-                    // No ParentToolHarness!
-                }
-            });
-
-        tools.Add(subAgent);
-
-        var manager = new ToolVisibilityManager(tools, ImmutableHashSet<string>.Empty);
-
-        // Act
-        var visibleTools = manager.GetToolsForAgentTurn(
-            tools.ToList(),
-            ImmutableHashSet<string>.Empty);
-
-        // Assert: SubAgent should be visible (no parent to collapse it)
-        visibleTools.Should().Contain(t => t.Name == "StandaloneAgent");
-    }
-
-    [Fact]
-    public void SubAgent_MultipleInSameToolHarness_AllHiddenAndShownTogether()
-    {
-        // Arrange: Multiple SubAgents in the same collapsed toolharness
-        var tools = new List<AIFunction>();
-
-        tools.Add(CreateToolHarnessContainerWithNewFlag(
-            "ResearchToolHarness",
-            "Research toolharness with multiple specialized agents"));
-
-        tools.Add(CreateSubAgentFunction("WebSearchAgent", "Web search specialist", "ResearchToolHarness"));
-        tools.Add(CreateSubAgentFunction("DataAnalysisAgent", "Data analysis specialist", "ResearchToolHarness"));
-        tools.Add(CreateSubAgentFunction("SummaryAgent", "Summary specialist", "ResearchToolHarness"));
-
-        var manager = new ToolVisibilityManager(tools, ImmutableHashSet<string>.Empty);
-
-        // Act: Before expansion
-        var beforeExpansion = manager.GetToolsForAgentTurn(
-            tools.ToList(),
-            ImmutableHashSet<string>.Empty);
-
-        // Assert: All SubAgents hidden
-        beforeExpansion.Should().Contain(t => t.Name == "ResearchToolHarness");
-        beforeExpansion.Should().NotContain(t => t.Name == "WebSearchAgent");
-        beforeExpansion.Should().NotContain(t => t.Name == "DataAnalysisAgent");
-        beforeExpansion.Should().NotContain(t => t.Name == "SummaryAgent");
-
-        // Act: After expansion
-        var afterExpansion = manager.GetToolsForAgentTurn(
-            tools.ToList(),
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "ResearchToolHarness"));
-
-        // Assert: All SubAgents visible
-        afterExpansion.Should().NotContain(t => t.Name == "ResearchToolHarness");
-        afterExpansion.Should().Contain(t => t.Name == "WebSearchAgent");
-        afterExpansion.Should().Contain(t => t.Name == "DataAnalysisAgent");
-        afterExpansion.Should().Contain(t => t.Name == "SummaryAgent");
-    }
-
-    [Fact]
-    public void SubAgent_MixedWithFunctionsAndSkills_AllFollowSameCollapsingRules()
-    {
-        // Arrange: ToolHarness with functions, skills, AND SubAgents
-        var tools = new List<AIFunction>();
-
-        tools.Add(CreateToolHarnessContainerWithNewFlag(
-            "ComprehensiveToolHarness",
-            "ToolHarness with functions, skills, and sub-agents"));
-
-        // Regular function
-        tools.Add(CreateToolHarnessFunction("Calculate", "ComprehensiveToolHarness", "Calculation function"));
-
-        // Skill inside toolharness
-        tools.Add(CreateSkillInsideCollapsedToolHarness(
-            "AnalysisSkill",
-            "Analysis skill",
-            "ComprehensiveToolHarness"));
-
-        // SubAgent inside toolharness
-        tools.Add(CreateSubAgentFunction(
-            "ExpertAgent",
-            "Expert agent",
-            "ComprehensiveToolHarness"));
-
-        var manager = new ToolVisibilityManager(tools, ImmutableHashSet<string>.Empty);
-
-        // Act: Before expansion
-        var beforeExpansion = manager.GetToolsForAgentTurn(
-            tools.ToList(),
-            ImmutableHashSet<string>.Empty);
-
-        // Assert: Only container visible
-        beforeExpansion.Should().Contain(t => t.Name == "ComprehensiveToolHarness");
-        beforeExpansion.Should().NotContain(t => t.Name == "Calculate");
-        beforeExpansion.Should().NotContain(t => t.Name == "AnalysisSkill");
-        beforeExpansion.Should().NotContain(t => t.Name == "ExpertAgent");
-        beforeExpansion.Should().HaveCount(1);
-
-        // Act: After expansion
-        var afterExpansion = manager.GetToolsForAgentTurn(
-            tools.ToList(),
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "ComprehensiveToolHarness"));
-
-        // Assert: All contents visible (function, skill, SubAgent)
-        afterExpansion.Should().NotContain(t => t.Name == "ComprehensiveToolHarness");
-        afterExpansion.Should().Contain(t => t.Name == "Calculate");
-        afterExpansion.Should().Contain(t => t.Name == "AnalysisSkill");
-        afterExpansion.Should().Contain(t => t.Name == "ExpertAgent");
-    }
-
-    /// <summary>
-    /// Creates a SubAgent AIFunction with correct ParentToolHarness metadata.
-    /// This simulates what the source generator produces after the fix.
-    /// </summary>
-    private AIFunction CreateSubAgentFunction(
-        string name,
-        string description,
-        string parentToolHarness)
-    {
-        return AIFunctionFactory.Create(
-            async (AIFunctionArguments args, CancellationToken ct) => $"{name} result",
-            new AIFunctionFactoryOptions
-            {
-                Name = name,
-                Description = description,
-                AdditionalProperties = new Dictionary<string, object>
-                {
-                    ["IsSubAgent"] = true,
-                    ["ExecutionModel"] = "ThreadNative",
-                    ["ParentToolHarness"] = parentToolHarness,
-                    ["SubAgentDefinition"] = CreateSubAgentDefinition(name)
-                }
-            });
-    }
-
-    [Fact]
-    public void SubAgent_RootOnly_IsHiddenFromDepthOneAfterExpansion()
-    {
-        var tools = new List<AIFunction>
+        const string harness = "ResearchHarness";
+        var definition = SubAgent.FromConfig(
+            "test/research", "research", "Research a question.",
+            new AgentConfig { Name = "Researcher" })
+            .WithAvailability(roleDepth == 0 ? SubAgentAvailability.RootOnly : SubAgentAvailability.ThroughDepth(roleDepth));
+        var descriptor = new SubAgentActionDescriptor
         {
-            CreateToolHarnessContainerWithNewFlag("ResearchToolHarness", "Research tools"),
-            CreateSubAgentFunction("ResearchAgent", "Research", "ResearchToolHarness")
+            ParentToolHarness = harness,
+            RequiresToolHarnessActivation = requiresExpansion,
+            Action = definition.Name,
+            Description = definition.Description,
+            CapabilityId = CapabilityId.Create("test:research"),
+            Definition = definition,
+            InvocationModePolicy = definition.InvocationModePolicy,
+            InvocationModeHandling = AgentInvocationModeHandling.ToolBody,
+            ContextPolicy = definition.ContextPolicy,
+            RequiresPermission = false
         };
-        var manager = new ToolVisibilityManager(tools, ImmutableHashSet<string>.Empty);
+        var function = SubAgentsFunctionFactory.Create([descriptor]);
+        var options = new ChatOptions { Tools = [function] };
+        var state = AgentLoopState.InitialSafe([], "test-run", "test-session", "TestAgent") with
+        {
+            MiddlewareState = new MiddlewareState().SetState(
+                typeof(ContainerMiddlewareState).FullName!,
+                new ContainerMiddlewareState { ExpandedContainers = expanded ? [harness] : [] })
+        };
+        var context = new AgentContext(
+            "TestAgent", "test-session", state, new HPD.Events.Core.EventCoordinator(),
+            null, null, CancellationToken.None,
+            parentAgentMetadata: new AgentMetadata { AgentId = "test", AgentName = "TestAgent", Depth = depth },
+            config: new AgentConfig { MaxSubAgentDepth = maxDepth });
+        var middleware = new SubAgentAvailabilityMiddleware([function], toolHarnessActivationEnabled: true);
 
-        var visible = manager.GetToolsForAgentTurn(
-            tools,
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "ResearchToolHarness"),
-            currentAgentDepth: 1,
-            maxSubAgentDepth: 4);
+        await middleware.BeforeIterationAsync(
+            context.AsBeforeIteration(0, [], options, new AgentRunConfig()), CancellationToken.None);
 
-        visible.Should().NotContain(tool => tool.Name == "ResearchAgent");
+        var actions = SubAgentAvailabilityMiddleware.ReadActions(options.Tools!);
+        actions.Select(action => action.Action).Should().Equal(visible ? new[] { "research" } : []);
     }
-
-    [Fact]
-    public void SubAgent_ThroughDepthTwo_IsVisibleFromDepthOne()
-    {
-        var definition = CreateSubAgentDefinition("ResearchAgent")
-            .WithAvailability(SubAgentAvailability.ThroughDepth(2));
-        var function = AIFunctionFactory.Create(
-            async (AIFunctionArguments args, CancellationToken ct) => "result",
-            new AIFunctionFactoryOptions
-            {
-                Name = "ResearchAgent",
-                Description = "Research",
-                AdditionalProperties = new Dictionary<string, object>
-                {
-                    ["IsSubAgent"] = true,
-                    ["ExecutionModel"] = "ThreadNative",
-                    ["SubAgentDefinition"] = definition
-                }
-            });
-        var tools = new List<AIFunction> { function };
-        var manager = new ToolVisibilityManager(tools, ImmutableHashSet<string>.Empty);
-
-        var visible = manager.GetToolsForAgentTurn(
-            tools,
-            ImmutableHashSet<string>.Empty,
-            currentAgentDepth: 1,
-            maxSubAgentDepth: 4);
-
-        visible.Should().ContainSingle(tool => tool.Name == "ResearchAgent");
-    }
-
-    [Fact]
-    public void SubAgent_AnyAllowedDepth_StillRespectsAgentMaximum()
-    {
-        var definition = CreateSubAgentDefinition("Coordinator")
-            .WithAvailability(SubAgentAvailability.AnyAllowedDepth);
-        var function = AIFunctionFactory.Create(
-            async (AIFunctionArguments args, CancellationToken ct) => "result",
-            new AIFunctionFactoryOptions
-            {
-                Name = "Coordinator",
-                Description = "Coordinates agents",
-                AdditionalProperties = new Dictionary<string, object>
-                {
-                    ["IsSubAgent"] = true,
-                    ["ExecutionModel"] = "ThreadNative",
-                    ["SubAgentDefinition"] = definition
-                }
-            });
-        var tools = new List<AIFunction> { function };
-        var manager = new ToolVisibilityManager(tools, ImmutableHashSet<string>.Empty);
-
-        var visible = manager.GetToolsForAgentTurn(
-            tools,
-            ImmutableHashSet<string>.Empty,
-            currentAgentDepth: 2,
-            maxSubAgentDepth: 2);
-
-        visible.Should().BeEmpty();
-    }
-
-    private static SubAgent CreateSubAgentDefinition(string name) => SubAgent.FromConfig(
-        $"test/{name}",
-        name,
-        $"{name} description",
-        new AgentConfig { Name = name, SystemInstructions = "Test." });
-
-    #endregion
 }

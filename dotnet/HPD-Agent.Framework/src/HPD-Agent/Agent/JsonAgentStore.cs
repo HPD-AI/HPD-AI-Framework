@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using HPD.Agent.Validation;
 
@@ -10,9 +12,9 @@ namespace HPD.Agent;
 /// Storage structure:
 /// <code>
 /// {basePath}/
-///   {agentId}/
-///     agent.json   ← StoredAgent (id, name, config, createdAt, updatedAt, metadata)
+///   agent_{sha256}.json
 /// </code>
+/// Each filename is derived from the logical ID, which is preserved in the JSON record.
 /// </remarks>
 public class JsonAgentStore : IAgentStore
 {
@@ -30,12 +32,12 @@ public class JsonAgentStore : IAgentStore
 
     public async Task<StoredAgent?> LoadAsync(string agentId, CancellationToken ct = default)
     {
-        StoragePathSegment.ValidateSegment(agentId, nameof(agentId));
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         var path = GetAgentFilePath(agentId);
-        if (!File.Exists(path))
+        var json = await ReadIfPresentAsync(path, ct);
+        if (json is null)
             return null;
 
-        var json = await File.ReadAllTextAsync(path, ct);
 
         StoredAgent stored;
         try
@@ -47,6 +49,9 @@ public class JsonAgentStore : IAgentStore
         {
             throw CreateInvalidDefinitionException(agentId, path, ex.Message, ex);
         }
+
+        if (!string.Equals(stored.Id, agentId, StringComparison.Ordinal))
+            throw CreateInvalidDefinitionException(agentId, path, "The stored ID does not match the requested ID.");
 
         if (stored.Config is null)
         {
@@ -72,43 +77,86 @@ public class JsonAgentStore : IAgentStore
     public async Task SaveAsync(StoredAgent agent, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(agent);
-        StoragePathSegment.ValidateSegment(agent.Id, nameof(agent));
-
-        var dir = GetAgentDirectory(agent.Id);
-        Directory.CreateDirectory(dir);
-
-        var json = System.Text.Json.JsonSerializer.Serialize(agent, HPDJsonContext.Default.StoredAgent);
-        await File.WriteAllTextAsync(GetAgentFilePath(agent.Id), json, ct);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agent.Id);
+        var path = GetAgentFilePath(agent.Id);
+        var json = JsonSerializer.Serialize(agent, HPDJsonContext.Default.StoredAgent);
+        Directory.CreateDirectory(_basePath);
+        var temporary = Path.Combine(_basePath, $"{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await File.WriteAllTextAsync(temporary, json, ct);
+            ct.ThrowIfCancellationRequested();
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally
+        {
+            File.Delete(temporary);
+        }
     }
 
     public Task DeleteAsync(string agentId, CancellationToken ct = default)
     {
-        StoragePathSegment.ValidateSegment(agentId, nameof(agentId));
-        var dir = GetAgentDirectory(agentId);
-        if (Directory.Exists(dir))
-            Directory.Delete(dir, recursive: true);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ct.ThrowIfCancellationRequested();
+        if (Directory.Exists(_basePath))
+            File.Delete(GetAgentFilePath(agentId));
         return Task.CompletedTask;
     }
 
-    public Task<List<string>> ListIdsAsync(CancellationToken ct = default)
+    public async Task<List<string>> ListIdsAsync(CancellationToken ct = default)
     {
+        var ids = new List<string>();
         if (!Directory.Exists(_basePath))
-            return Task.FromResult(new List<string>());
+            return ids;
 
-        var ids = Directory.GetDirectories(_basePath)
-            .Select(Path.GetFileName)
-            .Where(name => name != null)
-            .Cast<string>()
-            .ToList();
+        foreach (var path in Directory.EnumerateFiles(_basePath, "agent_*.json"))
+        {
+            var json = await ReadIfPresentAsync(path, ct);
+            if (json is null)
+                continue;
 
-        return Task.FromResult(ids);
+            try
+            {
+                using var document = JsonDocument.Parse(json);
+                if (document.RootElement.ValueKind == JsonValueKind.Object &&
+                    document.RootElement.TryGetProperty("id", out var id) &&
+                    id.ValueKind == JsonValueKind.String &&
+                    id.GetString() is { } agentId &&
+                    !string.IsNullOrWhiteSpace(agentId) &&
+                    string.Equals(Path.GetFileName(path), GetAgentFileName(agentId), StringComparison.Ordinal))
+                {
+                    ids.Add(agentId);
+                }
+            }
+            catch (JsonException ex)
+            {
+                throw CreateInvalidDefinitionException(Path.GetFileName(path), path, ex.Message, ex);
+            }
+        }
+
+        return ids;
     }
 
-    private string GetAgentDirectory(string agentId) =>
-        Path.Combine(_basePath, agentId);
+    private static async Task<string?> ReadIfPresentAsync(string path, CancellationToken ct)
+    {
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.Read | FileShare.Delete, bufferSize: 4096, useAsync: true);
+            using var reader = new StreamReader(stream);
+            return await reader.ReadToEndAsync(ct);
+        }
+        catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return null;
+        }
+    }
 
     private string GetAgentFilePath(string agentId) =>
-        Path.Combine(_basePath, agentId, "agent.json");
+        Path.Combine(_basePath, GetAgentFileName(agentId));
+
+    private static string GetAgentFileName(string agentId) =>
+        $"agent_{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(agentId))).ToLowerInvariant()}.json";
 
     private static InvalidDataException CreateInvalidDefinitionException(
         string agentId,

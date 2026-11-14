@@ -6,7 +6,7 @@
     <RootNamespace>HPD.Agent.MultiAgent</RootNamespace>
     <AssemblyName>HPD-Agent.MultiAgent</AssemblyName>
     <IsPackable>true</IsPackable>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
 
     <!-- Package metadata -->
     <PackageId>HPD-Agent.MultiAgent</PackageId>

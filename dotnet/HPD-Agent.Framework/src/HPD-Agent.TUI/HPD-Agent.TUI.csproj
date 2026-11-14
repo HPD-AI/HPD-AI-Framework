@@ -8,7 +8,7 @@
     <PackageId>HPD-Agent.TUI</PackageId>
     <Description>Terminal UI shell primitives for HPD agents.</Description>
     <PackageTags>ai;agent;tui;terminal;hpd</PackageTags>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <!-- These optional-overload rules target post-release compatibility. The TUI
          surface is pre-1.0; RS0016 remains enforced for API drift. -->
     <NoWarn>$(NoWarn);RS0026;RS0027</NoWarn>

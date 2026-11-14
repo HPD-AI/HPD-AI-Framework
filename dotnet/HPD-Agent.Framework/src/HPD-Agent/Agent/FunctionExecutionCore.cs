@@ -907,7 +907,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             await _middlewarePipeline.ExecuteAfterFunctionAsync(
                 afterFunctionContext, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception afterEx)
+        catch (Exception afterEx) when (afterEx is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             await agentContext.PublishAsync(new MiddlewareErrorEvent(
                 "AfterFunctionMiddleware",

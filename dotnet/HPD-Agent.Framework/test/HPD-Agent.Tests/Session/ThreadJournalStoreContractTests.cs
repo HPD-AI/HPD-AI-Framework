@@ -360,6 +360,29 @@ public sealed class ThreadJournalStoreContractTests
     }
 
     [Fact]
+    public async Task FileStore_ReadsCommittedEventsWhileSegmentIsOpenForAppend()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"hpd-file-journal-{Guid.NewGuid():N}");
+        try
+        {
+            var key = new ThreadKey("session-1", "main");
+            var store = new FileSessionStore(directory, HPD.Agent.Tests.TestEventApplication.Codec);
+            await store.AppendThreadEventsAsync(key, [Scoped(key, new TextDeltaEvent("committed", "message-1"))]);
+
+            var segment = Assert.Single(Directory.GetFiles(directory, "segment-*.events", SearchOption.AllDirectories));
+            await using var writer = new FileStream(segment, FileMode.Append, FileAccess.Write, FileShare.Read);
+
+            var events = await store.CollectThreadEventsAsync(key);
+            Assert.Equal("committed", Assert.IsType<TextDeltaEvent>(Assert.Single(events!)).Text);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
     public async Task FileStore_ReopenTruncatesOnlyAnIncompleteFinalAppendFrame()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"hpd-file-journal-{Guid.NewGuid():N}");

@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using HPD.Environment.Contracts;
 using HPD.Environment.HostProcess.ProcessIsolation;
 using HPD.Environment.Runtime;
+using HPD.Environment.HostProcess.Platforms.Windows;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -15,6 +16,8 @@ public sealed class HostProcessProviderModule : IProviderModule, IAsyncDisposabl
     private readonly HostProcessProviderState _state = new();
     private readonly SandboxIsolationManager _isolationManager;
     private readonly HostProcessProcessProvider _processProvider;
+    private List<IDisposable>? _workspaces;
+    private IDisposable? _profile;
 
     public HostProcessProviderModule(
         ILogger<HostProcessProviderModule>? logger = null)
@@ -30,6 +33,83 @@ public sealed class HostProcessProviderModule : IProviderModule, IAsyncDisposabl
         HostProcessProviderDescriptor.Create();
 
     public IProcessProvider ProcessProvider => _processProvider;
+
+    /// <summary>Grants access to a live Windows workspace for the lifetime of this provider module.</summary>
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    public void BindWindowsWorkspaces(
+        IReadOnlyList<(string Path, AccessMode Access)> roots, CancellationToken cancellationToken)
+    {
+        if (roots.Count == 0 || roots.Any(root =>
+            root.Access is not (AccessMode.ReadOnly or AccessMode.ReadWrite) || !Path.IsPathFullyQualified(root.Path)))
+            throw new ArgumentException("Live Windows workspaces require absolute paths and read-only or read/write access.", nameof(roots));
+        if (_workspaces is not null)
+            throw new InvalidOperationException("The module already owns Windows workspace grants.");
+
+        var paths = roots.Select(root => Path.TrimEndingDirectorySeparator(Path.GetFullPath(root.Path))).ToArray();
+        for (int i = 0; i < paths.Length; i++)
+        {
+            for (int j = 0; j < i; j++)
+            {
+                if (WindowsSandboxWorkspace.ContainsDirectory(paths[i], paths[j]) ||
+                    WindowsSandboxWorkspace.ContainsDirectory(paths[j], paths[i]))
+                    throw new ArgumentException("Windows workspace roots must be disjoint.", nameof(roots));
+            }
+        }
+
+        var profile = new WindowsAppContainerProfile();
+        List<IDisposable> grants = [];
+        try
+        {
+            for (int i = 0; i < paths.Length; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                grants.Add(new WindowsWorkspaceGrant(paths[i], profile.Sid, roots[i].Access == AccessMode.ReadWrite));
+            }
+            _processProvider.SetWindowsWorkspaces(profile, paths);
+            _workspaces = grants;
+            _profile = profile;
+        }
+        catch
+        {
+            try { ReleaseWorkspaceGrants(grants); }
+            finally { profile.Dispose(); }
+            throw;
+        }
+    }
+
+    /// <summary>Refines Windows capability facts for a specific process policy.</summary>
+    public static ProviderCapabilityReport RefineSandboxCapabilities(
+        ProviderCapabilityReport report, ProcessIsolationPolicy policy, bool hasWorkspaceBindings)
+    {
+        if (!OperatingSystem.IsWindows())
+            return report;
+
+        bool supported = !hasWorkspaceBindings &&
+            WindowsProcessIsolationBackend.CanUseAppContainer(SandboxIsolationCompiler.Compile(policy)) &&
+            policy.Mode != ProcessIsolationMode.Disabled;
+        var appContainerFacts = new HashSet<CapabilityId>
+        {
+            StandardSandboxEnvironmentCapabilities.ProcessExecution,
+            StandardSandboxEnvironmentCapabilities.ProcessOutput,
+            StandardSandboxEnvironmentCapabilities.ProcessCancellation,
+            StandardSandboxEnvironmentCapabilities.SessionCleanup,
+            StandardSandboxEnvironmentCapabilities.NetworkBlock,
+            StandardSandboxEnvironmentCapabilities.StandardInput,
+            StandardSandboxEnvironmentCapabilities.EnvironmentFiltering,
+        };
+        return report with
+        {
+            Capabilities = report.Capabilities.Select(fact => !appContainerFacts.Contains(fact.Id) ? fact : fact with
+            {
+                State = supported ? CapabilityState.Supported : CapabilityState.Unsupported,
+                Detail = supported
+                    ? "Supported by the Windows AppContainer command launcher."
+                    : hasWorkspaceBindings
+                        ? "Windows AppContainer sessions with shared workspace bindings require a supported live workspace grant."
+                        : "The requested process policy cannot be enforced by the Windows AppContainer launcher.",
+            }).ToArray(),
+        };
+    }
 
     public void Register(IProviderRegistrationBuilder builder)
     {
@@ -53,8 +133,29 @@ public sealed class HostProcessProviderModule : IProviderModule, IAsyncDisposabl
         ArgumentNullException.ThrowIfNull(registry);
     }
 
-    public ValueTask DisposeAsync() =>
-        _isolationManager.DisposeAsync();
+    public async ValueTask DisposeAsync()
+    {
+        try { await _isolationManager.DisposeAsync().ConfigureAwait(false); }
+        finally
+        {
+            try { ReleaseWorkspaceGrants(Interlocked.Exchange(ref _workspaces, null)); }
+            finally { Interlocked.Exchange(ref _profile, null)?.Dispose(); }
+        }
+    }
+
+    private static void ReleaseWorkspaceGrants(List<IDisposable>? grants)
+    {
+        if (!OperatingSystem.IsWindows() || grants is null)
+            return;
+        List<Exception> failures = [];
+        foreach (var grant in grants)
+        {
+            try { grant.Dispose(); }
+            catch (Exception error) { failures.Add(error); }
+        }
+        if (failures.Count > 0)
+            throw new AggregateException("Windows workspace grant cleanup failed.", failures);
+    }
 }
 
 /// <summary>Stable Host Process provider identity and platform information.</summary>

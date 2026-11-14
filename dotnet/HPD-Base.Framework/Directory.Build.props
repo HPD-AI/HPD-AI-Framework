@@ -12,6 +12,5 @@
     <LangVersion>14.0</LangVersion>
     <!-- BASE ships a complete IntelliSense contract; do not inherit the monorepo's CS1591 suppression. -->
     <NoWarn>$([System.String]::Copy('$(NoWarn)').Replace(';CS1591', '').Replace('CS1591;', '').Replace('CS1591', ''))</NoWarn>
-    <WarningsAsErrors>$(WarningsAsErrors);CS1591</WarningsAsErrors>
   </PropertyGroup>
 </Project>

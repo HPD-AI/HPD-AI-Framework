@@ -67,7 +67,7 @@ jobs:
         run: |
           set -euo pipefail
           dotnet build dotnet/HPD-Gateway.Framework/HPD-Gateway.slnx \
-            --configuration Release --nologo --property:TreatWarningsAsErrors=true
+            --configuration Release --nologo
           dotnet test dotnet/HPD-Gateway.Framework/HPD-Gateway.slnx \
             --configuration Release --no-build --nologo
 

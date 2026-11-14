@@ -287,7 +287,27 @@ public class AgentBuilderWithToolTests
     }
 
     [Fact]
-    public async Task GeneratedSubAgent_PublishesTypedInvocationLifecycle()
+    public Task GeneratedSubAgent_PublishesTypedInvocationLifecycle() =>
+        VerifyGeneratedSubAgentLifecycleAsync(new InMemorySessionStore(TestEventApplication.Codec));
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GeneratedSubAgent_PublishesTypedInvocationLifecycleWithFileJournal(bool cancelAfterFunction)
+    {
+        var directory = Directory.CreateTempSubdirectory("hpd-subagent-journal-");
+        try
+        {
+            await VerifyGeneratedSubAgentLifecycleAsync(
+                new FileSessionStore(directory.FullName, TestEventApplication.Codec), cancelAfterFunction);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    private static async Task VerifyGeneratedSubAgentLifecycleAsync(ISessionStore store, bool cancelAfterFunction = false)
     {
         var client = new FakeChatClient();
         client.EnqueueToolCall(
@@ -330,7 +350,6 @@ public class AgentBuilderWithToolTests
         };
         config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(client, "test", "local", "test.adapter");
 
-        var store = new InMemorySessionStore(TestEventApplication.Codec);
         await using var child = TestAgentFactory.Create(new AgentConfig
         {
             Name = "Support Escalation",
@@ -343,25 +362,49 @@ public class AgentBuilderWithToolTests
         await child.StartAsync();
         using var services = new ServiceCollection()
             .AddSingleton<IAgentRuntimeResolver>(new RunningChildResolver(child)).BuildServiceProvider();
-        await using var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
+        using var cancellation = new CancellationTokenSource();
+        var builder = new AgentBuilder(config, new TestProviderRegistry(client))
             .WithEventComposition(HPD.Agent.Tests.TestEventApplication.Composition)
             .WithAgentStore(new InMemoryAgentStore())
             .WithSessionStore(store)
             .WithServiceProvider(services)
             .WithToolHarness<ReflectionAdvancedToolHarness>()
-            .WithHostAutoApproval()
-            .BuildAsync(CancellationToken.None);
+            .WithHostAutoApproval();
+        if (cancelAfterFunction)
+            builder.WithMiddleware(new CancelAfterSubAgentMiddleware(cancellation));
+        await using var agent = await builder.BuildAsync(CancellationToken.None);
         await agent.CreateSessionAsync("generated-lifecycle");
         await agent.StartAsync();
-        await agent.RunAsync(new UserMessagesInputEvent
+        var input = new UserMessagesInputEvent
         {
             Messages = [new ChatMessage(ChatRole.User, "Please escalate this.")],
             SessionId = "generated-lifecycle",
             ThreadId = "main",
             RunConfig = new AgentRunConfig { Security = new AgentSecurityRunConfig { Approval = AgentApprovalPolicy.AutoApprove } }
-        }, CancellationToken.None);
+        };
+        if (cancelAfterFunction)
+        {
+            var parent = new ThreadKey(input.SessionId!, input.ThreadId!);
+            using var observationTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => agent.RunAsync(input, cancellation.Token));
+            await foreach (var batch in store.ObserveThreadEventsAsync(
+                parent, ThreadJournalCursor.Start(1), new ThreadObservationOptions(), observationTimeout.Token))
+            {
+                var finished = batch.Events.OfType<ThreadExecutionFinishedEvent>().SingleOrDefault();
+                if (finished is null)
+                    continue;
+                Assert.Equal(ThreadExecutionOutcome.Cancelled, finished.Outcome);
+                break;
+            }
+        }
+        else
+        {
+            await agent.RunAsync(input, CancellationToken.None);
+        }
 
         var parentEvents = await agent.Config.SessionStore!.CollectThreadEventsAsync("generated-lifecycle", "main");
+        Assert.DoesNotContain(parentEvents!, evt => evt is MiddlewareErrorEvent { SourceName: "AfterFunctionMiddleware" });
         Assert.True(parentEvents!.OfType<SubAgentInvocationStartedEvent>().Any(),
             string.Join("\n", parentEvents.Select(evt => TestEventApplication.Codec.Serialize(evt))));
         var invocation = Assert.Single(parentEvents.OfType<SubAgentInvocationStartedEvent>());
@@ -369,6 +412,20 @@ public class AgentBuilderWithToolTests
         Assert.Equal("support_escalation", invocation.RoleName);
         Assert.Equal(SubAgentContextPolicy.Isolated, invocation.ContextPolicy);
         Assert.Equal(AgentInvocationMode.Synchronous, invocation.Mode);
+        var childEvents = await store.CollectThreadEventsAsync(invocation.ChildSessionId, invocation.ChildThreadId);
+        Assert.Single(childEvents!.OfType<ThreadExecutionStartedEvent>());
+        Assert.Single(childEvents.OfType<ThreadExecutionFinishedEvent>());
+    }
+
+    private sealed class CancelAfterSubAgentMiddleware(CancellationTokenSource cancellation) : IAgentMiddleware
+    {
+        public async Task AfterFunctionAsync(AfterFunctionContext context, CancellationToken cancellationToken)
+        {
+            if (context.FunctionCallId != "call-subagent")
+                return;
+            cancellation.Cancel();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        }
     }
 
     [Fact]

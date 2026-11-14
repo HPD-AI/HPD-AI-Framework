@@ -151,7 +151,7 @@ internal sealed class JournalSubAgentCreationStore(ISessionStore store) : ISubAg
             var localId = new SubAgentLocalId($"{rolePrefix}{ordinal}");
             var invocationId = Guid.NewGuid().ToString("N");
             var sessionId = request.Context == SubAgentCreationContext.Isolated
-                ? $"subagent/{Normalize(request.RoleName)}/{invocationId[..12]}"
+                ? $"subagent-{invocationId}"
                 : key.Parent.SessionId;
             var record = new SubAgentCreationRecord
             {

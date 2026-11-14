@@ -19,4 +19,6 @@ public sealed record PreparedSandboxCommand
     public IReadOnlyList<string> ArgumentList { get; init; }
 
     public IReadOnlyDictionary<string, string> Environment { get; init; }
+
+    internal bool UseWindowsAppContainer { get; init; }
 }

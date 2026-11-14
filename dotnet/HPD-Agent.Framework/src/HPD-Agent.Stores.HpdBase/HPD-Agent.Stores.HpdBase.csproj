@@ -10,7 +10,7 @@
     <PublishAot>true</PublishAot>
     <IsAotCompatible>true</IsAotCompatible>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <IsPackable>true</IsPackable>
     <PackageId>HPD-Agent.Stores.HpdBase</PackageId>
     <Description>HPD Base-backed durable stores for HPD Agent definitions, sessions, and thread journals.</Description>

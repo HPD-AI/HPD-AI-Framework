@@ -1751,3 +1751,17 @@ static readonly HPD.Agent.TUI.Composition.AgentTuiTranscriptRenderServices.Error
 static readonly HPD.Agent.TUI.Composition.AgentTuiTranscriptRenderServices.Muted -> HPD.TUI.Core.Style
 static readonly HPD.Agent.TUI.Composition.AgentTuiTranscriptRenderServices.Success -> HPD.TUI.Core.Style
 virtual HPD.Agent.TUI.Observability.AgentTuiPerformanceEvent.FormatSummary() -> string!
+HPD.Agent.TUI.Testing.AgentTuiProjectionTestHost
+HPD.Agent.TUI.Testing.AgentTuiProjectionTestHost.AgentTuiProjectionTestHost(HPD.Agent.TUI.Runtime.AgentTuiRuntimeScope! scope, HPD.Agent.TUI.HpdAgentTuiRegistry! registry, System.Action? requestRender = null) -> void
+HPD.Agent.TUI.Testing.AgentTuiProjectionTestHost.Shell.get -> HPD.Agent.TUI.Models.ChatShellModel!
+HPD.Agent.TUI.Testing.AgentTuiProjectionTestHost.State.get -> HPD.Agent.TUI.Composition.IAgentTuiStateStore!
+HPD.Agent.TUI.Testing.AgentTuiProjectionTestHost.FailedContributionKeys.get -> System.Collections.Generic.IReadOnlyList<string!>!
+HPD.Agent.TUI.Testing.AgentTuiProjectionTestHost.ApplyEventAsync(HPD.Agent.AgentEvent! evt, System.Threading.CancellationToken cancellationToken = default, HPD.Agent.TUI.Runtime.AgentTuiEventDeliveryMode deliveryMode = HPD.Agent.TUI.Runtime.AgentTuiEventDeliveryMode.Live) -> System.Threading.Tasks.ValueTask
+static HPD.Agent.TUI.Testing.AgentTuiProjectionTestHost.CreateContext(HPD.Agent.TUI.Runtime.AgentTuiRuntimeScope! scope, HPD.Agent.TUI.Models.ChatShellModel! shell, HPD.Agent.TUI.HpdAgentTuiRegistry! registry, HPD.Agent.TUI.Composition.IAgentTuiStateStore? state = null, HPD.Agent.TUI.Runtime.AgentTuiEventDeliveryMode deliveryMode = HPD.Agent.TUI.Runtime.AgentTuiEventDeliveryMode.Live) -> HPD.Agent.TUI.Composition.AgentTuiProjectionContext!
+static HPD.Agent.TUI.Testing.AgentTuiProjectionTestHost.CreateState() -> HPD.Agent.TUI.Composition.IAgentTuiStateStore!
+static HPD.Agent.TUI.Testing.AgentTuiProjectionTestHost.SetRuntime(HPD.Agent.TUI.Models.ChatShellModel! shell, HPD.Agent.TUI.Runtime.IHpdAgentTuiRuntime! runtime) -> void
+static HPD.Agent.TUI.Testing.AgentTuiProjectionTestHost.SetTargetSwitch(HPD.Agent.TUI.Models.ChatShellModel! shell, System.Func<HPD.Agent.TUI.Runtime.AgentTuiExecutionTarget!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask>! callback) -> void
+static HPD.Agent.TUI.Testing.AgentTuiProjectionTestHost.NextFocus(HPD.Agent.TUI.Models.ChatShellModel! shell, HPD.TUI.Core.IFocusable! current, HPD.TUI.Core.IFocusable! prompt) -> HPD.TUI.Core.IFocusable!
+static HPD.Agent.TUI.Testing.AgentTuiProjectionTestHost.CreateAboveEditor(HPD.Agent.TUI.Models.ChatShellModel! shell, HPD.Agent.TUI.Composition.IAgentTuiStateStore! state, HPD.Agent.TUI.HpdAgentTuiRegistry! registry) -> HPD.TUI.Core.IComponent!
+HPD.Agent.TUI.Testing.AgentTuiProjectionTestHost.CreateLayoutContext(HPD.TUI.Views.PromptView! prompt, HPD.Agent.TUI.HpdAgentTuiRegistry! registry) -> HPD.Agent.TUI.Composition.AgentTuiShellLayoutContext!
+static HPD.Agent.TUI.Testing.AgentTuiProjectionTestHost.CreateTranscript(HPD.Agent.TUI.Models.TranscriptModel! model, HPD.Agent.TUI.HpdAgentTuiRegistry! registry, int height) -> HPD.TUI.Core.IComponent!

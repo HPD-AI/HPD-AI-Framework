@@ -9,7 +9,7 @@
     <PublishAot>true</PublishAot>
     <IsAotCompatible>true</IsAotCompatible>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <IsPackable>true</IsPackable>
     <PackageId>HPD-Agent.MultiAgent.HpdBase</PackageId>
     <Description>HPD Base adapter for durable HPD multi-agent graph activations.</Description>

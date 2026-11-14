@@ -62,7 +62,7 @@ public sealed class StoragePathSafetyTests : IDisposable
     [InlineData("nested/agent")]
     [InlineData("nested\\agent")]
     [InlineData("C:\\absolute")]
-    public async Task JsonAgentStore_RejectsUnsafeAgentIdentifiers(string agentId)
+    public async Task JsonAgentStore_MapsPathLikeIdsToFilesInsideStore(string agentId)
     {
         var store = new JsonAgentStore(Path.Combine(_root, "agents"));
         var agent = new StoredAgent
@@ -72,9 +72,12 @@ public sealed class StoragePathSafetyTests : IDisposable
             Config = new AgentConfig { Name = "Unsafe" }
         };
 
-        await Assert.ThrowsAsync<ArgumentException>(() => store.SaveAsync(agent));
-        await Assert.ThrowsAsync<ArgumentException>(() => store.LoadAsync(agentId));
-        await Assert.ThrowsAsync<ArgumentException>(() => store.DeleteAsync(agentId));
+        await store.SaveAsync(agent);
+        Assert.Single(Directory.GetFiles(Path.Combine(_root, "agents"), "agent_*.json"));
+        Assert.Equal(agentId, (await store.LoadAsync(agentId))!.Id);
+        Assert.Equal(agentId, Assert.Single(await store.ListIdsAsync()));
+        await store.DeleteAsync(agentId);
+        Assert.Empty(await store.ListIdsAsync());
     }
 
     [Fact]

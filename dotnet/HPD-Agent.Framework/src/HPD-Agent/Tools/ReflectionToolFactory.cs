@@ -266,8 +266,6 @@ internal static class ReflectionToolFactory
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["ParentToolHarness"] = method.DeclaringType?.Name,
-                    ["SubAgentMember"] = method.Name,
-                    ["SubAgentAssembly"] = method.DeclaringType?.Assembly.GetName().Name ?? string.Empty,
                     ["IsContainer"] = false,
                     ["CapabilityType"] = "Function",
                     ["Kind"] = GetToolKind(method).ToString()

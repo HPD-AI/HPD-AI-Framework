@@ -30,7 +30,7 @@ public sealed class JsonAgentStoreTests : IDisposable
 
         var exception = await act.Should().ThrowAsync<InvalidDataException>();
         exception.Which.Message.Should().Contain("test-agent");
-        exception.Which.Message.Should().Contain("agent.json");
+        exception.Which.Message.Should().Contain(".json");
         exception.Which.Message.Should().Contain("workspace");
         exception.Which.InnerException.Should().BeOfType<System.Text.Json.JsonException>();
     }
@@ -98,6 +98,33 @@ public sealed class JsonAgentStoreTests : IDisposable
         stored.Config.Name.Should().Be("Test Agent");
     }
 
+    [Fact]
+    public async Task NamespacedIdsAndCaseVariantsRoundTripIndependently()
+    {
+        const string first = "my-app/reviewer";
+        const string second = "my-app/Reviewer";
+        var store = new JsonAgentStore(_root);
+        var definition = SubAgent.FromConfig(
+            first, "review", "Reviews code.", new AgentConfig { Name = "Reviewer" });
+        await new AgentDefinitionMaterializer(store).MaterializeAsync(
+            definition, new AgentConfig(), "TestHarness.Reviewer", CancellationToken.None);
+        await store.SaveAsync(new StoredAgent
+        {
+            Id = second,
+            Name = "Second reviewer",
+            Config = new AgentConfig { Name = "Second reviewer" }
+        });
+
+        var reopened = new JsonAgentStore(_root);
+        (await reopened.ListIdsAsync()).Should().BeEquivalentTo(new[] { first, second });
+        (await reopened.LoadAsync(first))!.Id.Should().Be(first);
+        (await reopened.LoadAsync(second))!.Id.Should().Be(second);
+
+        await reopened.DeleteAsync(first);
+        (await reopened.LoadAsync(first)).Should().BeNull();
+        (await reopened.ListIdsAsync()).Should().Equal(second);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))
@@ -106,8 +133,13 @@ public sealed class JsonAgentStoreTests : IDisposable
 
     private async Task WriteAgentAsync(string json)
     {
-        var directory = Path.Combine(_root, "test-agent");
-        Directory.CreateDirectory(directory);
-        await File.WriteAllTextAsync(Path.Combine(directory, "agent.json"), json);
+        var store = new JsonAgentStore(_root);
+        await store.SaveAsync(new StoredAgent
+        {
+            Id = "test-agent",
+            Name = "Test Agent",
+            Config = new AgentConfig { Name = "Test Agent" }
+        });
+        await File.WriteAllTextAsync(Directory.GetFiles(_root, "*.json").Single(), json);
     }
 }

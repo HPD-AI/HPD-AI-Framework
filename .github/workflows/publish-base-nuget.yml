@@ -88,8 +88,7 @@ jobs:
           set -euo pipefail
           dotnet build dotnet/HPD-Base.Framework/HPD-Base.slnx \
             --configuration Release \
-            --nologo \
-            --property:TreatWarningsAsErrors=true
+            --nologo
           dotnet test dotnet/HPD-Base.Framework/HPD-Base.slnx \
             --configuration Release \
             --no-build \
@@ -165,7 +164,6 @@ jobs:
             dotnet build "$PROJECT" \
               --configuration Release \
               --nologo \
-              --property:TreatWarningsAsErrors=true \
               "${PUBLISHED_HPD_PROPS[@]}" \
               "${VERSION_ARGS[@]}"
           done

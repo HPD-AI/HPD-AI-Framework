@@ -408,7 +408,7 @@ public sealed class LanguageServerService : ILanguageServerService
         {
             throw;
         }
-        catch (Exception ex) when (ex is IOException or InvalidOperationException or System.ComponentModel.Win32Exception or TimeoutException or OperationCanceledException)
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException or TimeoutException or OperationCanceledException)
         {
             RecordUnavailable(candidate, unavailableKey, ex.Message);
             return null;

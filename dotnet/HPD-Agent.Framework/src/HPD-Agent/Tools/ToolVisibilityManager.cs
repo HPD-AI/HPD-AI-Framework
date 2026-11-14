@@ -80,17 +80,11 @@ public class ToolVisibilityManager
     public List<AIFunction> GetToolsForAgentTurn(
         List<AIFunction> allTools,
         ImmutableHashSet<string> expandedContainers,
-        int currentAgentDepth = 0,
-        int maxSubAgentDepth = 4,
         IReadOnlySet<string>? neverCollapseFunctions = null)
     {
         var typedFunctions = allTools.Where(HasTypedCapabilityMetadata).ToList();
         var legacyFunctions = allTools.Where(function => !HasTypedCapabilityMetadata(function)).ToList();
-        var visible = GetLegacyToolsForAgentTurn(
-            legacyFunctions,
-            expandedContainers,
-            currentAgentDepth,
-            maxSubAgentDepth);
+        var visible = GetLegacyToolsForAgentTurn(legacyFunctions, expandedContainers);
 
         if (typedFunctions.Count == 0)
             return visible;
@@ -125,7 +119,6 @@ public class ToolVisibilityManager
         visible.AddRange(graph.Nodes.Values
             .Where(node => CapabilityGraph.IsVisible(node, activeIds))
             .Where(node => !neverCollapsedIds.Contains(node.Id))
-            .Where(node => IsSubAgentAvailable(node.Function, currentAgentDepth, maxSubAgentDepth))
             .OrderBy(node => node.Function.Name)
             .Select(node => node.Function));
         return visible.DistinctBy(function => function.Name).ToList();
@@ -156,16 +149,8 @@ public class ToolVisibilityManager
 
     private List<AIFunction> GetLegacyToolsForAgentTurn(
         List<AIFunction> allTools,
-        ImmutableHashSet<string> expandedContainers,
-        int currentAgentDepth,
-        int maxSubAgentDepth)
+        ImmutableHashSet<string> expandedContainers)
     {
-        ArgumentOutOfRangeException.ThrowIfNegative(currentAgentDepth);
-        ArgumentOutOfRangeException.ThrowIfNegative(maxSubAgentDepth);
-
-        allTools = allTools
-            .Where(tool => IsSubAgentAvailable(tool, currentAgentDepth, maxSubAgentDepth))
-            .ToList();
         var context = BuildVisibilityContext(allTools, expandedContainers, expandedContainers);
 
         var CollapseContainers = new List<AIFunction>();
@@ -254,22 +239,6 @@ public class ToolVisibilityManager
             .ToList();
 
         return result;
-    }
-
-    private static bool IsSubAgentAvailable(
-        AIFunction function,
-        int currentAgentDepth,
-        int maxSubAgentDepth)
-    {
-        if (function.AdditionalProperties?.TryGetValue("IsSubAgent", out var marker) != true || marker is not true)
-            return true;
-
-        if (currentAgentDepth >= maxSubAgentDepth)
-            return false;
-
-        return function.AdditionalProperties.TryGetValue("SubAgentDefinition", out var value) &&
-               value is SubAgent definition &&
-               definition.Availability.AllowsInvocationFrom(currentAgentDepth);
     }
 
     /// <summary>

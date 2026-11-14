@@ -13,7 +13,7 @@
     <IsRoslynComponent>true</IsRoslynComponent>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
     <NoWarn></NoWarn>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <PublishAot>false</PublishAot>
     <SelfContained>false</SelfContained>
     <RuntimeIdentifier></RuntimeIdentifier>

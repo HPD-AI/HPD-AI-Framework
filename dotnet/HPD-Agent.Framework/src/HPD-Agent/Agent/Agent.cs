@@ -3455,7 +3455,7 @@ public sealed partial class Agent : IAsyncDisposable
                 effectiveChatClient: chatClientLease?.Handle,
                 chatClientResolver: _chatClientResolver,
                 services: toolHarnessExecutionScope.Services,
-                runtimeCapabilities: _runtimeContext?.RuntimeCapabilities,
+                runtimeCapabilities: new RuntimeCapabilityRegistry(_runtimeContext?.RuntimeCapabilities),
                 traceId: traceId,                // Propagate trace ID to all middleware-emitted events
                 threadExecutionId: sourceInput?.ThreadExecutionId ?? activeInput?.ThreadExecutionId,
                 agentId: AgentId,
@@ -3499,6 +3499,7 @@ public sealed partial class Agent : IAsyncDisposable
                 .ToArray();
 
             await turnPipeline.ExecuteBeforeMessageTurnAsync(beforeTurnContext, effectiveCancellationToken);
+            beforeTurnContext.RuntimeCapabilities.Seal();
 
             // V2: State updates are immediate - no GetPendingState() needed!
             state = agentContext.State;

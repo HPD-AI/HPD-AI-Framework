@@ -238,8 +238,6 @@ public class ContainerMiddleware : IAgentMiddleware
             var visibleFunctions = _visibilityManager.GetToolsForAgentTurn(
                 aiFunctions,
                 expandedContainers,
-                context.GetParentAgentMetadata()?.Depth ?? 0,
-                context.Base.Config?.MaxSubAgentDepth ?? 4,
                 neverCollapseFunctions);
 
             // Convert back to AITool list

@@ -596,10 +596,17 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
     {
         if (!File.Exists(segment.Path))
             throw new InvalidDataException($"Journal segment '{segment.Path}' is missing.");
-        var bytes = await File.ReadAllBytesAsync(segment.Path, cancellationToken).ConfigureAwait(false);
+        // The committed boundary was captured before opening the file. Allow
+        // concurrent appends and read only the bytes covered by that boundary.
+        var bytes = new byte[checked((int)segment.Length)];
+        await using (var stream = new FileStream(
+            segment.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 16 * 1024, true))
+        {
+            await stream.ReadExactlyAsync(bytes, cancellationToken).ConfigureAwait(false);
+        }
         Interlocked.Increment(ref _segmentReadCount);
         Interlocked.Add(ref _segmentBytesRead, bytes.LongLength);
-        var length = Math.Min(bytes.LongLength, segment.Length);
+        var length = bytes.Length;
         var start = 0;
         for (var index = 0; index < length; index++)
         {

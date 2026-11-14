@@ -36,6 +36,10 @@ public sealed record EnvironmentSandboxBackendDefinition
     /// </summary>
     public Func<IProviderActivator, ProviderActivationSpec>?
         ActivationSpecFactory { get; init; }
+
+    /// <summary>Refines the provider report for the requested sandbox policy.</summary>
+    public Func<SandboxCapabilitiesQuery, ProviderCapabilityReport, ProviderCapabilityReport>?
+        RefineCapabilities { get; init; }
 }
 
 /// <summary>
@@ -98,6 +102,7 @@ public sealed class EnvironmentSandboxBackendFactory
                     Scope: null),
                 cancellationToken)
             .ConfigureAwait(false);
+        report = _definition.RefineCapabilities?.Invoke(query, report) ?? report;
         return new SandboxBackendCapabilities(
             report,
             report.Capabilities

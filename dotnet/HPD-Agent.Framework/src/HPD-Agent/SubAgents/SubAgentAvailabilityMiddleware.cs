@@ -90,7 +90,7 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
             .ToList();
     }
 
-    private static IReadOnlyList<SubAgentActionDescriptor> ReadActions(IEnumerable<AITool> tools) =>
+    internal static IReadOnlyList<SubAgentActionDescriptor> ReadActions(IEnumerable<AITool> tools) =>
         tools.OfType<AIFunction>()
             .Where(static function => string.Equals(
                 function.Name, SubAgentsFunctionFactory.FunctionName, StringComparison.Ordinal))

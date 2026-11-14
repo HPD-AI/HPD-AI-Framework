@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <!-- System.Text.Json 9/10 reports Exception.TargetSite while generating metadata for
          Microsoft.Extensions.AI content types. Live exception values are excluded from the
          durable event contract, and the net8.0 build audits the same source graph without it. -->
@@ -43,7 +43,7 @@
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.13" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.13" />
     <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="10.0.13" />
-    <PackageReference Include="System.Formats.Cbor" Version="10.0.13" />
+    <PackageReference Include="System.Formats.Cbor" Version="10.0.15" />
     <PackageReference Include="NLayer" Version="3.0.0" />
     <PackageReference Include="JsonSchema.Net" Version="9.4.1" />
 

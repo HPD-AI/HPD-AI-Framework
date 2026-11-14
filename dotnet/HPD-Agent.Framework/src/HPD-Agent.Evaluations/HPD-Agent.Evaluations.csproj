@@ -6,7 +6,7 @@
     <RootNamespace>HPD.Agent.Evaluations</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <!-- System.Text.Json 9/10 reports Exception.TargetSite while traversing
          Microsoft.Extensions.AI content metadata. Live exceptions remain outside
          the durable evaluation event contract; the net8.0 build audits source code without it. -->

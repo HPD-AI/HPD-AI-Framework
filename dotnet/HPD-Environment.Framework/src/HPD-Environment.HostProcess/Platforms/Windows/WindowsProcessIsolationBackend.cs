@@ -15,6 +15,9 @@ internal sealed class WindowsProcessIsolationBackend(
     ILogger? logger = null)
     : ISandboxBackend
 {
+    private const string NetworkUnavailable =
+        "Windows Host Process cannot enforce blocked or filtered network egress. Use a provider that enforces the requested network policy.";
+
     private bool _warningLogged;
 
     public ChannelReader<ProcessIsolationViolation>? Violations =>
@@ -25,6 +28,11 @@ internal sealed class WindowsProcessIsolationBackend(
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (CanUseAppContainer(plan))
+            return Task.FromResult(new PreparedSandboxCommand(command.FileName, command.ArgumentList)
+            {
+                UseWindowsAppContainer = true,
+            });
         RequireDegradedExecution();
         LogDegradation();
         return Task.FromResult(
@@ -39,6 +47,9 @@ internal sealed class WindowsProcessIsolationBackend(
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(plan);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!CanUseAppContainer(plan))
+            RequireDegradedExecution(plan);
         return WrapCommandAsync(command, cancellationToken);
     }
 
@@ -57,6 +68,19 @@ internal sealed class WindowsProcessIsolationBackend(
             CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (CanUseAppContainer(plan))
+            return Task.FromResult(ProcessIsolationDependencyCheck.FromIssues([]));
+        if (RequiresNetworkEnforcement(plan))
+        {
+            return Task.FromResult(ProcessIsolationDependencyCheck.FromIssues(
+            [
+                ProcessIsolationDependencyIssue.Error(
+                    "windows.network-enforcement.unavailable",
+                    "windows-host-process",
+                    NetworkUnavailable),
+            ]));
+        }
+
         if (!AllowsDegradedExecution(plan))
         {
             return Task.FromResult(
@@ -92,8 +116,28 @@ internal sealed class WindowsProcessIsolationBackend(
             ProcessIsolationDegradationMode.AllowProviderDegraded or
             ProcessIsolationDegradationMode.ObserveOnly;
 
-    private void RequireDegradedExecution()
+    private static bool RequiresNetworkEnforcement(SandboxIsolationPlan plan) =>
+        plan.Network.Mode != NetworkEgressMode.Unrestricted;
+
+    internal static bool CanUseAppContainer(SandboxIsolationPlan plan) =>
+        OperatingSystem.IsWindows() &&
+        plan.Network.Mode == NetworkEgressMode.Blocked &&
+        plan.Filesystem.Rules.Count == 0 &&
+        plan.AuthorityBindings.Count == 0 &&
+        plan.Tls.Mode == TlsTrustMode.None &&
+        plan.Violations.Action == ProcessViolationAction.ObserveOnly &&
+        !plan.Interactive.AllowPty &&
+        !plan.Interactive.AllowLocalBinding &&
+        !plan.UnixSockets.AllowAll &&
+        plan.UnixSockets.AllowedSockets.Count == 0;
+
+    private void RequireDegradedExecution() => RequireDegradedExecution(plan);
+
+    private static void RequireDegradedExecution(SandboxIsolationPlan plan)
     {
+        if (RequiresNetworkEnforcement(plan))
+            throw new PlatformNotSupportedException(NetworkUnavailable);
+
         if (!AllowsDegradedExecution(plan))
         {
             throw new PlatformNotSupportedException(

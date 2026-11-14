@@ -254,6 +254,11 @@ public sealed record EnvironmentContext
         builder.AppendLine($"    <shell>{EscapeXml(Shell)}</shell>");
         builder.AppendLine($"    <shell_executable>{EscapeXml(ShellExecutable)}</shell_executable>");
         builder.AppendLine($"    <shell_kind>{EscapeXml(ShellKind)}</shell_kind>");
+        if (IsWindows && ShellKind == "powershell" &&
+            Path.GetFileName(ShellExecutable).Equals("powershell.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            builder.AppendLine("    <shell_syntax>Use Windows PowerShell syntax. Use PowerShell cmdlets and semicolon-separated statements. Bash commands and the &amp;&amp; operator are unavailable.</shell_syntax>");
+        }
         builder.AppendLine("    <shell_command_arguments>");
         foreach (var argument in ShellCommandArgumentsPrefix)
             builder.AppendLine($"      <arg>{EscapeXml(argument)}</arg>");

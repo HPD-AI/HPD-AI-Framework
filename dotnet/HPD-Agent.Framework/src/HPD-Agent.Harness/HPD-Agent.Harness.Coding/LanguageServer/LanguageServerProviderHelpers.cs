@@ -296,6 +296,15 @@ public sealed class EnvironmentLanguageServerToolResolver(
                     : null;
         }
 
+        // Host Process uses the host OS. Other providers can run a guest OS.
+        bool windowsHostProcess = OperatingSystem.IsWindows() &&
+            processExecution.ProcessProvider.ProviderId.Value == "hpd.execution.host-process";
+        if (windowsHostProcess)
+        {
+            string? local = await FindLocalBinAsync(name, root, cancellationToken).ConfigureAwait(false);
+            if (local is not null)
+                return local;
+        }
         ProcessInvocationResult result =
             await processExecution.ProcessProvider.RunAsync(
                 new ProcessInvocationSpec
@@ -304,8 +313,12 @@ public sealed class EnvironmentLanguageServerToolResolver(
                     Role = ProcessRole.Sidecar,
                     Command = new ProcessCommandSpec
                     {
-                        FileName = "sh",
-                        Arguments =
+                        FileName = windowsHostProcess
+                            ? Path.Combine(System.Environment.SystemDirectory, "where.exe")
+                            : "sh",
+                        Arguments = windowsHostProcess
+                            ? [name]
+                            :
                         [
                             "-lc",
                             "command -v -- \"$1\"",

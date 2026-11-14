@@ -26,8 +26,11 @@ public interface IRuntimeCapabilityRegistry
 /// </summary>
 internal sealed class RuntimeCapabilityRegistry : IRuntimeCapabilityRegistry
 {
+    private readonly IRuntimeCapabilityRegistry? _parent;
     private readonly ConcurrentDictionary<Type, object> _capabilities = new();
     private int _sealed;
+
+    public RuntimeCapabilityRegistry(IRuntimeCapabilityRegistry? parent = null) => _parent = parent;
 
     public bool IsSealed => Volatile.Read(ref _sealed) == 1;
 
@@ -53,6 +56,9 @@ internal sealed class RuntimeCapabilityRegistry : IRuntimeCapabilityRegistry
             capability = typed;
             return true;
         }
+
+        if (_parent is not null)
+            return _parent.TryGet(out capability);
 
         capability = default!;
         return false;

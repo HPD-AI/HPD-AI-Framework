@@ -13,6 +13,50 @@ using Microsoft.Extensions.AI;
 public sealed class SessionWorkspaceToolTests
 {
     [Fact]
+    public async Task Windows_coding_tools_share_the_AppContainer_workspace()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        var project = Directory.CreateTempSubdirectory("hpd-coding-windows-");
+        try
+        {
+            string input = Path.Combine(project.FullName, "project.txt");
+            await File.WriteAllTextAsync(input, "original");
+            await using var sandbox = new HostProcessSandboxMiddleware(
+                options: new HostProcessSandboxOptions { Workspaces = [new() { Path = project.FullName }] });
+            await sandbox.InitializeAsync();
+            var session = sandbox.Session!;
+            var resolver = new HPDOS.ToolHarnesses.Middleware.EnvironmentLanguageServerToolResolver(
+                session.Execution, session.Workspace);
+            string probe = Path.Combine(project.CreateSubdirectory("bin").FullName, "hpd-language-server-probe.exe");
+            File.Copy(Path.Combine(System.Environment.SystemDirectory, "cmd.exe"), probe);
+            (await resolver.FindExecutableAsync(Path.GetFileName(probe), project.FullName)).Should().Be(probe);
+            (await resolver.FindExecutableAsync("hpd-missing-language-server.exe", project.FullName)).Should().BeNull();
+            var context = Context(session);
+            var tools = CodingHarnessTestFactory.Create();
+
+            var write = await tools.ExecuteCommand(
+                new RunCommandOperation("Set-Content -LiteralPath project.txt -Value HPD_LIVE",
+                    WorkingDirectory: "@workspace"), context);
+            write.ExitCode.Should().Be(0, "{0}", write);
+            (await tools.ReadFile("@workspace/project.txt", context)).ToString().Should().Contain("HPD_LIVE");
+            (await tools.ExecuteCommand(new RunCommandOperation("Get-Content -LiteralPath project.txt",
+                WorkingDirectory: "@workspace"), context)).ToString().Should().Contain("HPD_LIVE");
+            (await File.ReadAllTextAsync(input)).Trim().Should().Be("HPD_LIVE");
+            var systemCommand = await tools.ExecuteCommand(new RunCommandOperation(
+                "cmd /d /c echo HPD_CMD",
+                WorkingDirectory: "@workspace"), context);
+            systemCommand.ExitCode.Should().Be(0, "{0}", systemCommand);
+            systemCommand.ToString().Should().Contain("HPD_CMD");
+        }
+        finally
+        {
+            project.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task File_and_search_tools_use_the_session_workspace_binding()
     {
         if (OperatingSystem.IsWindows())

@@ -118,6 +118,34 @@ public class SubAgentRuntimeTests
     }
 
     [Fact]
+    public async Task BuildAsync_PersistsGeneratedSubAgentDeclarations()
+    {
+        var directory = Directory.CreateTempSubdirectory("hpd-subagent-definitions-");
+        try
+        {
+            var client = new FakeChatClient();
+            var config = MinimalConfig();
+            config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(
+                client, "test", "local", "test.adapter");
+            await using var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
+                .WithEventComposition(TestEventApplication.Composition)
+                .WithAgentStore(new JsonAgentStore(directory.FullName), persistOnBuild: false)
+                .WithHostAutoApproval()
+                .WithToolHarness<TestIntegrationSubAgents>()
+                .BuildAsync();
+
+            var reopened = new JsonAgentStore(directory.FullName);
+            var definition = await reopened.LoadAsync("test/weather-expert");
+            definition.Should().NotBeNull();
+            definition!.Config.Name.Should().Be("Weather Expert");
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ExplicitSubAgentRunOverride_IsVisibleToChildHarness()
     {
         var childClient = new FakeChatClient();
@@ -354,6 +382,46 @@ public class SubAgentRuntimeTests
         childThread!.Messages.Should().BeEmpty();
         childThread.Kind.Should().Be(ThreadKind.SubAgent);
         childThread.Metadata.Should().NotContainKey("kind");
+    }
+
+    [Fact]
+    public async Task IsolatedChildReservation_CanBeOpenedByFileSessionStore()
+    {
+        var directory = Directory.CreateTempSubdirectory("hpd-isolated-subagent-");
+        try
+        {
+            var store = new FileSessionStore(directory.FullName, TestEventApplication.Codec);
+            var parent = await store.CreateSessionAsync("parent-session");
+            var parentThread = await store.CreateThreadAsync(parent.Id, "parent-agent", "main");
+            var key = new SubAgentCreationKey(
+                new ThreadKey(parent.Id, parentThread.Id), "call", CapabilityId.Create("test:explore"));
+            var request = new SubAgentCreationRequest
+            {
+                RoleName = "explore",
+                ChildAgentId = "coding/explorer",
+                Context = SubAgentCreationContext.Isolated,
+                InputFingerprint = "test-input",
+                ExecutionPolicy = SubAgentExecutionPolicy.Create(null, MinimalConfig().Clients,
+                    new Dictionary<ProviderClientFamily, SubAgentClientSelectionSource>
+                    {
+                        [ProviderClientFamily.Chat] = SubAgentClientSelectionSource.ControllerResolved
+                    },
+                    new AgentSecurityRunConfig(), new NoSubAgentClientPropagation())
+            };
+            var reservation = await new JournalSubAgentCreationStore(store)
+                .TryReserveSubAgentCreationAsync(key, request);
+            var route = reservation.Record.ChildThread;
+            route.SessionId.Should().NotBe(parent.Id);
+            await store.CreateSessionAsync(route.SessionId);
+            await store.CreateThreadAsync(route.SessionId, request.ChildAgentId, route.ThreadId);
+
+            var reopened = new FileSessionStore(directory.FullName, TestEventApplication.Codec);
+            (await reopened.GetThreadAsync(route)).Should().NotBeNull();
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
     }
 
     private static async Task<Agent> BuildAgentAsync(

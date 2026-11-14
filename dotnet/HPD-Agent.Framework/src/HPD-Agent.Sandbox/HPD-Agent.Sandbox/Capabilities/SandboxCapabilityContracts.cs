@@ -52,7 +52,7 @@ public sealed class SandboxCapabilityAdmissionException(
         string.Join(
             " | ",
             assessment.Issues.Select(issue =>
-                $"{issue.Capability.Value}: {issue.Reason}")))
+                $"{issue.Capability.Value} ({issue.State}): {issue.Reason}")))
 {
     public SandboxCapabilityAssessment Assessment { get; } = assessment;
 }

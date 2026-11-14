@@ -40,6 +40,7 @@ internal sealed class HostProcessCapabilityReporter
             windows
                 ? ProcessIsolationPolicy.Default with
                 {
+                    Network = new NetworkEgressPolicy { Mode = NetworkEgressMode.Unrestricted },
                     Degradation =
                         ProcessIsolationDegradationPolicy
                             .FailClosed with
@@ -80,16 +81,16 @@ internal sealed class HostProcessCapabilityReporter
                     .GetDependencyCheckAsync(cancellationToken)
                     .ConfigureAwait(false);
         bool supported = dependency.IsAvailable;
-        CapabilityState isolation = !supported
-            ? CapabilityState.Unsupported
-            : windows
-                ? CapabilityState.RequiresConfiguration
-                : CapabilityState.Supported;
+        CapabilityState isolation = supported && !windows
+            ? CapabilityState.Supported
+            : CapabilityState.Unsupported;
         CapabilityState workspace =
             windows
                 ? CapabilityState.Supported
                 : isolation;
-        string platformDetail = supported
+        string platformDetail = windows
+            ? "Windows Host Process confinement is unavailable. Degraded execution requires explicit opt-in."
+            : supported
             ? "Available through the selected and dependency-checked host enforcement mechanism."
             : string.Join("; ", dependency.Errors);
 
@@ -272,7 +273,10 @@ internal sealed class HostProcessCapabilityReporter
                 ProviderContractKind.ProcessInvocation |
                 ProviderContractKind.ProcessIsolation,
             State = state,
-            Detail = detail,
+            Detail = state == CapabilityState.Unsupported && OperatingSystem.IsWindows() &&
+                id != StandardSandboxEnvironmentCapabilities.ViolationObservation
+                ? "The Windows Host Process backend does not currently provide this sandbox capability."
+                : detail,
         });
     }
 

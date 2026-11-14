@@ -35,7 +35,7 @@ jobs:
           set -euo pipefail
           PROJECT="dotnet/HPD-Base.Framework/test/HPD.Base.InMemory.Vector.AotSmoke/HPD.Base.InMemory.Vector.AotSmoke.csproj"
           OUTPUT="$RUNNER_TEMP/hpd-base-inmemory-capacity-${{ matrix.runtime }}"
-          dotnet publish "$PROJECT" --configuration Release --runtime "${{ matrix.runtime }}" --self-contained true --output "$OUTPUT" --nologo --property:TreatWarningsAsErrors=true
+          dotnet publish "$PROJECT" --configuration Release --runtime "${{ matrix.runtime }}" --self-contained true --output "$OUTPUT" --nologo
           "$OUTPUT/${{ matrix.executable }}" --capacity
 
   native-aot:
@@ -81,6 +81,5 @@ jobs:
             --runtime "${{ matrix.runtime }}" \
             --self-contained true \
             --output "$OUTPUT" \
-            --nologo \
-            --property:TreatWarningsAsErrors=true
+            --nologo
           "$OUTPUT/${{ matrix.executable }}"

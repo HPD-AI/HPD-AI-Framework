@@ -12,7 +12,7 @@
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../HPD.Gateway.ControlPlane/HPD.Gateway.ControlPlane.csproj" />

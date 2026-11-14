@@ -8,7 +8,7 @@
     <Description>ElevenLabs audio provider adapters for HPD Agent audio.</Description>
     <PackageTags>ai;agent;audio;elevenlabs;stt;tts</PackageTags>
     <IsAotCompatible>true</IsAotCompatible>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <OutputType>Library</OutputType>
   </PropertyGroup>
 

@@ -11,6 +11,81 @@ namespace HPD.Agent.Sandbox.HostProcess.Tests;
 public sealed class HostProcessAdapterTests
 {
     [SkippableFact]
+    public async Task Windows_commands_and_file_tools_share_the_live_workspace()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows());
+        var project = Directory.CreateTempSubdirectory("hpd-project-");
+        var reference = Directory.CreateTempSubdirectory("hpd-reference-");
+        try
+        {
+            string original = Path.Combine(project.FullName, "project.txt");
+            File.WriteAllText(original, "original");
+            string referenceFile = Path.Combine(reference.FullName, "reference.txt");
+            File.WriteAllText(referenceFile, "reference");
+            string ReadAcl() => System.IO.FileSystemAclExtensions.GetAccessControl(
+                project, System.Security.AccessControl.AccessControlSections.Access)
+                .GetSecurityDescriptorSddlForm(System.Security.AccessControl.AccessControlSections.Access);
+            string originalAcl = ReadAcl();
+            await using var middleware = new HostProcessSandboxMiddleware(options: ObservationOnlyOptions() with
+            {
+                Workspaces = [
+                    new() { Path = project.FullName },
+                    new() { RootId = "reference", Path = reference.FullName, Access = AccessMode.ReadOnly },
+                ],
+            });
+            await middleware.InitializeAsync();
+            ReadAcl().Should().NotBe(originalAcl);
+            var session = middleware.Session!;
+            var path = new WorkspacePath(new WorkspaceRootId("workspace"), "project.txt");
+            string cwd = session.Workspace.Paths.ToExecutionPath(session.Workspace.WorkingDirectory).Value;
+            async Task<ProcessInvocationResult> RunAsync(string command, string? directory = null) =>
+                await session.Execution.ProcessProvider.RunAsync(new ProcessInvocationSpec
+                {
+                    Target = session.Execution.ExecutionTarget,
+                    Isolation = session.Execution.Isolation,
+                    Command = new ProcessCommandSpec
+                    {
+                        FileName = Path.Combine(System.Environment.SystemDirectory, "cmd.exe"),
+                        Arguments = ["/d", "/c", command],
+                        WorkingDirectory = directory ?? cwd,
+                    },
+                });
+
+            (await RunAsync("echo edited>project.txt")).ExitCode.Should().Be(0);
+            (await session.Workspace.Files.ReadTextAsync(path, new WorkspaceTextReadOptions()))!
+                .Content.Trim().Should().Be("edited");
+            var second = await RunAsync("type project.txt");
+            second.ExitCode.Should().Be(0);
+            System.Text.Encoding.UTF8.GetString(second.Output.Stdout.CapturedBytes.Span).Trim().Should().Be("edited");
+            File.ReadAllText(original).Trim().Should().Be("edited");
+            var readOnly = await RunAsync("type reference.txt", reference.FullName);
+            readOnly.ExitCode.Should().Be(0);
+            System.Text.Encoding.UTF8.GetString(readOnly.Output.Stdout.CapturedBytes.Span).Should().Contain("reference");
+            await RunAsync("echo overwritten>reference.txt", reference.FullName);
+            await RunAsync("del /q reference.txt", reference.FullName);
+            File.ReadAllText(referenceFile).Should().Be("reference");
+            await middleware.DisposeAsync();
+            ReadAcl().Should().Be(originalAcl);
+            cwd.Should().Be(project.FullName);
+            Directory.Exists(cwd).Should().BeTrue();
+        }
+        finally
+        {
+            project.Delete(recursive: true);
+            reference.Delete(recursive: true);
+        }
+    }
+
+    [SkippableFact]
+    public async Task Windows_admits_a_supported_policy_without_workspace_bindings()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows());
+        await using var middleware = new HostProcessSandboxMiddleware(options: ObservationOnlyOptions());
+        await middleware.InitializeAsync();
+        middleware.Session.Should().NotBeNull();
+    }
+
+    [SkippableFact]
     public async Task Composed_session_shares_one_workspace_between_files_and_processes()
     {
         Skip.If(OperatingSystem.IsWindows(), "Host Process workspace projection currently requires a POSIX execution path.");
@@ -213,4 +288,38 @@ public sealed class HostProcessAdapterTests
                 },
             },
         };
+
+    [SkippableFact]
+    public async Task Switching_workspace_keeps_previous_binding_available_and_reuses_it_on_return()
+    {
+        var first = Directory.CreateTempSubdirectory("hpd-workspace-a-");
+        var second = Directory.CreateTempSubdirectory("hpd-workspace-b-");
+        try
+        {
+            var firstRun = new HPD.Agent.AgentRunConfig();
+            var secondRun = new HPD.Agent.AgentRunConfig();
+            await File.WriteAllTextAsync(Path.Combine(first.FullName, "project.txt"), "first");
+            await File.WriteAllTextAsync(Path.Combine(second.FullName, "project.txt"), "second");
+            await using var middleware = new HostProcessSandboxMiddleware(options: ObservationOnlyOptions() with
+            {
+                WorkspaceOptionsFactory = run => [new() { Path = ReferenceEquals(run, secondRun) ? second.FullName : first.FullName }],
+            });
+            await middleware.InitializeAsync(firstRun);
+            var original = middleware.Session!;
+            await middleware.InitializeAsync(secondRun);
+            middleware.Session.Should().NotBeSameAs(original);
+            var path = new WorkspacePath(new WorkspaceRootId("workspace"), "project.txt");
+            (await original.Workspace.Files.ReadTextAsync(path, new WorkspaceTextReadOptions()))!
+                .Content.Should().Be("first");
+            (await middleware.Session!.Workspace.Files.ReadTextAsync(path, new WorkspaceTextReadOptions()))!
+                .Content.Should().Be("second");
+            await middleware.InitializeAsync(firstRun);
+            middleware.Session.Should().BeSameAs(original);
+        }
+        finally
+        {
+            first.Delete(recursive: true);
+            second.Delete(recursive: true);
+        }
+    }
 }

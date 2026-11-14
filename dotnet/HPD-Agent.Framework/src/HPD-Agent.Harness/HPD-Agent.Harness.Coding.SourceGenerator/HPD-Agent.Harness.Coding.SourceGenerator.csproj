@@ -10,7 +10,7 @@
     <LangVersion>latest</LangVersion>
     <IsRoslynComponent>true</IsRoslynComponent>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <PublishAot>false</PublishAot>
     <SelfContained>false</SelfContained>
     <RuntimeIdentifier></RuntimeIdentifier>

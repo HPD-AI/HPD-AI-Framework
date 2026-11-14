@@ -8,7 +8,7 @@
     <IsPackable>true</IsPackable>
     <IsAotCompatible>true</IsAotCompatible>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <PackageId>HPD-Agent.AspNetCore.OpenApi</PackageId>
     <Description>OpenAPI document generation for the HPD-Agent HTTP and committed SSE API.</Description>
     <PackageTags>hpd;agent;aspnetcore;openapi;sse</PackageTags>

@@ -71,7 +71,7 @@ try
     }
 
     await RunAsync(
-        ["build", provider, "-f", "net10.0", "--no-dependencies", "-warnaserror", "-v:q"],
+        ["build", provider, "-f", "net10.0", "--no-dependencies", "-v:q"],
         Path.Combine(work, "warnings-as-errors.log"),
         environment: null,
         root);

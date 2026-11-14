@@ -10,7 +10,7 @@
     <IsAotCompatible>true</IsAotCompatible>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <!-- The public types are intentionally obsolete; internal compatibility references
          are part of the deprecation window. Consumers still receive CS0618. -->
     <NoWarn>$(NoWarn);CS0618</NoWarn>

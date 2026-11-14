@@ -73,7 +73,7 @@ public sealed record SandboxInteractiveIsolationPlan
 
 public sealed record SandboxViolationIsolationPlan
 {
-    public ProcessViolationAction Action { get; init; } = ProcessViolationAction.ObserveAndFailInvocation;
+    public ProcessViolationAction Action { get; init; } = ProcessViolationAction.ObserveOnly;
     public IReadOnlyList<string> IgnorePatterns { get; init; } = [];
     public int ObservationTailLimit { get; init; } = 100;
 }

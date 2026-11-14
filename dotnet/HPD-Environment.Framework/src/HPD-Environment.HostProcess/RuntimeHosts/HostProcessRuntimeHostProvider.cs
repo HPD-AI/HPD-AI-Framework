@@ -46,14 +46,6 @@ internal sealed class HostProcessRuntimeHostProvider(
                 $"'{current.OperatingSystem}/{current.Architecture}'."));
         }
 
-        if (OperatingSystem.IsWindows())
-        {
-            return ValueTask.FromResult(Failed(
-                metadata,
-                "hpd.environment.host-process.windows-unsupported",
-                "Host Process sandboxing is not available on Windows until an accepted enforcement mechanism is implemented."));
-        }
-
         ProviderResourceEntry<
             RuntimeHost,
             RuntimeHostSpec,
