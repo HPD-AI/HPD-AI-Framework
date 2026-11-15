@@ -27,7 +27,7 @@ is available through `HPD-Agent.Providers.Audio.Silero`.
 | Browser Web Audio qualification | Virtual browser playout/capture checks | Private diagnostic |
 | SIP/PBX telephony qualification | Asterisk/PCMU RTP checks | Private diagnostic |
 
-Packable audio projects target `net8.0`, `net9.0`, and `net10.0` unless a
+Packable audio projects target `net10.0` and `net11.0` unless a
 package documents a narrower runtime or platform scope.
 
 ## Concepts

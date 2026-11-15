@@ -66,7 +66,13 @@ public sealed class WorkflowSettingsExecutionTests
         bool enableMetrics)
     {
         var config = CreateConfig(streamingMode, enableMetrics);
-        var workflow = await new MultiAgentFactory().BuildAsync(config);
+        var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
+        var host = new WorkflowHostBinding(
+            providers: null,
+            CoreAgentEventComposition.Instance,
+            store,
+            new AgentSecurityRunConfig());
+        var workflow = await new MultiAgentFactory(host).BuildAsync(config);
         var events = new List<HPD.Events.Event>();
         await foreach (var evt in workflow.ExecuteStreamingAsync("Review"))
             events.Add(evt);
@@ -102,7 +108,6 @@ public sealed class WorkflowSettingsExecutionTests
         new()
         {
             Name = name,
-            EventComposition = CoreAgentEventComposition.Instance,
             Clients = new AgentClientsConfig
             {
                 Chat = new ChatClientConfig

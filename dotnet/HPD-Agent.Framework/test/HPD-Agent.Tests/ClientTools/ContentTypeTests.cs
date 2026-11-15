@@ -3,6 +3,7 @@
 using HPD.Agent.ClientTools;
 using System.Text.Json;
 using Xunit;
+using JsonContent = HPD.Agent.ClientTools.JsonContent;
 
 namespace HPD.Agent.Tests.ClientTools;
 

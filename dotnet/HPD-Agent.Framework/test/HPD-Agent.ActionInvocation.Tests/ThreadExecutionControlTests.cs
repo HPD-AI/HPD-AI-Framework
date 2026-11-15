@@ -21,12 +21,15 @@ public sealed class ThreadExecutionControlTests
         await using var agent = new Agent(
             new AgentConfig
             {
-                Name = "child-agent",
-                SessionStore = store,
-                EventComposition = CoreAgentEventComposition.Instance
+                Name = "child-agent"
             },
             baseClient: null,
-            mergedOptions: null);
+            mergedOptions: null,
+            runtimeOptions: new AgentRuntimeOptions
+            {
+                SessionStore = store,
+                EventComposition = CoreAgentEventComposition.Instance
+            });
         var controller = ThreadExecutionControllerRegistry.For(store);
 
         var first = await controller.TryAcquireAsync(new ThreadExecutionStartRequest(route, "execution-1", agent));

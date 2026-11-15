@@ -44,6 +44,7 @@ public sealed class AgentContext
     private readonly AgentMetadata? _parentAgentMetadata;
     private readonly IAgentStore? _parentAgentStore;
     private readonly AgentConfig? _config;
+    private readonly AgentRuntimeOptions? _runtimeOptions;
     private readonly AgentClientSet? _clientSet;
     private readonly IContentStore? _contentStore;
     private readonly Session? _session;
@@ -96,6 +97,11 @@ public sealed class AgentContext
     public AgentConfig? Config => _config;
 
     /// <summary>
+    /// Host-owned agent runtime state.
+    /// </summary>
+    internal AgentRuntimeOptions? RuntimeOptions => _runtimeOptions;
+
+    /// <summary>
     /// Provider-created client-family instances resolved for this agent build.
     /// </summary>
     internal AgentClientSet? ClientSet => _clientSet;
@@ -114,6 +120,9 @@ public sealed class AgentContext
     /// Name of the agent executing this operation.
     /// </summary>
     public string AgentName { get; }
+
+    /// <summary>Stable agent routing identity, when one was supplied by the host.</summary>
+    public string? AgentId => _parentAgentMetadata?.AgentId;
 
     /// <summary>
     /// Unique identifier for this conversation/session.
@@ -192,6 +201,15 @@ public sealed class AgentContext
     /// </code>
     /// </remarks>
     public IServiceProvider? Services => _services;
+
+    /// <summary>Read-only access to the configured session store.</summary>
+    public ISessionStore? SessionStore => RuntimeOptions?.SessionStore;
+
+    /// <summary>Read-only access to the configured agent-definition store.</summary>
+    public IAgentStore? AgentStore => RuntimeOptions?.AgentStore;
+
+    /// <summary>Application event authority selected for this runtime.</summary>
+    public AgentEventComposition? EventComposition => RuntimeOptions?.EventComposition;
 
     /// <summary>
     /// Runtime-scoped capabilities published by middleware for tools/functions.
@@ -417,7 +435,7 @@ public sealed class AgentContext
         ArgumentNullException.ThrowIfNull(evt);
         if (_threadEvents is not null)
             return await _threadEvents.PublishLiveAsync(evt, cancellationToken).ConfigureAwait(false);
-        var codec = _config?.EventComposition?.Codec
+        var codec = EventComposition?.Codec
             ?? (AgentEventCompositionHost.TryGetDefaultApplication(out var defaultComposition)
                 ? defaultComposition.Codec
                 : null)
@@ -574,6 +592,7 @@ public sealed class AgentContext
         AgentMetadata? parentAgentMetadata = null,
         IAgentStore? parentAgentStore = null,
         AgentConfig? config = null,
+        AgentRuntimeOptions? runtimeOptions = null,
         AgentClientSet? clientSet = null,
         IContentStore? contentStore = null,
         IStructEventHub? structEvents = null,
@@ -589,6 +608,7 @@ public sealed class AgentContext
         ThreadExecutionId = threadExecutionId;
         SourceInput = sourceInput;
         _config = config;
+        _runtimeOptions = runtimeOptions;
         _clientSet = clientSet;
         _contentStore = contentStore;
         _state = initialState ?? throw new ArgumentNullException(nameof(initialState));

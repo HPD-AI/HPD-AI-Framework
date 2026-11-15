@@ -89,7 +89,7 @@ internal sealed class PrebuiltAgentFactory : AgentFactory
         bool requireWorkflowSessionStore,
         CancellationToken cancellationToken)
     {
-        if (requireWorkflowSessionStore && !ReferenceEquals(_agent.Config?.SessionStore, workflowSessionStore))
+        if (requireWorkflowSessionStore && !ReferenceEquals(_agent.Runtime.SessionStore, workflowSessionStore))
         {
             throw new InvalidOperationException(
                 $"Pre-built agent '{_agent.Name}' must use the workflow session store when multi-agent conversation policies are enabled.");
@@ -132,15 +132,6 @@ internal sealed class ConfigAgentFactory : AgentFactory
                     familyConfig.Provider = new HPD.Agent.Providers.ProviderReference { Key = profile.ProviderKey };
             definition.ProviderProfiles[index] = profile with { Clients = AgentRunConfigSnapshot.Capture(new AgentRunConfig { Clients = clients }, _host?.Providers)!.Clients };
         }
-        definition.EventComposition = _config.EventComposition;
-        definition.SessionStore = _config.SessionStore;
-        definition.AgentStore = _config.AgentStore;
-        definition.AgentStoreOptions = _config.AgentStoreOptions;
-        definition.SessionStoreOptions = _config.SessionStoreOptions;
-        definition.ServerConfiguredTools = _config.ServerConfiguredTools?.ToList();
-        definition.ConfigureOptions = _config.ConfigureOptions;
-        definition.ClientMiddleware = _config.ClientMiddleware;
-        definition.explicitlyRegisteredToolHarnesses = _config.explicitlyRegisteredToolHarnesses;
         var builder = _host?.Providers is { } providers ? new AgentBuilder(definition, providers) : new AgentBuilder(definition);
         _host?.Apply(_identity!, builder);
 
@@ -349,7 +340,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
         {
             foreach (var (id, agent) in agents)
             {
-                if (!ReferenceEquals(agent.Config?.SessionStore, _workflowSessionStore))
+                if (!ReferenceEquals(agent.Runtime.SessionStore, _workflowSessionStore))
                 {
                     throw new InvalidOperationException(
                         $"Agent node '{id}' must use the workflow session store when multi-agent conversation policies are enabled.");

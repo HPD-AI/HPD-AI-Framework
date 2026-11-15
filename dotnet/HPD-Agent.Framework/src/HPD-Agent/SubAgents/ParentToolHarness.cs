@@ -138,7 +138,7 @@ internal sealed class ParentCommunicationMiddleware : IAgentMiddleware
             ?? context.Config?.AllowUserQuestions
             ?? false;
         var eligible = parentEnabled &&
-            context.Config?.SessionStore is { } store && context.ThreadExecutionId is { } execution &&
+            context.RuntimeOptions?.SessionStore is { } store && context.ThreadExecutionId is { } execution &&
             context.SessionId is { } session && context.ThreadId is { } thread &&
             await SubAgentResults.ControllerAsync(store, new(session, thread), execution, cancellationToken).ConfigureAwait(false) is not null;
         context.Options.Tools = context.Options.Tools

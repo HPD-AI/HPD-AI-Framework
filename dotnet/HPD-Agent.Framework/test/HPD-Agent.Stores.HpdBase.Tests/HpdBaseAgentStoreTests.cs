@@ -65,7 +65,6 @@ public sealed class HpdBaseAgentStoreTests
     private static StoredAgent MakeAgent(string id) => new()
     {
         Id = id,
-        Name = "Durable agent",
         Config = new AgentConfig
         {
             Name = "Durable agent",
@@ -83,7 +82,7 @@ public sealed class HpdBaseAgentStoreTests
     {
         actual.Should().NotBeNull();
         actual!.Id.Should().Be(expected.Id);
-        actual.Name.Should().Be(expected.Name);
+        actual.Config.Name.Should().Be(expected.Config.Name);
         actual.Config.Name.Should().Be(expected.Config.Name);
         actual.Config.SystemInstructions.Should().Be(expected.Config.SystemInstructions);
         actual.CreatedAt.Should().Be(expected.CreatedAt);

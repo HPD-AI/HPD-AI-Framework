@@ -42,7 +42,7 @@ public class AgentEndpointsTests : IClassFixture<TestWebApplicationFactory>
     public async Task POST_agents_NoName_Uses_ConfigName()
     {
         var config = new AgentConfig { Name = "FromConfig", Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" }, ModelName = "test-model" } } };
-        var request = new CreateAgentRequest("from-config", "FromConfig", config);
+        var request = new CreateAgentRequest("from-config", config);
 
         var response = await _client.PostAsJsonAsync("/agents", request);
 
@@ -68,7 +68,6 @@ public class AgentEndpointsTests : IClassFixture<TestWebApplicationFactory>
         // MaxAgenticIterations = 0 is invalid
         var request = new CreateAgentRequest(
             "bad-agent",
-            "Bad Agent",
             new AgentConfig { Name = "Bad Agent", MaxAgenticIterations = 0 });
 
         var response = await _client.PostAsJsonAsync("/agents", request);
@@ -231,7 +230,7 @@ public class AgentEndpointsTests : IClassFixture<TestWebApplicationFactory>
     // ──────────────────────────────────────────────────────────────────────────
 
     private static CreateAgentRequest MakeCreateRequest(string agentId, string name) =>
-        new(agentId, name, new AgentConfig
+        new(agentId, new AgentConfig
         {
             Name = name,
             MaxAgenticIterations = 10,

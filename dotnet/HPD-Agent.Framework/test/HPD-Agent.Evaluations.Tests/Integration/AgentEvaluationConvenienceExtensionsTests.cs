@@ -120,7 +120,6 @@ public sealed class AgentEvaluationConvenienceExtensionsTests
             new AgentConfig
             {
                 Name = "EvalConvenienceAgent",
-                EventComposition = HPD.Agent.Serialization.CoreAgentEventComposition.Instance,
                 Clients = new AgentClientsConfig
                 {
                     Chat = new ChatClientConfig
@@ -132,7 +131,11 @@ public sealed class AgentEvaluationConvenienceExtensionsTests
             },
             chatClient,
             options,
-            providerRegistry: new EchoProviderRegistry(chatClient));
+            providerRegistry: new EchoProviderRegistry(chatClient),
+            runtimeOptions: new AgentRuntimeOptions
+            {
+                EventComposition = HPD.Agent.Serialization.CoreAgentEventComposition.Instance
+            });
     }
 
     private sealed class EchoChatClient : IChatClient

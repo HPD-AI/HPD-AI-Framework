@@ -311,7 +311,11 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
             traceId: "00000000000000000000000000000002",
             contentStore: contentStore,
             structEvents: new HPD.Events.Struct.StructEventHub(),
-            config: new AgentConfig { EventComposition = PreparedOutputExecutionTestFixture.EventComposition });
+            config: new AgentConfig(),
+            runtimeOptions: new AgentRuntimeOptions
+            {
+                EventComposition = PreparedOutputExecutionTestFixture.EventComposition
+            });
         var assistant = new ChatMessage(ChatRole.Assistant, assistantText);
         var finalResponse = new ChatResponse([assistant])
         {

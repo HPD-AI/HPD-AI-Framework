@@ -33,7 +33,7 @@ Use `HPD-Agent.TUI` for an agent chat surface. Add
 
 ## Requirements
 
-- .NET 10 or later to build the framework source.
+- .NET 11 SDK or later to build the framework source.
 - An interactive terminal. Redirected stdin/stdout is not supported for the chat UI.
 - A terminal with reliable ANSI input handling. The bundled test console is designed
   for xterm, iTerm2, Windows Terminal, or WezTerm.

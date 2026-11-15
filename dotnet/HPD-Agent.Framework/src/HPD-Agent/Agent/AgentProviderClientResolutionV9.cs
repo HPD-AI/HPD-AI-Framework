@@ -44,27 +44,27 @@ public sealed partial class Agent
     {
         ProviderClientFamily.TextToSpeech => await ResolveFamilyAsync(
             family, runConfig.Clients.TextToSpeech,
-            _clientSet?.TextToSpeech, Config!.ClientMiddleware?.TextToSpeech,
+            _clientSet?.TextToSpeech, Runtime.ClientMiddleware?.TextToSpeech,
             _textToSpeechClientManager, leases, resolved, identities, cancellationToken).ConfigureAwait(false),
         ProviderClientFamily.SpeechToText => await ResolveFamilyAsync(
             family, runConfig.Clients.SpeechToText,
-            _clientSet?.SpeechToText, Config!.ClientMiddleware?.SpeechToText,
+            _clientSet?.SpeechToText, Runtime.ClientMiddleware?.SpeechToText,
             _speechToTextClientManager, leases, resolved, identities, cancellationToken).ConfigureAwait(false),
         ProviderClientFamily.Realtime => await ResolveFamilyAsync(
             family, runConfig.Clients.Realtime,
-            _clientSet?.Realtime, Config!.ClientMiddleware?.Realtime,
+            _clientSet?.Realtime, Runtime.ClientMiddleware?.Realtime,
             _realtimeClientManager, leases, resolved, identities, cancellationToken).ConfigureAwait(false),
         ProviderClientFamily.ImageGeneration => await ResolveFamilyAsync(
             family, runConfig.Clients.ImageGeneration,
-            _clientSet?.ImageGenerator, Config!.ClientMiddleware?.ImageGeneration,
+            _clientSet?.ImageGenerator, Runtime.ClientMiddleware?.ImageGeneration,
             _imageGeneratorManager, leases, resolved, identities, cancellationToken).ConfigureAwait(false),
         ProviderClientFamily.Embeddings => await ResolveFamilyAsync(
             family, runConfig.Clients.Embeddings,
-            _clientSet?.EmbeddingGenerator, Config!.ClientMiddleware?.Embeddings,
+            _clientSet?.EmbeddingGenerator, Runtime.ClientMiddleware?.Embeddings,
             _embeddingGeneratorManager, leases, resolved, identities, cancellationToken).ConfigureAwait(false),
         ProviderClientFamily.HostedFiles => await ResolveFamilyAsync(
             family, runConfig.Clients.HostedFiles,
-            _clientSet?.HostedFiles, Config!.ClientMiddleware?.HostedFiles,
+            _clientSet?.HostedFiles, Runtime.ClientMiddleware?.HostedFiles,
             _hostedFileClientManager, leases, resolved, identities, cancellationToken).ConfigureAwait(false),
         ProviderClientFamily.VoiceActivityDetection or ProviderClientFamily.EndOfTurnDetection => null,
         _ => throw new ArgumentOutOfRangeException(nameof(family))

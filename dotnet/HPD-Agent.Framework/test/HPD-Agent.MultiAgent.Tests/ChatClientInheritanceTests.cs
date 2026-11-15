@@ -286,9 +286,11 @@ internal sealed class TestPrebuiltAgentFactory : AgentFactory
         bool requireWorkflowSessionStore,
         CancellationToken cancellationToken)
     {
-        if (requireWorkflowSessionStore && !ReferenceEquals(_agent.Config?.SessionStore, workflowSessionStore))
+        // AgentWorkflowInstance validates that the returned agent uses the workflow store.
+        // Keeping that assertion at the workflow boundary avoids exposing internal runtime state.
+        if (requireWorkflowSessionStore && workflowSessionStore is null)
         {
-            throw new InvalidOperationException("Pre-built agents must use the workflow session store.");
+            throw new InvalidOperationException("A workflow session store is required.");
         }
 
         return Task.FromResult(_agent);

@@ -350,15 +350,14 @@ public class AgentBuilderWithToolTests
         };
         config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(client, "test", "local", "test.adapter");
 
-        await using var child = TestAgentFactory.Create(new AgentConfig
+        await using var child = TestAgentFactory.CreateWithSessionStore(new AgentConfig
         {
             Name = "Support Escalation",
-            SessionStore = store,
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig
             {
                 Provider = new ProviderReference { Key = "test" }, ModelName = "test-model"
             }}
-        }, childClient);
+        }, store, childClient);
         await child.StartAsync();
         using var services = new ServiceCollection()
             .AddSingleton<IAgentRuntimeResolver>(new RunningChildResolver(child)).BuildServiceProvider();
@@ -403,7 +402,7 @@ public class AgentBuilderWithToolTests
             await agent.RunAsync(input, CancellationToken.None);
         }
 
-        var parentEvents = await agent.Config.SessionStore!.CollectThreadEventsAsync("generated-lifecycle", "main");
+        var parentEvents = await agent.Runtime.SessionStore!.CollectThreadEventsAsync("generated-lifecycle", "main");
         Assert.DoesNotContain(parentEvents!, evt => evt is MiddlewareErrorEvent { SourceName: "AfterFunctionMiddleware" });
         Assert.True(parentEvents!.OfType<SubAgentInvocationStartedEvent>().Any(),
             string.Join("\n", parentEvents.Select(evt => TestEventApplication.Codec.Serialize(evt))));

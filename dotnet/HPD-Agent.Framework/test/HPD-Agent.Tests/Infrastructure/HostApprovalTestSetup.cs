@@ -7,9 +7,9 @@ internal static class HostApprovalTestSetup
 {
     internal static AgentBuilder WithHostAutoApproval(this AgentBuilder builder)
     {
-        if (builder.Config.SessionStore is null)
+        if (builder.RuntimeOptions.SessionStore is null)
             builder.WithSessionStore(new InMemorySessionStore(
-                builder.Config.EventComposition?.Codec ?? HPD.Agent.Tests.TestEventApplication.Codec));
+                builder.RuntimeOptions.EventComposition?.Codec ?? HPD.Agent.Tests.TestEventApplication.Codec));
         return builder.WithPermissions().WithMiddleware(new ConfigureHostApproval());
     }
 

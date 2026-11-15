@@ -173,9 +173,9 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
         config.EnsureChatClientConfig();
         config.EnsureChatClientConfig().Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" };
         config.EnsureChatClientConfig().ModelName = "test-model";
-        config.ServerConfiguredTools ??= new List<AITool>();
+        builder.RuntimeOptions.ServerConfiguredTools ??= new List<AITool>();
         foreach (var tool in tools)
-            config.ServerConfiguredTools.Add(tool);
+            builder.RuntimeOptions.ServerConfiguredTools.Add(tool);
         var agent = builder.BuildAsync(CancellationToken.None).GetAwaiter().GetResult();
 
         await RunTurnAsync(agent);
@@ -231,14 +231,14 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
             config.EnsureChatClientConfig();
         config.EnsureChatClientConfig().Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" };
         config.EnsureChatClientConfig().ModelName = "test-model";
-            config.ServerConfiguredTools ??= new List<AITool>();
-            foreach (var tool in tools)
-                config.ServerConfiguredTools.Add(tool is HPDAIFunctionFactory.HPDAIFunction
-                    ? tool
-                    : HPDAIFunctionFactory.Import(tool, explicitlyUngoverned: true));
         }
 
         var builder = new AgentBuilder(config, new TestProviderRegistry(fakeLLM));
+        builder.RuntimeOptions.ServerConfiguredTools ??= new List<AITool>();
+        foreach (var tool in tools)
+            builder.RuntimeOptions.ServerConfiguredTools.Add(tool is HPDAIFunctionFactory.HPDAIFunction
+                ? tool
+                : HPDAIFunctionFactory.Import(tool, explicitlyUngoverned: true));
         builder.WithTracing(sourceName: _testSourceName);
         return builder.BuildAsync(CancellationToken.None).GetAwaiter().GetResult();
     }

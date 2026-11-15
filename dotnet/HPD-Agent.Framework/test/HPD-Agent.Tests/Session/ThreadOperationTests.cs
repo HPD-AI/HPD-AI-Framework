@@ -684,10 +684,9 @@ public class ThreadOperationTests : AgentTestBase
     {
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
-        config.SessionStore = store;
         var client = new FakeChatClient();
         client.EnqueueTextResponse("hello human");
-        var agent = CreateAgent(config, client);
+        var agent = CreateAgentWithSessionStore(config, store, client);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
         await store.SaveInitialThreadAsync(
@@ -711,10 +710,9 @@ public class ThreadOperationTests : AgentTestBase
     {
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
-        config.SessionStore = store;
         var client = new FakeChatClient();
         client.EnqueueTextResponse("hello human");
-        var agent = CreateAgent(config, client);
+        var agent = CreateAgentWithSessionStore(config, store, client);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 

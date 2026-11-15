@@ -1,3 +1,5 @@
+using HPD.Agent.Serialization;
+
 namespace HPD.Agent.Middleware;
 
 public sealed class BeforeInputContext
@@ -16,7 +18,11 @@ public sealed class BeforeInputContext
     public string? CancelReason { get; private set; }
 
     public string AgentName => Handling.AgentName;
+    public string AgentId => Handling.AgentId;
     public AgentConfig Config => Handling.Config;
+    public ISessionStore? SessionStore => Handling.RuntimeOptions.SessionStore;
+    public IAgentStore? AgentStore => Handling.RuntimeOptions.AgentStore;
+    public AgentEventComposition? EventComposition => Handling.RuntimeOptions.EventComposition;
     public IServiceProvider? Services => Handling.Services;
 
     public void ReplaceInput(AgentInputEvent input)
@@ -64,6 +70,10 @@ public sealed class AfterInputContext
     public AgentInputCancellation? Cancellation { get; }
 
     public string AgentName => Handling.AgentName;
+    public string AgentId => Handling.AgentId;
     public AgentConfig Config => Handling.Config;
+    public ISessionStore? SessionStore => Handling.RuntimeOptions.SessionStore;
+    public IAgentStore? AgentStore => Handling.RuntimeOptions.AgentStore;
+    public AgentEventComposition? EventComposition => Handling.RuntimeOptions.EventComposition;
     public IServiceProvider? Services => Handling.Services;
 }

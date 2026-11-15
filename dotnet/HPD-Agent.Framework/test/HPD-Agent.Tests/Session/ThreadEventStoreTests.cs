@@ -604,10 +604,9 @@ public class ThreadEventStoreTests : AgentTestBase
     {
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
-        config.SessionStore = store;
         var client = new FakeChatClient();
         client.EnqueueTextResponse("hello human");
-        var agent = CreateAgent(config, client);
+        var agent = CreateAgentWithSessionStore(config, store, client);
         var sessionId = "session-1";
 
         await agent.CreateSessionAsync(sessionId, cancellationToken: TestCancellationToken);
@@ -635,9 +634,8 @@ public class ThreadEventStoreTests : AgentTestBase
     {
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
-        config.SessionStore = store;
         var client = new FakeChatClient();
-        var agent = CreateAgent(config, client);
+        var agent = CreateAgentWithSessionStore(config, store, client);
         var session = new HPD.Agent.Session("session-1");
         var thread = session.CreateThread("test-agent", "main");
 
@@ -671,12 +669,11 @@ public class ThreadEventStoreTests : AgentTestBase
     {
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
-        config.SessionStore = store;
         config.IncludeReasoningInModelHistory = false;
         var client = new FakeChatClient();
         client.EnqueueReasoningThenTextResponse("private thought", "public answer", "protected-reasoning");
         client.EnqueueTextResponse("second answer");
-        var agent = CreateAgent(config, client);
+        var agent = CreateAgentWithSessionStore(config, store, client);
         var session = new HPD.Agent.Session("session-1");
         var thread = session.CreateThread("test-agent", "main");
 
@@ -736,10 +733,9 @@ public class ThreadEventStoreTests : AgentTestBase
     {
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
-        config.SessionStore = store;
         var client = new FakeChatClient();
         client.EnqueueStreamingResponse("Hel", "lo", " world");
-        var agent = CreateAgent(config, client);
+        var agent = CreateAgentWithSessionStore(config, store, client);
         var session = new HPD.Agent.Session("session-delta-coalescing");
         var thread = session.CreateThread("test-agent", "main");
         await store.SaveSessionAsync(session);
@@ -774,10 +770,9 @@ public class ThreadEventStoreTests : AgentTestBase
     {
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
-        config.SessionStore = store;
         var client = new FakeChatClient();
         client.EnqueueStreamingResponse("visible", " not-consumed");
-        var agent = CreateAgent(config, client);
+        var agent = CreateAgentWithSessionStore(config, store, client);
         var session = new HPD.Agent.Session("session-partial-delta");
         var thread = session.CreateThread("test-agent", "main");
         await store.SaveSessionAsync(session);
@@ -807,7 +802,6 @@ public class ThreadEventStoreTests : AgentTestBase
     {
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
-        config.SessionStore = store;
         var client = new FakeChatClient();
         client.EnqueueToolCall(
             functionName: "Calculator",
@@ -818,7 +812,7 @@ public class ThreadEventStoreTests : AgentTestBase
             (string expression) => expression == "2+2" ? "4" : "unknown",
             name: "Calculator",
             description: "Evaluates simple expressions.");
-        var agent = CreateAgent(config, client, tools: [calculator]);
+        var agent = CreateAgentWithSessionStore(config, store, client, tools: [calculator]);
         var session = new HPD.Agent.Session("session-1");
         var thread = session.CreateThread("test-agent", "main");
 

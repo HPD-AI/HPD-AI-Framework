@@ -35,7 +35,6 @@ public sealed class AgentDefinitionService : IAgentDefinitionService
         {
             stored = await _agentManager.CreateDefinitionAsync(
                 request.Config,
-                request.Name,
                 request.Metadata,
                 request.AgentId,
                 cancellationToken);
@@ -87,7 +86,11 @@ public sealed class AgentDefinitionService : IAgentDefinitionService
         if (existing == null)
             return AgentServiceResult<StoredAgentDto>.NotFound;
 
-        var stored = await _agentManager.UpdateDefinitionAsync(agentId, request.Config, cancellationToken);
+        var stored = await _agentManager.UpdateDefinitionAsync(
+            agentId,
+            request.Config,
+            request.Metadata,
+            cancellationToken);
         return AgentServiceResult<StoredAgentDto>.Success(ToDto(stored));
     }
 
@@ -107,7 +110,7 @@ public sealed class AgentDefinitionService : IAgentDefinitionService
 
     private static StoredAgentDto ToDto(StoredAgent stored) => new(
         stored.Id,
-        stored.Name,
+        stored.Config.Name,
         stored.Config,
         stored.CreatedAt,
         stored.UpdatedAt,
@@ -115,7 +118,7 @@ public sealed class AgentDefinitionService : IAgentDefinitionService
 
     private static AgentSummaryDto ToSummaryDto(StoredAgent stored) => new(
         stored.Id,
-        stored.Name,
+        stored.Config.Name,
         stored.CreatedAt,
         stored.UpdatedAt,
         stored.Metadata);

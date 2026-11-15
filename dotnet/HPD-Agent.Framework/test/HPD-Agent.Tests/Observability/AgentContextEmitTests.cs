@@ -40,7 +40,8 @@ public class AgentContextEmitTests
             thread: null,
             cancellationToken: CancellationToken.None,
             traceId: traceId,
-            config: new AgentConfig
+            config: new AgentConfig(),
+            runtimeOptions: new AgentRuntimeOptions
             {
                 EventComposition = HPD.Agent.Tests.TestEventApplication.Composition
             });

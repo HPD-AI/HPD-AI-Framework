@@ -30,6 +30,21 @@ public abstract class AgentTestBase : IAsyncDisposable, IDisposable
         return TestAgentFactory.Create(config, client, circuitBreakerThreshold, tools);
     }
 
+    internal Agent CreateAgentWithSessionStore(
+        AgentConfig? config,
+        ISessionStore sessionStore,
+        IChatClient? client = null,
+        int? circuitBreakerThreshold = 5,
+        params AIFunction[] tools)
+    {
+        return TestAgentFactory.CreateWithSessionStore(
+            config,
+            sessionStore,
+            client,
+            circuitBreakerThreshold,
+            tools);
+    }
+
     internal Agent CreateAgentWithMiddlewares(
         AgentConfig? config = null,
         IChatClient? client = null,
@@ -38,6 +53,23 @@ public abstract class AgentTestBase : IAsyncDisposable, IDisposable
         params AIFunction[] tools)
     {
         return TestAgentFactory.CreateWithMiddlewares(config, client, middlewares, circuitBreakerThreshold, tools);
+    }
+
+    internal Agent CreateAgentWithMiddlewaresAndSessionStore(
+        AgentConfig? config,
+        ISessionStore sessionStore,
+        IChatClient? client = null,
+        IEnumerable<IAgentMiddleware>? middlewares = null,
+        int? circuitBreakerThreshold = 5,
+        params AIFunction[] tools)
+    {
+        return TestAgentFactory.CreateWithMiddlewaresAndSessionStore(
+            config,
+            sessionStore,
+            client,
+            middlewares,
+            circuitBreakerThreshold,
+            tools);
     }
 
     /// <summary>

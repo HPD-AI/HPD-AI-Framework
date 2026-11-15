@@ -72,8 +72,15 @@ public class PlanJournalSnapshotTests
         source.Messages.Add(message);
         await store.AppendThreadEventsAsync(new("session", "main"),
             ThreadMessageEventConverter.ToThreadEvents("session", "main", message), ThreadAppendCondition.Any);
-        await using var agent = new Agent(new AgentConfig
-        { Name = "agent", SessionStore = store, EventComposition = CoreAgentEventComposition.Instance }, baseClient: null, mergedOptions: null);
+        await using var agent = new Agent(
+            new AgentConfig { Name = "agent" },
+            baseClient: null,
+            mergedOptions: null,
+            runtimeOptions: new AgentRuntimeOptions
+            {
+                SessionStore = store,
+                EventComposition = CoreAgentEventComposition.Instance
+            });
         var fork = await agent.ForkThreadAsync(source, "fork", "m", new ThreadForkOptions { OperationId = "plan-fork" });
         var journal = (await store.CollectThreadEventsAsync(new("session", "fork")))!;
         var snapshot = journal.OfType<PlanUpdatedEvent>().Last();

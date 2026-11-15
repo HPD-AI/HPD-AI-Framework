@@ -69,8 +69,10 @@ internal sealed record AgentInputHandlerRegistration(
 
 internal sealed class AgentInputHandlingContext
 {
+    public string AgentId { get; init; } = string.Empty;
     public required string AgentName { get; init; }
     public required AgentConfig Config { get; init; }
+    public AgentRuntimeOptions RuntimeOptions { get; init; } = new();
     public required IEventCoordinator EventCoordinator { get; init; }
     public IServiceProvider? Services { get; init; }
     public AgentClientSet? ClientSet { get; init; }
@@ -253,7 +255,7 @@ internal sealed class CompactThreadInputHandler : IAgentInputHandler<CompactThre
         }
         else
         {
-            var store = context.Config.SessionStore
+            var store = context.RuntimeOptions.SessionStore
                 ?? throw new InvalidOperationException("Scoped compaction requires a session store.");
             if (string.IsNullOrWhiteSpace(input.SessionId) || string.IsNullOrWhiteSpace(input.ThreadId))
                 throw new InvalidOperationException("Explicit compaction requires a session and thread scope.");
@@ -266,7 +268,7 @@ internal sealed class CompactThreadInputHandler : IAgentInputHandler<CompactThre
                 ?? throw new InvalidOperationException($"Thread '{input.SessionId}/{input.ThreadId}' was not found.");
         }
 
-        var publisher = context.Config.SessionStore is { } sessionStore
+        var publisher = context.RuntimeOptions.SessionStore is { } sessionStore
             ? new AgentEventPublisher(sessionStore, context.EventCoordinator)
             : null;
         await using var chatLease = input.Request.Compaction.Strategy is SummarizingCompaction summarizing
@@ -285,7 +287,7 @@ internal sealed class CompactThreadInputHandler : IAgentInputHandler<CompactThre
             thread.Messages,
             publisher,
             chatLease?.Client,
-            context.Config.SessionStore is { } compactionStore
+            context.RuntimeOptions.SessionStore is { } compactionStore
                 ? CompositeThreadJournalRebaseSeedProvider.Create(
                     compactionStore,
                     context.Services?.GetService<IThreadJournalRebaseSeedProvider>())

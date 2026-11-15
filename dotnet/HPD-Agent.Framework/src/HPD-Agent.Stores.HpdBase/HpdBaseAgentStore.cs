@@ -65,7 +65,7 @@ public sealed class HpdBaseAgentStore : IAgentStore
         HpdBaseAgentDefinition definition = new()
         {
             AgentId = agent.Id,
-            Name = agent.Name,
+            Name = agent.Config.Name,
             Payload = payload,
             CreatedAt = new DateTimeOffset(agent.CreatedAt, TimeSpan.Zero),
             UpdatedAt = new DateTimeOffset(agent.UpdatedAt, TimeSpan.Zero),

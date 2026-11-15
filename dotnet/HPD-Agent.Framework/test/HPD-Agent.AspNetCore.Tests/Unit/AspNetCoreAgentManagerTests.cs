@@ -117,7 +117,9 @@ public class AspNetCoreAgentManagerTests : IDisposable
         _optionsMonitor.CurrentValue.ConfigureEachAgentBuilder = InjectTestProvider;
 
         var manager = MakeManager();
-        var stored = await manager.CreateDefinitionAsync(new AgentConfig(), "Empty", agentId: "empty");
+        var stored = await manager.CreateDefinitionAsync(
+            new AgentConfig { Name = "Empty" },
+            agentId: "empty");
 
         var agent = await manager.GetOrBuildAgentAsync(stored.Id);
         agent.Should().NotBeNull();
@@ -195,7 +197,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
             Name = "Coding",
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" }, ModelName = "test-model" } },
             ToolHarnesses = [nameof(CodingToolHarness)]
-        }, "Coding");
+        });
 
         var agent = await manager.GetOrBuildAgentAsync(stored.Id);
 
@@ -225,7 +227,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
         {
             Name = "Coding",
             ToolHarnesses = [nameof(CodingToolHarness)]
-        }, "Coding");
+        });
 
         var agent = await manager.GetOrBuildAgentAsync(stored.Id);
 
@@ -270,7 +272,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
                     }
                 }
             }
-        }, "Runtime Summarizing");
+        });
 
         var agent = await manager.GetOrBuildAgentAsync(stored.Id);
 
@@ -309,7 +311,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
         {
             Name = "Default",
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" }, ModelName = "test-model" } }
-        }, "Default");
+        });
     }
 
     private static AgentConfig MakeConfig(string name) => new AgentConfig
@@ -366,13 +368,15 @@ public class AspNetCoreAgentManagerTests : IDisposable
             var config = MakeConfig("Factory");
             var chatClient = new FakeChatClient();
             var registry = new TestProviderRegistry(chatClient);
-            return await new AgentBuilder(config, registry).WithSessionStore(store).BuildAsync(ct);
+            return await new AgentBuilder(config, registry)
+                .WithEventComposition(HPD.Agent.AspNetCore.Tests.TestEventApplication.Composition)
+                .WithSessionStore(store)
+                .BuildAsync(ct);
         }
 
         private static AgentConfig MakeConfig(string name) => new AgentConfig
         {
             Name = name,
-            EventComposition = HPD.Agent.AspNetCore.Tests.TestEventApplication.Composition,
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" }, ModelName = "test-model" } }
         };
     }

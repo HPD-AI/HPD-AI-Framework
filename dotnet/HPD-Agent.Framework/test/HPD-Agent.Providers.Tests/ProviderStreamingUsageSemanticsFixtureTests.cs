@@ -16,7 +16,7 @@ public sealed class ProviderStreamingUsageSemanticsFixtureTests
                 { "ollama", "HPD.Agent.Providers.Ollama.OllamaConfiguredChatClient, HPD-Agent.Providers.Ollama" },
                 { "onnx-runtime", "HPD.Agent.Providers.OnnxRuntime.StructuredToolCallingOnnxRuntimeChatClient, HPD-Agent.Providers.OnnxRuntime" }
             };
-#if NET10_0
+#if NET10_0_OR_GREATER
             adapters.Add("cohere", "HPD.Agent.Providers.Cohere.CohereProvider+CohereConfiguredChatClient, HPD-Agent.Providers.Cohere");
             adapters.Add("dashscope", "HPD.Agent.Providers.DashScope.DashScopeProvider+DashScopeConfiguredChatClient, HPD-Agent.Providers.DashScope");
             adapters.Add("deepinfra", "HPD.Agent.Providers.DeepInfra.DeepInfraProvider+DeepInfraConfiguredChatClient, HPD-Agent.Providers.DeepInfra");
@@ -50,7 +50,7 @@ public sealed class ProviderStreamingUsageSemanticsFixtureTests
             .Should().Be(UsageUpdateSemantics.FinalOnly);
     }
 
-#if NET10_0
+#if NET10_0_OR_GREATER
     [Fact]
     public void HuggingFace_projection_maps_a_usage_chunk_to_one_usage_content()
     {

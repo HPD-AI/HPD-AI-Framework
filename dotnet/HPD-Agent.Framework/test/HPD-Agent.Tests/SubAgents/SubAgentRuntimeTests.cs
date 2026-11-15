@@ -195,8 +195,9 @@ public class SubAgentRuntimeTests
         parentConfig.Name = "ParentAgent";
         parentConfig.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(
             parentClient, "test", "local", "test.adapter");
-        parentConfig.ServerConfiguredTools = [invoke];
-        await using var parent = await new AgentBuilder(parentConfig, new TestProviderRegistry(parentClient))
+        var parentBuilder = new AgentBuilder(parentConfig, new TestProviderRegistry(parentClient));
+        parentBuilder.RuntimeOptions.ServerConfiguredTools = [invoke];
+        await using var parent = await parentBuilder
             .WithEventComposition(TestEventApplication.Composition)
             .WithSessionStore(store)
             .WithServiceProvider(services)
@@ -266,8 +267,9 @@ public class SubAgentRuntimeTests
         config.Name = "ParentAgent";
         config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(
             parentClient, "test", "local", "test.adapter");
-        config.ServerConfiguredTools = [invoke];
-        await using var parent = await new AgentBuilder(config, new TestProviderRegistry(parentClient))
+        var builder = new AgentBuilder(config, new TestProviderRegistry(parentClient));
+        builder.RuntimeOptions.ServerConfiguredTools = [invoke];
+        await using var parent = await builder
             .WithEventComposition(TestEventApplication.Composition)
             .WithSessionStore(store)
             .WithServiceProvider(services)

@@ -121,10 +121,14 @@ public sealed class RedTeamRunnerTests
         public FixedResponseAgent(string responseText)
         {
             _agent = new HPD.Agent.Agent(
-                new AgentConfig { Name = nameof(FixedResponseAgent), EventComposition = HPD.Agent.Serialization.CoreAgentEventComposition.Instance },
+                new AgentConfig { Name = nameof(FixedResponseAgent) },
                 new FixedResponseChatClient(responseText),
                 null,
-                middlewares: [new RecordingMiddleware(this)]);
+                middlewares: [new RecordingMiddleware(this)],
+                runtimeOptions: new AgentRuntimeOptions
+                {
+                    EventComposition = HPD.Agent.Serialization.CoreAgentEventComposition.Instance
+                });
         }
 
         public static implicit operator HPD.Agent.Agent(FixedResponseAgent agent) => agent._agent;

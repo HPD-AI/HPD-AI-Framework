@@ -1,6 +1,7 @@
 using HPD.Events;
 using HPD.Events.Struct;
 using HPD.Agent.ClientTools;
+using HPD.Agent.Serialization;
 using System.Threading.Channels;
 
 namespace HPD.Agent.Middleware;
@@ -33,10 +34,15 @@ public sealed class AgentRuntimeContext :
     private bool _acceptingInputs = true;
 
     public string AgentName { get; }
+    public string? AgentId { get; }
     public AgentConfig Config { get; }
+    internal AgentRuntimeOptions RuntimeOptions { get; }
     public AgentRunConfig? RunConfig { get; }
     public AgentClientSet? ClientSet { get; }
     public IServiceProvider? Services { get; }
+    public ISessionStore? SessionStore => RuntimeOptions.SessionStore;
+    public IAgentStore? AgentStore => RuntimeOptions.AgentStore;
+    public AgentEventComposition? EventComposition => RuntimeOptions.EventComposition;
     public IEventCoordinator EventCoordinator { get; }
     public IAgentEventPublisher? ThreadEvents { get; }
     public IEventFlowRegistry EventFlows => EventCoordinator.EventFlows;
@@ -52,7 +58,9 @@ public sealed class AgentRuntimeContext :
 
     internal AgentRuntimeContext(
         string agentName,
+        string? agentId,
         AgentConfig config,
+        AgentRuntimeOptions runtimeOptions,
         IServiceProvider? services,
         IEventCoordinator eventCoordinator,
         IStructEventHub structEvents,
@@ -66,7 +74,9 @@ public sealed class AgentRuntimeContext :
         IContentStore? contentStore = null)
     {
         AgentName = agentName ?? throw new ArgumentNullException(nameof(agentName));
+        AgentId = agentId;
         Config = config ?? throw new ArgumentNullException(nameof(config));
+        RuntimeOptions = runtimeOptions ?? throw new ArgumentNullException(nameof(runtimeOptions));
         Services = services;
         EventCoordinator = eventCoordinator ?? throw new ArgumentNullException(nameof(eventCoordinator));
         ThreadEvents = threadEvents;
@@ -110,7 +120,7 @@ public sealed class AgentRuntimeContext :
         ArgumentNullException.ThrowIfNull(evt);
         if (ThreadEvents is not null)
             return await ThreadEvents.PublishLiveAsync(evt, cancellationToken).ConfigureAwait(false);
-        var codec = Config.EventComposition?.Codec
+        var codec = RuntimeOptions.EventComposition?.Codec
             ?? throw new InvalidOperationException("Runtime context has no event composition authority.");
         if (!codec.TryGetByType(evt.GetType(), out _))
             throw new InvalidOperationException($"Agent event type '{evt.GetType().FullName}' is not present in codec '{codec.Digest}'.");
@@ -316,10 +326,15 @@ public abstract class RuntimeHookContext
     internal AgentRuntimeContext Base { get; }
 
     public string AgentName => Base.AgentName;
+    public string? AgentId => Base.AgentId;
     public AgentConfig Config => Base.Config;
+    internal AgentRuntimeOptions RuntimeOptions => Base.RuntimeOptions;
     public AgentRunConfig? RunConfig => Base.RunConfig;
     public AgentClientSet? ClientSet => Base.ClientSet;
     public IServiceProvider? Services => Base.Services;
+    public ISessionStore? SessionStore => Base.SessionStore;
+    public IAgentStore? AgentStore => Base.AgentStore;
+    public AgentEventComposition? EventComposition => Base.EventComposition;
     public IEventCoordinator EventCoordinator => Base.EventCoordinator;
     public IAgentEventPublisher? ThreadEvents => Base.ThreadEvents;
     public IEventFlowRegistry EventFlows => Base.EventFlows;

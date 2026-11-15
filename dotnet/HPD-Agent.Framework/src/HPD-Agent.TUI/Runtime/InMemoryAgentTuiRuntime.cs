@@ -35,7 +35,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         cancellationToken.ThrowIfCancellationRequested();
         var target = requested ?? new DirectAgentTuiExecutionTarget(_defaultScope);
         var scope = target.Scope;
-        var store = _agent.Config?.SessionStore;
+        var store = _agent.Runtime.SessionStore;
         if (target is ControlledSubAgentTuiExecutionTarget &&
             (store is null ||
              await store.LoadSessionAsync(scope.SessionId, cancellationToken).ConfigureAwait(false) is null ||
@@ -58,7 +58,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         ArgumentNullException.ThrowIfNull(target);
         cancellationToken.ThrowIfCancellationRequested();
         var scope = target.Scope;
-        var store = _agent.Config?.SessionStore;
+        var store = _agent.Runtime.SessionStore;
         if (store is not null &&
             await store.LoadSessionAsync(scope.SessionId, cancellationToken).ConfigureAwait(false) is null)
         {
@@ -81,7 +81,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
     public async Task<IReadOnlyList<AgentTuiAgentInfo>> ListAgentsAsync(
         CancellationToken cancellationToken = default)
     {
-        var store = _agent.Config?.AgentStore;
+        var store = _agent.Runtime.AgentStore;
         if (store is null)
         {
             return [];
@@ -108,7 +108,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         string agentId,
         CancellationToken cancellationToken = default)
     {
-        var stored = _agent.Config?.AgentStore is { } store
+        var stored = _agent.Runtime.AgentStore is { } store
             ? await store.LoadAsync(agentId, cancellationToken).ConfigureAwait(false)
             : null;
         return stored is null ? null : ToAgentInfo(stored);
@@ -120,7 +120,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var store = _agent.Config?.AgentStore
+        var store = _agent.Runtime.AgentStore
             ?? throw new InvalidOperationException("No agent store configured.");
         var id = request.AgentId;
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
@@ -133,7 +133,6 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         var stored = new StoredAgent
         {
             Id = id,
-            Name = request.Name,
             Config = request.Config,
             CreatedAt = now,
             UpdatedAt = now,
@@ -150,7 +149,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var store = _agent.Config?.AgentStore
+        var store = _agent.Runtime.AgentStore
             ?? throw new InvalidOperationException("No agent store configured.");
         var stored = await store.LoadAsync(agentId, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Agent '{agentId}' was not found.");
@@ -164,7 +163,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         string agentId,
         CancellationToken cancellationToken = default)
     {
-        var store = _agent.Config?.AgentStore
+        var store = _agent.Runtime.AgentStore
             ?? throw new InvalidOperationException("No agent store configured.");
         await store.DeleteAsync(agentId, cancellationToken).ConfigureAwait(false);
     }
@@ -172,7 +171,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
     public async Task<IReadOnlyList<AgentTuiSessionInfo>> ListSessionsAsync(
         CancellationToken cancellationToken = default)
     {
-        var store = _agent.Config?.SessionStore;
+        var store = _agent.Runtime.SessionStore;
         if (store is null)
         {
             return [];
@@ -216,7 +215,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         string sessionId,
         CancellationToken cancellationToken = default)
     {
-        var session = _agent.Config?.SessionStore is { } store
+        var session = _agent.Runtime.SessionStore is { } store
             ? await store.LoadSessionAsync(sessionId, cancellationToken).ConfigureAwait(false)
             : null;
         return session is null ? null : ToSessionInfo(session);
@@ -255,7 +254,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
     {
         ArgumentNullException.ThrowIfNull(update);
 
-        var store = _agent.Config?.SessionStore
+        var store = _agent.Runtime.SessionStore
             ?? throw new InvalidOperationException("No session store configured.");
         var session = await store.LoadSessionAsync(sessionId, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Session '{sessionId}' was not found.");
@@ -276,7 +275,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         string sessionId,
         CancellationToken cancellationToken = default)
     {
-        var store = _agent.Config?.SessionStore;
+        var store = _agent.Runtime.SessionStore;
         if (store is null)
         {
             return [];
@@ -310,7 +309,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         string threadId,
         CancellationToken cancellationToken = default)
     {
-        var thread = _agent.Config?.SessionStore is { } store
+        var thread = _agent.Runtime.SessionStore is { } store
             ? await store.ProjectThreadAsync(sessionId, threadId, ThreadProjectionPurpose.ThreadHistory, cancellationToken).ConfigureAwait(false)
             : null;
         return thread is null ? null : ToThreadInfo(thread, sessionId);
@@ -339,7 +338,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
 
         var id = await _agent.CreateThreadAsync(sessionId, request.ThreadId, request.Name, cancellationToken)
             .ConfigureAwait(false);
-        var store = _agent.Config?.SessionStore
+        var store = _agent.Runtime.SessionStore
             ?? throw new InvalidOperationException("No session store configured.");
         var thread = await store.ProjectThreadAsync(sessionId, id, ThreadProjectionPurpose.ThreadHistory, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Thread '{id}' was not found after creation.");
@@ -378,7 +377,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
                 },
                 cancellationToken)
             .ConfigureAwait(false);
-        var store = _agent.Config?.SessionStore
+        var store = _agent.Runtime.SessionStore
             ?? throw new InvalidOperationException("No session store configured.");
         var thread = await store.ProjectThreadAsync(sessionId, result.Target.ThreadId, ThreadProjectionPurpose.ThreadHistory, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Thread '{result.Target.ThreadId}' was not found after fork.");
@@ -407,7 +406,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
     {
         ArgumentNullException.ThrowIfNull(update);
 
-        var store = _agent.Config?.SessionStore
+        var store = _agent.Runtime.SessionStore
             ?? throw new InvalidOperationException("No session store configured.");
         var thread = await store.ProjectThreadAsync(sessionId, threadId, ThreadProjectionPurpose.ThreadHistory, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Thread '{threadId}' was not found.");
@@ -420,7 +419,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         string sessionId,
         CancellationToken cancellationToken = default)
     {
-        var store = _agent.Config?.SessionStore;
+        var store = _agent.Runtime.SessionStore;
         if (store is null)
         {
             return new AgentTuiThreadGraph([], [], []);
@@ -458,7 +457,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         string threadId,
         CancellationToken cancellationToken = default)
     {
-        var store = _agent.Config?.SessionStore
+        var store = _agent.Runtime.SessionStore
             ?? throw new InvalidOperationException("No session store configured.");
         var registry = await new SubAgentChildRegistry(store)
             .ProjectAsync(new ThreadKey(sessionId, threadId), cancellationToken: cancellationToken)
@@ -509,7 +508,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
     private static AgentTuiAgentInfo ToAgentInfo(StoredAgent agent)
         => new(
             agent.Id,
-            agent.Name,
+            agent.Config.Name,
             agent.CreatedAt,
             agent.UpdatedAt,
             agent.Metadata?.ToDictionary(
@@ -713,7 +712,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         var catchUpMode = after.SequenceNumber == 0
             ? AgentTuiEventDeliveryMode.Historical
             : AgentTuiEventDeliveryMode.CatchUp;
-        var store = _agent.Config?.SessionStore;
+        var store = _agent.Runtime.SessionStore;
         if (store is null)
         {
             var signals = Channel.CreateUnbounded<AgentEvent>();
@@ -817,7 +816,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         var scope = target.Scope;
         if (target is ControlledSubAgentTuiExecutionTarget controlled)
         {
-            var store = _agent.Config?.SessionStore
+            var store = _agent.Runtime.SessionStore
                 ?? throw new InvalidOperationException("Controlled subagent submission requires a durable session store.");
             var resolver = _runtimeResolver
                 ?? throw new InvalidOperationException("Controlled subagent submission requires a registered runtime resolver.");
@@ -943,7 +942,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
     {
         ArgumentNullException.ThrowIfNull(scope);
 
-        var store = _agent.Config?.SessionStore;
+        var store = _agent.Runtime.SessionStore;
         var thread = store is null
             ? null
             : await store.ProjectThreadAsync(
@@ -989,7 +988,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
     {
         ArgumentNullException.ThrowIfNull(scope);
 
-        var store = _agent.Config?.SessionStore;
+        var store = _agent.Runtime.SessionStore;
         if (store is null)
         {
             return new AgentTuiThreadState(default, GetActiveExecution(), GetLivePendingRequests());

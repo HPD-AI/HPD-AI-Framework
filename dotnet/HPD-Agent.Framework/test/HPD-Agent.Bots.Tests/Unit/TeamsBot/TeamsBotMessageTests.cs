@@ -130,7 +130,7 @@ public class TeamsBotMessageTests
         var sessionStore = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
         var sessionManager = new TestSessionManager(sessionStore);
         var chatClient = new CapturingChatClient("done");
-        await using var agent = await new AgentBuilder(CreateAgentConfig(sessionStore))
+        await using var agent = await CreateAgentBuilder(sessionStore)
             .WithChatClient(chatClient)
             .BuildAsync();
         var bot = CreateBot(sessionManager, new StaticAgentManager(agent)).Bot;
@@ -185,8 +185,8 @@ public class TeamsBotMessageTests
         return (new HPD.Agent.Bots.Teams.TeamsBot(options, sessionManager, agentManager, mapper), sessionManager);
     }
 
-    private static AgentConfig CreateAgentConfig(ISessionStore sessionStore)
-        => new()
+    private static AgentBuilder CreateAgentBuilder(ISessionStore sessionStore)
+        => new AgentBuilder(new AgentConfig
         {
             Name = "TeamsTestAgent",
             MaxAgenticIterations = 1,
@@ -205,13 +205,9 @@ public class TeamsBotMessageTests
                 FunctionRetries = new() { MaxRetries = 0 },
                 NormalizeErrors = true,
             },
-            SessionStore = sessionStore,
-            EventComposition = HPD.Agent.Serialization.CoreAgentEventComposition.Instance,
-            SessionStoreOptions = new SessionStoreOptions
-            {
-                PersistAfterTurn = true,
-            },
-        };
+        })
+        .WithEventComposition(HPD.Agent.Serialization.CoreAgentEventComposition.Instance)
+        .WithSessionStore(sessionStore, options => options.PersistAfterTurn = true);
 
     private sealed class StaticAgentManager(HpdAgent agent) : AgentManager(new InMemoryAgentStore())
     {

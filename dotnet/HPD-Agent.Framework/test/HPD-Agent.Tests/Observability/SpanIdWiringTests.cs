@@ -309,12 +309,11 @@ public class SpanIdWiringTests : AgentTestBase
         config.EnsureChatClientConfig();
         config.EnsureChatClientConfig().Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" };
         config.EnsureChatClientConfig().ModelName = "test-model";
-        config.ServerConfiguredTools = [guardedTool];
-
         fakeLLM.EnqueueToolCall("guarded_tool", "call-1");
         fakeLLM.EnqueueStreamingResponse("Done.");
 
         var builder = new AgentBuilder(config, new TestProviderRegistry(fakeLLM));
+        builder.RuntimeOptions.ServerConfiguredTools = [guardedTool];
         builder.WithPermissions();
         var agent = builder.BuildAsync(CancellationToken.None).GetAwaiter().GetResult();
 

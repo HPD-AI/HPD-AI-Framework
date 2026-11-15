@@ -162,7 +162,7 @@ public static class ManagedLiveKitBuilderExtensions
                     cancellationToken: cancellationToken).ConfigureAwait(false);
             }
             var client = construction.Client;
-            var middleware = builder.Config.ClientMiddleware?.SpeechToText;
+            var middleware = builder.RuntimeOptions.ClientMiddleware?.SpeechToText;
             if (middleware is not null)
                 for (var index = middleware.Count - 1; index >= 0; index--)
                     client = middleware[index](client, services) ?? throw new InvalidOperationException(

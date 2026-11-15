@@ -86,7 +86,7 @@ internal static class ParentQuestions
 
     internal static async Task AddPendingContextAsync(BeforeIterationContext context, CancellationToken cancellationToken)
     {
-        if (context.Config?.SessionStore is not { } store || context.SessionId is null || context.ThreadId is null) return;
+        if (context.RuntimeOptions?.SessionStore is not { } store || context.SessionId is null || context.ThreadId is null) return;
         var parent = new ThreadKey(context.SessionId, context.ThreadId);
         var registry = await new SubAgentChildRegistry(store).ProjectAsync(parent, cancellationToken: cancellationToken).ConfigureAwait(false);
         var contextMessageId = "runtime:parent-questions:" + context.ThreadExecutionId;

@@ -25,9 +25,9 @@ public sealed class GeneratedAgentCapabilityInvocationTests
         var multiAgentFunction = CreateGeneratedShapeMultiAgentFunction();
         var config = DefaultConfig();
         config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(parentClient, "test", "local", "test.chat");
-        config.ServerConfiguredTools = [subAgentFunction, multiAgentFunction];
-
-        var agent = await new AgentBuilder(config, new TestProviderRegistry(parentClient))
+        var builder = new AgentBuilder(config, new TestProviderRegistry(parentClient));
+        builder.RuntimeOptions.ServerConfiguredTools = [subAgentFunction, multiAgentFunction];
+        var agent = await builder
             .WithHostAutoApproval()
             .BuildAsync(CancellationToken.None);
         var events = new System.Collections.Concurrent.ConcurrentQueue<AgentEvent>();

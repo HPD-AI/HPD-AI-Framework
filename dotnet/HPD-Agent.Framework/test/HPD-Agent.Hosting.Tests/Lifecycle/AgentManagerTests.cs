@@ -33,15 +33,15 @@ public class AgentManagerTests : IAsyncLifetime
     public async Task CreateDefinitionAsync_PersistsToStore()
     {
         var config = MakeConfig("Agent A");
-        var stored = await _manager.CreateDefinitionAsync(config, "Agent A");
+        var stored = await _manager.CreateDefinitionAsync(config);
 
         stored.Id.Should().NotBeNullOrWhiteSpace();
-        stored.Name.Should().Be("Agent A");
+        stored.Config.Name.Should().Be("Agent A");
         stored.Config.Should().BeSameAs(config);
 
         var loaded = await _store.LoadAsync(stored.Id);
         loaded.Should().NotBeNull();
-        loaded!.Name.Should().Be("Agent A");
+        loaded!.Config.Name.Should().Be("Agent A");
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public class AgentManagerTests : IAsyncLifetime
     [Fact]
     public async Task GetDefinitionAsync_ReturnsDefinition_WhenExists()
     {
-        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"));
         var loaded = await _manager.GetDefinitionAsync(stored.Id);
         loaded.Should().NotBeNull();
         loaded!.Id.Should().Be(stored.Id);
@@ -63,9 +63,9 @@ public class AgentManagerTests : IAsyncLifetime
     [Fact]
     public async Task ListDefinitionsAsync_ReturnsAll()
     {
-        await _manager.CreateDefinitionAsync(MakeConfig("A"), "A");
-        await _manager.CreateDefinitionAsync(MakeConfig("B"), "B");
-        await _manager.CreateDefinitionAsync(MakeConfig("C"), "C");
+        await _manager.CreateDefinitionAsync(MakeConfig("A"));
+        await _manager.CreateDefinitionAsync(MakeConfig("B"));
+        await _manager.CreateDefinitionAsync(MakeConfig("C"));
 
         var list = await _manager.ListDefinitionsAsync();
         list.Should().HaveCount(3);
@@ -74,7 +74,7 @@ public class AgentManagerTests : IAsyncLifetime
     [Fact]
     public async Task UpdateDefinitionAsync_PersistsNewConfig()
     {
-        var stored = await _manager.CreateDefinitionAsync(MakeConfig("Original"), "Original");
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("Original"));
         var newConfig = MakeConfig("Updated");
 
         var updated = await _manager.UpdateDefinitionAsync(stored.Id, newConfig);
@@ -89,7 +89,7 @@ public class AgentManagerTests : IAsyncLifetime
     [Fact]
     public async Task UpdateDefinitionAsync_EvictsCachedInstance()
     {
-        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"));
         await _manager.GetOrBuildAgentAsync(stored.Id);
         var buildCountAfterFirst = _manager.BuildCallCount;
 
@@ -110,7 +110,7 @@ public class AgentManagerTests : IAsyncLifetime
     [Fact]
     public async Task DeleteDefinitionAsync_RemovesFromStore_AndEvictsCache()
     {
-        var stored = await _manager.CreateDefinitionAsync(MakeConfig("D"), "D");
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("D"));
         await _manager.GetOrBuildAgentAsync(stored.Id);
 
         await _manager.DeleteDefinitionAsync(stored.Id);
@@ -129,7 +129,7 @@ public class AgentManagerTests : IAsyncLifetime
     [Fact]
     public async Task GetOrBuildAgentAsync_BuildsOnFirstCall()
     {
-        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"));
 
         await _manager.GetOrBuildAgentAsync(stored.Id);
 
@@ -139,7 +139,7 @@ public class AgentManagerTests : IAsyncLifetime
     [Fact]
     public async Task GetOrBuildAgentAsync_ReturnsSameInstance_ForSameAgentId()
     {
-        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"));
 
         var a1 = await _manager.GetOrBuildAgentAsync(stored.Id);
         var a2 = await _manager.GetOrBuildAgentAsync(stored.Id);
@@ -151,8 +151,8 @@ public class AgentManagerTests : IAsyncLifetime
     [Fact]
     public async Task GetOrBuildAgentAsync_CreatesDifferentInstances_ForDifferentAgentIds()
     {
-        var s1 = await _manager.CreateDefinitionAsync(MakeConfig("A"), "A");
-        var s2 = await _manager.CreateDefinitionAsync(MakeConfig("B"), "B");
+        var s1 = await _manager.CreateDefinitionAsync(MakeConfig("A"));
+        var s2 = await _manager.CreateDefinitionAsync(MakeConfig("B"));
 
         var a1 = await _manager.GetOrBuildAgentAsync(s1.Id);
         var a2 = await _manager.GetOrBuildAgentAsync(s2.Id);
@@ -164,7 +164,7 @@ public class AgentManagerTests : IAsyncLifetime
     [Fact]
     public async Task GetOrBuildAgentRuntimeAsync_ReturnsSameInstance_ForSameThreadRuntime()
     {
-        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"));
 
         var a1 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "thread-1");
         var a2 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "thread-1");
@@ -176,7 +176,7 @@ public class AgentManagerTests : IAsyncLifetime
     [Fact]
     public async Task GetOrBuildAgentRuntimeAsync_CreatesDifferentInstances_ForDifferentThreads()
     {
-        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"));
 
         var a1 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "thread-1");
         var a2 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "thread-2");
@@ -188,7 +188,7 @@ public class AgentManagerTests : IAsyncLifetime
     [Fact]
     public async Task GetOrBuildAgentRuntimeAsync_CreatesDifferentInstances_ForDifferentSessions()
     {
-        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"));
 
         var a1 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "thread-1");
         var a2 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-2", "thread-1");
@@ -200,7 +200,7 @@ public class AgentManagerTests : IAsyncLifetime
     [Fact]
     public async Task UpdateDefinitionAsync_EvictsThreadRuntimeInstances()
     {
-        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"));
         var first = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "thread-1");
 
         await _manager.UpdateDefinitionAsync(stored.Id, MakeConfig("X-updated"));
@@ -213,7 +213,7 @@ public class AgentManagerTests : IAsyncLifetime
     [Fact]
     public async Task GetOrBuildAgentAsync_PreventsConcurrentBuilds_WithPerAgentLock()
     {
-        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"));
 
         var buildStarted = new TaskCompletionSource();
         var buildCanComplete = new TaskCompletionSource();
@@ -239,7 +239,7 @@ public class AgentManagerTests : IAsyncLifetime
     [Fact]
     public async Task GetOrBuildAgentAsync_UpdatesLastAccessed_OnEveryAccess()
     {
-        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"));
         await _manager.GetOrBuildAgentAsync(stored.Id);
         var first = _manager.GetLastAccessedTime(stored.Id);
 
@@ -263,14 +263,14 @@ public class AgentManagerTests : IAsyncLifetime
     [Fact]
     public async Task GetAgent_ReturnsNull_WhenNotBuilt()
     {
-        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"));
         _manager.GetAgent(stored.Id).Should().BeNull();
     }
 
     [Fact]
     public async Task GetAgent_ReturnsInstance_AfterBuild()
     {
-        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"));
         var built = await _manager.GetOrBuildAgentAsync(stored.Id);
 
         _manager.GetAgent(stored.Id).Should().BeSameAs(built);
@@ -279,7 +279,7 @@ public class AgentManagerTests : IAsyncLifetime
     [Fact]
     public async Task GetRuntimeAgent_ReturnsNull_WhenRuntimeNotBuilt()
     {
-        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"));
 
         _manager.GetRuntimeAgent(stored.Id, "session-1", "thread-1").Should().BeNull();
     }
@@ -287,7 +287,7 @@ public class AgentManagerTests : IAsyncLifetime
     [Fact]
     public async Task GetRuntimeAgent_ReturnsThreadRuntime_AfterBuild()
     {
-        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"));
         var built = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "thread-1");
 
         _manager.GetRuntimeAgent(stored.Id, "session-1", "thread-1").Should().BeSameAs(built);
@@ -296,7 +296,7 @@ public class AgentManagerTests : IAsyncLifetime
     [Fact]
     public async Task GetRuntimeAgent_DoesNotReturnUnscopedAgent()
     {
-        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"));
         await _manager.GetOrBuildAgentAsync(stored.Id);
 
         _manager.GetRuntimeAgent(stored.Id, "session-1", "thread-1").Should().BeNull();
@@ -309,7 +309,7 @@ public class AgentManagerTests : IAsyncLifetime
     [Fact]
     public async Task EvictIdleAgents_RemovesAgents_OlderThanTimeout()
     {
-        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"));
         await _manager.GetOrBuildAgentAsync(stored.Id);
 
         _manager.SetLastAccessedTime(stored.Id, DateTime.UtcNow.AddMinutes(-35));
@@ -322,7 +322,7 @@ public class AgentManagerTests : IAsyncLifetime
     [Fact]
     public async Task EvictIdleAgents_KeepsAgents_NewerThanTimeout()
     {
-        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"));
         var first = await _manager.GetOrBuildAgentAsync(stored.Id);
 
         _manager.SetLastAccessedTime(stored.Id, DateTime.UtcNow.AddMinutes(-10));
@@ -341,7 +341,7 @@ public class AgentManagerTests : IAsyncLifetime
         // KEY BEHAVIORAL CHANGE: IsStreaming is gone — time-based eviction only.
         // The thread operation lock (held externally by SessionManager) does NOT protect the
         // agent cache from eviction. After eviction the next agent request rebuilds.
-        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"));
         await _manager.GetOrBuildAgentAsync(stored.Id);
 
         _manager.SetLastAccessedTime(stored.Id, DateTime.UtcNow.AddMinutes(-35));
@@ -393,7 +393,6 @@ public class AgentManagerTests : IAsyncLifetime
                 ?? new StoredAgent
                 {
                     Id = agentId,
-                    Name = agentId,
                     Config = MakeConfig(agentId)
                 };
 

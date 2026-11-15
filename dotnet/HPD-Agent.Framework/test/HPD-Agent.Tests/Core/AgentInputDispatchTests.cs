@@ -198,8 +198,10 @@ public class AgentInputDispatchTests
         IRuntimeCapabilityRegistry? runtimeCapabilities = null)
         => new()
         {
+            AgentId = "InputDispatchAgent",
             AgentName = "InputDispatchAgent",
             Config = new AgentConfig { Name = "InputDispatchAgent" },
+            RuntimeOptions = new AgentRuntimeOptions(),
             EventCoordinator = new EventCoordinator(),
             RuntimeCapabilities = runtimeCapabilities ?? new RuntimeCapabilityRegistry(),
             RunMessagesAsync = (_, input, _, _, _) => runMessages?.Invoke(input)

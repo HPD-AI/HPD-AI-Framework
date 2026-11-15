@@ -8,7 +8,7 @@ public sealed partial class Agent
         ThreadKey parent, CompactionSpecification? specification, CancellationToken cancellationToken,
         ThreadJournalCursor? sourceCursor = null)
     {
-        var store = RequireConfig().SessionStore ?? throw new InvalidOperationException("Session store required.");
+        var store = Runtime.SessionStore ?? throw new InvalidOperationException("Session store required.");
         var descriptor = await store.GetThreadAsync(parent, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException("subagent_parent_missing");
         var cursor = sourceCursor ?? new ThreadJournalCursor(descriptor.Generation, descriptor.Head);

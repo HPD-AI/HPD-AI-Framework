@@ -3,6 +3,7 @@ using HPD.Events.Struct;
 using Microsoft.Extensions.AI;
 using HPD.Agent;
 using HPD.Agent.Permissions;
+using HPD.Agent.Serialization;
 using System.ComponentModel;
 
 namespace HPD.Agent.Middleware;
@@ -100,6 +101,7 @@ public sealed class FunctionExecutionContext : IHarnessConfigurationContext
     private readonly ContentRetrievalBudget _contentRetrievalBudget;
     private readonly FunctionContentOutputs _outputs;
     private readonly string? _threadForkedFrom;
+    private readonly AgentEventComposition? _eventComposition;
 
     internal FunctionExecutionContext(
         HookContext hookContext,
@@ -140,6 +142,7 @@ public sealed class FunctionExecutionContext : IHarnessConfigurationContext
         _parentSessionStore = hookContext.Session?.Store;
         _parentAgentStore = hookContext.GetParentAgentStore();
         _parentConfig = hookContext.Config;
+        _eventComposition = hookContext.EventComposition;
         _clientSet = hookContext.Base.ClientSet;
         _toolHarnessExecutionScope = hookContext.Base.ToolHarnessExecutionScope;
         _operationCommitGate = request.OperationCommitGate;
@@ -175,6 +178,7 @@ public sealed class FunctionExecutionContext : IHarnessConfigurationContext
         _contentRetrievalBudget = source._contentRetrievalBudget;
         _outputs = source._outputs;
         _threadForkedFrom = source._threadForkedFrom;
+        _eventComposition = source._eventComposition;
     }
 
     /// <summary>Gets the captured configuration for direct subagents invoked during this input.</summary>
@@ -401,7 +405,7 @@ public sealed class FunctionExecutionContext : IHarnessConfigurationContext
             return await ThreadEvents.PublishLiveAsync(WithInvocationScope(evt), cancellationToken).ConfigureAwait(false);
         if (EventCoordinator is null)
             throw new InvalidOperationException("Function execution context does not have an event coordinator.");
-        var codec = _parentConfig?.EventComposition?.Codec
+        var codec = _eventComposition?.Codec
             ?? throw new InvalidOperationException("Function execution context has no event composition authority.");
         var scoped = WithInvocationScope(evt);
         if (!codec.TryGetByType(scoped.GetType(), out _))

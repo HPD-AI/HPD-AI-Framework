@@ -2,10 +2,10 @@
   <PropertyGroup>
     <!--
       The embedded binary bundle is target-framework independent. A single
-      net8.0 assembly avoids shipping duplicate multi-megabyte resources in
-      every lib/ TFM folder and remains usable by net9.0 and net10.0 callers.
+      net10.0 assembly avoids shipping duplicate multi-megabyte resources in
+      every lib/ TFM folder and remains usable by later .NET callers.
     -->
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>HPD.Environment.Search.Ripgrep</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>

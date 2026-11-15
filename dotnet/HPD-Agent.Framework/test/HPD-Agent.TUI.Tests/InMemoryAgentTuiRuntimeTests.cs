@@ -13,8 +13,9 @@ public sealed class InMemoryAgentTuiRuntimeTests
     [InlineData(true)]
     public async Task SubmitInput_UsesAgentAllocatedIdentityAndOneAuthoritativeLifecycle(bool fail)
     {
+        var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
         await using var agent = await CreateBuilder(fail)
-            .WithInMemorySessionStore()
+            .WithSessionStore(store)
             .BuildAsync();
         var scope = new AgentTuiRuntimeScope(agent.AgentId, "review", "main");
         await agent.CreateSessionAsync(scope.SessionId);
@@ -32,7 +33,7 @@ public sealed class InMemoryAgentTuiRuntimeTests
             while ((await runtime.GetThreadStateAsync(scope, timeout.Token)).ActiveExecution is not null)
                 await Task.Delay(10, timeout.Token);
 
-            var events = await agent.Config.SessionStore!.CollectThreadEventsAsync(
+            var events = await store.CollectThreadEventsAsync(
                 new ThreadKey(scope.SessionId, scope.ThreadId), timeout.Token);
             var started = Assert.Single(events!.OfType<ThreadExecutionStartedEvent>(),
                 e => e.ThreadExecutionId == submitted.ThreadExecutionId);
@@ -50,8 +51,9 @@ public sealed class InMemoryAgentTuiRuntimeTests
     [Fact]
     public async Task RejectedIdentity_DoesNotLeaveAGhostLifecycleOrBlockNextInput()
     {
+        var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
         await using var agent = await CreateBuilder(false)
-            .WithInMemorySessionStore()
+            .WithSessionStore(store)
             .BuildAsync();
         var scope = new AgentTuiRuntimeScope(agent.AgentId, "review", "main");
         await agent.CreateSessionAsync(scope.SessionId);
@@ -63,7 +65,7 @@ public sealed class InMemoryAgentTuiRuntimeTests
                 ThreadExecutionId = "caller-invented",
                 Messages = [new ChatMessage(ChatRole.User, "Review")]
             }));
-        var events = await agent.Config.SessionStore!.CollectThreadEventsAsync(new(scope.SessionId, scope.ThreadId));
+        var events = await store.CollectThreadEventsAsync(new(scope.SessionId, scope.ThreadId));
         Assert.DoesNotContain(events!, e => e is ThreadExecutionStartedEvent or ThreadExecutionFinishedEvent);
         var accepted = await runtime.SubmitInputAsync(target, new UserMessagesInputEvent
         {

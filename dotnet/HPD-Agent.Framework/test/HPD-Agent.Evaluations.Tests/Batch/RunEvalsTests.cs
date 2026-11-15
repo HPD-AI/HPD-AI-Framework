@@ -796,7 +796,6 @@ public sealed class RunEvalsTests
                 new AgentConfig
                 {
                     Name = nameof(CapturingAgent),
-                    EventComposition = HPD.Agent.Serialization.CoreAgentEventComposition.Instance,
                     Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
                         Provider = TestProviderSelections.Anonymous("openai"),
                         ModelName = "gpt-test",
@@ -805,7 +804,11 @@ public sealed class RunEvalsTests
                 _chatClient,
                 options,
                 middlewares: [new RecordingMiddleware(this)],
-                providerRegistry: new CapturingProviderRegistry(_chatClient));
+                providerRegistry: new CapturingProviderRegistry(_chatClient),
+                runtimeOptions: new AgentRuntimeOptions
+                {
+                    EventComposition = HPD.Agent.Serialization.CoreAgentEventComposition.Instance
+                });
         }
 
         public static implicit operator HPD.Agent.Agent(CapturingAgent agent) => agent._agent;

@@ -132,7 +132,6 @@ internal class TestWebApplicationAgentFactory : IAgentFactory
         {
             Name = sessionId,
             MaxAgenticIterations = 50,
-            EventComposition = HPD.Agent.AspNetCore.Tests.TestEventApplication.Composition,
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
                 Override = ClientOverride<IChatClient>.Borrow(
                     _fakeChatClient,
@@ -147,6 +146,7 @@ internal class TestWebApplicationAgentFactory : IAgentFactory
         var providerRegistry = new TestProviderRegistry(_fakeChatClient);
 
         return await new AgentBuilder(config, providerRegistry)
+            .WithEventComposition(HPD.Agent.AspNetCore.Tests.TestEventApplication.Composition)
             .WithSessionStore(store, options =>
             {
                 options.PersistAfterTurn = true;

@@ -190,7 +190,7 @@ public sealed class UnifiedPermissionModelTests
     {
         var function = Function();
         var context = Context();
-        var middleware = new PermissionMiddleware(new AgentConfig { AgentId = "coding" });
+        var middleware = new PermissionMiddleware(agentId: "coding", agentName: "coding");
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await middleware.AuthorizeCallAsync(context.AsBeforeFunction(function, "call", new Dictionary<string, object?>(), new()),
                 middleware.ResolveFunction(function, null, new()), "call", new Dictionary<string, object?>(), null, new(), CancellationToken.None));

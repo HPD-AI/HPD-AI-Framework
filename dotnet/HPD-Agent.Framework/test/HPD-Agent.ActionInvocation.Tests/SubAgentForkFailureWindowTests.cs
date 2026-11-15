@@ -157,10 +157,12 @@ public sealed class SubAgentForkFailureWindowTests
         var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
         var agent = new Agent(new AgentConfig
         {
-            Name = "test-agent",
+            Name = "test-agent"
+        }, baseClient: null, mergedOptions: null, runtimeOptions: new AgentRuntimeOptions
+        {
             SessionStore = store,
             EventComposition = CoreAgentEventComposition.Instance
-        }, baseClient: null, mergedOptions: null);
+        });
         var session = new Session($"failure-window-{activeChild}");
         await store.SaveSessionAsync(session);
         var source = session.CreateThread("test-agent", "main");

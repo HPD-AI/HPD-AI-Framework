@@ -46,7 +46,6 @@ public abstract class AgentManager : IAsyncDisposable
     /// <summary>Create and persist a new agent definition.</summary>
     public async Task<StoredAgent> CreateDefinitionAsync(
         AgentConfig config,
-        string? name = null,
         Dictionary<string, object>? metadata = null,
         string? agentId = null,
         CancellationToken ct = default)
@@ -61,7 +60,6 @@ public abstract class AgentManager : IAsyncDisposable
         var stored = new StoredAgent
         {
             Id = id,
-            Name = name ?? config.Name,
             Config = config,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
@@ -113,6 +111,7 @@ public abstract class AgentManager : IAsyncDisposable
     public async Task<StoredAgent> UpdateDefinitionAsync(
         string agentId,
         AgentConfig config,
+        Dictionary<string, object>? metadata = null,
         CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
@@ -122,6 +121,8 @@ public abstract class AgentManager : IAsyncDisposable
             ?? throw new KeyNotFoundException($"Agent '{agentId}' not found.");
 
         existing.Config = config;
+        if (metadata is not null)
+            existing.Metadata = metadata;
         existing.UpdatedAt = DateTime.UtcNow;
 
         await _store.SaveAsync(existing, ct);
@@ -303,7 +304,6 @@ public abstract class AgentManager : IAsyncDisposable
         var stored = new StoredAgent
         {
             Id = agentId,
-            Name = config.Name,
             Config = config,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow

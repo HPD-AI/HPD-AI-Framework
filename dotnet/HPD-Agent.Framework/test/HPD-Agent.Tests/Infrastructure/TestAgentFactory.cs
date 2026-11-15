@@ -24,7 +24,15 @@ public static class TestAgentFactory
         IChatClient? chatClient = null,
         int? circuitBreakerThreshold = 5,
         params AIFunction[] tools)
-        => CreateCore(config, chatClient, middlewares: null, circuitBreakerThreshold, tools);
+        => CreateCore(config, chatClient, middlewares: null, circuitBreakerThreshold, sessionStore: null, tools);
+
+    internal static Agent CreateWithSessionStore(
+        AgentConfig? config,
+        ISessionStore sessionStore,
+        IChatClient? chatClient = null,
+        int? circuitBreakerThreshold = 5,
+        params AIFunction[] tools)
+        => CreateCore(config, chatClient, middlewares: null, circuitBreakerThreshold, sessionStore, tools);
 
     internal static Agent CreateWithMiddlewares(
         AgentConfig? config = null,
@@ -32,13 +40,23 @@ public static class TestAgentFactory
         IEnumerable<IAgentMiddleware>? middlewares = null,
         int? circuitBreakerThreshold = 5,
         params AIFunction[] tools)
-        => CreateCore(config, chatClient, middlewares, circuitBreakerThreshold, tools);
+        => CreateCore(config, chatClient, middlewares, circuitBreakerThreshold, sessionStore: null, tools);
+
+    internal static Agent CreateWithMiddlewaresAndSessionStore(
+        AgentConfig? config,
+        ISessionStore sessionStore,
+        IChatClient? chatClient = null,
+        IEnumerable<IAgentMiddleware>? middlewares = null,
+        int? circuitBreakerThreshold = 5,
+        params AIFunction[] tools)
+        => CreateCore(config, chatClient, middlewares, circuitBreakerThreshold, sessionStore, tools);
 
     private static Agent CreateCore(
         AgentConfig? config,
         IChatClient? chatClient,
         IEnumerable<IAgentMiddleware>? middlewares,
         int? circuitBreakerThreshold,
+        ISessionStore? sessionStore,
         params AIFunction[] tools)
     {
         // Use defaults if not provided
@@ -47,17 +65,17 @@ public static class TestAgentFactory
         config.Clients.Chat ??= new ChatClientConfig();
         config.Clients.Chat.Override = ClientOverride<IChatClient>.Borrow(chatClient, "test", "local", "test.chat");
 
-        // Add tools before constructing the builder. AgentBuilder owns a configuration
-        // snapshot, so mutations made afterward intentionally do not affect the agent.
-        config.ServerConfiguredTools ??= new List<Microsoft.Extensions.AI.AITool>();
-        for (var index = 0; index < config.ServerConfiguredTools.Count; index++)
-            config.ServerConfiguredTools[index] = NormalizeTool(config.ServerConfiguredTools[index]);
-        foreach (var tool in tools)
-            config.ServerConfiguredTools.Add(NormalizeTool(tool));
-
         // Create builder with test provider registry that knows about our chat client
         var builder = new AgentBuilder(config, new TestProviderRegistry(chatClient))
             .WithEventComposition(HPD.Agent.Tests.TestEventApplication.Composition);
+
+        builder.RuntimeOptions.ServerConfiguredTools ??= new List<Microsoft.Extensions.AI.AITool>();
+        builder.RuntimeOptions.SessionStore = sessionStore;
+        var configuredTools = builder.RuntimeOptions.ServerConfiguredTools;
+        for (var index = 0; index < configuredTools.Count; index++)
+            configuredTools[index] = NormalizeTool(configuredTools[index]);
+        foreach (var tool in tools)
+            configuredTools.Add(NormalizeTool(tool));
 
         // Register standard iteration middlewares for loop protection
         // These are essential for preventing infinite loops in tests

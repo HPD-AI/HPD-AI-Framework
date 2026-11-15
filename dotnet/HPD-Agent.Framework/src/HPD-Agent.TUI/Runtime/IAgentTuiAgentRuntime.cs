@@ -31,7 +31,6 @@ public interface IAgentTuiAgentRuntime : IAgentTuiAgentDefinitionRuntime
 
 public sealed record AgentTuiCreateAgentRequest(
     string AgentId,
-    string Name,
     AgentConfig Config,
     IReadOnlyDictionary<string, object?>? Metadata = null);
 

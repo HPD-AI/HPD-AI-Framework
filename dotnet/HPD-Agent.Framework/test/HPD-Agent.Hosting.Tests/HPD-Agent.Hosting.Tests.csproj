@@ -3,7 +3,7 @@
   <PropertyGroup>
     <HpdAgentApplication>true</HpdAgentApplication>
     <HpdAgentEventPrecompileRequireAnalyzer>false</HpdAgentEventPrecompileRequireAnalyzer>
-    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
+    <TargetFrameworks>net11.0;net10.0</TargetFrameworks>
     <RootNamespace>HPD.Agent.Hosting.Tests</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>

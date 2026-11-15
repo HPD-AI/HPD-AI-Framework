@@ -100,27 +100,17 @@ and [lifecycle reference](https://hpd-ai.github.io/HPD-Agent/concepts/middleware
 
 The core framework, general hosting, ASP.NET Core host, bots, audio, sandbox,
 TUI, MCP, evaluation, multi-agent orchestration, and tool-harness packages
-target `net8.0`, `net9.0`, and `net10.0`.
+target `net10.0` and `net11.0`.
 
-The following packages target `net10.0` only:
+The following HPD Base adapter packages target `net10.0` only because their
+upstream HPD Base packages currently target `net10.0`:
 
-- `HPD-Agent.Client`
-- `HPD-Agent.AspNetCore.OpenApi`
-- `HPD-Agent.MultiAgent.AspNetCore`
 - `HPD-Agent.MultiAgent.HpdBase`
-- `HPD-Agent.Stores.HpdBase` (`net10.0`)
-- `HPD-Agent.Evaluations.HpdBase` (`net10.0`)
-- `HPD-Agent.Providers.Cohere`
-- `HPD-Agent.Providers.DashScope`
-- `HPD-Agent.Providers.Fireworks`
-- `HPD-Agent.Providers.Groq`
-- `HPD-Agent.Providers.HuggingFace`
-- `HPD-Agent.Providers.Mistral`
-- `HPD-Agent.Providers.Replicate`
-- `HPD-Agent.Providers.Together`
+- `HPD-Agent.Stores.HpdBase`
+- `HPD-Agent.Evaluations.HpdBase`
 
 Analyzer packages target `netstandard2.0`. `HPD-Agent.Audio.LiveKit` targets
-`net8.0`, `net9.0`, and `net10.0`. Its companion native-assets package targets
+`net10.0` and `net11.0`. Its companion native-assets package targets
 `net8.0` and currently supplies the execution-qualified `osx-arm64` LiveKit FFI
 artifact. Unsupported runtime identifiers fail closed.
 

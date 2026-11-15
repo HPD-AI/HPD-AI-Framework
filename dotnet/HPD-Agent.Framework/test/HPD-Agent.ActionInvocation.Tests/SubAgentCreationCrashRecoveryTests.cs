@@ -321,10 +321,12 @@ public sealed class SubAgentCreationCrashRecoveryTests
         private readonly Agent _agent;
         public FixedResolver(ISessionStore store) => _agent = new Agent(new AgentConfig
         {
-            Name = "worker-agent",
+            Name = "worker-agent"
+        }, baseClient: null, mergedOptions: null, runtimeOptions: new AgentRuntimeOptions
+        {
             SessionStore = store,
             EventComposition = CoreAgentEventComposition.Instance
-        }, baseClient: null, mergedOptions: null);
+        });
         public Task<IAgentRuntimeLease> GetOrBuildAsync(
             string agentId, string sessionId, string threadId, CancellationToken cancellationToken = default) =>
             Task.FromResult<IAgentRuntimeLease>(new Lease(_agent));

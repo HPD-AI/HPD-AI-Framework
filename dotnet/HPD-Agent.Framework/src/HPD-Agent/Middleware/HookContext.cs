@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using HPD.Agent.Serialization;
 using HPD.Events;
 
 namespace HPD.Agent.Middleware;
@@ -38,6 +39,9 @@ public abstract class HookContext
     /// </summary>
     public string AgentName => Base.AgentName;
 
+    /// <summary>Stable agent routing identity, when one was supplied by the host.</summary>
+    public string? AgentId => Base.AgentId;
+
     /// <summary>
     /// Unique identifier for this conversation/session.
     /// </summary>
@@ -56,6 +60,17 @@ public abstract class HookContext
     /// Agent configuration for middleware that needs agent-level client-family defaults.
     /// </summary>
     public AgentConfig? Config => Base.Config;
+
+    internal AgentRuntimeOptions? RuntimeOptions => Base.RuntimeOptions;
+
+    /// <summary>Read-only access to the configured session store.</summary>
+    public ISessionStore? SessionStore => Base.SessionStore;
+
+    /// <summary>Read-only access to the configured agent-definition store.</summary>
+    public IAgentStore? AgentStore => Base.AgentStore;
+
+    /// <summary>Application event authority selected for this runtime.</summary>
+    public AgentEventComposition? EventComposition => Base.EventComposition;
 
     /// <summary>
     /// Provider-created client-family instances resolved for this agent build.

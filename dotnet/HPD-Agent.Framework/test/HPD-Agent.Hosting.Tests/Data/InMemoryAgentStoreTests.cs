@@ -31,7 +31,7 @@ public class InMemoryAgentStoreTests
 
         loaded.Should().NotBeNull();
         loaded!.Id.Should().Be("agent-1");
-        loaded.Name.Should().Be("My Agent");
+        loaded.Config.Name.Should().Be("My Agent");
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -48,7 +48,7 @@ public class InMemoryAgentStoreTests
 
         loaded.Should().NotBeNull();
         loaded!.Id.Should().Be(agent.Id);
-        loaded.Name.Should().Be(agent.Name);
+        loaded.Config.Name.Should().Be(agent.Config.Name);
         loaded.Config.Should().BeSameAs(agent.Config);
     }
 
@@ -62,7 +62,7 @@ public class InMemoryAgentStoreTests
         await _store.SaveAsync(updated);
 
         var loaded = await _store.LoadAsync("upsert-id");
-        loaded!.Name.Should().Be("Updated");
+        loaded!.Config.Name.Should().Be("Updated");
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -132,7 +132,6 @@ public class InMemoryAgentStoreTests
     private static StoredAgent MakeAgent(string id, string name) => new()
     {
         Id = id,
-        Name = name,
         Config = new AgentConfig { Name = name }
     };
 }

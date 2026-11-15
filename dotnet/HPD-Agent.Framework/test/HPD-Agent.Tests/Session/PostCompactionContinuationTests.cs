@@ -18,9 +18,9 @@ public sealed class PostCompactionContinuationTests
         var client = new CaptureClient();
         async Task<Agent> Build(string name = "continuation-test") => await new AgentBuilder(new AgentConfig
         {
-            Name = name, AgentId = name, Compaction = new CompactionConfig(),
+            Name = name, Compaction = new CompactionConfig(),
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig() }
-        }).WithChatClient(client).WithSessionStore(store)
+        }).WithAgentId(name).WithChatClient(client).WithSessionStore(store)
             .WithEventComposition(TestEventApplication.Composition).BuildAsync();
         var agent = await Build();
         await agent.CreateSessionAsync("continuation-session");

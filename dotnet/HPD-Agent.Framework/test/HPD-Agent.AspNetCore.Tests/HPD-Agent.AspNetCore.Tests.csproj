@@ -3,7 +3,7 @@
   <PropertyGroup>
     <HpdAgentApplication>true</HpdAgentApplication>
     <HpdAgentEventPrecompileRequireAnalyzer>false</HpdAgentEventPrecompileRequireAnalyzer>
-    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
+    <TargetFrameworks>net11.0;net10.0</TargetFrameworks>
     <RootNamespace>HPD.Agent.AspNetCore.Tests</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -13,10 +13,10 @@
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="10.1.0" />
     <PackageReference Include="FluentAssertions" Version="$(FluentAssertionsVersion)" />
-    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.15" Condition="'$(TargetFramework)' == 'net8.0'" />
-    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="9.0.5" Condition="'$(TargetFramework)' == 'net9.0'" />
-    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.3" Condition="'$(TargetFramework)' == 'net10.0'" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.13" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="11.0.0" Condition="'$(TargetFramework)' == 'net11.0'" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.15" Condition="'$(TargetFramework)' == 'net10.0'" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0" Condition="'$(TargetFramework)' == 'net11.0'" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.15" Condition="'$(TargetFramework)' == 'net10.0'" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />

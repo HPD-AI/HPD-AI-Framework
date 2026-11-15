@@ -19,8 +19,7 @@ public sealed class HostedRuntimeExecutionIntegrationTests
         await using var agents = new TestAgentManager(new InMemoryAgentStore(), store);
         var service = new AgentStreamingService(sessions, agents);
         var definition = await agents.CreateDefinitionAsync(
-            new AgentConfig { Name = "hosted-isolation" },
-            "hosted-isolation");
+            new AgentConfig { Name = "hosted-isolation" });
         var first = await sessions.CreateSessionAsync(definition.Id, "hosted-first");
         var second = await sessions.CreateSessionAsync(definition.Id, "hosted-second");
 

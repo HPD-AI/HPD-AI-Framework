@@ -16,7 +16,7 @@ public class BotStreamingRunnerTests
     public async Task RunAsync_BufferAndPost_CompletesTextWithoutIntermediateUpdates()
     {
         var chatClient = new StreamingChatClient(["hel", "lo"]);
-        await using var agent = await new AgentBuilder(CreateAgentConfig())
+        await using var agent = await CreateAgentBuilder()
             .WithChatClient(chatClient)
             .BuildAsync();
         await agent.CreateSessionAsync("session-1");
@@ -61,7 +61,7 @@ public class BotStreamingRunnerTests
     public async Task RunAsync_PostAndEdit_UpdatesTextBeforeCompletion()
     {
         var chatClient = new StreamingChatClient(["hel", "lo"], TimeSpan.FromMilliseconds(25));
-        await using var agent = await new AgentBuilder(CreateAgentConfig())
+        await using var agent = await CreateAgentBuilder()
             .WithChatClient(chatClient)
             .BuildAsync();
         await agent.CreateSessionAsync("session-1");
@@ -102,8 +102,8 @@ public class BotStreamingRunnerTests
         completes.Should().ContainSingle().Which.Should().Be("hello");
     }
 
-    private static AgentConfig CreateAgentConfig()
-        => new()
+    private static AgentBuilder CreateAgentBuilder()
+        => new AgentBuilder(new AgentConfig
         {
             Name = "StreamingTestAgent",
             MaxAgenticIterations = 3,
@@ -122,13 +122,11 @@ public class BotStreamingRunnerTests
                 FunctionRetries = new() { MaxRetries = 0 },
                 NormalizeErrors = true,
             },
-                SessionStore = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec),
-                EventComposition = HPD.Agent.Serialization.CoreAgentEventComposition.Instance,
-            SessionStoreOptions = new SessionStoreOptions
-            {
-                PersistAfterTurn = true,
-            },
-        };
+        })
+        .WithEventComposition(HPD.Agent.Serialization.CoreAgentEventComposition.Instance)
+        .WithSessionStore(
+            new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec),
+            options => options.PersistAfterTurn = true);
 
     private sealed class StaticAgentManager(HpdAgent agent) : AgentManager(new InMemoryAgentStore())
     {

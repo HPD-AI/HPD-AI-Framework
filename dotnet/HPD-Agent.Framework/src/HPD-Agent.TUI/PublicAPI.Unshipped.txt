@@ -1223,13 +1223,11 @@ HPD.Agent.TUI.Runtime.AgentTuiClientSelectionSummary.ProviderKey.init -> void
 HPD.Agent.TUI.Runtime.AgentTuiCreateAgentRequest
 HPD.Agent.TUI.Runtime.AgentTuiCreateAgentRequest.AgentId.get -> string!
 HPD.Agent.TUI.Runtime.AgentTuiCreateAgentRequest.AgentId.init -> void
-HPD.Agent.TUI.Runtime.AgentTuiCreateAgentRequest.AgentTuiCreateAgentRequest(string! AgentId, string! Name, HPD.Agent.AgentConfig! Config, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? Metadata = null) -> void
+HPD.Agent.TUI.Runtime.AgentTuiCreateAgentRequest.AgentTuiCreateAgentRequest(string! AgentId, HPD.Agent.AgentConfig! Config, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? Metadata = null) -> void
 HPD.Agent.TUI.Runtime.AgentTuiCreateAgentRequest.Config.get -> HPD.Agent.AgentConfig!
 HPD.Agent.TUI.Runtime.AgentTuiCreateAgentRequest.Config.init -> void
 HPD.Agent.TUI.Runtime.AgentTuiCreateAgentRequest.Metadata.get -> System.Collections.Generic.IReadOnlyDictionary<string!, object?>?
 HPD.Agent.TUI.Runtime.AgentTuiCreateAgentRequest.Metadata.init -> void
-HPD.Agent.TUI.Runtime.AgentTuiCreateAgentRequest.Name.get -> string!
-HPD.Agent.TUI.Runtime.AgentTuiCreateAgentRequest.Name.init -> void
 HPD.Agent.TUI.Runtime.AgentTuiCreateThreadRequest
 HPD.Agent.TUI.Runtime.AgentTuiCreateThreadRequest.AgentTuiCreateThreadRequest(string? ThreadId = null, string? Name = null, string? Description = null, System.Collections.Generic.IReadOnlyList<string!>? Tags = null, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? Metadata = null) -> void
 HPD.Agent.TUI.Runtime.AgentTuiCreateThreadRequest.Description.get -> string?

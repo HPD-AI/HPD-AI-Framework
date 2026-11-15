@@ -12,6 +12,7 @@ client=typescript/hpd-agent-client
 dotnet restore "$framework/src/HPD-Agent.EventPrecompiler"
 HPD_FULL_FEATURE_OPENAPI_OUTPUT="$scratch/contract.json" \
   dotnet test "$framework/test/HPD-Agent.AspNetCore.OpenApi.Tests" \
+    --framework net11.0 \
     --filter FullyQualifiedName~WriteFullFeatureContractWhenRequested
 
 dotnet run --project "$framework/src/HPD-Agent.SDK.Generator" -- \

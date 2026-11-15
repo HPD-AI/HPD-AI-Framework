@@ -58,9 +58,9 @@ export interface AIContentBase {
 
 export interface AIContentCodeInterpreterToolCallContent {
   $type: string;
-  inputs?: unknown;
+  inputs?: Array<AIContent> | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<AIAnnotation> | null;
   additionalProperties?: unknown;
 }
 
@@ -128,7 +128,7 @@ export interface AIContentHostedVectorStoreContent {
 export interface AIContentImageGenerationToolCallContent {
   $type: string;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<AIAnnotation> | null;
   additionalProperties?: unknown;
 }
 
@@ -160,7 +160,7 @@ export interface AIContentMcpServerToolCallContent {
   serverName: string | null;
   arguments?: unknown;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<AIAnnotation> | null;
   additionalProperties?: unknown;
 }
 
@@ -236,9 +236,9 @@ export interface AIContentUsageContent {
 
 export interface AIContentWebSearchToolCallContent {
   $type: string;
-  queries?: unknown;
+  queries?: Array<string> | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<AIAnnotation> | null;
   additionalProperties?: unknown;
 }
 
@@ -738,7 +738,6 @@ export interface ContentRetrievalLimits {
 
 export interface CreateAgentRequest {
   agentId: string;
-  name: string;
   config: AgentConfig;
   metadata?: unknown;
 }
@@ -5462,7 +5461,14 @@ export interface InlineHPDAgentAudioSessionInputEventCommandAnyOf1 {
 }
 
 export interface InlineHPDAgentAudioSessionInputEventCommandAnyOf1Patch {
-  bindings?: Array<unknown> | null;
+  bindings?: Array<InlineHPDAgentAudioSessionInputEventCommandAnyOf1PatchBindingsItem> | null;
+}
+
+export interface InlineHPDAgentAudioSessionInputEventCommandAnyOf1PatchBindingsItem {
+  componentInstance: string;
+  schema: string;
+  version: number;
+  value: unknown;
 }
 
 export interface InlineHPDAgentAudioSessionInputEventCommandAnyOf2 {
@@ -5898,8 +5904,11 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf0AnnotationsItemAnyO
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf0AnnotationsItemAnyOf1 {
-  annotatedRegions?: Array<unknown> | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf0AnnotationsItemAnyOf1AnnotatedRegionsItem> | null;
   additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf0AnnotationsItemAnyOf1AnnotatedRegionsItem {
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf1 {
@@ -5907,35 +5916,111 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf1 {
   message?: string | null;
   errorCode?: string | null;
   details?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf1AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf1AnnotationsItemAnyOf1> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf10 {
   $type: string;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf10AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf10AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf10AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf10AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf10AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf10AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf11 {
   $type: string;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf11AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf11AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf11AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf11AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf11AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf11AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf12 {
   $type: string;
   requestId?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf12AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf12AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf12AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf12AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf12AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf12AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf13 {
   $type: string;
   requestId?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf13AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf13AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf13AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf13AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf13AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf13AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -5943,7 +6028,7 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf14 {
   $type: string;
   toolCall: InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf5;
   requestId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -5953,7 +6038,7 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf0 {
   arguments?: unknown;
   informationalOnly?: boolean | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -5963,14 +6048,52 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf1 {
   serverName?: string | null;
   arguments?: unknown;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf2 {
   $type: string;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -5978,7 +6101,7 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3 {
   $type: string;
   inputs?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf5 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf6 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf7 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf8 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf9 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf10 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf11 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf12 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf13 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf16 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf18 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf22 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf24> | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -5986,7 +6109,26 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3Inpu
   $type: string;
   uri: string;
   name?: string | null;
-  annotations?: unknown;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf0AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf0AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf0AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf0AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf0AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf0AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -5995,43 +6137,359 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3Inpu
   message?: string | null;
   errorCode?: string | null;
   details?: string | null;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf10 {
   $type: string;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf11 {
   $type: string;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf12 {
   $type: string;
   requestId?: string | null;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf13 {
   $type: string;
   requestId?: string | null;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14 {
   $type: string;
+  toolCall: InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf5;
+  requestId: string;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf0 {
+  $type: string;
+  name: string;
+  arguments?: unknown;
+  informationalOnly?: boolean | null;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf1 {
+  $type: string;
+  name: string;
+  serverName?: string | null;
+  arguments?: unknown;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf2 {
+  $type: string;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3 {
+  $type: string;
+  inputs?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf5 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf6 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf7 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf8 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf9 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf10 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf11 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf12 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf13 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf14 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf15 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf16 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf17 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf18 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf19 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf20 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf21 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf22 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf23 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf24> | null;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf0 {
+  $type: string;
+  uri: string;
+  name?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf1 {
+  $type: string;
+  message?: string | null;
+  errorCode?: string | null;
+  details?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf10 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf11 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf12 {
+  $type: string;
+  requestId?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf13 {
+  $type: string;
+  requestId?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf14 {
+  $type: string;
   toolCall: unknown;
   requestId: string;
   annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf15 {
+  $type: string;
+  approved: boolean;
+  toolCall: InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf5;
+  reason?: string | null;
+  requestId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf0 {
+  $type: string;
+  name: string;
+  arguments?: unknown;
+  informationalOnly?: boolean | null;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf1 {
+  $type: string;
+  name: string;
+  serverName?: string | null;
+  arguments?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf2 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3 {
+  $type: string;
+  inputs?: unknown;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf4 {
+  $type: string;
+  queries?: Array<string> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf5 {
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf16 {
+  $type: string;
+  name: string;
+  serverName?: string | null;
+  arguments?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf17 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf18 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf19 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf2 {
+  $type: string;
+  name: string;
+  arguments?: unknown;
+  informationalOnly?: boolean | null;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf20 {
+  $type: string;
+  inputs?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf21 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf22 {
+  $type: string;
+  queries?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf23 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf24 {
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf3 {
+  $type: string;
+  result: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf4 {
+  $type: string;
+  fileId: string;
+  mediaType?: string | null;
+  name?: string | null;
+  sizeInBytes?: number | null;
+  createdAt?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf5 {
+  $type: string;
+  vectorStoreId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf6 {
+  $type: string;
+  text?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf7 {
+  $type: string;
+  text?: string | null;
+  protectedData?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf8 {
+  $type: string;
+  uri: string;
+  mediaType?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf9 {
+  $type: string;
+  details: unknown;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf4 {
+  $type: string;
+  queries?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf14ToolCallAnyOf5 {
+  callId: string;
+  annotations?: unknown;
   additionalProperties?: unknown;
 }
 
@@ -6041,7 +6499,26 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3Inpu
   toolCall: InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf5;
   reason?: string | null;
   requestId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -6051,7 +6528,7 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3Inpu
   arguments?: unknown;
   informationalOnly?: boolean | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -6061,73 +6538,108 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3Inpu
   serverName?: string | null;
   arguments?: unknown;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf2 {
   $type: string;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3 {
   $type: string;
-  inputs?: unknown;
+  inputs?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf5 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf6 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf7 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf8 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf9 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf10 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf11 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf12 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf13 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf14 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf15 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf16 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf17 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf18 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf19 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf20 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf21 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf22 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf23 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf24> | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3AnnotationsItemAnyOf1> | null;
   additionalProperties?: unknown;
 }
 
-export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf4 {
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3AnnotationsItemAnyOf0 {
   $type: string;
-  queries?: Array<string> | null;
-  callId: string;
-  annotations?: Array<unknown> | null;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
   additionalProperties?: unknown;
 }
 
-export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf5 {
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf0 {
+  $type: string;
+  uri: string;
+  name?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf1 {
+  $type: string;
+  message?: string | null;
+  errorCode?: string | null;
+  details?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf10 {
+  $type: string;
   callId: string;
   annotations?: unknown;
   additionalProperties?: unknown;
 }
 
-export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf16 {
-  $type: string;
-  name: string;
-  serverName?: string | null;
-  arguments?: unknown;
-  callId: string;
-  annotations?: unknown;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17 {
-  $type: string;
-  outputs?: Array<unknown> | null;
-  callId: string;
-  annotations?: Array<unknown> | null;
-  additionalProperties?: unknown;
-}
-
-export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf18 {
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf11 {
   $type: string;
   callId: string;
   annotations?: unknown;
   additionalProperties?: unknown;
 }
 
-export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19 {
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf12 {
   $type: string;
-  outputs?: Array<unknown> | null;
-  callId: string;
+  requestId?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf13 {
+  $type: string;
+  requestId?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf14 {
+  $type: string;
+  toolCall: unknown;
+  requestId: string;
   annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
-export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf2 {
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf15 {
+  $type: string;
+  approved: boolean;
+  toolCall: InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf5;
+  reason?: string | null;
+  requestId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf0 {
   $type: string;
   name: string;
   arguments?: unknown;
@@ -6137,7 +6649,89 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3Inpu
   additionalProperties?: unknown;
 }
 
-export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20 {
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf1 {
+  $type: string;
+  name: string;
+  serverName?: string | null;
+  arguments?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf2 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3 {
+  $type: string;
+  inputs?: unknown;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf4 {
+  $type: string;
+  queries?: Array<string> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf5 {
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf16 {
+  $type: string;
+  name: string;
+  serverName?: string | null;
+  arguments?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf17 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf18 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf19 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf2 {
+  $type: string;
+  name: string;
+  arguments?: unknown;
+  informationalOnly?: boolean | null;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf20 {
   $type: string;
   inputs?: unknown;
   callId: string;
@@ -6145,7 +6739,7 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3Inpu
   additionalProperties?: unknown;
 }
 
-export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21 {
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf21 {
   $type: string;
   outputs?: Array<unknown> | null;
   callId: string;
@@ -6153,7 +6747,7 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3Inpu
   additionalProperties?: unknown;
 }
 
-export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf22 {
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf22 {
   $type: string;
   queries?: unknown;
   callId: string;
@@ -6161,7 +6755,7 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3Inpu
   additionalProperties?: unknown;
 }
 
-export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23 {
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf23 {
   $type: string;
   outputs?: Array<unknown> | null;
   callId: string;
@@ -6169,8 +6763,1512 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3Inpu
   additionalProperties?: unknown;
 }
 
-export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf24 {
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf24 {
   annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf3 {
+  $type: string;
+  result: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf4 {
+  $type: string;
+  fileId: string;
+  mediaType?: string | null;
+  name?: string | null;
+  sizeInBytes?: number | null;
+  createdAt?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf5 {
+  $type: string;
+  vectorStoreId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf6 {
+  $type: string;
+  text?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf7 {
+  $type: string;
+  text?: string | null;
+  protectedData?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf8 {
+  $type: string;
+  uri: string;
+  mediaType?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf3InputsItemAnyOf9 {
+  $type: string;
+  details: unknown;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf4 {
+  $type: string;
+  queries?: Array<string> | null;
+  callId: string;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf4AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf4AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf4AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf4AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf4AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf4AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf15ToolCallAnyOf5 {
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf16 {
+  $type: string;
+  name: string;
+  serverName?: string | null;
+  arguments?: unknown;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17 {
+  $type: string;
+  outputs?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf5 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf6 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf7 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf8 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf9 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf10 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf11 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf12 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf13 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf14 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf15 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf16 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf17 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf18 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf19 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf20 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf21 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf22 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf23 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf24> | null;
+  callId: string;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf0 {
+  $type: string;
+  uri: string;
+  name?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf1 {
+  $type: string;
+  message?: string | null;
+  errorCode?: string | null;
+  details?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf10 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf11 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf12 {
+  $type: string;
+  requestId?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf13 {
+  $type: string;
+  requestId?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf14 {
+  $type: string;
+  toolCall: unknown;
+  requestId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf15 {
+  $type: string;
+  approved: boolean;
+  toolCall: InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf15ToolCallAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf15ToolCallAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf15ToolCallAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf15ToolCallAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf15ToolCallAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf15ToolCallAnyOf5;
+  reason?: string | null;
+  requestId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf15ToolCallAnyOf0 {
+  $type: string;
+  name: string;
+  arguments?: unknown;
+  informationalOnly?: boolean | null;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf15ToolCallAnyOf1 {
+  $type: string;
+  name: string;
+  serverName?: string | null;
+  arguments?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf15ToolCallAnyOf2 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf15ToolCallAnyOf3 {
+  $type: string;
+  inputs?: unknown;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf15ToolCallAnyOf4 {
+  $type: string;
+  queries?: Array<string> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf15ToolCallAnyOf5 {
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf16 {
+  $type: string;
+  name: string;
+  serverName?: string | null;
+  arguments?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf17 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf18 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf19 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf2 {
+  $type: string;
+  name: string;
+  arguments?: unknown;
+  informationalOnly?: boolean | null;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf20 {
+  $type: string;
+  inputs?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf21 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf22 {
+  $type: string;
+  queries?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf23 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf24 {
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf3 {
+  $type: string;
+  result: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf4 {
+  $type: string;
+  fileId: string;
+  mediaType?: string | null;
+  name?: string | null;
+  sizeInBytes?: number | null;
+  createdAt?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf5 {
+  $type: string;
+  vectorStoreId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf6 {
+  $type: string;
+  text?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf7 {
+  $type: string;
+  text?: string | null;
+  protectedData?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf8 {
+  $type: string;
+  uri: string;
+  mediaType?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf17OutputsItemAnyOf9 {
+  $type: string;
+  details: unknown;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf18 {
+  $type: string;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19 {
+  $type: string;
+  outputs?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf5 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf6 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf7 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf8 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf9 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf10 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf11 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf12 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf13 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf14 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf15 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf16 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf17 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf18 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf19 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf20 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf21 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf22 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf23 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf24> | null;
+  callId: string;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf0 {
+  $type: string;
+  uri: string;
+  name?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf1 {
+  $type: string;
+  message?: string | null;
+  errorCode?: string | null;
+  details?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf10 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf11 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf12 {
+  $type: string;
+  requestId?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf13 {
+  $type: string;
+  requestId?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf14 {
+  $type: string;
+  toolCall: unknown;
+  requestId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf15 {
+  $type: string;
+  approved: boolean;
+  toolCall: InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf15ToolCallAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf15ToolCallAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf15ToolCallAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf15ToolCallAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf15ToolCallAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf15ToolCallAnyOf5;
+  reason?: string | null;
+  requestId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf15ToolCallAnyOf0 {
+  $type: string;
+  name: string;
+  arguments?: unknown;
+  informationalOnly?: boolean | null;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf15ToolCallAnyOf1 {
+  $type: string;
+  name: string;
+  serverName?: string | null;
+  arguments?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf15ToolCallAnyOf2 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf15ToolCallAnyOf3 {
+  $type: string;
+  inputs?: unknown;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf15ToolCallAnyOf4 {
+  $type: string;
+  queries?: Array<string> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf15ToolCallAnyOf5 {
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf16 {
+  $type: string;
+  name: string;
+  serverName?: string | null;
+  arguments?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf17 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf18 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf19 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf2 {
+  $type: string;
+  name: string;
+  arguments?: unknown;
+  informationalOnly?: boolean | null;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf20 {
+  $type: string;
+  inputs?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf21 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf22 {
+  $type: string;
+  queries?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf23 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf24 {
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf3 {
+  $type: string;
+  result: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf4 {
+  $type: string;
+  fileId: string;
+  mediaType?: string | null;
+  name?: string | null;
+  sizeInBytes?: number | null;
+  createdAt?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf5 {
+  $type: string;
+  vectorStoreId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf6 {
+  $type: string;
+  text?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf7 {
+  $type: string;
+  text?: string | null;
+  protectedData?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf8 {
+  $type: string;
+  uri: string;
+  mediaType?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf19OutputsItemAnyOf9 {
+  $type: string;
+  details: unknown;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf2 {
+  $type: string;
+  name: string;
+  arguments?: unknown;
+  informationalOnly?: boolean | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20 {
+  $type: string;
+  inputs?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf5 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf6 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf7 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf8 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf9 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf10 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf11 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf12 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf13 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf14 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf15 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf16 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf17 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf18 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf19 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf20 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf21 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf22 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf23 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf24> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf0 {
+  $type: string;
+  uri: string;
+  name?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf1 {
+  $type: string;
+  message?: string | null;
+  errorCode?: string | null;
+  details?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf10 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf11 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf12 {
+  $type: string;
+  requestId?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf13 {
+  $type: string;
+  requestId?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf14 {
+  $type: string;
+  toolCall: unknown;
+  requestId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf15 {
+  $type: string;
+  approved: boolean;
+  toolCall: InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf15ToolCallAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf15ToolCallAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf15ToolCallAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf15ToolCallAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf15ToolCallAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf15ToolCallAnyOf5;
+  reason?: string | null;
+  requestId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf15ToolCallAnyOf0 {
+  $type: string;
+  name: string;
+  arguments?: unknown;
+  informationalOnly?: boolean | null;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf15ToolCallAnyOf1 {
+  $type: string;
+  name: string;
+  serverName?: string | null;
+  arguments?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf15ToolCallAnyOf2 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf15ToolCallAnyOf3 {
+  $type: string;
+  inputs?: unknown;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf15ToolCallAnyOf4 {
+  $type: string;
+  queries?: Array<string> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf15ToolCallAnyOf5 {
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf16 {
+  $type: string;
+  name: string;
+  serverName?: string | null;
+  arguments?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf17 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf18 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf19 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf2 {
+  $type: string;
+  name: string;
+  arguments?: unknown;
+  informationalOnly?: boolean | null;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf20 {
+  $type: string;
+  inputs?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf21 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf22 {
+  $type: string;
+  queries?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf23 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf24 {
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf3 {
+  $type: string;
+  result: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf4 {
+  $type: string;
+  fileId: string;
+  mediaType?: string | null;
+  name?: string | null;
+  sizeInBytes?: number | null;
+  createdAt?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf5 {
+  $type: string;
+  vectorStoreId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf6 {
+  $type: string;
+  text?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf7 {
+  $type: string;
+  text?: string | null;
+  protectedData?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf8 {
+  $type: string;
+  uri: string;
+  mediaType?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf20InputsItemAnyOf9 {
+  $type: string;
+  details: unknown;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21 {
+  $type: string;
+  outputs?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf5 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf6 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf7 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf8 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf9 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf10 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf11 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf12 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf13 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf14 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf15 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf16 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf17 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf18 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf19 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf20 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf21 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf22 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf23 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf24> | null;
+  callId: string;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf0 {
+  $type: string;
+  uri: string;
+  name?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf1 {
+  $type: string;
+  message?: string | null;
+  errorCode?: string | null;
+  details?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf10 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf11 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf12 {
+  $type: string;
+  requestId?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf13 {
+  $type: string;
+  requestId?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf14 {
+  $type: string;
+  toolCall: unknown;
+  requestId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf15 {
+  $type: string;
+  approved: boolean;
+  toolCall: InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf15ToolCallAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf15ToolCallAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf15ToolCallAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf15ToolCallAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf15ToolCallAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf15ToolCallAnyOf5;
+  reason?: string | null;
+  requestId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf15ToolCallAnyOf0 {
+  $type: string;
+  name: string;
+  arguments?: unknown;
+  informationalOnly?: boolean | null;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf15ToolCallAnyOf1 {
+  $type: string;
+  name: string;
+  serverName?: string | null;
+  arguments?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf15ToolCallAnyOf2 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf15ToolCallAnyOf3 {
+  $type: string;
+  inputs?: unknown;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf15ToolCallAnyOf4 {
+  $type: string;
+  queries?: Array<string> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf15ToolCallAnyOf5 {
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf16 {
+  $type: string;
+  name: string;
+  serverName?: string | null;
+  arguments?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf17 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf18 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf19 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf2 {
+  $type: string;
+  name: string;
+  arguments?: unknown;
+  informationalOnly?: boolean | null;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf20 {
+  $type: string;
+  inputs?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf21 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf22 {
+  $type: string;
+  queries?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf23 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf24 {
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf3 {
+  $type: string;
+  result: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf4 {
+  $type: string;
+  fileId: string;
+  mediaType?: string | null;
+  name?: string | null;
+  sizeInBytes?: number | null;
+  createdAt?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf5 {
+  $type: string;
+  vectorStoreId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf6 {
+  $type: string;
+  text?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf7 {
+  $type: string;
+  text?: string | null;
+  protectedData?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf8 {
+  $type: string;
+  uri: string;
+  mediaType?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf21OutputsItemAnyOf9 {
+  $type: string;
+  details: unknown;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf22 {
+  $type: string;
+  queries?: Array<string> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23 {
+  $type: string;
+  outputs?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf5 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf6 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf7 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf8 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf9 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf10 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf11 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf12 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf13 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf14 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf15 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf16 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf17 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf18 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf19 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf20 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf21 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf22 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf23 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf24> | null;
+  callId: string;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf0 {
+  $type: string;
+  uri: string;
+  name?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf1 {
+  $type: string;
+  message?: string | null;
+  errorCode?: string | null;
+  details?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf10 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf11 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf12 {
+  $type: string;
+  requestId?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf13 {
+  $type: string;
+  requestId?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf14 {
+  $type: string;
+  toolCall: unknown;
+  requestId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf15 {
+  $type: string;
+  approved: boolean;
+  toolCall: InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf15ToolCallAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf15ToolCallAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf15ToolCallAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf15ToolCallAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf15ToolCallAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf15ToolCallAnyOf5;
+  reason?: string | null;
+  requestId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf15ToolCallAnyOf0 {
+  $type: string;
+  name: string;
+  arguments?: unknown;
+  informationalOnly?: boolean | null;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf15ToolCallAnyOf1 {
+  $type: string;
+  name: string;
+  serverName?: string | null;
+  arguments?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf15ToolCallAnyOf2 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf15ToolCallAnyOf3 {
+  $type: string;
+  inputs?: unknown;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf15ToolCallAnyOf4 {
+  $type: string;
+  queries?: Array<string> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf15ToolCallAnyOf5 {
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf16 {
+  $type: string;
+  name: string;
+  serverName?: string | null;
+  arguments?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf17 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf18 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf19 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf2 {
+  $type: string;
+  name: string;
+  arguments?: unknown;
+  informationalOnly?: boolean | null;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf20 {
+  $type: string;
+  inputs?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf21 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf22 {
+  $type: string;
+  queries?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf23 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf24 {
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf3 {
+  $type: string;
+  result: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf4 {
+  $type: string;
+  fileId: string;
+  mediaType?: string | null;
+  name?: string | null;
+  sizeInBytes?: number | null;
+  createdAt?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf5 {
+  $type: string;
+  vectorStoreId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf6 {
+  $type: string;
+  text?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf7 {
+  $type: string;
+  text?: string | null;
+  protectedData?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf8 {
+  $type: string;
+  uri: string;
+  mediaType?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf23OutputsItemAnyOf9 {
+  $type: string;
+  details: unknown;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf24 {
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf24AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf24AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf24AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf24AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf24AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf24AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -6178,7 +8276,7 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3Inpu
   $type: string;
   result: unknown;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -6189,21 +8287,21 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3Inpu
   name?: string | null;
   sizeInBytes?: number | null;
   createdAt?: string | null;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf5 {
   $type: string;
   vectorStoreId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf6 {
   $type: string;
   text?: string | null;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -6211,7 +8309,7 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3Inpu
   $type: string;
   text?: string | null;
   protectedData?: string | null;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -6219,37 +8317,95 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3Inpu
   $type: string;
   uri: string;
   mediaType?: string | null;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf9 {
   $type: string;
-  details: unknown;
-  annotations?: unknown;
+  details: InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf9Details;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf3InputsItemAnyOf9Details {
+  inputTokenCount?: number | null;
+  outputTokenCount?: number | null;
+  totalTokenCount?: number | null;
+  cachedInputTokenCount?: number | null;
+  reasoningTokenCount?: number | null;
+  additionalCounts?: Record<string, number> | null;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf4 {
   $type: string;
-  queries?: unknown;
+  queries?: Array<string> | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf14ToolCallAnyOf5 {
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf15 {
   $type: string;
   approved: boolean;
-  toolCall: unknown;
+  toolCall: InlineHPDAgentContentAddedEventContentAnyOf15ToolCallAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf15ToolCallAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf15ToolCallAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf15ToolCallAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf15ToolCallAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf15ToolCallAnyOf5;
   reason?: string | null;
   requestId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf15ToolCallAnyOf0 {
+  $type: string;
+  name: string;
+  arguments?: unknown;
+  informationalOnly?: boolean | null;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf15ToolCallAnyOf1 {
+  $type: string;
+  name: string;
+  serverName?: string | null;
+  arguments?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf15ToolCallAnyOf2 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf15ToolCallAnyOf3 {
+  $type: string;
+  inputs?: unknown;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf15ToolCallAnyOf4 {
+  $type: string;
+  queries?: Array<string> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf15ToolCallAnyOf5 {
+  callId: string;
   annotations?: unknown;
   additionalProperties?: unknown;
 }
@@ -6260,30 +8416,49 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf16 {
   serverName?: string | null;
   arguments?: unknown;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf17 {
   $type: string;
-  outputs?: unknown;
+  outputs?: Array<unknown> | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf18 {
   $type: string;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf19 {
   $type: string;
-  outputs?: unknown;
+  outputs?: Array<unknown> | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf1AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf1AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf1AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf1AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -6293,11 +8468,174 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf2 {
   arguments?: unknown;
   informationalOnly?: boolean | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf2AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf2AnnotationsItemAnyOf1> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf20 {
+  $type: string;
+  inputs?: Array<InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf5 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf6 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf7 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf8 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf9 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf10 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf11 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf12 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf13 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf14 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf15 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf16 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf17 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf18 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf19 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf20 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf21 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf22 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf23 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf24> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf0 {
+  $type: string;
+  uri: string;
+  name?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf1 {
+  $type: string;
+  message?: string | null;
+  errorCode?: string | null;
+  details?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf10 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf11 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf12 {
+  $type: string;
+  requestId?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf13 {
+  $type: string;
+  requestId?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf14 {
+  $type: string;
+  toolCall: unknown;
+  requestId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf15 {
+  $type: string;
+  approved: boolean;
+  toolCall: InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf15ToolCallAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf15ToolCallAnyOf1 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf15ToolCallAnyOf2 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf15ToolCallAnyOf3 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf15ToolCallAnyOf4 | InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf15ToolCallAnyOf5;
+  reason?: string | null;
+  requestId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf15ToolCallAnyOf0 {
+  $type: string;
+  name: string;
+  arguments?: unknown;
+  informationalOnly?: boolean | null;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf15ToolCallAnyOf1 {
+  $type: string;
+  name: string;
+  serverName?: string | null;
+  arguments?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf15ToolCallAnyOf2 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf15ToolCallAnyOf3 {
+  $type: string;
+  inputs?: unknown;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf15ToolCallAnyOf4 {
+  $type: string;
+  queries?: Array<string> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf15ToolCallAnyOf5 {
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf16 {
+  $type: string;
+  name: string;
+  serverName?: string | null;
+  arguments?: unknown;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf17 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf18 {
+  $type: string;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf19 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf2 {
+  $type: string;
+  name: string;
+  arguments?: unknown;
+  informationalOnly?: boolean | null;
+  callId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf20 {
   $type: string;
   inputs?: unknown;
   callId: string;
@@ -6305,15 +8643,15 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf20 {
   additionalProperties?: unknown;
 }
 
-export interface InlineHPDAgentContentAddedEventContentAnyOf21 {
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf21 {
   $type: string;
-  outputs?: unknown;
+  outputs?: Array<unknown> | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
-export interface InlineHPDAgentContentAddedEventContentAnyOf22 {
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf22 {
   $type: string;
   queries?: unknown;
   callId: string;
@@ -6321,16 +8659,120 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf22 {
   additionalProperties?: unknown;
 }
 
-export interface InlineHPDAgentContentAddedEventContentAnyOf23 {
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf23 {
   $type: string;
-  outputs?: unknown;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf24 {
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf3 {
+  $type: string;
+  result: unknown;
   callId: string;
   annotations?: unknown;
   additionalProperties?: unknown;
 }
 
-export interface InlineHPDAgentContentAddedEventContentAnyOf24 {
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf4 {
+  $type: string;
+  fileId: string;
+  mediaType?: string | null;
+  name?: string | null;
+  sizeInBytes?: number | null;
+  createdAt?: string | null;
   annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf5 {
+  $type: string;
+  vectorStoreId: string;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf6 {
+  $type: string;
+  text?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf7 {
+  $type: string;
+  text?: string | null;
+  protectedData?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf8 {
+  $type: string;
+  uri: string;
+  mediaType?: string | null;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf20InputsItemAnyOf9 {
+  $type: string;
+  details: unknown;
+  annotations?: unknown;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf21 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf22 {
+  $type: string;
+  queries?: Array<string> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf23 {
+  $type: string;
+  outputs?: Array<unknown> | null;
+  callId: string;
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf24 {
+  annotations?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf2AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf2AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf2AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf2AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -6338,7 +8780,26 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf3 {
   $type: string;
   result: unknown;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf3AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf3AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf3AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf3AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf3AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf3AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -6349,21 +8810,78 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf4 {
   name?: string | null;
   sizeInBytes?: number | null;
   createdAt?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf4AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf4AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf4AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf4AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf4AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf4AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf5 {
   $type: string;
   vectorStoreId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf5AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf5AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf5AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf5AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf5AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf5AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf6 {
   $type: string;
   text?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf6AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf6AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf6AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf6AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf6AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf6AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -6371,7 +8889,26 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf7 {
   $type: string;
   text?: string | null;
   protectedData?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf7AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf7AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf7AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf7AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf7AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf7AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -6379,14 +8916,52 @@ export interface InlineHPDAgentContentAddedEventContentAnyOf8 {
   $type: string;
   uri: string;
   mediaType?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf8AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf8AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf8AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf8AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf8AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf8AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentContentAddedEventContentAnyOf9 {
   $type: string;
   details: InlineHPDAgentContentAddedEventContentAnyOf9Details;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentContentAddedEventContentAnyOf9AnnotationsItemAnyOf0 | InlineHPDAgentContentAddedEventContentAnyOf9AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf9AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentContentAddedEventContentAnyOf9AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf9AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentContentAddedEventContentAnyOf9AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -8448,12 +11023,45 @@ export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyL
   frequencyPenalty?: number | null;
   presencePenalty?: number | null;
   seed?: number | null;
-  stopSequences?: unknown;
-  reasoning?: unknown;
-  provider?: unknown;
+  stopSequences?: Array<string> | null;
+  reasoning?: InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsChatReasoning | null;
+  provider?: InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsChatProvider | null;
   modelName?: string | null;
   endpoint?: string | null;
-  customHeaders?: unknown;
+  customHeaders?: Record<string, string> | null;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsChatProvider {
+  key: string;
+  backend?: string | null;
+  authentication?: InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf3 {
+  type?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsChatReasoning {
+  effort?: number | null;
+  output?: number | null;
 }
 
 export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsEmbeddings {
@@ -8467,7 +11075,29 @@ export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyL
 export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsEmbeddingsProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsEndOfTurn {
@@ -8480,7 +11110,29 @@ export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyL
 export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsEndOfTurnProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsHostedFiles {
@@ -8496,7 +11148,29 @@ export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyL
 export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsHostedFilesProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsImageGeneration {
@@ -8518,7 +11192,29 @@ export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyL
 export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsImageGenerationProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsRealtime {
@@ -8541,7 +11237,29 @@ export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyL
 export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsRealtimeProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsRealtimeTranscription {
@@ -8563,7 +11281,29 @@ export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyL
 export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsSpeechToTextProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsTextToSpeech {
@@ -8582,7 +11322,29 @@ export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyL
 export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsTextToSpeechProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsVoiceActivity {
@@ -8595,7 +11357,29 @@ export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyL
 export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsVoiceActivityProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentChildRegisteredEventChildExecutionPolicyPropagationAnyOf0 {
@@ -9347,12 +12131,45 @@ export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecuti
   frequencyPenalty?: number | null;
   presencePenalty?: number | null;
   seed?: number | null;
-  stopSequences?: unknown;
-  reasoning?: unknown;
-  provider?: unknown;
+  stopSequences?: Array<string> | null;
+  reasoning?: InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsChatReasoning | null;
+  provider?: InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsChatProvider | null;
   modelName?: string | null;
   endpoint?: string | null;
-  customHeaders?: unknown;
+  customHeaders?: Record<string, string> | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsChatProvider {
+  key: string;
+  backend?: string | null;
+  authentication?: InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf3 {
+  type?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsChatReasoning {
+  effort?: number | null;
+  output?: number | null;
 }
 
 export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsEmbeddings {
@@ -9366,7 +12183,29 @@ export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecuti
 export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsEmbeddingsProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsEndOfTurn {
@@ -9379,7 +12218,29 @@ export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecuti
 export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsEndOfTurnProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsHostedFiles {
@@ -9395,7 +12256,29 @@ export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecuti
 export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsHostedFilesProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsImageGeneration {
@@ -9417,7 +12300,29 @@ export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecuti
 export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsImageGenerationProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsRealtime {
@@ -9440,7 +12345,29 @@ export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecuti
 export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsRealtimeProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsRealtimeTranscription {
@@ -9462,7 +12389,29 @@ export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecuti
 export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsSpeechToTextProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsTextToSpeech {
@@ -9481,7 +12430,29 @@ export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecuti
 export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsTextToSpeechProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsVoiceActivity {
@@ -9494,7 +12465,29 @@ export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecuti
 export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsVoiceActivityProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentCreationAdvancedEventRecordRequestExecutionPolicyPropagationAnyOf0 {
@@ -10210,12 +13203,45 @@ export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecuti
   frequencyPenalty?: number | null;
   presencePenalty?: number | null;
   seed?: number | null;
-  stopSequences?: unknown;
-  reasoning?: unknown;
-  provider?: unknown;
+  stopSequences?: Array<string> | null;
+  reasoning?: InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsChatReasoning | null;
+  provider?: InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsChatProvider | null;
   modelName?: string | null;
   endpoint?: string | null;
-  customHeaders?: unknown;
+  customHeaders?: Record<string, string> | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsChatProvider {
+  key: string;
+  backend?: string | null;
+  authentication?: InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf3 {
+  type?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsChatReasoning {
+  effort?: number | null;
+  output?: number | null;
 }
 
 export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsEmbeddings {
@@ -10229,7 +13255,29 @@ export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecuti
 export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsEmbeddingsProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsEndOfTurn {
@@ -10242,7 +13290,29 @@ export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecuti
 export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsEndOfTurnProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsHostedFiles {
@@ -10258,7 +13328,29 @@ export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecuti
 export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsHostedFilesProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsImageGeneration {
@@ -10280,7 +13372,29 @@ export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecuti
 export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsImageGenerationProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsRealtime {
@@ -10303,7 +13417,29 @@ export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecuti
 export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsRealtimeProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsRealtimeTranscription {
@@ -10325,7 +13461,29 @@ export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecuti
 export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsSpeechToTextProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsTextToSpeech {
@@ -10344,7 +13502,29 @@ export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecuti
 export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsTextToSpeechProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsVoiceActivity {
@@ -10357,7 +13537,29 @@ export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecuti
 export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsVoiceActivityProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentCreationReservedEventRecordRequestExecutionPolicyPropagationAnyOf0 {
@@ -10447,13 +13649,97 @@ export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildEx
 
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthority {
   approval?: number | null;
-  sandbox?: unknown;
-  permissionOverrides?: unknown;
+  sandbox?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandbox | null;
+  permissionOverrides?: Array<InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthorityPermissionOverridesItem> | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthorityPermissionOverridesItem {
+  selector: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthorityPermissionOverridesItemSelector;
+  requiresPermission: boolean;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthorityPermissionOverridesItemSelector {
+  functionName?: string | null;
+  action?: string | null;
+  authority?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandbox {
+  mode?: number | null;
+  escape?: number | null;
+  capabilities?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilities | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilities {
+  filesystem?: Array<InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesFilesystemItem> | null;
+  network?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesNetwork | null;
+  interactive?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesInteractive | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesFilesystemItem {
+  access: number;
+  path: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesInteractive {
+  allowPty?: boolean | null;
+  allowStdin?: boolean | null;
+  allowLocalBinding?: boolean | null;
+  allowedMachLookups?: Array<string> | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesNetwork {
+  mode: number;
+  allowedDomains?: Array<InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesNetworkAllowedDomainsItem> | null;
+  deniedDomains?: Array<unknown> | null;
+  parentProxy?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesNetworkParentProxy | null;
+  requestFilter?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesNetworkRequestFilter | null;
+  requireProxyMediation?: boolean | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesNetworkAllowedDomainsItem {
+  pattern: string;
+  kind?: number | null;
+  reason?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesNetworkParentProxy {
+  proxyUri?: string | null;
+  credential?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesNetworkParentProxyCredential | null;
+  allowEnvironmentProxy?: boolean | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesNetworkParentProxyCredential {
+  value?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesNetworkRequestFilter {
+  policyName?: string | null;
+  providerRuleSet?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesNetworkRequestFilterProviderRuleSet | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesNetworkRequestFilterProviderRuleSet {
+  providerId?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesNetworkRequestFilterProviderRuleSetProviderId | null;
+  schemaId?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesNetworkRequestFilterProviderRuleSetSchemaId | null;
+  contentType?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesNetworkRequestFilterProviderRuleSetContentType | null;
+  payload?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesNetworkRequestFilterProviderRuleSetContentType {
+  value?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesNetworkRequestFilterProviderRuleSetProviderId {
+  value?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyAuthoritySandboxCapabilitiesNetworkRequestFilterProviderRuleSetSchemaId {
+  value?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaults {
   allowUserQuestions?: boolean | null;
-  harnesses?: Array<unknown> | null;
+  harnesses?: Array<InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHarnessesItem> | null;
   toolOutputs?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsToolOutputs | null;
   context?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsContext | null;
   collapsing?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCollapsing | null;
@@ -10480,10 +13766,118 @@ export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildEx
 }
 
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompaction {
-  point: unknown;
-  preservation?: unknown;
-  strategy: unknown;
+  point: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionPointAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionPointAnyOf1 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionPointAnyOf2;
+  preservation?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionPreservationAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionPreservationAnyOf1 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionPreservationAnyOf2 | null;
+  strategy: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionStrategyAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionStrategyAnyOf1;
   commitMode?: number | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionPointAnyOf0 {
+  $type?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionPointAnyOf1 {
+  $type?: string | null;
+  messageId: string;
+  expectedJournalGeneration?: number | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionPointAnyOf2 {
+  $type?: string | null;
+  turnId: string;
+  expectedJournalGeneration?: number | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionPreservationAnyOf0 {
+  $type?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionPreservationAnyOf1 {
+  $type?: string | null;
+  count: number;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionPreservationAnyOf2 {
+  $type?: string | null;
+  limit: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionPreservationAnyOf2LimitAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionPreservationAnyOf2LimitAnyOf1;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionPreservationAnyOf2LimitAnyOf0 {
+  $type?: string | null;
+  count: number;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionPreservationAnyOf2LimitAnyOf1 {
+  $type?: string | null;
+  tokens: number;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionStrategyAnyOf0 {
+  $type?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionStrategyAnyOf1 {
+  $type?: string | null;
+  summarizer?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionStrategyAnyOf1Summarizer | null;
+  instructions?: string | null;
+  evidence?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionStrategyAnyOf1Evidence | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionStrategyAnyOf1Evidence {
+  includeToolCalls?: boolean | null;
+  includeToolResults?: boolean | null;
+  includeErrors?: boolean | null;
+  maxContentCharacters?: number | null;
+  maxEvidenceCharacters?: number | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionStrategyAnyOf1Summarizer {
+  temperature?: number | null;
+  topP?: number | null;
+  topK?: number | null;
+  maxOutputTokens?: number | null;
+  frequencyPenalty?: number | null;
+  presencePenalty?: number | null;
+  seed?: number | null;
+  stopSequences?: Array<string> | null;
+  reasoning?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionStrategyAnyOf1SummarizerReasoning | null;
+  provider?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionStrategyAnyOf1SummarizerProvider | null;
+  modelName?: string | null;
+  endpoint?: string | null;
+  customHeaders?: Record<string, string> | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionStrategyAnyOf1SummarizerProvider {
+  key: string;
+  backend?: string | null;
+  authentication?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf3 {
+  type?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticCompactionStrategyAnyOf1SummarizerReasoning {
+  effort?: number | null;
+  output?: number | null;
 }
 
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsCompactionAutomaticTriggerAnyOf0 {
@@ -10507,10 +13901,124 @@ export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildEx
 }
 
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompaction {
-  point: unknown;
-  preservation?: unknown;
-  strategy: unknown;
+  point: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionPointAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionPointAnyOf1 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionPointAnyOf2;
+  preservation?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionPreservationAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionPreservationAnyOf1 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionPreservationAnyOf2 | null;
+  strategy: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionStrategyAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionStrategyAnyOf1;
   commitMode?: number | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionPointAnyOf0 {
+  $type?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionPointAnyOf1 {
+  $type?: string | null;
+  messageId: string;
+  expectedJournalGeneration?: number | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionPointAnyOf2 {
+  $type?: string | null;
+  turnId: string;
+  expectedJournalGeneration?: number | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionPreservationAnyOf0 {
+  $type?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionPreservationAnyOf1 {
+  $type?: string | null;
+  count: number;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionPreservationAnyOf2 {
+  $type?: string | null;
+  limit: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionPreservationAnyOf2LimitAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionPreservationAnyOf2LimitAnyOf1;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionPreservationAnyOf2LimitAnyOf0 {
+  $type?: string | null;
+  count: number;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionPreservationAnyOf2LimitAnyOf1 {
+  $type?: string | null;
+  tokens: number;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionStrategyAnyOf0 {
+  $type?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionStrategyAnyOf1 {
+  $type?: string | null;
+  summarizer?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionStrategyAnyOf1Summarizer | null;
+  instructions?: string | null;
+  evidence?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionStrategyAnyOf1Evidence | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionStrategyAnyOf1Evidence {
+  includeToolCalls?: boolean | null;
+  includeToolResults?: boolean | null;
+  includeErrors?: boolean | null;
+  maxContentCharacters?: number | null;
+  maxEvidenceCharacters?: number | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionStrategyAnyOf1Summarizer {
+  temperature?: number | null;
+  topP?: number | null;
+  topK?: number | null;
+  maxOutputTokens?: number | null;
+  frequencyPenalty?: number | null;
+  presencePenalty?: number | null;
+  seed?: number | null;
+  stopSequences?: Array<string> | null;
+  reasoning?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionStrategyAnyOf1SummarizerReasoning | null;
+  provider?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionStrategyAnyOf1SummarizerProvider | null;
+  modelName?: string | null;
+  endpoint?: string | null;
+  customHeaders?: Record<string, string> | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionStrategyAnyOf1SummarizerProvider {
+  key: string;
+  backend?: string | null;
+  authentication?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf3 {
+  type?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHandoffCompactionStrategyAnyOf1SummarizerReasoning {
+  effort?: number | null;
+  output?: number | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsHarnessesItem {
+  name?: string | null;
+  config?: unknown;
+  resets?: Array<string> | null;
 }
 
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsSecurity {
@@ -10557,13 +14065,19 @@ export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildEx
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetwork {
   mode: number;
   allowedDomains?: Array<InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkAllowedDomainsItem> | null;
-  deniedDomains?: Array<unknown> | null;
+  deniedDomains?: Array<InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkDeniedDomainsItem> | null;
   parentProxy?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkParentProxy | null;
   requestFilter?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkRequestFilter | null;
   requireProxyMediation?: boolean | null;
 }
 
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkAllowedDomainsItem {
+  pattern: string;
+  kind?: number | null;
+  reason?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkDeniedDomainsItem {
   pattern: string;
   kind?: number | null;
   reason?: string | null;
@@ -10761,12 +14275,45 @@ export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildEx
   frequencyPenalty?: number | null;
   presencePenalty?: number | null;
   seed?: number | null;
-  stopSequences?: unknown;
-  reasoning?: unknown;
-  provider?: unknown;
+  stopSequences?: Array<string> | null;
+  reasoning?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsChatReasoning | null;
+  provider?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsChatProvider | null;
   modelName?: string | null;
   endpoint?: string | null;
-  customHeaders?: unknown;
+  customHeaders?: Record<string, string> | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsChatProvider {
+  key: string;
+  backend?: string | null;
+  authentication?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsChatProviderAuthenticationAnyOf3 {
+  type?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsChatReasoning {
+  effort?: number | null;
+  output?: number | null;
 }
 
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsEmbeddings {
@@ -10780,7 +14327,29 @@ export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildEx
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsEmbeddingsProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsEmbeddingsProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsEndOfTurn {
@@ -10793,7 +14362,29 @@ export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildEx
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsEndOfTurnProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsEndOfTurnProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsHostedFiles {
@@ -10809,7 +14400,29 @@ export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildEx
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsHostedFilesProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsHostedFilesProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsImageGeneration {
@@ -10831,7 +14444,29 @@ export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildEx
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsImageGenerationProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsImageGenerationProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsRealtime {
@@ -10854,7 +14489,29 @@ export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildEx
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsRealtimeProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsRealtimeProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsRealtimeTranscription {
@@ -10876,7 +14533,29 @@ export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildEx
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsSpeechToTextProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsSpeechToTextProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsTextToSpeech {
@@ -10895,7 +14574,29 @@ export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildEx
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsTextToSpeechProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsTextToSpeechProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsVoiceActivity {
@@ -10908,7 +14609,29 @@ export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildEx
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsVoiceActivityProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyLockedClientsVoiceActivityProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentRegistrySeedEventEntriesItemAnyOf0ChildExecutionPolicyPropagationAnyOf0 {
@@ -11008,14 +14731,493 @@ export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequ
 export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicy {
   contractVersion: number;
   initialRunConfig?: unknown;
-  harnessOverrideLayers?: unknown;
-  handoffCompaction?: unknown;
-  descendantDefaults?: unknown;
-  lockedClients: unknown;
-  clientSources: unknown;
-  authority: unknown;
-  propagation: unknown;
+  harnessOverrideLayers?: Array<Array<InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHarnessOverrideLayersItemItem>> | null;
+  handoffCompaction?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompaction | null;
+  descendantDefaults?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaults | null;
+  lockedClients: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClients;
+  clientSources: Record<string, number>;
+  authority: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyAuthority;
+  propagation: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyPropagationAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyPropagationAnyOf1 | InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyPropagationAnyOf2;
   fingerprint: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyAuthority {
+  approval?: number | null;
+  sandbox?: unknown;
+  permissionOverrides?: unknown;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaults {
+  allowUserQuestions?: boolean | null;
+  harnesses?: Array<unknown> | null;
+  toolOutputs?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsToolOutputs | null;
+  context?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsContext | null;
+  collapsing?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsCollapsing | null;
+  compaction?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsCompaction | null;
+  handoffCompaction?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsHandoffCompaction | null;
+  security?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecurity | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsCollapsing {
+  enableErrorRecovery?: boolean | null;
+  recoveryHistoryMode?: number | null;
+  hideToolHarnessInteractionsWithinTurn?: boolean | null;
+  neverCollapseFunctions?: Array<string> | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsCompaction {
+  automatic?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsCompactionAutomatic | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsCompactionAutomatic {
+  trigger: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsCompactionAutomaticTriggerAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsCompactionAutomaticTriggerAnyOf1 | InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsCompactionAutomaticTriggerAnyOf2;
+  compaction: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsCompactionAutomaticCompaction;
+  continuation?: number | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsCompactionAutomaticCompaction {
+  point: unknown;
+  preservation?: unknown;
+  strategy: unknown;
+  commitMode?: number | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsCompactionAutomaticTriggerAnyOf0 {
+  $type?: string | null;
+  turns: number;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsCompactionAutomaticTriggerAnyOf1 {
+  $type?: string | null;
+  inputTokens: number;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsCompactionAutomaticTriggerAnyOf2 {
+  $type?: string | null;
+  totalInputTokens: number;
+  percentage: number;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsContext {
+  properties?: unknown;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsHandoffCompaction {
+  point: unknown;
+  preservation?: unknown;
+  strategy: unknown;
+  commitMode?: number | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecurity {
+  approval?: number | null;
+  sandbox?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandbox | null;
+  permissionOverrides?: Array<InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecurityPermissionOverridesItem> | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecurityPermissionOverridesItem {
+  selector: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecurityPermissionOverridesItemSelector;
+  requiresPermission: boolean;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecurityPermissionOverridesItemSelector {
+  functionName?: string | null;
+  action?: string | null;
+  authority?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandbox {
+  mode?: number | null;
+  escape?: number | null;
+  capabilities?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilities | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilities {
+  filesystem?: Array<InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesFilesystemItem> | null;
+  network?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetwork | null;
+  interactive?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesInteractive | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesFilesystemItem {
+  access: number;
+  path: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesInteractive {
+  allowPty?: boolean | null;
+  allowStdin?: boolean | null;
+  allowLocalBinding?: boolean | null;
+  allowedMachLookups?: Array<string> | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetwork {
+  mode: number;
+  allowedDomains?: Array<InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkAllowedDomainsItem> | null;
+  deniedDomains?: Array<unknown> | null;
+  parentProxy?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkParentProxy | null;
+  requestFilter?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkRequestFilter | null;
+  requireProxyMediation?: boolean | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkAllowedDomainsItem {
+  pattern: string;
+  kind?: number | null;
+  reason?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkParentProxy {
+  proxyUri?: string | null;
+  credential?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkParentProxyCredential | null;
+  allowEnvironmentProxy?: boolean | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkParentProxyCredential {
+  value?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkRequestFilter {
+  policyName?: string | null;
+  providerRuleSet?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkRequestFilterProviderRuleSet | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkRequestFilterProviderRuleSet {
+  providerId?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkRequestFilterProviderRuleSetProviderId | null;
+  schemaId?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkRequestFilterProviderRuleSetSchemaId | null;
+  contentType?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkRequestFilterProviderRuleSetContentType | null;
+  payload?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkRequestFilterProviderRuleSetContentType {
+  value?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkRequestFilterProviderRuleSetProviderId {
+  value?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsSecuritySandboxCapabilitiesNetworkRequestFilterProviderRuleSetSchemaId {
+  value?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsToolOutputs {
+  enabled?: boolean | null;
+  maxInlineResultBytes?: number | null;
+  failureMode?: number | null;
+  contentRetrievalEnabled?: boolean | null;
+  retrievalLimits?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsToolOutputsRetrievalLimits | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyDescendantDefaultsToolOutputsRetrievalLimits {
+  maxListResultsPerCall?: number | null;
+  maxReadBytesPerCall?: number | null;
+  maxReadBytesPerTurn?: number | null;
+  maxReadCallsPerTurn?: number | null;
+  maxListCallsPerTurn?: number | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompaction {
+  point: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionPointAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionPointAnyOf1 | InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionPointAnyOf2;
+  preservation?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionPreservationAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionPreservationAnyOf1 | InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionPreservationAnyOf2 | null;
+  strategy: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionStrategyAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionStrategyAnyOf1;
+  commitMode?: number | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionPointAnyOf0 {
+  $type?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionPointAnyOf1 {
+  $type?: string | null;
+  messageId: string;
+  expectedJournalGeneration?: number | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionPointAnyOf2 {
+  $type?: string | null;
+  turnId: string;
+  expectedJournalGeneration?: number | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionPreservationAnyOf0 {
+  $type?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionPreservationAnyOf1 {
+  $type?: string | null;
+  count: number;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionPreservationAnyOf2 {
+  $type?: string | null;
+  limit: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionPreservationAnyOf2LimitAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionPreservationAnyOf2LimitAnyOf1;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionPreservationAnyOf2LimitAnyOf0 {
+  $type?: string | null;
+  count: number;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionPreservationAnyOf2LimitAnyOf1 {
+  $type?: string | null;
+  tokens: number;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionStrategyAnyOf0 {
+  $type?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionStrategyAnyOf1 {
+  $type?: string | null;
+  summarizer?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionStrategyAnyOf1Summarizer | null;
+  instructions?: string | null;
+  evidence?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionStrategyAnyOf1Evidence | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionStrategyAnyOf1Evidence {
+  includeToolCalls?: boolean | null;
+  includeToolResults?: boolean | null;
+  includeErrors?: boolean | null;
+  maxContentCharacters?: number | null;
+  maxEvidenceCharacters?: number | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionStrategyAnyOf1Summarizer {
+  temperature?: number | null;
+  topP?: number | null;
+  topK?: number | null;
+  maxOutputTokens?: number | null;
+  frequencyPenalty?: number | null;
+  presencePenalty?: number | null;
+  seed?: number | null;
+  stopSequences?: Array<string> | null;
+  reasoning?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionStrategyAnyOf1SummarizerReasoning | null;
+  provider?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionStrategyAnyOf1SummarizerProvider | null;
+  modelName?: string | null;
+  endpoint?: string | null;
+  customHeaders?: Record<string, string> | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionStrategyAnyOf1SummarizerProvider {
+  key: string;
+  backend?: string | null;
+  authentication?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf0 | InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf1 | InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf2 | InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionStrategyAnyOf1SummarizerProviderAuthenticationAnyOf3 {
+  type?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHandoffCompactionStrategyAnyOf1SummarizerReasoning {
+  effort?: number | null;
+  output?: number | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyHarnessOverrideLayersItemItem {
+  name?: string | null;
+  config?: unknown;
+  resets?: Array<string> | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClients {
+  transport?: number | null;
+  chat?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsChat | null;
+  textToSpeech?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsTextToSpeech | null;
+  speechToText?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsSpeechToText | null;
+  realtime?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsRealtime | null;
+  imageGeneration?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsImageGeneration | null;
+  embeddings?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsEmbeddings | null;
+  hostedFiles?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsHostedFiles | null;
+  voiceActivity?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsVoiceActivity | null;
+  endOfTurn?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsEndOfTurn | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsChat {
+  temperature?: number | null;
+  topP?: number | null;
+  topK?: number | null;
+  maxOutputTokens?: number | null;
+  frequencyPenalty?: number | null;
+  presencePenalty?: number | null;
+  seed?: number | null;
+  stopSequences?: unknown;
+  reasoning?: unknown;
+  provider?: unknown;
+  modelName?: string | null;
+  endpoint?: string | null;
+  customHeaders?: unknown;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsEmbeddings {
+  dimensions?: number | null;
+  provider?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsEmbeddingsProvider | null;
+  modelName?: string | null;
+  endpoint?: string | null;
+  customHeaders?: Record<string, string> | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsEmbeddingsProvider {
+  key: string;
+  backend?: string | null;
+  authentication?: unknown;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsEndOfTurn {
+  provider?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsEndOfTurnProvider | null;
+  modelName?: string | null;
+  endpoint?: string | null;
+  customHeaders?: Record<string, string> | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsEndOfTurnProvider {
+  key: string;
+  backend?: string | null;
+  authentication?: unknown;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsHostedFiles {
+  scope?: string | null;
+  purpose?: string | null;
+  limit?: number | null;
+  provider?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsHostedFilesProvider | null;
+  modelName?: string | null;
+  endpoint?: string | null;
+  customHeaders?: Record<string, string> | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsHostedFilesProvider {
+  key: string;
+  backend?: string | null;
+  authentication?: unknown;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsImageGeneration {
+  count?: number | null;
+  imageSize?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsImageGenerationImageSize | null;
+  mediaType?: string | null;
+  streamingCount?: number | null;
+  provider?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsImageGenerationProvider | null;
+  modelName?: string | null;
+  endpoint?: string | null;
+  customHeaders?: Record<string, string> | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsImageGenerationImageSize {
+  width?: number | null;
+  height?: number | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsImageGenerationProvider {
+  key: string;
+  backend?: string | null;
+  authentication?: unknown;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsRealtime {
+  outputAudioFormat?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsRealtimeOutputAudioFormat | null;
+  voice?: string | null;
+  maxOutputTokens?: number | null;
+  outputModalities?: Array<string> | null;
+  transcription?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsRealtimeTranscription | null;
+  provider?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsRealtimeProvider | null;
+  modelName?: string | null;
+  endpoint?: string | null;
+  customHeaders?: Record<string, string> | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsRealtimeOutputAudioFormat {
+  mediaType?: string | null;
+  sampleRate?: number | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsRealtimeProvider {
+  key: string;
+  backend?: string | null;
+  authentication?: unknown;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsRealtimeTranscription {
+  modelName?: string | null;
+  speechLanguage?: string | null;
+  prompt?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsSpeechToText {
+  speechLanguage?: string | null;
+  speechSampleRate?: number | null;
+  textLanguage?: string | null;
+  provider?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsSpeechToTextProvider | null;
+  modelName?: string | null;
+  endpoint?: string | null;
+  customHeaders?: Record<string, string> | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsSpeechToTextProvider {
+  key: string;
+  backend?: string | null;
+  authentication?: unknown;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsTextToSpeech {
+  voiceId?: string | null;
+  language?: string | null;
+  audioFormat?: string | null;
+  speed?: number | null;
+  pitch?: number | null;
+  volume?: number | null;
+  provider?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsTextToSpeechProvider | null;
+  modelName?: string | null;
+  endpoint?: string | null;
+  customHeaders?: Record<string, string> | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsTextToSpeechProvider {
+  key: string;
+  backend?: string | null;
+  authentication?: unknown;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsVoiceActivity {
+  provider?: InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsVoiceActivityProvider | null;
+  modelName?: string | null;
+  endpoint?: string | null;
+  customHeaders?: Record<string, string> | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyLockedClientsVoiceActivityProvider {
+  key: string;
+  backend?: string | null;
+  authentication?: unknown;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyPropagationAnyOf0 {
+  kind?: string | null;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyPropagationAnyOf1 {
+  kind?: string | null;
+  remainingDepth: number;
+}
+
+export interface InlineHPDAgentSubAgentRegistrySeedEventPendingCreationsItemRequestExecutionPolicyPropagationAnyOf2 {
+  kind?: string | null;
 }
 
 export interface InlineHPDAgentSubAgentResultSubmittedEventController {
@@ -11163,8 +15365,11 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
 }
 
 export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf0AnnotationsItemAnyOf1 {
-  annotatedRegions?: Array<unknown> | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf0AnnotationsItemAnyOf1AnnotatedRegionsItem> | null;
   additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf0AnnotationsItemAnyOf1AnnotatedRegionsItem {
 }
 
 export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf1 {
@@ -11172,35 +15377,111 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
   message?: string | null;
   errorCode?: string | null;
   details?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf1AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf1AnnotationsItemAnyOf1> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf10 {
   $type: string;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf10AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf10AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf10AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf10AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf10AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf10AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf11 {
   $type: string;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf11AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf11AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf11AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf11AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf11AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf11AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf12 {
   $type: string;
   requestId?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf12AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf12AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf12AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf12AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf12AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf12AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf13 {
   $type: string;
   requestId?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf13AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf13AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf13AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf13AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf13AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf13AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -11208,7 +15489,26 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
   $type: string;
   toolCall: InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf1 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf2 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf4 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf5;
   requestId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -11218,7 +15518,7 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
   arguments?: unknown;
   informationalOnly?: boolean | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -11228,14 +15528,52 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
   serverName?: string | null;
   arguments?: unknown;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf2 {
   $type: string;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -11243,7 +15581,26 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
   $type: string;
   inputs?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf1 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf2 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf3 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf4 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf5 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf6 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf7 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf8 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf9 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf10 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf11 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf12 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf13 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf14 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf15 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf16 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf17 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf18 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf19 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf20 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf21 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf22 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf23 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf24> | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf3AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -11576,13 +15933,32 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
   $type: string;
   queries?: Array<string> | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf4AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf4AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf4AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf4AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf4AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf4AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf14ToolCallAnyOf5 {
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -11592,7 +15968,26 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
   toolCall: InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf15ToolCallAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf15ToolCallAnyOf1 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf15ToolCallAnyOf2 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf15ToolCallAnyOf3 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf15ToolCallAnyOf4 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf15ToolCallAnyOf5;
   reason?: string | null;
   requestId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf15AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf15AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf15AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf15AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf15AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf15AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -11602,7 +15997,7 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
   arguments?: unknown;
   informationalOnly?: boolean | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -11612,36 +16007,36 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
   serverName?: string | null;
   arguments?: unknown;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf15ToolCallAnyOf2 {
   $type: string;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf15ToolCallAnyOf3 {
   $type: string;
-  inputs?: unknown;
+  inputs?: Array<unknown> | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf15ToolCallAnyOf4 {
   $type: string;
-  queries?: unknown;
+  queries?: Array<string> | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf15ToolCallAnyOf5 {
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -11651,7 +16046,7 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
   serverName?: string | null;
   arguments?: unknown;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -11659,7 +16054,26 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
   $type: string;
   outputs?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf1 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf2 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf3 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf4 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf5 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf6 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf7 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf8 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf9 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf10 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf11 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf12 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf13 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf14 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf15 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf16 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf17 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf18 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf19 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf20 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf21 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf22 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf23 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17OutputsItemAnyOf24> | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf17AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -11991,7 +16405,7 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
 export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf18 {
   $type: string;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -11999,7 +16413,26 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
   $type: string;
   outputs?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf1 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf2 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf3 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf4 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf5 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf6 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf7 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf8 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf9 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf10 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf11 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf12 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf13 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf14 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf15 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf16 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf17 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf18 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf19 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf20 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf21 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf22 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf23 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19OutputsItemAnyOf24> | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf19AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -12328,21 +16761,40 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
   additionalCounts?: Record<string, number> | null;
 }
 
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf1AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf1AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf1AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf1AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
 export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf2 {
   $type: string;
   name: string;
   arguments?: unknown;
   informationalOnly?: boolean | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf2AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf2AnnotationsItemAnyOf1> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf20 {
   $type: string;
-  inputs?: unknown;
+  inputs?: Array<unknown> | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -12350,7 +16802,26 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
   $type: string;
   outputs?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf1 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf2 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf3 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf4 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf5 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf6 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf7 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf8 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf9 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf10 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf11 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf12 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf13 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf14 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf15 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf16 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf17 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf18 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf19 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf20 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf21 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf22 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf23 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21OutputsItemAnyOf24> | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf21AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -12681,9 +17152,9 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
 
 export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf22 {
   $type: string;
-  queries?: unknown;
+  queries?: Array<string> | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -12691,7 +17162,26 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
   $type: string;
   outputs?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf1 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf2 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf3 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf4 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf5 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf6 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf7 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf8 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf9 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf10 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf11 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf12 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf13 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf14 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf15 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf16 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf17 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf18 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf19 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf20 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf21 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf22 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf23 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23OutputsItemAnyOf24> | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf23AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -13021,7 +17511,45 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
 }
 
 export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf24 {
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf24AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf24AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf24AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf24AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf24AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf24AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf2AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf2AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf2AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf2AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -13029,7 +17557,26 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
   $type: string;
   result: unknown;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf3AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf3AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf3AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf3AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf3AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf3AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -13040,21 +17587,78 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
   name?: string | null;
   sizeInBytes?: number | null;
   createdAt?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf4AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf4AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf4AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf4AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf4AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf4AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf5 {
   $type: string;
   vectorStoreId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf5AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf5AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf5AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf5AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf5AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf5AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf6 {
   $type: string;
   text?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf6AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf6AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf6AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf6AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf6AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf6AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -13062,7 +17666,26 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
   $type: string;
   text?: string | null;
   protectedData?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf7AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf7AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf7AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf7AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf7AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf7AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -13070,14 +17693,52 @@ export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacement
   $type: string;
   uri: string;
   mediaType?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf8AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf8AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf8AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf8AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf8AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf8AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf9 {
   $type: string;
   details: InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf9Details;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf9AnnotationsItemAnyOf0 | InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf9AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf9AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf9AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf9AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadHistoryCompactionCheckpointEventReplacementMessagesItemContentsItemAnyOf9AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -13144,8 +17805,11 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
 }
 
 export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf0AnnotationsItemAnyOf1 {
-  annotatedRegions?: Array<unknown> | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf0AnnotationsItemAnyOf1AnnotatedRegionsItem> | null;
   additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf0AnnotationsItemAnyOf1AnnotatedRegionsItem {
 }
 
 export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf1 {
@@ -13153,35 +17817,111 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
   message?: string | null;
   errorCode?: string | null;
   details?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf1AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf1AnnotationsItemAnyOf1> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf10 {
   $type: string;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf10AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf10AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf10AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf10AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf10AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf10AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf11 {
   $type: string;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf11AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf11AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf11AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf11AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf11AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf11AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf12 {
   $type: string;
   requestId?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf12AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf12AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf12AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf12AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf12AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf12AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf13 {
   $type: string;
   requestId?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf13AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf13AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf13AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf13AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf13AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf13AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -13189,7 +17929,26 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
   $type: string;
   toolCall: InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf1 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf2 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf4 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf5;
   requestId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -13199,7 +17958,7 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
   arguments?: unknown;
   informationalOnly?: boolean | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -13209,14 +17968,52 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
   serverName?: string | null;
   arguments?: unknown;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf2 {
   $type: string;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -13224,7 +18021,26 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
   $type: string;
   inputs?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf1 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf2 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf3 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf4 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf5 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf6 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf7 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf8 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf9 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf10 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf11 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf12 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf13 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf14 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf15 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf16 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf17 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf18 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf19 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf20 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf21 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf22 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf23 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf24> | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf3AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -13557,13 +18373,32 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
   $type: string;
   queries?: Array<string> | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf4AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf4AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf4AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf4AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf4AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf4AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf14ToolCallAnyOf5 {
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -13573,7 +18408,26 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
   toolCall: InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf15ToolCallAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf15ToolCallAnyOf1 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf15ToolCallAnyOf2 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf15ToolCallAnyOf3 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf15ToolCallAnyOf4 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf15ToolCallAnyOf5;
   reason?: string | null;
   requestId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf15AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf15AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf15AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf15AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf15AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf15AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -13583,7 +18437,7 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
   arguments?: unknown;
   informationalOnly?: boolean | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -13593,36 +18447,36 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
   serverName?: string | null;
   arguments?: unknown;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf15ToolCallAnyOf2 {
   $type: string;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf15ToolCallAnyOf3 {
   $type: string;
-  inputs?: unknown;
+  inputs?: Array<unknown> | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf15ToolCallAnyOf4 {
   $type: string;
-  queries?: unknown;
+  queries?: Array<string> | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf15ToolCallAnyOf5 {
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -13632,7 +18486,7 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
   serverName?: string | null;
   arguments?: unknown;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -13640,7 +18494,26 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
   $type: string;
   outputs?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf1 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf2 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf3 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf4 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf5 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf6 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf7 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf8 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf9 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf10 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf11 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf12 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf13 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf14 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf15 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf16 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf17 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf18 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf19 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf20 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf21 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf22 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf23 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17OutputsItemAnyOf24> | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf17AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -13972,7 +18845,7 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
 export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf18 {
   $type: string;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -13980,7 +18853,26 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
   $type: string;
   outputs?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf1 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf2 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf3 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf4 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf5 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf6 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf7 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf8 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf9 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf10 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf11 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf12 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf13 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf14 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf15 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf16 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf17 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf18 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf19 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf20 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf21 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf22 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf23 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19OutputsItemAnyOf24> | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf19AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -14309,21 +19201,40 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
   additionalCounts?: Record<string, number> | null;
 }
 
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf1AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf1AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf1AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf1AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
 export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf2 {
   $type: string;
   name: string;
   arguments?: unknown;
   informationalOnly?: boolean | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf2AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf2AnnotationsItemAnyOf1> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf20 {
   $type: string;
-  inputs?: unknown;
+  inputs?: Array<unknown> | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -14331,7 +19242,26 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
   $type: string;
   outputs?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf1 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf2 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf3 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf4 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf5 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf6 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf7 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf8 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf9 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf10 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf11 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf12 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf13 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf14 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf15 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf16 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf17 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf18 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf19 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf20 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf21 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf22 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf23 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21OutputsItemAnyOf24> | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf21AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -14662,9 +19592,9 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
 
 export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf22 {
   $type: string;
-  queries?: unknown;
+  queries?: Array<string> | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -14672,7 +19602,26 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
   $type: string;
   outputs?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf1 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf2 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf3 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf4 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf5 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf6 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf7 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf8 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf9 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf10 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf11 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf12 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf13 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf14 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf15 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf16 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf17 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf18 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf19 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf20 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf21 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf22 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf23 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23OutputsItemAnyOf24> | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf23AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -15002,7 +19951,45 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
 }
 
 export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf24 {
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf24AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf24AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf24AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf24AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf24AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf24AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf2AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf2AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf2AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf2AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -15010,7 +19997,26 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
   $type: string;
   result: unknown;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf3AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf3AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf3AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf3AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf3AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf3AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -15021,21 +20027,78 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
   name?: string | null;
   sizeInBytes?: number | null;
   createdAt?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf4AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf4AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf4AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf4AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf4AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf4AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf5 {
   $type: string;
   vectorStoreId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf5AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf5AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf5AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf5AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf5AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf5AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf6 {
   $type: string;
   text?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf6AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf6AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf6AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf6AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf6AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf6AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -15043,7 +20106,26 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
   $type: string;
   text?: string | null;
   protectedData?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf7AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf7AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf7AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf7AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf7AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf7AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -15051,14 +20133,52 @@ export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItem
   $type: string;
   uri: string;
   mediaType?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf8AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf8AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf8AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf8AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf8AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf8AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf9 {
   $type: string;
   details: InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf9Details;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf9AnnotationsItemAnyOf0 | InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf9AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf9AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf9AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf9AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentThreadMessageReplacedEventReplacementContentsItemAnyOf9AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -15163,8 +20283,11 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
 }
 
 export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf0AnnotationsItemAnyOf1 {
-  annotatedRegions?: Array<unknown> | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf0AnnotationsItemAnyOf1AnnotatedRegionsItem> | null;
   additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf0AnnotationsItemAnyOf1AnnotatedRegionsItem {
 }
 
 export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf1 {
@@ -15172,35 +20295,111 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
   message: string | null;
   errorCode?: string | null;
   details?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf1AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf1AnnotationsItemAnyOf1> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf10 {
   $type: string;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf10AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf10AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf10AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf10AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf10AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf10AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf11 {
   $type: string;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf11AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf11AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf11AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf11AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf11AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf11AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf12 {
   $type: string;
   requestId?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf12AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf12AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf12AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf12AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf12AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf12AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf13 {
   $type: string;
   requestId?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf13AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf13AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf13AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf13AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf13AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf13AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -15208,7 +20407,26 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
   $type: string;
   toolCall: InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf1 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf2 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf4 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf5;
   requestId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -15218,7 +20436,7 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
   arguments?: unknown;
   informationalOnly?: boolean | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -15228,14 +20446,52 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
   serverName: string | null;
   arguments?: unknown;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf1AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf2 {
   $type: string;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf2AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -15243,7 +20499,26 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
   $type: string;
   inputs?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf1 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf2 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf3 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf4 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf5 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf6 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf7 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf8 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf9 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf10 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf11 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf12 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf13 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf14 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf15 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf16 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf17 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf18 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf19 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf20 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf21 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf22 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf23 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3InputsItemAnyOf24> | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf3AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -15576,13 +20851,32 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
   $type: string;
   queries?: Array<string> | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf4AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf4AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf4AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf4AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf4AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf4AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf14ToolCallAnyOf5 {
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -15592,7 +20886,26 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
   toolCall: InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf15ToolCallAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf15ToolCallAnyOf1 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf15ToolCallAnyOf2 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf15ToolCallAnyOf3 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf15ToolCallAnyOf4 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf15ToolCallAnyOf5;
   reason?: string | null;
   requestId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf15AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf15AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf15AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf15AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf15AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf15AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -15602,7 +20915,7 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
   arguments?: unknown;
   informationalOnly?: boolean | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -15612,36 +20925,36 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
   serverName: string | null;
   arguments?: unknown;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf15ToolCallAnyOf2 {
   $type: string;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf15ToolCallAnyOf3 {
   $type: string;
-  inputs?: unknown;
+  inputs?: Array<unknown> | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf15ToolCallAnyOf4 {
   $type: string;
-  queries?: unknown;
+  queries?: Array<string> | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf15ToolCallAnyOf5 {
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -15651,7 +20964,7 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
   serverName: string | null;
   arguments?: unknown;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -15659,7 +20972,26 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
   $type: string;
   outputs?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf1 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf2 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf3 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf4 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf5 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf6 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf7 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf8 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf9 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf10 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf11 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf12 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf13 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf14 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf15 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf16 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf17 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf18 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf19 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf20 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf21 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf22 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf23 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17OutputsItemAnyOf24> | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf17AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -15991,7 +21323,7 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
 export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf18 {
   $type: string;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -15999,7 +21331,26 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
   $type: string;
   outputs?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf1 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf2 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf3 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf4 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf5 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf6 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf7 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf8 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf9 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf10 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf11 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf12 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf13 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf14 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf15 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf16 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf17 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf18 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf19 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf20 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf21 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf22 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf23 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19OutputsItemAnyOf24> | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf19AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -16328,21 +21679,40 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
   additionalCounts?: Record<string, number> | null;
 }
 
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf1AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf1AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf1AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf1AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
 export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf2 {
   $type: string;
   name: string;
   arguments?: unknown;
   informationalOnly?: boolean | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf2AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf2AnnotationsItemAnyOf1> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf20 {
   $type: string;
-  inputs?: unknown;
+  inputs?: Array<unknown> | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -16350,7 +21720,26 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
   $type: string;
   outputs?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf1 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf2 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf3 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf4 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf5 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf6 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf7 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf8 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf9 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf10 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf11 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf12 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf13 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf14 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf15 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf16 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf17 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf18 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf19 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf20 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf21 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf22 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf23 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21OutputsItemAnyOf24> | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf21AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -16681,9 +22070,9 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
 
 export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf22 {
   $type: string;
-  queries?: unknown;
+  queries?: Array<string> | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -16691,7 +22080,26 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
   $type: string;
   outputs?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf1 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf2 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf3 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf4 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf5 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf6 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf7 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf8 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf9 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf10 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf11 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf12 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf13 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf14 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf15 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf16 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf17 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf18 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf19 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf20 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf21 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf22 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf23 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23OutputsItemAnyOf24> | null;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf23AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -17021,7 +22429,45 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
 }
 
 export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf24 {
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf24AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf24AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf24AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf24AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf24AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf24AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf2AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf2AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf2AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf2AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -17029,7 +22475,26 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
   $type: string;
   result: unknown;
   callId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf3AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf3AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf3AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf3AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf3AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf3AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -17040,21 +22505,78 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
   name?: string | null;
   sizeInBytes?: number | null;
   createdAt?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf4AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf4AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf4AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf4AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf4AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf4AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf5 {
   $type: string;
   vectorStoreId: string;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf5AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf5AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf5AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf5AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf5AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf5AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf6 {
   $type: string;
   text: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf6AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf6AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf6AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf6AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf6AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf6AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -17062,7 +22584,26 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
   $type: string;
   text: string | null;
   protectedData?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf7AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf7AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf7AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf7AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf7AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf7AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -17070,14 +22611,52 @@ export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAny
   $type: string;
   uri: string;
   mediaType?: string | null;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf8AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf8AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf8AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf8AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf8AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf8AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
 export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf9 {
   $type: string;
   details: InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf9Details;
-  annotations?: Array<unknown> | null;
+  annotations?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf9AnnotationsItemAnyOf0 | InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf9AnnotationsItemAnyOf1> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf9AnnotationsItemAnyOf0 {
+  $type: string;
+  title?: string | null;
+  url?: string | null;
+  fileId?: string | null;
+  toolName?: string | null;
+  snippet?: string | null;
+  annotatedRegions?: Array<InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf9AnnotationsItemAnyOf0AnnotatedRegionsItem> | null;
+  additionalProperties?: unknown;
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf9AnnotationsItemAnyOf0AnnotatedRegionsItem {
+}
+
+export interface InlineHPDAgentUserMessagesInputEventMessagesItemContentsItemAnyOf9AnnotationsItemAnyOf1 {
+  annotatedRegions?: Array<unknown> | null;
   additionalProperties?: unknown;
 }
 
@@ -17202,12 +22781,45 @@ export interface InlineSubAgentRunConfigClientsChat {
   frequencyPenalty?: number | null;
   presencePenalty?: number | null;
   seed?: number | null;
-  stopSequences?: unknown;
-  reasoning?: unknown;
-  provider?: unknown;
+  stopSequences?: Array<string> | null;
+  reasoning?: InlineSubAgentRunConfigClientsChatReasoning | null;
+  provider?: InlineSubAgentRunConfigClientsChatProvider | null;
   modelName?: string | null;
   endpoint?: string | null;
-  customHeaders?: unknown;
+  customHeaders?: Record<string, string> | null;
+}
+
+export interface InlineSubAgentRunConfigClientsChatProvider {
+  key: string;
+  backend?: string | null;
+  authentication?: InlineSubAgentRunConfigClientsChatProviderAuthenticationAnyOf0 | InlineSubAgentRunConfigClientsChatProviderAuthenticationAnyOf1 | InlineSubAgentRunConfigClientsChatProviderAuthenticationAnyOf2 | InlineSubAgentRunConfigClientsChatProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineSubAgentRunConfigClientsChatProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineSubAgentRunConfigClientsChatProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineSubAgentRunConfigClientsChatProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineSubAgentRunConfigClientsChatProviderAuthenticationAnyOf3 {
+  type?: string | null;
+}
+
+export interface InlineSubAgentRunConfigClientsChatReasoning {
+  effort?: number | null;
+  output?: number | null;
 }
 
 export interface InlineSubAgentRunConfigClientsEmbeddings {
@@ -17221,7 +22833,29 @@ export interface InlineSubAgentRunConfigClientsEmbeddings {
 export interface InlineSubAgentRunConfigClientsEmbeddingsProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineSubAgentRunConfigClientsEmbeddingsProviderAuthenticationAnyOf0 | InlineSubAgentRunConfigClientsEmbeddingsProviderAuthenticationAnyOf1 | InlineSubAgentRunConfigClientsEmbeddingsProviderAuthenticationAnyOf2 | InlineSubAgentRunConfigClientsEmbeddingsProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineSubAgentRunConfigClientsEmbeddingsProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineSubAgentRunConfigClientsEmbeddingsProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineSubAgentRunConfigClientsEmbeddingsProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineSubAgentRunConfigClientsEmbeddingsProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineSubAgentRunConfigClientsEndOfTurn {
@@ -17234,7 +22868,29 @@ export interface InlineSubAgentRunConfigClientsEndOfTurn {
 export interface InlineSubAgentRunConfigClientsEndOfTurnProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineSubAgentRunConfigClientsEndOfTurnProviderAuthenticationAnyOf0 | InlineSubAgentRunConfigClientsEndOfTurnProviderAuthenticationAnyOf1 | InlineSubAgentRunConfigClientsEndOfTurnProviderAuthenticationAnyOf2 | InlineSubAgentRunConfigClientsEndOfTurnProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineSubAgentRunConfigClientsEndOfTurnProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineSubAgentRunConfigClientsEndOfTurnProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineSubAgentRunConfigClientsEndOfTurnProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineSubAgentRunConfigClientsEndOfTurnProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineSubAgentRunConfigClientsHostedFiles {
@@ -17250,7 +22906,29 @@ export interface InlineSubAgentRunConfigClientsHostedFiles {
 export interface InlineSubAgentRunConfigClientsHostedFilesProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineSubAgentRunConfigClientsHostedFilesProviderAuthenticationAnyOf0 | InlineSubAgentRunConfigClientsHostedFilesProviderAuthenticationAnyOf1 | InlineSubAgentRunConfigClientsHostedFilesProviderAuthenticationAnyOf2 | InlineSubAgentRunConfigClientsHostedFilesProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineSubAgentRunConfigClientsHostedFilesProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineSubAgentRunConfigClientsHostedFilesProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineSubAgentRunConfigClientsHostedFilesProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineSubAgentRunConfigClientsHostedFilesProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineSubAgentRunConfigClientsImageGeneration {
@@ -17272,7 +22950,29 @@ export interface InlineSubAgentRunConfigClientsImageGenerationImageSize {
 export interface InlineSubAgentRunConfigClientsImageGenerationProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineSubAgentRunConfigClientsImageGenerationProviderAuthenticationAnyOf0 | InlineSubAgentRunConfigClientsImageGenerationProviderAuthenticationAnyOf1 | InlineSubAgentRunConfigClientsImageGenerationProviderAuthenticationAnyOf2 | InlineSubAgentRunConfigClientsImageGenerationProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineSubAgentRunConfigClientsImageGenerationProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineSubAgentRunConfigClientsImageGenerationProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineSubAgentRunConfigClientsImageGenerationProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineSubAgentRunConfigClientsImageGenerationProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineSubAgentRunConfigClientsRealtime {
@@ -17295,7 +22995,29 @@ export interface InlineSubAgentRunConfigClientsRealtimeOutputAudioFormat {
 export interface InlineSubAgentRunConfigClientsRealtimeProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineSubAgentRunConfigClientsRealtimeProviderAuthenticationAnyOf0 | InlineSubAgentRunConfigClientsRealtimeProviderAuthenticationAnyOf1 | InlineSubAgentRunConfigClientsRealtimeProviderAuthenticationAnyOf2 | InlineSubAgentRunConfigClientsRealtimeProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineSubAgentRunConfigClientsRealtimeProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineSubAgentRunConfigClientsRealtimeProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineSubAgentRunConfigClientsRealtimeProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineSubAgentRunConfigClientsRealtimeProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineSubAgentRunConfigClientsRealtimeTranscription {
@@ -17317,7 +23039,29 @@ export interface InlineSubAgentRunConfigClientsSpeechToText {
 export interface InlineSubAgentRunConfigClientsSpeechToTextProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineSubAgentRunConfigClientsSpeechToTextProviderAuthenticationAnyOf0 | InlineSubAgentRunConfigClientsSpeechToTextProviderAuthenticationAnyOf1 | InlineSubAgentRunConfigClientsSpeechToTextProviderAuthenticationAnyOf2 | InlineSubAgentRunConfigClientsSpeechToTextProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineSubAgentRunConfigClientsSpeechToTextProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineSubAgentRunConfigClientsSpeechToTextProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineSubAgentRunConfigClientsSpeechToTextProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineSubAgentRunConfigClientsSpeechToTextProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineSubAgentRunConfigClientsTextToSpeech {
@@ -17336,7 +23080,29 @@ export interface InlineSubAgentRunConfigClientsTextToSpeech {
 export interface InlineSubAgentRunConfigClientsTextToSpeechProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineSubAgentRunConfigClientsTextToSpeechProviderAuthenticationAnyOf0 | InlineSubAgentRunConfigClientsTextToSpeechProviderAuthenticationAnyOf1 | InlineSubAgentRunConfigClientsTextToSpeechProviderAuthenticationAnyOf2 | InlineSubAgentRunConfigClientsTextToSpeechProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineSubAgentRunConfigClientsTextToSpeechProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineSubAgentRunConfigClientsTextToSpeechProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineSubAgentRunConfigClientsTextToSpeechProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineSubAgentRunConfigClientsTextToSpeechProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineSubAgentRunConfigClientsVoiceActivity {
@@ -17349,7 +23115,29 @@ export interface InlineSubAgentRunConfigClientsVoiceActivity {
 export interface InlineSubAgentRunConfigClientsVoiceActivityProvider {
   key: string;
   backend?: string | null;
-  authentication?: unknown;
+  authentication?: InlineSubAgentRunConfigClientsVoiceActivityProviderAuthenticationAnyOf0 | InlineSubAgentRunConfigClientsVoiceActivityProviderAuthenticationAnyOf1 | InlineSubAgentRunConfigClientsVoiceActivityProviderAuthenticationAnyOf2 | InlineSubAgentRunConfigClientsVoiceActivityProviderAuthenticationAnyOf3 | null;
+}
+
+export interface InlineSubAgentRunConfigClientsVoiceActivityProviderAuthenticationAnyOf0 {
+  type?: string | null;
+  secretKey: string;
+}
+
+export interface InlineSubAgentRunConfigClientsVoiceActivityProviderAuthenticationAnyOf1 {
+  type?: string | null;
+  accountId: string;
+  scopes?: Array<string> | null;
+  authorizationProfile?: string | null;
+  storeKey?: string | null;
+}
+
+export interface InlineSubAgentRunConfigClientsVoiceActivityProviderAuthenticationAnyOf2 {
+  type?: string | null;
+  credentialName: string;
+}
+
+export interface InlineSubAgentRunConfigClientsVoiceActivityProviderAuthenticationAnyOf3 {
+  type?: string | null;
 }
 
 export interface InlineSubAgentRunConfigCollapsing {
@@ -18423,7 +24211,7 @@ export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostRe
   agentName: string;
   agentId: string;
   parentAgentId?: string | null;
-  agentChain?: unknown;
+  agentChain?: Array<string> | null;
   depth?: number | null;
 }
 
@@ -18485,7 +24273,7 @@ export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostRe
   agentName: string;
   agentId: string;
   parentAgentId?: string | null;
-  agentChain?: unknown;
+  agentChain?: Array<string> | null;
   depth?: number | null;
 }
 
@@ -18507,7 +24295,32 @@ export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostRe
 }
 
 export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultUsage {
-  operations: unknown;
+  operations: Array<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultUsageOperationsItem>;
+}
+
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultUsageOperationsItem {
+  sourceEventId: string;
+  messageTurnId: string;
+  threadSequenceNumber: number;
+  operationId: string;
+  logicalOperationId: string | null;
+  attempt: number;
+  operationKind: number;
+  family: number;
+  outcome: number;
+  usage: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultUsageOperationsItemUsage | null;
+  providerKey: string | null;
+  modelId: string | null;
+  responseId: string | null;
+}
+
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultUsageOperationsItemUsage {
+  inputTokenCount?: number | null;
+  outputTokenCount?: number | null;
+  totalTokenCount?: number | null;
+  cachedInputTokenCount?: number | null;
+  reasoningTokenCount?: number | null;
+  additionalCounts?: Record<string, number> | null;
 }
 
 export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJsonResultAnyOf1 {
@@ -18939,7 +24752,7 @@ export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLoc
   agentName: string;
   agentId: string;
   parentAgentId?: string | null;
-  agentChain?: unknown;
+  agentChain?: Array<string> | null;
   depth?: number | null;
 }
 
@@ -19001,7 +24814,7 @@ export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLoc
   agentName: string;
   agentId: string;
   parentAgentId?: string | null;
-  agentChain?: unknown;
+  agentChain?: Array<string> | null;
   depth?: number | null;
 }
 
@@ -19023,7 +24836,32 @@ export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLoc
 }
 
 export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultUsage {
-  operations: unknown;
+  operations: Array<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultUsageOperationsItem>;
+}
+
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultUsageOperationsItem {
+  sourceEventId: string;
+  messageTurnId: string;
+  threadSequenceNumber: number;
+  operationId: string;
+  logicalOperationId: string | null;
+  attempt: number;
+  operationKind: number;
+  family: number;
+  outcome: number;
+  usage: InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultUsageOperationsItemUsage | null;
+  providerKey: string | null;
+  modelId: string | null;
+  responseId: string | null;
+}
+
+export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf0TurnResultUsageOperationsItemUsage {
+  inputTokenCount?: number | null;
+  outputTokenCount?: number | null;
+  totalTokenCount?: number | null;
+  cachedInputTokenCount?: number | null;
+  reasoningTokenCount?: number | null;
+  additionalCounts?: Record<string, number> | null;
 }
 
 export interface InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJsonResultAnyOf1 {
@@ -19890,7 +25728,7 @@ export interface ToolCallContent {
 
 export interface ToolCallContentBase {
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<AIAnnotation> | null;
   additionalProperties?: unknown;
 }
 
@@ -19908,7 +25746,7 @@ export interface ToolCallContentFunctionCallContent {
   arguments?: unknown;
   informationalOnly?: boolean | null;
   callId: string;
-  annotations?: unknown;
+  annotations?: Array<AIAnnotation> | null;
   additionalProperties?: unknown;
 }
 
@@ -19965,6 +25803,7 @@ export interface TraceCapturePolicy {
 
 export interface UpdateAgentRequest {
   config: AgentConfig;
+  metadata?: unknown;
 }
 
 export interface UpdateSessionRequest {

@@ -174,7 +174,8 @@ static async Task<int> ContinueAfterRestartAsync(
             inheritedClient, AgentChatClientSource.BuilderDefault,
             executionIdentity: inheritedClient.Identity),
         services: services,
-        config: new AgentConfig { Name = "parent-agent", EventComposition = composition },
+        config: new AgentConfig { Name = "parent-agent" },
+        runtimeOptions: new AgentRuntimeOptions { EventComposition = composition },
         clientSet: controllerClients,
         runtimeCapabilities: capabilities);
     var before = agentContext.AsBeforeFunction(

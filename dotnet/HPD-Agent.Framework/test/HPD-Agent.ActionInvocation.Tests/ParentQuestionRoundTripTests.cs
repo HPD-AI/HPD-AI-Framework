@@ -33,11 +33,11 @@ public sealed class ParentQuestionRoundTripTests
         });
         await using var child = await new AgentBuilder(new AgentConfig
             {
-                AgentId = "worker",
                 Name = "worker",
-                SessionStore = store,
                 EnableParentCommunication = true
             }, Composition(childClient))
+            .WithAgentId("worker")
+            .WithSessionStore(store)
             .WithEventComposition(CoreAgentEventComposition.Instance).WithServiceProvider(services)
             .WithChatClient(childClient).BuildAsync();
         resolver.Agents["worker"] = child;
@@ -60,7 +60,9 @@ public sealed class ParentQuestionRoundTripTests
             if (step == 2) return Call("WaitChild", "wait", "{}");
             return new(ChatRole.Assistant, "Done.");
         });
-        var builder = new AgentBuilder(new AgentConfig { AgentId = "parent", Name = "parent", SessionStore = store }, Composition(parentClient))
+        var builder = new AgentBuilder(new AgentConfig { Name = "parent" }, Composition(parentClient))
+            .WithAgentId("parent")
+            .WithSessionStore(store)
             .WithEventComposition(CoreAgentEventComposition.Instance).WithServiceProvider(services).WithChatClient(parentClient);
         if (controlled)
             builder.WithNativeFunction(HPDAIFunctionFactory.Create(async (AIFunctionArguments _, FunctionExecutionContext context, CancellationToken token) =>
@@ -117,7 +119,11 @@ public sealed class ParentQuestionRoundTripTests
         await child.StartAsync();
         await parent.StartAsync();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-        await parent.RunAsync("Delegate", sessionId: "session", cancellationToken: timeout.Token);
+        await parent.RunAsync(
+            "Delegate",
+            sessionId: "session",
+            threadId: "main",
+            cancellationToken: timeout.Token);
         var history = (await store.CollectThreadEventsAsync(childKey))!;
         Assert.True(history.OfType<SubAgentResultSubmittedEvent>().Any(),
             "Child stopped without an explicit result: " + string.Join(" | ", history.OfType<ToolCallResultEvent>().Select(e => e.Result.Text)));
@@ -140,11 +146,11 @@ public sealed class ParentQuestionRoundTripTests
         const string complete = """{"request":{"action":"complete","report":"Verified staging"}}""";
         AgentBuilder Builder(string id, IChatClient client) => new AgentBuilder(new AgentConfig
             {
-                AgentId = id,
                 Name = id,
-                SessionStore = store,
                 EnableParentCommunication = true
             }, Composition(client))
+            .WithAgentId(id)
+            .WithSessionStore(store)
             .WithEventComposition(CoreAgentEventComposition.Instance).WithServiceProvider(services).WithChatClient(client);
         await using var worker = await Builder("worker", new ScriptedClient(step => step == 0 ? Call("Parent", "ask", ask) : Call("Parent", "complete", complete))).BuildAsync();
         resolver.Agents["worker"] = worker;
@@ -172,7 +178,11 @@ public sealed class ParentQuestionRoundTripTests
         await Register(supervisorKey, workerKey, "worker");
         await root.StartAsync(); await supervisor.StartAsync(); await worker.StartAsync();
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-        await root.RunAsync("Delegate", sessionId: "nested", cancellationToken: deadline.Token);
+        await root.RunAsync(
+            "Delegate",
+            sessionId: "nested",
+            threadId: "main",
+            cancellationToken: deadline.Token);
         foreach (var key in new[] { supervisorKey, workerKey })
         {
             var history = (await store.CollectThreadEventsAsync(key))!;

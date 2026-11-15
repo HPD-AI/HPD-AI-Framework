@@ -101,7 +101,6 @@ internal class AspNetCoreAgentManager : AgentManager
             .ConfigureAwait(false)
             ?? new AgentConfig();
         config = CloneConfig(config, providerComposition);
-        config.AgentId = null;
         if (config.Name == new AgentConfig().Name)
             config.Name = agentId;
 
@@ -109,7 +108,6 @@ internal class AspNetCoreAgentManager : AgentManager
         await AgentStore.SaveAsync(new StoredAgent
         {
             Id = agentId,
-            Name = config.Name,
             Config = config,
             CreatedAt = now,
             UpdatedAt = now

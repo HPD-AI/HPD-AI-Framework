@@ -75,7 +75,7 @@ public sealed class ContainerHistoryRewriteTests
         await agent.CreateSessionAsync("rewrite-session");
         await agent.RunAsync(new UserMessagesInputEvent { Messages = [new(ChatRole.User, "work")], SessionId = "rewrite-session", ThreadId = "main",
             RunConfig = new() { Collapsing = new() { RecoveryHistoryMode = preserve ? ContainerRecoveryHistoryMode.Preserve : ContainerRecoveryHistoryMode.Rewrite } } });
-        var store = agent.Config.SessionStore!;
+        var store = agent.Runtime.SessionStore!;
         var events = (await store.CollectThreadEventsAsync(new("rewrite-session", "main")))!;
         Assert.Contains(events, e => e is MessageTurnFinishedEvent);
         Assert.DoesNotContain(events, e => e is MessageTurnErrorEvent);

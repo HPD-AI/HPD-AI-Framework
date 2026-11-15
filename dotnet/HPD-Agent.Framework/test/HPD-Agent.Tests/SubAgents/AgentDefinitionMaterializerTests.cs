@@ -19,7 +19,8 @@ public sealed class AgentDefinitionMaterializerTests
         stored.Should().NotBeNull();
         stored!.Config.Should().NotBeSameAs(parent);
         stored.Config.SystemInstructions.Should().Be("original");
-        stored.Config.AgentId.Should().Be("coding/worker");
+        stored.Id.Should().Be("coding/worker");
+        typeof(AgentConfig).GetProperty("AgentId").Should().BeNull();
     }
 
     [Fact]

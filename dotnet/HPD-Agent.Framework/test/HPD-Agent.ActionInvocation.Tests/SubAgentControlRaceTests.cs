@@ -75,12 +75,15 @@ public sealed class SubAgentControlRaceTests
         await using var agent = new Agent(
             new AgentConfig
             {
-                Name = "worker-agent",
-                SessionStore = store,
-                EventComposition = CoreAgentEventComposition.Instance
+                Name = "worker-agent"
             },
             baseClient: null,
-            mergedOptions: null);
+            mergedOptions: null,
+            runtimeOptions: new AgentRuntimeOptions
+            {
+                SessionStore = store,
+                EventComposition = CoreAgentEventComposition.Instance
+            });
         var controller = ThreadExecutionControllerRegistry.For(store);
         var execution = await controller.TryAcquireAsync(
             new ThreadExecutionStartRequest(child, "execution-natural", agent));

@@ -1134,7 +1134,7 @@ public static partial class NativeExports
     }
 
     private static AgentEventCodec GetEventCodec(HPD.Agent.Agent agent) =>
-        agent.Config?.EventComposition?.Codec
+        agent.Runtime.EventComposition?.Codec
         ?? throw new InvalidOperationException("The agent event composition was not resolved.");
 
     private static HpdSubscriptionDisposeStatus DisposeSubscriptionCore(ref IntPtr subscription)

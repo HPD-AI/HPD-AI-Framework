@@ -68,7 +68,7 @@ public class PlanActionContractTests
             .WithChatClient(new IdentifiedClient(client)).WithPlanMode().BuildAsync();
         await agent.CreateSessionAsync("plan-session");
         await agent.RunAsync(new UserMessagesInputEvent { Messages = [new(Microsoft.Extensions.AI.ChatRole.User, "Verify migration")], SessionId = "plan-session", ThreadId = "main" });
-        var events = (await agent.Config.SessionStore!.CollectThreadEventsAsync(new("plan-session", "main")))!;
+        var events = (await agent.Runtime.SessionStore!.CollectThreadEventsAsync(new("plan-session", "main")))!;
         var plans = events.OfType<PlanUpdatedEvent>().ToArray();
         Assert.Equal(6, plans.Length);
         Assert.True(plans[^1].Plan.IsComplete);

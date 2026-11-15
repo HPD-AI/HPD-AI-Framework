@@ -38,10 +38,10 @@ public class AgentBuilderAgentStoreDxTests
 
         var stored = await store.LoadAsync(agentId);
         stored.Should().NotBeNull();
-        stored!.Name.Should().Be("Persisted Agent");
+        stored!.Config.Name.Should().Be("Persisted Agent");
         stored.Config.Name.Should().Be(agent.Config!.Name);
-        stored.Config.AgentId.Should().BeNull();
-        stored.Config.AgentStore.Should().BeNull();
+        typeof(AgentConfig).GetProperty("AgentId").Should().BeNull();
+        typeof(AgentConfig).GetProperty("AgentStore").Should().BeNull();
     }
 
     [Fact]
@@ -110,7 +110,6 @@ public class AgentBuilderAgentStoreDxTests
         await store.SaveAsync(new StoredAgent
         {
             Id = agentId,
-            Name = "Stored Agent",
             Config = CreateConfig("Stored Agent")
         });
         store.SaveCount = 0;
@@ -134,7 +133,6 @@ public class AgentBuilderAgentStoreDxTests
         await store.SaveAsync(new StoredAgent
         {
             Id = agentId,
-            Name = "Stored Agent",
             Config = CreateConfig("Stored Agent")
         });
 
@@ -159,7 +157,6 @@ public class AgentBuilderAgentStoreDxTests
         await store.SaveAsync(new StoredAgent
         {
             Id = agentId,
-            Name = "Original Stored Agent",
             Config = CreateConfig("Original Stored Agent"),
             CreatedAt = createdAt,
             UpdatedAt = createdAt,
@@ -174,7 +171,7 @@ public class AgentBuilderAgentStoreDxTests
 
         var stored = await store.LoadAsync(agentId);
         stored.Should().NotBeNull();
-        stored!.Name.Should().Be("Updated Stored Agent");
+        stored!.Config.Name.Should().Be("Updated Stored Agent");
         stored.CreatedAt.Should().Be(createdAt);
         stored.UpdatedAt.Should().BeAfter(createdAt);
         stored.Metadata.Should().BeSameAs(metadata);
@@ -194,7 +191,7 @@ public class AgentBuilderAgentStoreDxTests
 
         var stored = await store.LoadAsync(agentId);
         stored.Should().NotBeNull();
-        stored!.Name.Should().Be("Options Persisted");
+        stored!.Config.Name.Should().Be("Options Persisted");
     }
 
     [Fact]
@@ -315,13 +312,13 @@ public class AgentBuilderAgentStoreDxTests
     }
 
     private static AgentBuilder CreateBuilder()
-        => new AgentBuilder(CreateConfig(), new TestProviderRegistry(new FakeChatClient()));
+        => new AgentBuilder(CreateConfig(), new TestProviderRegistry(new FakeChatClient()))
+            .WithEventComposition(TestEventApplication.Composition);
 
     private static AgentConfig CreateConfig(string name = "HPD-Agent")
         => new()
         {
             Name = name,
-            EventComposition = TestEventApplication.Composition,
             SystemInstructions = name == "HPD-Agent"
                 ? "You are a helpful assistant."
                 : "Stored instructions",

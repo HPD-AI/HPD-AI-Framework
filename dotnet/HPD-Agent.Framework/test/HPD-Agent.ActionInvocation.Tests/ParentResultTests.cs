@@ -93,7 +93,7 @@ public sealed class ParentResultTests
                     Description = "Counts execution."
                 })).BuildAsync();
         await agent.CreateSessionAsync("session");
-        var store = agent.Config.SessionStore!;
+        var store = agent.Runtime.SessionStore!;
         var key = new ThreadKey("session", "main");
         await store.AppendThreadEventsAsync(key,
             [new ThreadExecutionStartedEvent("execution", agent.AgentId, DateTimeOffset.UtcNow),

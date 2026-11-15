@@ -113,7 +113,7 @@ public sealed class HPDAgentOpenApiDocumentTests
         response.EnsureSuccessStatusCode();
         var json = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
 
-        Assert.Equal("3.1.1", json.GetProperty("openapi").GetString());
+        Assert.StartsWith("3.1.", json.GetProperty("openapi").GetString());
         Assert.Equal("hpd-agent-v1", json.GetProperty("x-hpd-document-name").GetString());
         Assert.True(json.GetProperty("paths").TryGetProperty(
             "/agents/{agentId}/sessions/{sessionId}/threads/{threadId}/events",

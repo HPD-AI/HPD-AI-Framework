@@ -174,8 +174,7 @@ public class HPDAgentRegistryTests
         var existing = new StoredAgent
         {
             Id = "default",
-            Name = "Pre-existing",
-            Config = new AgentConfig(),
+            Config = new AgentConfig { Name = "Pre-existing" },
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -191,7 +190,7 @@ public class HPDAgentRegistryTests
         await manager.EnsureConfiguredDefinitionAsync("default", CancellationToken.None);
 
         var loaded = await agentStore.LoadAsync("default");
-        loaded!.Name.Should().Be("Pre-existing");
+        loaded!.Config.Name.Should().Be("Pre-existing");
     }
 
     // ──────────────────────────────────────────────────────────────────────────

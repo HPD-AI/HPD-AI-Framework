@@ -3,7 +3,7 @@
   <PropertyGroup>
     <HpdAgentApplication>true</HpdAgentApplication>
     <HpdAgentEventPrecompileRequireAnalyzer>false</HpdAgentEventPrecompileRequireAnalyzer>
-    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
+    <TargetFrameworks>net11.0;net10.0</TargetFrameworks>
     <RootNamespace>HPD.Agent.Providers.Tests</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -11,8 +11,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="HuggingFaceOAuthStrategyTests.cs" Condition="'$(TargetFramework)' != 'net10.0'" />
-    <Compile Remove="ProviderApiKeyConvenienceOverloadTests.cs" Condition="'$(TargetFramework)' != 'net10.0'" />
+    <Compile Remove="HuggingFaceOAuthStrategyTests.cs" Condition="!$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))" />
+    <Compile Remove="ProviderApiKeyConvenienceOverloadTests.cs" Condition="!$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))" />
     <PackageReference Include="coverlet.collector" Version="10.1.0" />
     <PackageReference Include="FluentAssertions" Version="$(FluentAssertionsVersion)" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
@@ -41,19 +41,19 @@
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.GoogleAI/HPD-Agent.Providers.GoogleAI.csproj" />
-    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Mistral/HPD-Agent.Providers.Mistral.csproj" Condition="'$(TargetFramework)' == 'net10.0'" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Mistral/HPD-Agent.Providers.Mistral.csproj" Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Ollama/HPD-Agent.Providers.Ollama.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Bedrock/HPD-Agent.Providers.Bedrock.csproj" />
-    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.HuggingFace/HPD-Agent.Providers.HuggingFace.csproj" Condition="'$(TargetFramework)' == 'net10.0'" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.HuggingFace/HPD-Agent.Providers.HuggingFace.csproj" Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/HPD-Agent.Providers.AzureAI.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.OnnxRuntime/HPD-Agent.Providers.OnnxRuntime.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.OpenRouter/HPD-Agent.Providers.OpenRouter.csproj" />
-    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Cohere/HPD-Agent.Providers.Cohere.csproj" Condition="'$(TargetFramework)' == 'net10.0'" />
-    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.DashScope/HPD-Agent.Providers.DashScope.csproj" Condition="'$(TargetFramework)' == 'net10.0'" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Cohere/HPD-Agent.Providers.Cohere.csproj" Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.DashScope/HPD-Agent.Providers.DashScope.csproj" Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Cerebras/HPD-Agent.Providers.Cerebras.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.DeepSeek/HPD-Agent.Providers.DeepSeek.csproj" />
-    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.DeepInfra/HPD-Agent.Providers.DeepInfra.csproj" Condition="'$(TargetFramework)' == 'net10.0'" />
-    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Fireworks/HPD-Agent.Providers.Fireworks.csproj" Condition="'$(TargetFramework)' == 'net10.0'" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.DeepInfra/HPD-Agent.Providers.DeepInfra.csproj" Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Fireworks/HPD-Agent.Providers.Fireworks.csproj" Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.SambaNova/HPD-Agent.Providers.SambaNova.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Hyperbolic/HPD-Agent.Providers.Hyperbolic.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.OVHcloud/HPD-Agent.Providers.OVHcloud.csproj" />
@@ -67,11 +67,11 @@
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Scaleway/HPD-Agent.Providers.Scaleway.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Zai/HPD-Agent.Providers.Zai.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.MiniMax/HPD-Agent.Providers.MiniMax.csproj" />
-    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Together/HPD-Agent.Providers.Together.csproj" Condition="'$(TargetFramework)' == 'net10.0'" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Together/HPD-Agent.Providers.Together.csproj" Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Xai/HPD-Agent.Providers.Xai.csproj" />
-    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Groq/HPD-Agent.Providers.Groq.csproj" Condition="'$(TargetFramework)' == 'net10.0'" />
-    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Moonshot/HPD-Agent.Providers.Moonshot.csproj" Condition="'$(TargetFramework)' == 'net10.0'" />
-    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Replicate/HPD-Agent.Providers.Replicate.csproj" Condition="'$(TargetFramework)' == 'net10.0'" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Groq/HPD-Agent.Providers.Groq.csproj" Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Moonshot/HPD-Agent.Providers.Moonshot.csproj" Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Replicate/HPD-Agent.Providers.Replicate.csproj" Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))" />
   </ItemGroup>
 
 </Project>

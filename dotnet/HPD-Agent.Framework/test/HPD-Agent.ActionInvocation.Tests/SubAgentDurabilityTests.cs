@@ -315,12 +315,15 @@ public sealed class SubAgentDurabilityTests
         await using var agent = new Agent(
             new AgentConfig
             {
-                Name = "test-agent",
-                SessionStore = store,
-                EventComposition = CoreAgentEventComposition.Instance
+                Name = "test-agent"
             },
             baseClient: null,
-            mergedOptions: null);
+            mergedOptions: null,
+            runtimeOptions: new AgentRuntimeOptions
+            {
+                SessionStore = store,
+                EventComposition = CoreAgentEventComposition.Instance
+            });
         var session = new Session("subagent-fork-session");
         await store.SaveSessionAsync(session);
         var source = session.CreateThread("test-agent", "main");

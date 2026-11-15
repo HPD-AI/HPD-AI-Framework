@@ -337,7 +337,7 @@ public sealed class PermissionAdmissionLifecycleTests
             var context = new AgentContext("coding", session.Id,
                 AgentLoopState.Initial([], "run", session.Id, "coding"), events, session, thread, CancellationToken.None, publisher, services: new EmptyServices());
             return new() { Store = store, Session = session, Thread = thread, Events = events, Publisher = publisher,
-                Function = function, Context = context, Middleware = new(new AgentConfig { AgentId = stableId ? "coding" : null, Name = "coding" },
+                Function = function, Context = context, Middleware = new(agentId: stableId ? "coding" : null, agentName: "coding",
                     descriptorCatalog: new PermissionDescriptorCatalog(policyResult is null ? [] :
                     [new AIFunctionPermissionDescriptor { DescriptorId = "test.policy.v1", PolicyFactory = _ => new ConstantPolicy(policyResult) }]),
                     authorizationMode: mode) };

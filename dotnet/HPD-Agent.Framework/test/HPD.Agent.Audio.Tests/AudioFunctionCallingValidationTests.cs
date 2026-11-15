@@ -28,7 +28,9 @@ public sealed class AudioFunctionCallingValidationTests
         });
         chatClient.EnqueueTextResponse("The answer is 20.");
 
-        var agent = await new AgentBuilder(CreateConfig(store))
+        var agent = await new AgentBuilder(CreateConfig())
+            .WithSessionStore(store)
+            .WithEventComposition(HPD.Agent.Serialization.CoreAgentEventComposition.Instance)
             .WithChatClient(chatClient)
             .WithName("audio-function-validation-agent")
             .WithToolHarness<MathToolHarness>()
@@ -108,13 +110,11 @@ public sealed class AudioFunctionCallingValidationTests
         Assert.Equal(3, chatClient.CapturedRequests.Count);
     }
 
-    private static AgentConfig CreateConfig(ISessionStore store)
+    private static AgentConfig CreateConfig()
         => new()
         {
             Name = "AudioFunctionValidationAgent",
-            EventComposition = HPD.Agent.Serialization.CoreAgentEventComposition.Instance,
             MaxAgenticIterations = 10,
-            SessionStore = store,
             Clients = new AgentClientsConfig
             {
                 Chat = new ChatClientConfig

@@ -13,7 +13,6 @@ public sealed class JsonAgentStoreTests : IDisposable
         await WriteAgentAsync("""
         {
           "id": "test-agent",
-          "name": "Test Agent",
           "config": {
             "name": "Test Agent"
           },
@@ -41,7 +40,6 @@ public sealed class JsonAgentStoreTests : IDisposable
         await WriteAgentAsync("""
         {
           "id": "test-agent",
-          "name": "Test Agent",
           "config": {
             "name": "",
             "maxAgenticIterations": 0
@@ -66,7 +64,6 @@ public sealed class JsonAgentStoreTests : IDisposable
         await WriteAgentAsync("""
         {
           "id": "test-agent",
-          "name": "Test Agent",
           "config": null,
           "createdAt": "2026-06-14T00:00:00Z",
           "updatedAt": "2026-06-14T00:00:00Z"
@@ -87,7 +84,6 @@ public sealed class JsonAgentStoreTests : IDisposable
         await store.SaveAsync(new StoredAgent
         {
             Id = "test-agent",
-            Name = "Test Agent",
             Config = new AgentConfig { Name = "Test Agent" }
         });
 
@@ -111,7 +107,6 @@ public sealed class JsonAgentStoreTests : IDisposable
         await store.SaveAsync(new StoredAgent
         {
             Id = second,
-            Name = "Second reviewer",
             Config = new AgentConfig { Name = "Second reviewer" }
         });
 
@@ -137,7 +132,6 @@ public sealed class JsonAgentStoreTests : IDisposable
         await store.SaveAsync(new StoredAgent
         {
             Id = "test-agent",
-            Name = "Test Agent",
             Config = new AgentConfig { Name = "Test Agent" }
         });
         await File.WriteAllTextAsync(Directory.GetFiles(_root, "*.json").Single(), json);

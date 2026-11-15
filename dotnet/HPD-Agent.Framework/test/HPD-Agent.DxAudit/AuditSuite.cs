@@ -112,9 +112,8 @@ internal static class AuditSuite
         try
         {
             var config = CreateConfig(new ToolCallingChatClient());
-            config.ServerConfiguredTools =
-            [
-                HPDAIFunctionFactory.Create(
+            var builder = new AgentBuilder(config);
+            builder.WithNativeFunction(HPDAIFunctionFactory.Create(
                     (arguments, _, _) =>
                     {
                         var value = Convert.ToInt32(arguments["value"]);
@@ -124,10 +123,9 @@ internal static class AuditSuite
                     {
                         Name = "double",
                         Description = "Doubles one integer."
-                    })
-            ];
+                    }));
 
-            await using var agent = await new AgentBuilder(config).BuildAsync(cancellationToken);
+            await using var agent = await builder.BuildAsync(cancellationToken);
             var result = await agent.RunAsync("Double 21", cancellationToken: cancellationToken);
             Require(result.Text == "The value is 42.", "The normalized HPD function did not execute.");
             return Pass(id, area, "HPD factory output assigned to the existing tool collection executes.");
@@ -137,7 +135,7 @@ internal static class AuditSuite
             return Failure(
                 id,
                 area,
-                "An HPD function registered through AgentConfig.ServerConfiguredTools should execute.",
+                "An HPD function registered through WithNativeFunction should execute.",
                 exception);
         }
     }
@@ -150,14 +148,12 @@ internal static class AuditSuite
         try
         {
             var config = CreateConfig(new ToolCallingChatClient());
-            config.ServerConfiguredTools =
-            [
-                HPDAIFunctionFactory.Import(
+            var builder = new AgentBuilder(config);
+            builder.WithNativeFunction(HPDAIFunctionFactory.Import(
                     AIFunctionFactory.Create((int value) => value * 2, "double"),
-                    explicitlyUngoverned: true)
-            ];
+                    explicitlyUngoverned: true));
 
-            await using var agent = await new AgentBuilder(config).BuildAsync(cancellationToken);
+            await using var agent = await builder.BuildAsync(cancellationToken);
             var result = await agent.RunAsync("Double 21", cancellationToken: cancellationToken);
             Require(result.Text == "The value is 42.", "The normalized HPD function did not execute.");
             return Pass(id, area, "An explicitly normalized HPD function builds and executes.");
@@ -672,7 +668,6 @@ internal static class AuditSuite
                 () => agentStore.SaveAsync(new StoredAgent
                 {
                     Id = "../escape",
-                    Name = "Unsafe",
                     Config = new AgentConfig { Name = "Unsafe" }
                 }));
 
@@ -984,18 +979,16 @@ internal static class AuditSuite
                 "explode",
                 new Dictionary<string, object?>(),
                 "The tool failed cleanly."));
-            config.ServerConfiguredTools =
-            [
-                HPDAIFunctionFactory.Create(
+            var builder = new AgentBuilder(config);
+            builder.WithNativeFunction(HPDAIFunctionFactory.Create(
                     (_, _, _) => throw new InvalidOperationException("probe explosion"),
                     new HPDAIFunctionFactoryOptions
                     {
                         Name = "explode",
                         Description = "Always throws."
-                    })
-            ];
+                    }));
 
-            await using var agent = await new AgentBuilder(config).BuildAsync(cancellationToken);
+            await using var agent = await builder.BuildAsync(cancellationToken);
             var result = await agent.RunAsync(
                 "Call explode",
                 cancellationToken: cancellationToken).WaitAsync(
@@ -1029,9 +1022,8 @@ internal static class AuditSuite
                 "slow",
                 new Dictionary<string, object?>(),
                 "The slow tool was stopped."));
-            config.ServerConfiguredTools =
-            [
-                HPDAIFunctionFactory.Create(
+            var builder = new AgentBuilder(config);
+            builder.WithNativeFunction(HPDAIFunctionFactory.Create(
                     async (_, _, token) =>
                     {
                         await Task.Delay(TimeSpan.FromSeconds(10), token);
@@ -1041,10 +1033,9 @@ internal static class AuditSuite
                     {
                         Name = "slow",
                         Description = "Exceeds the configured timeout."
-                    })
-            ];
+                    }));
 
-            await using var agent = await new AgentBuilder(config)
+            await using var agent = await builder
                 .WithFunctionTimeout(TimeSpan.FromMilliseconds(100))
                 .BuildAsync(cancellationToken);
             try
@@ -1084,9 +1075,8 @@ internal static class AuditSuite
                 "flaky",
                 new Dictionary<string, object?>(),
                 "The retry completed."));
-            config.ServerConfiguredTools =
-            [
-                HPDAIFunctionFactory.Create(
+            var builder = new AgentBuilder(config);
+            builder.WithNativeFunction(HPDAIFunctionFactory.Create(
                     (_, _, _) =>
                     {
                         if (Interlocked.Increment(ref calls) == 1)
@@ -1098,10 +1088,9 @@ internal static class AuditSuite
                         Name = "flaky",
                         Description = "Fails once, then succeeds.",
                         Replay = ReplayPolicy.Idempotent
-                    })
-            ];
+                    }));
 
-            await using var agent = await new AgentBuilder(config)
+            await using var agent = await builder
                 .WithRetry(configure =>
                 {
                     configure.FunctionRetries.MaxRetries = 1;
@@ -1143,9 +1132,8 @@ internal static class AuditSuite
                 "sensitive",
                 new Dictionary<string, object?>(),
                 approve ? "The protected tool ran." : "The protected tool was denied."));
-            config.ServerConfiguredTools =
-            [
-                HPDAIFunctionFactory.Create(
+            var builder = new AgentBuilder(config);
+            builder.WithNativeFunction(HPDAIFunctionFactory.Create(
                     (_, _, _) =>
                     {
                         Interlocked.Increment(ref executions);
@@ -1156,10 +1144,9 @@ internal static class AuditSuite
                         Name = "sensitive",
                         Description = "Requires an explicit permission decision.",
                         FunctionPermission = AIFunctionPermissionDeclaration.Required("sensitive")
-                    })
-            ];
+                    }));
 
-            await using var agent = await new AgentBuilder(config)
+            await using var agent = await builder
                 .WithInMemorySessionStore()
                 .WithPermissions()
                 .BuildAsync(cancellationToken);
@@ -1336,9 +1323,10 @@ internal static class AuditSuite
                 new Dictionary<string, object?>(),
                 "offload complete");
             var config = CreateConfig(chatClient);
-            config.ServerConfiguredTools = [tool];
+            var builder = new AgentBuilder(config);
+            builder.WithNativeFunction(tool);
 
-            await using var agent = await new AgentBuilder(config)
+            await using var agent = await builder
                 .WithInMemorySessionStore()
                 .WithContentStore(store)
                 .BuildAsync(cancellationToken);

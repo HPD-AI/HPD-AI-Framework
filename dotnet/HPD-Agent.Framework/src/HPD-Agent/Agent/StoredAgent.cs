@@ -8,9 +8,14 @@ namespace HPD.Agent;
 /// </summary>
 public class StoredAgent
 {
+    private AgentConfig _config = new();
+
     public string Id { get; init; } = string.Empty;
-    public string Name { get; set; } = string.Empty;
-    public AgentConfig Config { get; set; } = new();
+    public AgentConfig Config
+    {
+        get => _config;
+        set => _config = value ?? throw new ArgumentNullException(nameof(value));
+    }
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     public Dictionary<string, object>? Metadata { get; set; }

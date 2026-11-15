@@ -3,7 +3,7 @@
   <PropertyGroup>
     <HpdAgentEventPrecompileRequireAnalyzer>false</HpdAgentEventPrecompileRequireAnalyzer>
     <IsPackable>true</IsPackable>
-    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <!-- Inherits TargetFrameworks from Directory.Build.props: net11.0;net10.0 -->
     <RootNamespace>HPD.Agent.ToolHarness.FileSystem</RootNamespace>
 
     <!-- Native AOT Configuration -->
@@ -33,8 +33,6 @@
     <PackageReference Include="DiffPlex" Version="1.9.0" />
     <PackageReference Include="MAB.DotIgnore" Version="3.0.2" />
     <PackageReference Include="Ude.NetStandard" Version="1.2.0" />
-    <PackageReference Include="System.Net.Http" Version="4.3.4" />
-    <PackageReference Include="System.Text.RegularExpressions" Version="4.3.1" />
 
     <!-- JSON Schema (match HPD-Agent) -->
     <PackageReference Include="JsonSchema.Net.Generation" Version="7.4.1" />

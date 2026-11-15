@@ -207,10 +207,9 @@ public class StructuredOutputToolModeTests
             {
                 Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
                 ModelName = "test-model"
-            } },
-            ServerConfiguredTools = [regularTool]
+            } }
         };
-        var agent = TestAgentFactory.Create(config: config, chatClient: fakeClient);
+        var agent = TestAgentFactory.Create(config: config, chatClient: fakeClient, tools: [regularTool]);
         var options = new AgentRunConfig
         {
             StructuredOutput = new StructuredOutputOptions { Mode = "tool" }

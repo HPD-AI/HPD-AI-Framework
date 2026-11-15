@@ -535,7 +535,11 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
             CancellationToken.None,
             traceId: "00000000000000000000000000000001",
             structEvents: new HPD.Events.Struct.StructEventHub(),
-            config: new AgentConfig { EventComposition = PreparedOutputExecutionTestFixture.EventComposition });
+            config: new AgentConfig(),
+            runtimeOptions: new AgentRuntimeOptions
+            {
+                EventComposition = PreparedOutputExecutionTestFixture.EventComposition
+            });
 
         var factory = typeof(AgentContext).GetMethod(
             "AsBeforeMessageTurn",
@@ -563,7 +567,11 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
             CancellationToken.None,
             traceId: "00000000000000000000000000000001",
             structEvents: new HPD.Events.Struct.StructEventHub(),
-            config: new AgentConfig { EventComposition = PreparedOutputExecutionTestFixture.EventComposition });
+            config: new AgentConfig(),
+            runtimeOptions: new AgentRuntimeOptions
+            {
+                EventComposition = PreparedOutputExecutionTestFixture.EventComposition
+            });
 
         var factory = typeof(AgentContext).GetMethod(
             "AsBeforeIteration",

@@ -78,7 +78,7 @@ public class TeamsBotInteractionTests
     [Fact]
     public async Task ProcessActionAsync_PermissionAction_DoesNotRaiseCardAction()
     {
-        await using var agent = await new AgentBuilder(CreateAgentConfig())
+        await using var agent = await CreateAgentBuilder()
             .WithChatClient(new NoOpChatClient())
             .BuildAsync();
         var bot = CreateBot(new StaticAgentManager(agent));
@@ -146,8 +146,8 @@ public class TeamsBotInteractionTests
         return new HPD.Agent.Bots.Teams.TeamsBot(options, sessionManager, agentManager, mapper);
     }
 
-    private static AgentConfig CreateAgentConfig()
-        => new()
+    private static AgentBuilder CreateAgentBuilder()
+        => new AgentBuilder(new AgentConfig
         {
             Name = "TeamsPermissionTestAgent",
             MaxAgenticIterations = 1,
@@ -166,9 +166,9 @@ public class TeamsBotInteractionTests
                 FunctionRetries = new() { MaxRetries = 0 },
                 NormalizeErrors = true,
             },
-            SessionStore = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec),
-            EventComposition = HPD.Agent.Serialization.CoreAgentEventComposition.Instance,
-        };
+        })
+        .WithEventComposition(HPD.Agent.Serialization.CoreAgentEventComposition.Instance)
+        .WithSessionStore(new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec));
 
     private sealed class StaticAgentManager(HpdAgent agent) : AgentManager(new InMemoryAgentStore())
     {

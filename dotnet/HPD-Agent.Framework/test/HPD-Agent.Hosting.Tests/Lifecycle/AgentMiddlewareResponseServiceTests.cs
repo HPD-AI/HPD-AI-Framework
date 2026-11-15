@@ -34,7 +34,7 @@ public class AgentMiddlewareResponseServiceTests : IAsyncLifetime
     public async Task AnswerRequestAsync_WithoutDurableRequest_ReturnsTypedNotFound()
     {
         var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("agent-1", "session-1");
-        var stored = await _agentManager.CreateDefinitionAsync(MakeConfig("agent-1"), "agent-1");
+        var stored = await _agentManager.CreateDefinitionAsync(MakeConfig("agent-1"));
         await _agentManager.GetOrBuildAgentAsync(stored.Id);
 
         var result = await _service.AnswerRequestAsync(
@@ -51,7 +51,7 @@ public class AgentMiddlewareResponseServiceTests : IAsyncLifetime
     public async Task AnswerRequestAsync_TargetsThreadRuntime_WhenBuilt()
     {
         var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("agent-1", "session-1");
-        var stored = await _agentManager.CreateDefinitionAsync(MakeConfig("agent-1"), "agent-1");
+        var stored = await _agentManager.CreateDefinitionAsync(MakeConfig("agent-1"));
         await _agentManager.GetOrBuildAgentRuntimeAsync(stored.Id, sessionId, threadId);
 
         var result = await _service.AnswerRequestAsync(
@@ -68,7 +68,7 @@ public class AgentMiddlewareResponseServiceTests : IAsyncLifetime
     public async Task AnswerRequestAsync_CommitsCanonicalResponseBeforeReleasingWaiter()
     {
         var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("agent-1", "session-1");
-        var stored = await _agentManager.CreateDefinitionAsync(MakeConfig("agent-1"), "agent-1");
+        var stored = await _agentManager.CreateDefinitionAsync(MakeConfig("agent-1"));
         var runtime = await _agentManager.GetOrBuildAgentRuntimeAsync(stored.Id, sessionId, threadId);
         var request = new PermissionRequestEvent(
             "permission-1",
@@ -106,7 +106,7 @@ public class AgentMiddlewareResponseServiceTests : IAsyncLifetime
         completed.ThreadId.Should().Be(threadId);
 
         var key = new ThreadKey(sessionId, threadId);
-        var replay = await runtime.Config!.SessionStore!.CollectThreadEventsAsync(key);
+        var replay = await runtime.Runtime.SessionStore!.CollectThreadEventsAsync(key);
         replay.Should().ContainSingle();
         replay![0].Should().Be(completed);
     }
@@ -144,7 +144,6 @@ public class AgentMiddlewareResponseServiceTests : IAsyncLifetime
                 ?? new StoredAgent
                 {
                     Id = agentId,
-                    Name = agentId,
                     Config = MakeConfig(agentId)
                 };
 

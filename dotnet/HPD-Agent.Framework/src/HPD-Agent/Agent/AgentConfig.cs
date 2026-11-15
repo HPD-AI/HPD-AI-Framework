@@ -11,8 +11,6 @@ using HPD.Agent;
 using HPD.Agent.Providers;
 using HPD.Agent.MCP;
 
-using System.Collections.Immutable;
-
 namespace HPD.Agent;
 
 /// A data-centric class that holds all the serializable configuration
@@ -20,19 +18,6 @@ namespace HPD.Agent;
 /// </summary>
 public class AgentConfig
 {
-    /// <summary>
-    /// Gets or sets the host-provided directory used to resolve relative configuration references.
-    /// This runtime context is not serialized.
-    /// </summary>
-    [JsonIgnore]
-    public string? SourceDirectory { get; set; }
-
-    /// <summary>
-    /// Global configuration instance used by source-generated code.
-    /// Set by AgentBuilder during agent construction.
-    /// </summary>
-    internal static AgentConfig? GlobalConfig { get; set; }
-
     public string Name { get; set; } = "HPD-Agent";
     public string SystemInstructions { get; set; } = "You are a helpful assistant.";
 
@@ -257,13 +242,6 @@ public class AgentConfig
     public List<MiddlewareReference> Middlewares { get; set; } = new();
 
     /// <summary>
-    /// Internal: Set of explicitly registered ToolHarness names (for Collapsing manager).
-    /// This is set by the builder and used to distinguish explicit vs implicit ToolHarness registration.
-    /// </summary>
-    [JsonIgnore]
-    internal ImmutableHashSet<string> explicitlyRegisteredToolHarnesses { get; set; } = ImmutableHashSet<string>.Empty;
-
-    /// <summary>
     /// Configuration for event observer sampling and performance optimization.
     /// Controls circuit breaker thresholds and event sampling rates for high-volume events.
     /// </summary>
@@ -344,205 +322,17 @@ public class AgentConfig
     public bool CoalesceDeltas { get; set; } = false;
 
     /// <summary>
-    /// Optional stable identity used by <see cref="AgentBuilder"/> to load and
-    /// persist a <see cref="StoredAgent"/> definition through <see cref="AgentStore"/>.
-    /// Ignored during JSON serialization because persisted identity lives on
-    /// <see cref="StoredAgent.Id"/>.
-    /// </summary>
-    [JsonIgnore]
-    public string? AgentId { get; set; }
-
-    /// <summary>
-    /// Gets or sets the session store used for thread history and crash recovery.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// When this property is <see langword="null"/> during <see cref="AgentBuilder.BuildAsync"/>,
-    /// the builder creates an agent-owned <see cref="InMemorySessionStore"/>.
-    /// That store retains sessions for the lifetime of the resulting agent and is disposed
-    /// when the agent is disposed; it does not survive agent disposal or process restart.
-    /// </para>
-    /// <para>
-    /// Set this property to a caller-owned store when persistence must outlive the agent.
-    /// Use <see cref="FileSessionStore"/> for file-backed persistence or provide a custom
-    /// <see cref="ISessionStore"/> implementation.
-    /// </para>
-    /// <para>
-    /// <b>Example - file-backed persistence:</b>
-    /// <code>
-    /// var config = new AgentConfig
-    /// {
-    ///     SessionStore = new FileSessionStore("./sessions", eventCodec)
-    /// };
-    ///
-    /// await using var agent = await new AgentBuilder(config)
-    ///     .WithChatClient(chatClient)
-    ///     .BuildAsync();
-    ///
-    /// await agent.RunAsync("Hello", "session-123");
-    /// </code>
-    /// </para>
-    /// </remarks>
-    [JsonIgnore]
-    public ISessionStore? SessionStore { get; set; }
-
-    /// <summary>Gets or sets the immutable application event authority selected for this agent.</summary>
-    [JsonIgnore]
-    public AgentEventComposition? EventComposition { get; set; }
-
-    /// <summary>
-    /// Agent store used to resolve <see cref="StoredAgent"/> definitions at runtime.
-    /// Required when using sub-agents via <c>StoredAgentId</c>.
-    /// </summary>
-    [JsonIgnore]
-    public IAgentStore? AgentStore { get; set; }
-
-    /// <summary>
-    /// Options for agent definition persistence behavior.
-    /// Controls whether <see cref="AgentBuilder.BuildAsync"/> saves the current
-    /// definition back to <see cref="AgentStore"/>.
-    /// </summary>
-    [JsonIgnore]
-    public AgentStoreOptions? AgentStoreOptions { get; set; }
-
-    /// <summary>
-    /// Options for session persistence behavior.
-    /// Controls auto-save, checkpoint frequency, and retention policy.
-    /// </summary>
-    [JsonIgnore]
-    public SessionStoreOptions? SessionStoreOptions { get; set; }
-
-    // Threading config removed - threading is now an application-level concern
-
-    /// <summary>
-    /// Tools that the agent can invoke but are NOT sent to the LLM in each request.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Some AI services (e.g., OpenAI Assistants, Anthropic with pre-configured tools) allow you to
-    /// configure functions server-side that persist across requests. When the LLM calls these functions,
-    /// your agent needs to be able to execute them even though they weren't in <see cref="ChatOptions.Tools"/>.
-    /// </para>
-    /// <para>
-    /// <b>Use Cases:</b>
-    /// <list type="bullet">
-    /// <item>OpenAI Assistants with pre-configured tools</item>
-    /// <item>Azure AI Function Apps registered with the service</item>
-    /// <item>Anthropic accounts with account-level tool configurations</item>
-    /// <item>Testing scenarios where you want to hide tools from the LLM but still handle calls</item>
-    /// </list>
-    /// </para>
-    /// <para>
-    /// <b>Priority:</b> If a function exists in both <see cref="ChatOptions.Tools"/> and ServerConfiguredTools,
-    /// the one in <see cref="ChatOptions.Tools"/> takes precedence (allows per-request overrides).
-    /// </para>
-    /// <para>
-    /// </para>
-    /// <para>
-    /// <b>Example:</b>
-    /// <code>
-    /// var agent = new Agent(new AgentConfig
-    /// {
-    ///     ServerConfiguredTools = [get_weather_function, search_web_function]
-    /// });
-    ///
-    /// // Request doesn't include tools (they're server-configured)
-    /// var response = await agent.GetResponseAsync(messages, new ChatOptions());
-    ///
-    /// // LLM calls "get_weather" (server knows about it)
-    /// // Agent finds it in ServerConfiguredTools and executes it
-    /// </code>
-    /// </para>
-    /// </remarks>
-    [JsonIgnore] // Don't serialize AIFunction instances
-    public IList<AITool>? ServerConfiguredTools { get; set; } = new List<AITool>();
-
-    /// <summary>
-    /// Optional callback to configure or transform ChatOptions before each LLM call.
-    /// This allows dynamic runtime configuration without middleware.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// This callback is invoked before every LLM request, allowing you to:
-    /// - Dynamically adjust temperature, top_p, etc. based on runtime conditions
-    /// - Add request-specific metadata or tracking
-    /// - Enforce constraints (e.g., cap max tokens)
-    /// - Implement custom option transformation logic
-    /// </para>
-    /// <para>
-    /// <b>Example:</b>
-    /// <code>
-    /// var config = new AgentConfig
-    /// {
-    ///     ConfigureOptions = opts =>
-    ///     {
-    ///         // Cap temperature at 0.8
-    ///         opts.Temperature = Math.Min(opts.Temperature ?? 1.0f, 0.8f);
-    ///
-    ///         // Add request ID for tracking
-    ///         opts.AdditionalProperties ??= new();
-    ///         opts.AdditionalProperties["request_id"] = Guid.NewGuid().ToString();
-    ///     }
-    /// };
-    /// </code>
-    /// </para>
-    /// </remarks>
-    [JsonIgnore] // Don't serialize callbacks
-    public Action<ChatOptions>? ConfigureOptions { get; set; }
-
-    /// <summary>
-    /// Optional middleware to wrap the IChatClient for custom processing.
-    /// Middleware is applied dynamically on each request, allowing runtime provider switching to work.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Unlike traditional middleware that wraps the client at build time, this middleware is applied
-    /// on every request. This means:
-    /// - Runtime provider switching still works (new provider gets wrapped automatically)
-    /// - No performance overhead when middleware list is null/empty
-    /// - Middleware can be added/removed at runtime if needed
-    /// </para>
-    /// <para>
-    /// <b>Use Cases:</b>
-    /// - Custom rate limiting
-    /// - Cost tracking and budgets
-    /// - Request/response logging
-    /// - Response caching
-    /// - Content filtering
-    /// - Retry policies
-    /// </para>
-    /// <para>
-    /// <b>Example:</b>
-    /// <code>
-    /// var config = new AgentConfig
-    /// {
-    ///     ClientMiddleware = new()
-    ///     {
-    ///         Chat = new()
-    ///         {
-    ///             (client, services) => new RateLimitingChatClient(client),
-    ///             (client, services) => new CostTrackingChatClient(client, services)
-    ///         }
-    ///     }
-    /// };
-    /// </code>
-    /// </para>
-    /// </remarks>
-    [JsonIgnore] // Don't serialize middleware delegates
-    public AgentClientMiddlewareConfig? ClientMiddleware { get; set; }
-
-    /// <summary>
     /// Loads a JSON or YAML configuration file and builds an agent.
     /// </summary>
     public static async Task<Agent> BuildFromFileAsync(
         string filePath,
         CancellationToken cancellationToken = default)
     {
-        var config = await HpdAgentConfigSerializer.ReadFileAsync(filePath, cancellationToken)
+        var loaded = await HpdAgentConfigSerializer.ReadFileWithSourceAsync(filePath, cancellationToken)
             .ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Failed to deserialize AgentConfig from {filePath}");
 
-        return await new AgentBuilder(config).BuildAsync(cancellationToken).ConfigureAwait(false);
+        return await new AgentBuilder(loaded).BuildAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -675,27 +465,6 @@ public class AgentClientsConfig
             ? null
             : config as TConfig ?? throw new ArgumentException(
                 $"{family} configuration must be {typeof(TConfig).Name}.", nameof(config));
-}
-
-/// <summary>
-/// Runtime-only wrappers for provider-created client families.
-/// </summary>
-public class AgentClientMiddlewareConfig
-{
-    /// <summary>Gets or sets wrappers applied to resolved Chat clients.</summary>
-    public List<Func<IChatClient, IServiceProvider?, IChatClient>>? Chat { get; set; }
-    /// <summary>Gets or sets wrappers applied to resolved text-to-speech clients.</summary>
-    public List<Func<ITextToSpeechClient, IServiceProvider?, ITextToSpeechClient>>? TextToSpeech { get; set; }
-    /// <summary>Gets or sets wrappers applied to resolved speech-to-text clients.</summary>
-    public List<Func<ISpeechToTextClient, IServiceProvider?, ISpeechToTextClient>>? SpeechToText { get; set; }
-    /// <summary>Gets or sets wrappers applied to resolved realtime clients.</summary>
-    public List<Func<IRealtimeClient, IServiceProvider?, IRealtimeClient>>? Realtime { get; set; }
-    /// <summary>Gets or sets wrappers applied to resolved image-generation clients.</summary>
-    public List<Func<IImageGenerator, IServiceProvider?, IImageGenerator>>? ImageGeneration { get; set; }
-    /// <summary>Gets or sets wrappers applied to resolved embedding clients.</summary>
-    public List<Func<IEmbeddingGenerator, IServiceProvider?, IEmbeddingGenerator>>? Embeddings { get; set; }
-    /// <summary>Gets or sets wrappers applied to resolved hosted-file clients.</summary>
-    public List<Func<IHostedFileClient, IServiceProvider?, IHostedFileClient>>? HostedFiles { get; set; }
 }
 
 /// <summary>
@@ -1059,7 +828,7 @@ public class AgenticLoopConfig
     /// When the loop terminates, the caller receives the function call request and can route it appropriately.
     /// </para>
     /// <para>
-    /// Note: Functions that are known (via ChatOptions.Tools or AgentConfig.ServerConfiguredTools) but aren't
+    /// Note: Functions that are known (via ChatOptions.Tools or the runtime server-tool list) but aren't
     /// AIFunction instances (e.g., AIFunctionDeclaration only) will also cause termination regardless of
     /// this setting, as they cannot be invoked by the agent.
     /// </para>

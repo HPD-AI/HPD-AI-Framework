@@ -27,7 +27,7 @@ public sealed partial class Agent
     {
         if (_middlewarePipeline.Middlewares.OfType<GoalMiddleware>().SingleOrDefault() is not { } goals) return;
         _restoredGoalThreads.TryAdd(new(thread.SessionId, thread.Id), 0);
-        if (!IsRunning || Config?.SessionStore is not { } store) return;
+        if (!IsRunning || Runtime.SessionStore is not { } store) return;
         await goals.ReconcileAsync(store, new AgentEventPublisher(store, GetActiveEventCoordinator()), thread,
             _runtimeContext?.RunConfig, async input =>
             {
@@ -42,7 +42,7 @@ public sealed partial class Agent
 
     private async ValueTask ReconcileRestoredGoalsOnStartAsync(CancellationToken cancellationToken)
     {
-        if (Config?.SessionStore is not { } store) return;
+        if (Runtime.SessionStore is not { } store) return;
         foreach (var key in _restoredGoalThreads.Keys)
         {
             cancellationToken.ThrowIfCancellationRequested();

@@ -177,10 +177,10 @@ public class MessageTurnFinishedEventTests : AgentTestBase
     {
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
-        config.SessionStore = store;
         var fakeClient = new FakeChatClientWithUsage();
         fakeClient.EnqueueResponse("secret", 3, 2);
-        var agent = CreateAgentWithMiddlewares(config, fakeClient, [new HistoryFinalizerMiddleware()]);
+        var agent = CreateAgentWithMiddlewaresAndSessionStore(
+            config, store, fakeClient, [new HistoryFinalizerMiddleware()]);
         await agent.CreateSessionAsync("session-finalize", cancellationToken: TestCancellationToken);
 
         await agent.RunAsync("hi", "session-finalize", "main", cancellationToken: TestCancellationToken);
@@ -202,10 +202,11 @@ public class MessageTurnFinishedEventTests : AgentTestBase
     {
         var events = new ConcurrentQueue<AgentEvent>();
         var config = DefaultConfig();
-        config.SessionStore = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var fakeClient = new FakeChatClientWithUsage();
         fakeClient.EnqueueResponse("done", 3, 2);
-        var agent = CreateAgentWithMiddlewares(config, fakeClient, [new InvalidHistoryFinalizer(reorder)]);
+        var agent = CreateAgentWithMiddlewaresAndSessionStore(
+            config, store, fakeClient, [new InvalidHistoryFinalizer(reorder)]);
         await agent.CreateSessionAsync("session-invalid-history", cancellationToken: TestCancellationToken);
         using var subscription = agent.SubscribeAny(evt => { events.Enqueue(evt); return ValueTask.CompletedTask; });
 
@@ -222,10 +223,10 @@ public class MessageTurnFinishedEventTests : AgentTestBase
         var events = new ConcurrentQueue<AgentEvent>();
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
-        config.SessionStore = store;
         var fakeClient = new FakeChatClientWithUsage();
         fakeClient.EnqueueResponse("secret", 3, 2);
-        var agent = CreateAgentWithMiddlewares(config, fakeClient, [new DuplicateIdentityFinalizer()]);
+        var agent = CreateAgentWithMiddlewaresAndSessionStore(
+            config, store, fakeClient, [new DuplicateIdentityFinalizer()]);
         await agent.CreateSessionAsync("session-reconcile-failure", cancellationToken: TestCancellationToken);
         using var subscription = agent.SubscribeAny(evt => { events.Enqueue(evt); return ValueTask.CompletedTask; });
 
@@ -400,8 +401,11 @@ public class MessageTurnFinishedEventTests : AgentTestBase
     private Agent CreatePersistentAgent(IChatClient client, params AIFunction[] tools)
     {
         var config = DefaultConfig();
-        config.SessionStore = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
-        return CreateAgent(config, client, tools: tools);
+        return CreateAgentWithSessionStore(
+            config,
+            new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec),
+            client,
+            tools: tools);
     }
 
     private async Task<AgentTurnResult> RunPersistedAsync(Agent agent, string text)

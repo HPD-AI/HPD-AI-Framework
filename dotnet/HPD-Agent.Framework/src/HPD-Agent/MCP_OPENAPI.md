@@ -4,9 +4,9 @@ HPD-Agent has three related but distinct packages:
 
 | Package | Purpose | Target frameworks |
 |---|---|---|
-| `HPD-Agent.MCP` | Consume Model Context Protocol servers as agent capabilities | .NET 8, 9, 10 |
-| `HPD-Agent.OpenApi` | Consume OpenAPI-described REST APIs as agent tools | .NET 8, 9, 10 |
-| `HPD-Agent.AspNetCore.OpenApi` | Publish HPD-Agent's own ASP.NET Core API contract as OpenAPI 3.1 | .NET 10 |
+| `HPD-Agent.MCP` | Consume Model Context Protocol servers as agent capabilities | .NET 10, 11 |
+| `HPD-Agent.OpenApi` | Consume OpenAPI-described REST APIs as agent tools | .NET 10, 11 |
+| `HPD-Agent.AspNetCore.OpenApi` | Publish HPD-Agent's own ASP.NET Core API contract as OpenAPI 3.1 | .NET 10, 11 |
 
 Use `HPD-Agent.MCP` for MCP tools, resources, and prompts. Use
 `HPD-Agent.OpenApi` to import operations from an external REST API. Use

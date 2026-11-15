@@ -47,7 +47,7 @@ public class SubAgentHandoffTests
         if (extraSummary) client.EnqueueTextResponse("CHILD BRIEFING");
         await using var agent = await Build(client);
         await agent.CreateSessionAsync("parent");
-        var store = agent.Config!.SessionStore!;
+        var store = agent.Runtime.SessionStore!;
         var parent = (await store.ProjectThreadAsync("parent", "main", ThreadProjectionPurpose.ModelContext))!;
         var original = new ChatMessage(ChatRole.User, "ORIGINAL HISTORY MUST NOT RETURN") { MessageId = "old" };
         await store.AppendThreadEventsAsync(new("parent", "main"), ThreadMessageEventConverter.ToThreadEvents("parent", "main", original));
@@ -95,7 +95,7 @@ public class SubAgentHandoffTests
     {
         await using var agent = await Build();
         await agent.CreateSessionAsync("session");
-        var store = agent.Config!.SessionStore!;
+        var store = agent.Runtime.SessionStore!;
         var context = new SubAgentContextReceivedEvent("context", "BACKGROUND", new("session", "main"), new(1, 1));
         await SubAgentRuntime.CreateEmptyThreadAsync(agent, "session", "child", null, default, context);
         var child = (await store.ProjectThreadAsync("session", "child", ThreadProjectionPurpose.ModelContext))!;
@@ -113,7 +113,7 @@ public class SubAgentHandoffTests
     {
         await using var agent = await Build();
         await agent.CreateSessionAsync("s");
-        var store = agent.Config!.SessionStore!;
+        var store = agent.Runtime.SessionStore!;
         await store.AppendThreadEventsAsync(new("s", "main"), ThreadMessageEventConverter.ToThreadEvents("s", "main",
             new ChatMessage(ChatRole.User, "AT RESERVATION") { MessageId = "first" }));
         var head = (await store.GetThreadAsync(new("s", "main")))!;
@@ -134,7 +134,7 @@ public class SubAgentHandoffTests
     {
         await using var agent = await Build();
         await agent.CreateSessionAsync("s");
-        var store = agent.Config!.SessionStore!;
+        var store = agent.Runtime.SessionStore!;
         await store.AppendThreadEventsAsync(new("s", "main"), ThreadMessageEventConverter.ToThreadEvents("s", "main",
             new ChatMessage(ChatRole.User, "REMOVED") { MessageId = "old" }));
         var parent = (await store.ProjectThreadAsync("s", "main", ThreadProjectionPurpose.ModelContext))!;

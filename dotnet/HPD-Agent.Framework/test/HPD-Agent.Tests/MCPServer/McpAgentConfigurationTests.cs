@@ -150,8 +150,9 @@ public sealed class McpAgentConfigurationTests
 
         try
         {
-            var config = HpdAgentConfigSerializer.ReadFile(path)!;
-            Assert.Equal(directory, config.SourceDirectory);
+            var loaded = HpdAgentConfigSerializer.ReadFileWithSource(path)!;
+            var config = loaded.Config;
+            Assert.Equal(directory, loaded.SourceDirectory);
             Assert.Equal("mcp.manifests[0]", config.Mcp!.Manifests[0].SourcePath);
             Assert.NotNull(config.Mcp.Manifests[0].SourceLocations);
         }
@@ -166,7 +167,6 @@ public sealed class McpAgentConfigurationTests
     {
         var config = new AgentConfig
         {
-            EventComposition = TestEventComposition.Current,
             Mcp = new AgentMcpConfig
             {
                 Servers =
@@ -182,7 +182,7 @@ public sealed class McpAgentConfigurationTests
             }
         };
 
-        await using var agent = await new AgentBuilder(config)
+        await using var agent = await Builder(config)
             .WithChatClient(new MiddlewareTestHelpers.TestChatClient())
             .BuildAsync();
 
@@ -195,14 +195,13 @@ public sealed class McpAgentConfigurationTests
     {
         var config = new AgentConfig
         {
-            EventComposition = TestEventComposition.Current,
             Mcp = new AgentMcpConfig
             {
                 Manifests = [new McpManifestReference { Path = "./mcp.json" }]
             }
         };
         var error = await Assert.ThrowsAsync<AgentRunConfigurationException>(() =>
-            new AgentBuilder(config)
+            Builder(config)
                 .WithChatClient(new MiddlewareTestHelpers.TestChatClient())
                 .BuildAsync());
 
@@ -233,15 +232,13 @@ public sealed class McpAgentConfigurationTests
         {
             var config = new AgentConfig
             {
-                EventComposition = TestEventComposition.Current,
-                SourceDirectory = directory,
                 Mcp = new AgentMcpConfig
                 {
                     Manifests = [new McpManifestReference { Path = "./mcp.json" }]
                 }
             };
 
-            await using var agent = await new AgentBuilder(config)
+            await using var agent = await Builder(config, directory)
                 .WithChatClient(new FakeChatClient())
                 .BuildAsync();
 
@@ -263,10 +260,8 @@ public sealed class McpAgentConfigurationTests
                 - sourceName: missing-path
             """,
             HpdConfigFormat.Yaml)!;
-        config.EventComposition = TestEventComposition.Current;
-
         var error = await Assert.ThrowsAsync<AgentRunConfigurationException>(() =>
-            new AgentBuilder(config)
+            Builder(config)
                 .WithChatClient(new FakeChatClient())
                 .BuildAsync());
 
@@ -475,7 +470,6 @@ public sealed class McpAgentConfigurationTests
         var chat = new FakeChatClient();
         var config = new AgentConfig
         {
-            EventComposition = TestEventComposition.Current,
             Mcp = new AgentMcpConfig
             {
                 Servers = [new McpServerConfig
@@ -490,7 +484,7 @@ public sealed class McpAgentConfigurationTests
             chat.EnqueueToolCalls(("MCP_inline", "expand", new Dictionary<string, object?>()));
         chat.EnqueueToolCalls(("inline_echo", "invoke", new Dictionary<string, object?>()));
         chat.EnqueueTextResponse("Completed.");
-        await using var agent = await new AgentBuilder(config)
+        await using var agent = await Builder(config)
             .WithChatClient(chat)
             .WithMcpOptions(options => options.HttpClientFactory = _ => http)
             .BuildAsync();
@@ -547,8 +541,8 @@ public sealed class McpAgentConfigurationTests
 
         try
         {
-            var config = HpdAgentConfigSerializer.ReadFile(agentConfigPath)!;
-            config.EventComposition = TestEventComposition.Current;
+            var loaded = HpdAgentConfigSerializer.ReadFileWithSource(agentConfigPath)!;
+            var config = loaded.Config;
             var handler = new DeclarativeMcpHandler();
             using var inlineHttp = new HttpClient(handler, disposeHandler: false);
             using var externalHttp = new HttpClient(handler, disposeHandler: false);
@@ -561,7 +555,7 @@ public sealed class McpAgentConfigurationTests
                 ("external_echo", "call-external", new Dictionary<string, object?>()));
             chat.EnqueueTextResponse("Both MCP tools completed.");
 
-            await using (var agent = await new AgentBuilder(config)
+            await using (var agent = await Builder(config, loaded.SourceDirectory)
                 .WithChatClient(chat)
                 .WithMcpOptions(options =>
                     options.HttpClientFactory = server => server.Name == "inline"
@@ -613,7 +607,6 @@ public sealed class McpAgentConfigurationTests
         {
             var config = new AgentConfig
             {
-                EventComposition = TestEventComposition.Current,
                 Mcp = new AgentMcpConfig
                 {
                     Servers =
@@ -630,7 +623,7 @@ public sealed class McpAgentConfigurationTests
             };
 
             var error = await Assert.ThrowsAsync<AgentRunConfigurationException>(() =>
-                new AgentBuilder(config)
+                Builder(config)
                     .WithChatClient(new FakeChatClient())
                     .BuildAsync());
 
@@ -671,7 +664,6 @@ public sealed class McpAgentConfigurationTests
         {
             var config = new AgentConfig
             {
-                EventComposition = TestEventComposition.Current,
                 Mcp = new AgentMcpConfig
                 {
                     Servers =
@@ -689,7 +681,7 @@ public sealed class McpAgentConfigurationTests
             };
 
             var error = await Assert.ThrowsAsync<AgentRunConfigurationException>(() =>
-                new AgentBuilder(config)
+                Builder(config)
                     .WithChatClient(new FakeChatClient())
                     .WithMcpOptions(options =>
                         options.HttpClientFactory = server => server.Name == "inline"
@@ -717,10 +709,8 @@ public sealed class McpAgentConfigurationTests
                   endpoint: relative
             """,
             HpdConfigFormat.Yaml)!;
-        config.EventComposition = TestEventComposition.Current;
-
         var error = await Assert.ThrowsAsync<AgentRunConfigurationException>(() =>
-            new AgentBuilder(config)
+            Builder(config)
                 .WithChatClient(new FakeChatClient())
                 .BuildAsync());
 
@@ -745,10 +735,8 @@ public sealed class McpAgentConfigurationTests
                     - search
             """,
             HpdConfigFormat.Yaml)!;
-        config.EventComposition = TestEventComposition.Current;
-
         var error = await Assert.ThrowsAsync<AgentRunConfigurationException>(() =>
-            new AgentBuilder(config)
+            Builder(config)
                 .WithChatClient(new FakeChatClient())
                 .BuildAsync());
 
@@ -761,7 +749,6 @@ public sealed class McpAgentConfigurationTests
     {
         var config = new AgentConfig
         {
-            EventComposition = TestEventComposition.Current,
             Mcp = new AgentMcpConfig
             {
                 Servers =
@@ -782,7 +769,7 @@ public sealed class McpAgentConfigurationTests
         };
 
         var error = await Assert.ThrowsAsync<AgentRunConfigurationException>(() =>
-            new AgentBuilder(config)
+            Builder(config)
                 .WithChatClient(new FakeChatClient())
                 .BuildAsync());
 
@@ -830,7 +817,6 @@ public sealed class McpAgentConfigurationTests
         using var http = new HttpClient(handler, disposeHandler: false);
         var config = new AgentConfig
         {
-            EventComposition = TestEventComposition.Current,
             Mcp = new AgentMcpConfig
             {
                 Servers =
@@ -847,7 +833,7 @@ public sealed class McpAgentConfigurationTests
         };
 
         var error = await Assert.ThrowsAsync<AgentRunConfigurationException>(() =>
-            new AgentBuilder(config)
+            Builder(config)
                 .WithChatClient(new FakeChatClient())
                 .WithMcpOptions(options => options.HttpClientFactory = _ => http)
                 .BuildAsync());
@@ -863,7 +849,6 @@ public sealed class McpAgentConfigurationTests
         var config = new AgentConfig
         {
             Name = "AutoApproveMcp",
-            EventComposition = TestEventComposition.Current,
             Mcp = new AgentMcpConfig
             {
                 Servers =
@@ -879,7 +864,7 @@ public sealed class McpAgentConfigurationTests
             }
         };
 
-        await using var agent = await new AgentBuilder(config)
+        await using var agent = await Builder(config)
             .WithChatClient(new FakeChatClient())
             .WithHostAutoApproval()
             .WithMcpOptions(options => options.HttpClientFactory = _ => http)
@@ -895,7 +880,6 @@ public sealed class McpAgentConfigurationTests
         using var http = new HttpClient(handler, disposeHandler: false);
         var config = new AgentConfig
         {
-            EventComposition = TestEventComposition.Current,
             Mcp = new AgentMcpConfig
             {
                 Servers =
@@ -915,7 +899,7 @@ public sealed class McpAgentConfigurationTests
         };
 
         var error = await Assert.ThrowsAsync<AgentRunConfigurationException>(() =>
-            new AgentBuilder(config)
+            Builder(config)
                 .WithChatClient(new FakeChatClient())
                 .WithPermissions()
                 .WithMcpOptions(options =>
@@ -938,7 +922,6 @@ public sealed class McpAgentConfigurationTests
         var config = new AgentConfig
         {
             Name = "DeclarativeMcpAgent",
-            EventComposition = TestEventComposition.Current,
             Mcp = new AgentMcpConfig
             {
                 Servers =
@@ -957,7 +940,7 @@ public sealed class McpAgentConfigurationTests
             }
         };
 
-        await using var agent = await new AgentBuilder(config)
+        await using var agent = await Builder(config)
             .WithChatClient(new FakeChatClient())
             .WithPermissions()
             .WithMcpOptions(options => options.HttpClientFactory = _ => http)
@@ -967,6 +950,15 @@ public sealed class McpAgentConfigurationTests
     }
 
 
+
+    private static AgentBuilder Builder(AgentConfig config, string? sourceDirectory = null)
+    {
+        var builder = new AgentBuilder(config)
+            .WithEventComposition(TestEventComposition.Current);
+        return sourceDirectory is null
+            ? builder
+            : builder.WithSourceDirectory(sourceDirectory);
+    }
 
     private sealed class DeclarativeMcpHandler(bool sameToolName = false) : HttpMessageHandler
     {

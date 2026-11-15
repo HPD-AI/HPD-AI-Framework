@@ -31,7 +31,8 @@ public static class AgentBuilderPermissionExtensions
             return builder;
         }
         var middleware = new HPD.Agent.Permissions.PermissionMiddleware(
-            config: builder.Config,
+            agentId: builder.RuntimeOptions.AgentId,
+            agentName: builder.Config.Name,
             overrideRegistry: builder._permissionOverrides,
             descriptorCatalog: builder.PermissionDescriptorCatalog,
             authorizationMode: authorizationMode);

@@ -7,6 +7,12 @@ using Microsoft.OpenApi;
 using System.Text.Json.Schema;
 using System.Text.Json.Nodes;
 
+#if NET11_0_OR_GREATER
+using OpenApiMediaContentType = Microsoft.OpenApi.IOpenApiMediaType;
+#else
+using OpenApiMediaContentType = Microsoft.OpenApi.OpenApiMediaType;
+#endif
+
 namespace HPD.Agent.AspNetCore.OpenApi;
 
 internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTransformer
@@ -234,7 +240,7 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
         {
             Required = true,
             Description = "Public HPD agent input event envelope.",
-            Content = new Dictionary<string, OpenApiMediaType>
+            Content = new Dictionary<string, OpenApiMediaContentType>
             {
                 ["application/json"] = new OpenApiMediaType { Schema = inputSchema }
             }
@@ -300,7 +306,7 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
         {
             Required = false,
             Description = "Optional context estimation overrides.",
-            Content = new Dictionary<string, OpenApiMediaType>
+            Content = new Dictionary<string, OpenApiMediaContentType>
             {
                 ["application/json"] = new OpenApiMediaType { Schema = requestSchema }
             }
@@ -330,7 +336,7 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
         {
             Required = true,
             Description = "One permission, client-tool, or other response event envelope.",
-            Content = new Dictionary<string, OpenApiMediaType>
+            Content = new Dictionary<string, OpenApiMediaContentType>
             {
                 ["application/json"] = new OpenApiMediaType { Schema = schema }
             }
@@ -348,7 +354,7 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
         {
             Required = true,
             Description = "Multipart upload containing one file in the 'file' field.",
-            Content = new Dictionary<string, OpenApiMediaType>
+            Content = new Dictionary<string, OpenApiMediaContentType>
             {
                 ["multipart/form-data"] = new OpenApiMediaType
                 {
@@ -377,7 +383,7 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
         operation.Responses["200"] = new OpenApiResponse
         {
             Description = "Stored binary content.",
-            Content = new Dictionary<string, OpenApiMediaType>
+            Content = new Dictionary<string, OpenApiMediaContentType>
             {
                 ["application/octet-stream"] = new OpenApiMediaType
                 {
@@ -537,7 +543,7 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
         operation.Responses["200"] = new OpenApiResponse
         {
             Description = "Committed replay and live observation stream.",
-            Content = new Dictionary<string, OpenApiMediaType>
+            Content = new Dictionary<string, OpenApiMediaContentType>
             {
                 ["text/event-stream"] = new OpenApiMediaType { Schema = eventEnvelope }
             }
@@ -805,7 +811,7 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
         operation.Responses[statusCode] = new OpenApiResponse
         {
             Description = description,
-            Content = new Dictionary<string, OpenApiMediaType>
+            Content = new Dictionary<string, OpenApiMediaContentType>
             {
                 ["application/json"] = new OpenApiMediaType { Schema = schema }
             }
@@ -825,7 +831,7 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
         {
             Required = true,
             Description = "Authorized immutable runtime extension schema.",
-            Content = new Dictionary<string, OpenApiMediaType>
+            Content = new Dictionary<string, OpenApiMediaContentType>
             {
                 ["application/json"] = new OpenApiMediaType { Schema = requestSchema }
             }
@@ -849,7 +855,7 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
         operation.Responses["403"] = new OpenApiResponse
         {
             Description = "Runtime schema management was denied.",
-            Content = new Dictionary<string, OpenApiMediaType>
+            Content = new Dictionary<string, OpenApiMediaContentType>
             {
                 ["application/problem+json"] = new OpenApiMediaType { Schema = problemSchema }
             }
@@ -857,7 +863,7 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
         operation.Responses["503"] = new OpenApiResponse
         {
             Description = "Runtime extension registration is not configured.",
-            Content = new Dictionary<string, OpenApiMediaType>
+            Content = new Dictionary<string, OpenApiMediaContentType>
             {
                 ["application/problem+json"] = new OpenApiMediaType { Schema = problemSchema }
             }
@@ -902,7 +908,7 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
         new()
         {
             Description = description,
-            Content = new Dictionary<string, OpenApiMediaType>
+            Content = new Dictionary<string, OpenApiMediaContentType>
             {
                 ["application/problem+json"] = new OpenApiMediaType { Schema = schema }
             }

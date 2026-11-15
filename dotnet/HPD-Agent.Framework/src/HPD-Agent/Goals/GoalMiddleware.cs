@@ -56,7 +56,7 @@ internal sealed partial class GoalMiddleware : IAgentMiddleware
             if (context.SourceInput is CreateGoalInputEvent) throw new InvalidOperationException("goal_thread_required");
             return;
         }
-        var store = context.Config?.SessionStore ?? throw new InvalidOperationException("goal_store_required");
+        var store = context.RuntimeOptions?.SessionStore ?? throw new InvalidOperationException("goal_store_required");
         var publisher = context.Base.ThreadEvents ?? throw new InvalidOperationException("goal_publisher_required");
         var key = new ThreadKey(thread.SessionId, thread.Id);
         await RecoverPendingAsync(store, publisher, thread, context.RunConfig, context.ThreadExecutionId).ConfigureAwait(false);
@@ -133,7 +133,7 @@ internal sealed partial class GoalMiddleware : IAgentMiddleware
     public async Task AfterMessageTurnAsync(AfterMessageTurnContext context, CancellationToken cancellationToken)
     {
         if (context.Thread is null) return;
-        var store = context.Config!.SessionStore!;
+        var store = context.RuntimeOptions!.SessionStore!;
         var key = new ThreadKey(context.SessionId!, context.ThreadId!);
         var calls = context.TurnHistory.SelectMany(m => m.Contents).OfType<FunctionCallContent>()
             .Where(call => call.Name != "goal").Select(call => call.CallId).ToHashSet(StringComparer.Ordinal);
@@ -173,7 +173,7 @@ internal sealed partial class GoalMiddleware : IAgentMiddleware
                 !user.Messages.Any(m => m.Role == ChatRole.User))
                 throw new InvalidOperationException("goal_user_intent_required");
         }
-        var store = context.Config?.SessionStore ?? throw new InvalidOperationException("goal_store_required");
+        var store = context.RuntimeOptions?.SessionStore ?? throw new InvalidOperationException("goal_store_required");
         var publisher = context.Base.ThreadEvents ?? throw new InvalidOperationException("goal_publisher_required");
         var key = new ThreadKey(context.SessionId ?? throw new InvalidOperationException("goal_session_required"),
             context.ThreadId ?? throw new InvalidOperationException("goal_thread_required"));

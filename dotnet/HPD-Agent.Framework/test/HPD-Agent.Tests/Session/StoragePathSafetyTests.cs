@@ -68,7 +68,6 @@ public sealed class StoragePathSafetyTests : IDisposable
         var agent = new StoredAgent
         {
             Id = agentId,
-            Name = "Unsafe",
             Config = new AgentConfig { Name = "Unsafe" }
         };
 

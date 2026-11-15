@@ -206,7 +206,6 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
         var json = SerializeJson(JsonObject(
             ("agentId", JsonValue.Create(request.AgentId)),
-            ("name", JsonValue.Create(request.Name)),
             ("config", SerializeAgentConfig(request.Config)),
             ("metadata", ToJsonObject(request.Metadata))));
         using var response = await PostJsonEnvelopeAsync("agents", json, cancellationToken)

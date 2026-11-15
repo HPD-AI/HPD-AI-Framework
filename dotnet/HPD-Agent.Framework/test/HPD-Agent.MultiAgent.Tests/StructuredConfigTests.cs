@@ -55,13 +55,18 @@ public sealed class StructuredConfigTests
         finally { File.Delete(path); }
         // Host-only runtime capabilities are intentionally not serialized.
         var agentConfig = loaded.Agents["reviewer"].Agent!;
-        agentConfig.EventComposition = AnswerComposition;
         agentConfig.Clients = new AgentClientsConfig
         {
             Chat = new ChatClientConfig { Override = ClientOverride<IChatClient>.Borrow(client, "test", "local", "test.adapter") }
         };
-        var workflow = await new MultiAgentFactory().CreateBuilder(loaded)
-            .WithSessionStore(new InMemorySessionStore(AnswerComposition.Codec))
+        var store = new InMemorySessionStore(AnswerComposition.Codec);
+        var host = new WorkflowHostBinding(
+            providers: null,
+            AnswerComposition,
+            store,
+            new AgentSecurityRunConfig());
+        var workflow = await new MultiAgentFactory(host).CreateBuilder(loaded)
+            .WithSessionStore(store)
             .WithConversation(MultiAgentConversationPolicies.ThreadPerAgent("review-structured"))
             .BuildAsync();
         var events = new List<HPD.Events.Event>();

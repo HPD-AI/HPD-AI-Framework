@@ -41,7 +41,6 @@ public sealed class NativeAgentExecutionFFITests
                     ModelName = "test-model",
                 },
             },
-            ServerConfiguredTools = [tool],
             AgenticLoop = new AgenticLoopConfig
             {
                 MaxTurnDuration = TimeSpan.FromSeconds(10),
@@ -49,7 +48,9 @@ public sealed class NativeAgentExecutionFFITests
         };
         config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(fakeClient, "test", "local", "test.adapter");
 
-        var agent = await new AgentBuilder(config, new TestProviderRegistry(fakeClient))
+        var builder = new AgentBuilder(config, new TestProviderRegistry(fakeClient));
+        builder.RuntimeOptions.ServerConfiguredTools = [tool];
+        var agent = await builder
             .WithEventComposition(HPD.Agent.Tests.TestEventApplication.Composition)
             .WithPermissions()
             .BuildAsync(CancellationToken.None);

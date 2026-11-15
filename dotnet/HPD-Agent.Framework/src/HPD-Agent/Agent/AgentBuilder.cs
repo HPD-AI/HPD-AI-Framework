@@ -68,6 +68,7 @@ public class AgentBuilder
 
     // The new central configuration object
     private readonly AgentConfig _config;
+    private readonly AgentRuntimeOptions _runtimeOptions;
     private readonly IProviderRegistry _providerRegistry;
 
     // Fields that are NOT part of the serializable config remain
@@ -356,6 +357,7 @@ public class AgentBuilder
     public AgentBuilder()
     {
         _config = new AgentConfig();
+        _runtimeOptions = new AgentRuntimeOptions();
         _providerRegistry = CreateRegistryFromHost();
 
         LoadGeneratedRegistries();
@@ -368,6 +370,7 @@ public class AgentBuilder
     public AgentBuilder(AgentConfig config)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
+        _runtimeOptions = new AgentRuntimeOptions();
         _providerRegistry = CreateRegistryFromHost();
 
         LoadGeneratedRegistries();
@@ -379,6 +382,7 @@ public class AgentBuilder
     public AgentBuilder(AgentConfig config, ProviderComposition providerComposition)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
+        _runtimeOptions = new AgentRuntimeOptions();
         ArgumentNullException.ThrowIfNull(providerComposition);
         _providerRegistry = new ProviderRegistry(providerComposition);
         LoadGeneratedRegistries();
@@ -399,6 +403,12 @@ public class AgentBuilder
     {
     }
 
+    internal AgentBuilder(Serialization.LoadedAgentConfig loadedConfig)
+        : this(loadedConfig?.Config ?? throw new ArgumentNullException(nameof(loadedConfig)))
+    {
+        _runtimeOptions.SourceDirectory = loadedConfig.SourceDirectory;
+    }
+
     /// <summary>
     /// Creates a builder with a custom provider registry for framework and test composition.
     /// Applications configure a registry through <see cref="WithProviderRegistry"/>.
@@ -406,6 +416,7 @@ public class AgentBuilder
     internal AgentBuilder(AgentConfig config, IProviderRegistry providerRegistry)
     {
         _config = config;
+        _runtimeOptions = new AgentRuntimeOptions();
         _providerRegistry = providerRegistry;
 
         LoadGeneratedRegistries();
@@ -417,7 +428,7 @@ public class AgentBuilder
     public static AgentBuilder FromFile(string configFilePath)
         => new(configFilePath);
 
-    private static AgentConfig LoadConfigFile(string configFilePath)
+    private static Serialization.LoadedAgentConfig LoadConfigFile(string configFilePath)
     {
         if (string.IsNullOrWhiteSpace(configFilePath))
             throw new ArgumentException("Configuration file path cannot be null or empty.", nameof(configFilePath));
@@ -425,7 +436,7 @@ public class AgentBuilder
         if (!File.Exists(configFilePath))
             throw new FileNotFoundException($"Configuration file not found: {configFilePath}");
 
-        return HpdAgentConfigSerializer.ReadFile(configFilePath)
+        return HpdAgentConfigSerializer.ReadFileWithSource(configFilePath)
             ?? throw new JsonException($"Failed to deserialize AgentConfig from '{configFilePath}' - result was null.");
     }
 
@@ -997,7 +1008,7 @@ public class AgentBuilder
                 }
                 else
                 {
-                    var baseDirectory = _config.SourceDirectory;
+                    var baseDirectory = _runtimeOptions.SourceDirectory;
                     if (string.IsNullOrWhiteSpace(baseDirectory))
                         throw new AgentRunConfigurationException(
                             "McpManifestPathUnresolved",
@@ -1050,7 +1061,7 @@ public class AgentBuilder
         {
             Servers = configured.Servers.ToArray(),
             Manifests = manifests,
-            AgentId = _config.Name
+            AgentId = _runtimeOptions.AgentId ?? _config.Name
         };
         var registrations = activator.Create(
             resolved,
@@ -1298,7 +1309,7 @@ public class AgentBuilder
     /// <summary>Selects an explicit immutable application event composition.</summary>
     public AgentBuilder WithEventComposition(AgentEventComposition composition)
     {
-        _config.EventComposition = composition ?? throw new ArgumentNullException(nameof(composition));
+        _runtimeOptions.EventComposition = composition ?? throw new ArgumentNullException(nameof(composition));
         _eventApplicationIdentity = null;
         return this;
     }
@@ -1308,7 +1319,7 @@ public class AgentBuilder
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(applicationAssemblyIdentity);
         _eventApplicationIdentity = applicationAssemblyIdentity;
-        _config.EventComposition = null;
+        _runtimeOptions.EventComposition = null;
         return this;
     }
 
@@ -1914,7 +1925,7 @@ public class AgentBuilder
     /// </example>
     public AgentBuilder WithOptionsConfiguration(Action<ChatOptions> configureOptions)
     {
-        _config.ConfigureOptions = configureOptions ?? throw new ArgumentNullException(nameof(configureOptions));
+        _runtimeOptions.ConfigureOptions = configureOptions ?? throw new ArgumentNullException(nameof(configureOptions));
         return this;
     }
 
@@ -1978,63 +1989,63 @@ public class AgentBuilder
     public AgentBuilder UseChatClientMiddleware(Func<IChatClient, IServiceProvider?, IChatClient> middleware)
     {
         ArgumentNullException.ThrowIfNull(middleware);
-        _config.ClientMiddleware ??= new();
-        _config.ClientMiddleware.Chat ??= new();
-        _config.ClientMiddleware.Chat.Add(middleware);
+        _runtimeOptions.ClientMiddleware ??= new();
+        _runtimeOptions.ClientMiddleware.Chat ??= new();
+        _runtimeOptions.ClientMiddleware.Chat.Add(middleware);
         return this;
     }
 
     public AgentBuilder UseTextToSpeechClientMiddleware(Func<ITextToSpeechClient, IServiceProvider?, ITextToSpeechClient> middleware)
     {
         ArgumentNullException.ThrowIfNull(middleware);
-        _config.ClientMiddleware ??= new();
-        _config.ClientMiddleware.TextToSpeech ??= new();
-        _config.ClientMiddleware.TextToSpeech.Add(middleware);
+        _runtimeOptions.ClientMiddleware ??= new();
+        _runtimeOptions.ClientMiddleware.TextToSpeech ??= new();
+        _runtimeOptions.ClientMiddleware.TextToSpeech.Add(middleware);
         return this;
     }
 
     public AgentBuilder UseSpeechToTextClientMiddleware(Func<ISpeechToTextClient, IServiceProvider?, ISpeechToTextClient> middleware)
     {
         ArgumentNullException.ThrowIfNull(middleware);
-        _config.ClientMiddleware ??= new();
-        _config.ClientMiddleware.SpeechToText ??= new();
-        _config.ClientMiddleware.SpeechToText.Add(middleware);
+        _runtimeOptions.ClientMiddleware ??= new();
+        _runtimeOptions.ClientMiddleware.SpeechToText ??= new();
+        _runtimeOptions.ClientMiddleware.SpeechToText.Add(middleware);
         return this;
     }
 
     public AgentBuilder UseRealtimeClientMiddleware(Func<IRealtimeClient, IServiceProvider?, IRealtimeClient> middleware)
     {
         ArgumentNullException.ThrowIfNull(middleware);
-        _config.ClientMiddleware ??= new();
-        _config.ClientMiddleware.Realtime ??= new();
-        _config.ClientMiddleware.Realtime.Add(middleware);
+        _runtimeOptions.ClientMiddleware ??= new();
+        _runtimeOptions.ClientMiddleware.Realtime ??= new();
+        _runtimeOptions.ClientMiddleware.Realtime.Add(middleware);
         return this;
     }
 
     public AgentBuilder UseImageGeneratorMiddleware(Func<IImageGenerator, IServiceProvider?, IImageGenerator> middleware)
     {
         ArgumentNullException.ThrowIfNull(middleware);
-        _config.ClientMiddleware ??= new();
-        _config.ClientMiddleware.ImageGeneration ??= new();
-        _config.ClientMiddleware.ImageGeneration.Add(middleware);
+        _runtimeOptions.ClientMiddleware ??= new();
+        _runtimeOptions.ClientMiddleware.ImageGeneration ??= new();
+        _runtimeOptions.ClientMiddleware.ImageGeneration.Add(middleware);
         return this;
     }
 
     public AgentBuilder UseEmbeddingGeneratorMiddleware(Func<IEmbeddingGenerator, IServiceProvider?, IEmbeddingGenerator> middleware)
     {
         ArgumentNullException.ThrowIfNull(middleware);
-        _config.ClientMiddleware ??= new();
-        _config.ClientMiddleware.Embeddings ??= new();
-        _config.ClientMiddleware.Embeddings.Add(middleware);
+        _runtimeOptions.ClientMiddleware ??= new();
+        _runtimeOptions.ClientMiddleware.Embeddings ??= new();
+        _runtimeOptions.ClientMiddleware.Embeddings.Add(middleware);
         return this;
     }
 
     public AgentBuilder UseHostedFileClientMiddleware(Func<IHostedFileClient, IServiceProvider?, IHostedFileClient> middleware)
     {
         ArgumentNullException.ThrowIfNull(middleware);
-        _config.ClientMiddleware ??= new();
-        _config.ClientMiddleware.HostedFiles ??= new();
-        _config.ClientMiddleware.HostedFiles.Add(middleware);
+        _runtimeOptions.ClientMiddleware ??= new();
+        _runtimeOptions.ClientMiddleware.HostedFiles ??= new();
+        _runtimeOptions.ClientMiddleware.HostedFiles.Add(middleware);
         return this;
     }
 
@@ -2092,26 +2103,26 @@ public class AgentBuilder
         if (Interlocked.Exchange(ref _buildState, 1) != 0)
             throw new InvalidOperationException("An AgentBuilder instance can build only one Agent.");
         ResolveEventComposition();
-        _config.EventComposition = _config.EventComposition!
+        _runtimeOptions.EventComposition = _runtimeOptions.EventComposition!
             .WithDurabilityPolicy(_eventDurabilityPolicy);
         try
         {
         if (_sessionStoreFactory is not null)
         {
-            if (_config.SessionStore is not null)
+            if (_runtimeOptions.SessionStore is not null)
                 throw new InvalidOperationException("An explicit session store cannot be combined with a session-store factory.");
-            _config.SessionStore = _sessionStoreFactory(_config.EventComposition!);
+            _runtimeOptions.SessionStore = _sessionStoreFactory(_runtimeOptions.EventComposition!);
             _ownsSessionStore = true;
         }
-        if (_config.SessionStore == null)
+        if (_runtimeOptions.SessionStore == null)
         {
-            _config.SessionStore = new InMemorySessionStore(_config.EventComposition!.Codec);
+            _runtimeOptions.SessionStore = new InMemorySessionStore(_runtimeOptions.EventComposition!.Codec);
             _ownsSessionStore = true;
             _logger?.CreateLogger<AgentBuilder>().LogInformation(
                 "Using default InMemorySessionStore (in-memory, ephemeral). " +
                 "Use .WithSessionStore() for persistence.");
         }
-        _config.SessionStoreOptions ??= new SessionStoreOptions();
+        _runtimeOptions.SessionStoreOptions ??= new SessionStoreOptions();
 
         if (!_hasExplicitContentStore && _contentStore is null && _implicitContentStoreFactory is not null)
         {
@@ -2236,9 +2247,9 @@ public class AgentBuilder
             }
             await Cleanup(_harnessOwnerLifetime).ConfigureAwait(false);
             if (_ownsContentStore) await Cleanup(_contentStore).ConfigureAwait(false);
-            if (_ownsSessionStore) await Cleanup(_config.SessionStore).ConfigureAwait(false);
+            if (_ownsSessionStore) await Cleanup(_runtimeOptions.SessionStore).ConfigureAwait(false);
             _contentStore = null;
-            _config.SessionStore = null;
+            _runtimeOptions.SessionStore = null;
             _ownsContentStore = false;
             _ownsSessionStore = false;
             if (cleanupFailures.Count > 0)
@@ -2257,27 +2268,27 @@ public class AgentBuilder
 
     private void ResolveEventComposition()
     {
-        if (_config.EventComposition is not null)
+        if (_runtimeOptions.EventComposition is not null)
             return;
 
         if (_eventApplicationIdentity is not null)
         {
             if (AgentEventCompositionHost.TryGetApplication(_eventApplicationIdentity, out var selected))
             {
-                _config.EventComposition = selected;
+                _runtimeOptions.EventComposition = selected;
                 return;
             }
             throw new InvalidOperationException($"No generated agent event composition is registered for application '{_eventApplicationIdentity}'.");
         }
 
-        if (_config.SessionStore is not null)
+        if (_runtimeOptions.SessionStore is not null)
         {
             foreach (var identity in AgentEventCompositionHost.GetApplicationIdentities())
             {
                 if (AgentEventCompositionHost.TryGetApplication(identity, out var stored) &&
-                    ReferenceEquals(stored.Codec, _config.SessionStore.EventCodec))
+                    ReferenceEquals(stored.Codec, _runtimeOptions.SessionStore.EventCodec))
                 {
-                    _config.EventComposition = stored;
+                    _runtimeOptions.EventComposition = stored;
                     return;
                 }
             }
@@ -2285,21 +2296,21 @@ public class AgentBuilder
 
         if (AgentEventCompositionHost.TryGetDefaultApplication(out var defaultApplication))
         {
-            _config.EventComposition = defaultApplication;
+            _runtimeOptions.EventComposition = defaultApplication;
             return;
         }
 
         var identities = AgentEventCompositionHost.GetApplicationIdentities();
         if (identities.Count == 1 && AgentEventCompositionHost.TryGetApplication(identities[0], out var sole))
         {
-            _config.EventComposition = sole;
+            _runtimeOptions.EventComposition = sole;
             return;
         }
 
         if (identities.Count == 0 &&
             AgentEventCompositionHost.TryComposeRegisteredModules(out var moduleComposition))
         {
-            _config.EventComposition = moduleComposition;
+            _runtimeOptions.EventComposition = moduleComposition;
             return;
         }
 
@@ -2310,9 +2321,9 @@ public class AgentBuilder
 
     private void ValidateEventAuthority()
     {
-        var composition = _config.EventComposition!;
-        if (_config.SessionStore is not null &&
-            !ReferenceEquals(_config.SessionStore.EventCodec, composition.Codec))
+        var composition = _runtimeOptions.EventComposition!;
+        if (_runtimeOptions.SessionStore is not null &&
+            !ReferenceEquals(_runtimeOptions.SessionStore.EventCodec, composition.Codec))
         {
             throw new InvalidOperationException(
                 "The configured session store does not own the selected application event codec.");
@@ -2422,7 +2433,7 @@ public class AgentBuilder
 
     private void ValidatePermissionEventAuthority(IEnumerable<AIFunction> functions)
     {
-        var codec = _config.EventComposition?.Codec
+        var codec = _runtimeOptions.EventComposition?.Codec
             ?? throw new InvalidOperationException("Permission descriptor validation requires an event composition.");
         var validated = new HashSet<string>(StringComparer.Ordinal);
         var authorities = new Dictionary<string, PermissionAuthorityOwner>(StringComparer.Ordinal);
@@ -2584,7 +2595,7 @@ public class AgentBuilder
         if (declarations.Count == 0)
             return;
 
-        var store = _config.AgentStore ??= AgentBuilderDefaults.AgentStore;
+        var store = _runtimeOptions.AgentStore ??= AgentBuilderDefaults.AgentStore;
         var materializer = new AgentDefinitionMaterializer(store);
         foreach (var declaration in declarations)
         {
@@ -2635,12 +2646,12 @@ public class AgentBuilder
 
     private async Task ResolveStoredAgentDefinitionAsync(CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_config.AgentId))
+        if (string.IsNullOrWhiteSpace(_runtimeOptions.AgentId))
             return;
 
-        var agentId = _config.AgentId;
-        var storeWasProvided = _config.AgentStore != null;
-        var store = _config.AgentStore ??= AgentBuilderDefaults.AgentStore;
+        var agentId = _runtimeOptions.AgentId;
+        var storeWasProvided = _runtimeOptions.AgentStore != null;
+        var store = _runtimeOptions.AgentStore ??= AgentBuilderDefaults.AgentStore;
 
         var stored = await store.LoadAsync(agentId, cancellationToken).ConfigureAwait(false);
         if (stored?.Config != null)
@@ -2648,20 +2659,13 @@ public class AgentBuilder
             MergeStoredConfigIntoCurrent(stored.Config);
         }
 
-        _config.AgentId = agentId;
-        _config.AgentStore = store;
-        if (stored != null &&
-            _config.Name == new AgentConfig().Name &&
-            !string.IsNullOrWhiteSpace(stored.Name))
-        {
-            _config.Name = stored.Name;
-        }
-
+        _runtimeOptions.AgentId = agentId;
+        _runtimeOptions.AgentStore = store;
         if (_config.Name == new AgentConfig().Name)
             _config.Name = agentId;
 
         var shouldPersist =
-            _config.AgentStoreOptions?.PersistOnBuild == true ||
+            _runtimeOptions.AgentStoreOptions?.PersistOnBuild == true ||
             (!storeWasProvided && ReferenceEquals(store, AgentBuilderDefaults.AgentStore));
 
         if (!shouldPersist)
@@ -2671,7 +2675,6 @@ public class AgentBuilder
         await store.SaveAsync(new StoredAgent
         {
             Id = agentId,
-            Name = storedConfig.Name,
             Config = storedConfig,
             CreatedAt = stored?.CreatedAt ?? DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
@@ -2743,12 +2746,9 @@ public class AgentBuilder
 
     private void RegisterAutoMiddleware(AgentBuildDependencies buildData)
     {
-        // Set explicitly registered ToolHarnesses in config for Collapsing manager
-        _config.explicitlyRegisteredToolHarnesses = _explicitlyRegisteredToolHarnesses
+        // Capture builder registrations in host-owned runtime state for the Collapsing manager.
+        _runtimeOptions.ExplicitlyRegisteredToolHarnesses = _explicitlyRegisteredToolHarnesses
             .ToImmutableHashSet(StringComparer.OrdinalIgnoreCase);
-
-        // Set global config for source-generated code to access (sync path sets this, harmless when called from async)
-        AgentConfig.GlobalConfig = _config;
 
         // NOTE: ContinuationPermissionMiddleware is NO LONGER auto-registered.
         // To enable iteration limits with user permission requests, explicitly call:
@@ -2900,7 +2900,7 @@ public class AgentBuilder
             _functionToToolHarnessMap,
             _functionToSkillMap,
             _middlewares.Select(middleware => middleware is PermissionMiddleware permission
-                ? permission.ForAgent(_config) : middleware).ToList(),
+                ? permission.ForAgent(_runtimeOptions.AgentId ?? _config.Name, _config.Name) : middleware).ToList(),
             _serviceProvider,
             _eventSubscriptionFactories,
             _providerRegistry,
@@ -2911,7 +2911,8 @@ public class AgentBuilder
             _runtimeSecretRegistry,
             _ownsSessionStore,
             _ownsContentStore,
-            agentResources);
+            agentResources,
+            _runtimeOptions);
         if (_capabilityCatalog is not null)
             agent.SetCapabilityCatalog(
                 _capabilityCatalog,
@@ -2959,7 +2960,7 @@ public class AgentBuilder
         // No reflection fallback - the catalog is required.
         var toolFunctions = CreateFunctionsFromCatalog();
         ValidatePermissionEventAuthority(toolFunctions.Concat(
-            _config.ServerConfiguredTools?.OfType<AIFunction>() ?? []));
+            _runtimeOptions.ServerConfiguredTools?.OfType<AIFunction>() ?? []));
         var staticFunctions = toolFunctions.ToArray();
         var staticMetadata = staticFunctions
             .Where(function => TryGetCapabilityMetadata(function, out _))
@@ -3776,7 +3777,7 @@ public class AgentBuilder
     /// </summary>
     private ChatOptions? MergeToolFunctions(ChatOptions? defaultOptions, List<AIFunction> toolFunctions)
     {
-        var serverFunctions = _config.ServerConfiguredTools?.OfType<AIFunction>().ToArray() ?? [];
+        var serverFunctions = _runtimeOptions.ServerConfiguredTools?.OfType<AIFunction>().ToArray() ?? [];
         if (toolFunctions.Count == 0 && serverFunctions.Length == 0)
             return defaultOptions;
 
@@ -3846,6 +3847,18 @@ public class AgentBuilder
     /// Used by provider extension methods to configure provider-specific settings.
     /// </summary>
     public AgentConfig Config => _config;
+
+    /// <summary>
+    /// Gets host-owned runtime state used during construction.
+    /// </summary>
+    internal AgentRuntimeOptions RuntimeOptions => _runtimeOptions;
+
+    internal AgentBuilder WithSourceDirectory(string sourceDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceDirectory);
+        _runtimeOptions.SourceDirectory = Path.GetFullPath(sourceDirectory);
+        return this;
+    }
 
     /// <summary>
     /// Gets the provider registry used by this builder.
@@ -3933,8 +3946,8 @@ public class AgentBuilder
     public AgentBuilder WithNativeFunction(HPDAIFunctionFactory.HPDAIFunction function)
     {
         ArgumentNullException.ThrowIfNull(function);
-        _config.ServerConfiguredTools ??= new List<AITool>();
-        _config.ServerConfiguredTools.Add(function);
+        _runtimeOptions.ServerConfiguredTools ??= new List<AITool>();
+        _runtimeOptions.ServerConfiguredTools.Add(function);
 
         return this;
     }

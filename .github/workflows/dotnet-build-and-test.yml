@@ -92,8 +92,7 @@ jobs:
         include:
           # Primary: Linux with all frameworks
           - { targetFramework: "net10.0", os: "ubuntu-latest", configuration: Release, collect-coverage: true }
-          - { targetFramework: "net9.0", os: "ubuntu-latest", configuration: Release }
-          - { targetFramework: "net8.0", os: "ubuntu-latest", configuration: Release }
+          - { targetFramework: "net11.0", os: "ubuntu-latest", configuration: Release }
           # Cross-platform: Windows and macOS on latest framework
           - { targetFramework: "net10.0", os: "windows-latest", configuration: Release }
           - { targetFramework: "net10.0", os: "macos-latest", configuration: Release }
@@ -109,9 +108,8 @@ jobs:
       uses: actions/setup-dotnet@v5
       with:
         dotnet-version: |
-          8.0.x
-          9.0.x
           10.0.x
+          11.0.x
 
     - name: Prepare Apple virtualization helper
       if: runner.os == 'macOS'
@@ -309,9 +307,8 @@ jobs:
       uses: actions/setup-dotnet@v5
       with:
         dotnet-version: |
-          8.0.x
-          9.0.x
           10.0.x
+          11.0.x
 
     - name: Install Linux seccomp helper toolchain
       run: |
@@ -348,8 +345,8 @@ jobs:
 
           # Check for expected frameworks (skip analyzers and RID-specific native packages).
           if [[ "$pkg" != *"SourceGenerator"* && "$pkg" != *"LiveKit.NativeAssets"* ]]; then
-            if [[ "$frameworks" != *"net10.0"* ]] || [[ "$frameworks" != *"net9.0"* ]] || [[ "$frameworks" != *"net8.0"* ]]; then
-              echo "WARNING: Package may be missing frameworks. Expected net10.0, net9.0, net8.0"
+            if [[ "$frameworks" != *"net10.0"* ]] || [[ "$frameworks" != *"net11.0"* ]]; then
+              echo "WARNING: Package may be missing frameworks. Expected net10.0, net11.0"
               MISSING_FRAMEWORKS=true
             else
               echo "✓ All expected frameworks present"
@@ -375,7 +372,7 @@ jobs:
         dotnet nuget add source "$ARTIFACTS_DIR" --name local
 
         # Create test console app for each framework
-        for framework in net10.0 net9.0 net8.0; do
+        for framework in net10.0 net11.0; do
           echo ""
           echo "=== Testing package install on $framework ==="
 

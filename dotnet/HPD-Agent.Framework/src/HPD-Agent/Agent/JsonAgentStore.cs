@@ -49,6 +49,14 @@ public class JsonAgentStore : IAgentStore
         {
             throw CreateInvalidDefinitionException(agentId, path, ex.Message, ex);
         }
+        catch (ArgumentNullException ex)
+        {
+            throw CreateInvalidDefinitionException(
+                agentId,
+                path,
+                "The required 'config' property cannot be null.",
+                ex);
+        }
 
         if (!string.Equals(stored.Id, agentId, StringComparison.Ordinal))
             throw CreateInvalidDefinitionException(agentId, path, "The stored ID does not match the requested ID.");

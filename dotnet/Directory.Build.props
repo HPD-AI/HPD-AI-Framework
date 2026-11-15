@@ -51,7 +51,7 @@
   <!-- ============================================== -->
   <PropertyGroup>
     <!-- Modern .NET versions -->
-    <TargetFrameworksModern>net10.0;net9.0;net8.0</TargetFrameworksModern>
+    <TargetFrameworksModern>net11.0;net10.0</TargetFrameworksModern>
 
     <!-- Legacy frameworks (disabled by default) -->
     <TargetFrameworksLegacy>netstandard2.0;net472</TargetFrameworksLegacy>

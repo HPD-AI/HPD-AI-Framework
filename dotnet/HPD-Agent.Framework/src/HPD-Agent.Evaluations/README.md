@@ -4,7 +4,7 @@ Evaluate HPD Agent turns and responses with deterministic assertions, datasets,
 LLM judges, safety checks, red-team cases, human annotation, and saved score
 history.
 
-The package targets `net8.0`, `net9.0`, and `net10.0`.
+The package targets `net10.0` and `net11.0`.
 
 ## Install
 

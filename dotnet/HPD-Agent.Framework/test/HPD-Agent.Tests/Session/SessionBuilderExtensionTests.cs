@@ -27,9 +27,9 @@ public class SessionBuilderExtensionTests : AgentTestBase
         builder.WithSessionStore(store);
 
         // Assert
-        Assert.Same(store, builder.Config.SessionStore);
-        Assert.NotNull(builder.Config.SessionStoreOptions);
-        Assert.True(builder.Config.SessionStoreOptions.PersistAfterTurn);
+        Assert.Same(store, builder.RuntimeOptions.SessionStore);
+        Assert.NotNull(builder.RuntimeOptions.SessionStoreOptions);
+        Assert.True(builder.RuntimeOptions.SessionStoreOptions.PersistAfterTurn);
     }
 
     //──────────────────────────────────────────────────────────────────
@@ -47,8 +47,8 @@ public class SessionBuilderExtensionTests : AgentTestBase
         builder.WithSessionStore(store, persistAfterTurn: true);
 
         // Assert
-        Assert.Same(store, builder.Config.SessionStore);
-        Assert.True(builder.Config.SessionStoreOptions?.PersistAfterTurn);
+        Assert.Same(store, builder.RuntimeOptions.SessionStore);
+        Assert.True(builder.RuntimeOptions.SessionStoreOptions?.PersistAfterTurn);
     }
 
     [Fact]
@@ -62,8 +62,8 @@ public class SessionBuilderExtensionTests : AgentTestBase
         builder.WithSessionStore(store, persistAfterTurn: false);
 
         // Assert
-        Assert.Same(store, builder.Config.SessionStore);
-        Assert.False(builder.Config.SessionStoreOptions?.PersistAfterTurn);
+        Assert.Same(store, builder.RuntimeOptions.SessionStore);
+        Assert.False(builder.RuntimeOptions.SessionStoreOptions?.PersistAfterTurn);
     }
 
     //──────────────────────────────────────────────────────────────────
@@ -84,7 +84,7 @@ public class SessionBuilderExtensionTests : AgentTestBase
         });
 
         // Assert
-        var opts = builder.Config.SessionStoreOptions;
+        var opts = builder.RuntimeOptions.SessionStoreOptions;
         Assert.NotNull(opts);
         Assert.True(opts.PersistAfterTurn);
     }
@@ -108,9 +108,9 @@ public class SessionBuilderExtensionTests : AgentTestBase
                 persistAfterTurn: true);
 
             // Assert
-            Assert.NotNull(builder.Config.SessionStore);
-            Assert.IsType<FileSessionStore>(builder.Config.SessionStore);
-            Assert.True(builder.Config.SessionStoreOptions?.PersistAfterTurn);
+            Assert.NotNull(builder.RuntimeOptions.SessionStore);
+            Assert.IsType<FileSessionStore>(builder.RuntimeOptions.SessionStore);
+            Assert.True(builder.RuntimeOptions.SessionStoreOptions?.PersistAfterTurn);
         }
         finally
         {
@@ -134,7 +134,7 @@ public class SessionBuilderExtensionTests : AgentTestBase
                 new FileSessionStore(tempPath, HPD.Agent.Tests.TestEventApplication.Codec));
 
             // Assert
-            Assert.True(builder.Config.SessionStoreOptions?.PersistAfterTurn);
+            Assert.True(builder.RuntimeOptions.SessionStoreOptions?.PersistAfterTurn);
         }
         finally
         {
@@ -149,7 +149,7 @@ public class SessionBuilderExtensionTests : AgentTestBase
     {
         var builder = new AgentBuilder().WithInMemorySessionStore();
 
-        Assert.Null(builder.Config.SessionStore);
+        Assert.Null(builder.RuntimeOptions.SessionStore);
         Assert.NotNull(builder._sessionStoreFactory);
         Assert.IsType<InMemorySessionStore>(builder._sessionStoreFactory!(CoreAgentEventComposition.Instance));
     }
@@ -160,7 +160,7 @@ public class SessionBuilderExtensionTests : AgentTestBase
         var path = Path.Combine(Path.GetTempPath(), $"session-test-{Guid.NewGuid()}");
         var builder = new AgentBuilder().WithFileSessionStore(path);
 
-        Assert.Null(builder.Config.SessionStore);
+        Assert.Null(builder.RuntimeOptions.SessionStore);
         Assert.NotNull(builder._sessionStoreFactory);
         Assert.NotNull(builder._implicitContentStoreFactory);
         Assert.Equal(
@@ -189,8 +189,8 @@ public class SessionBuilderExtensionTests : AgentTestBase
 
         await using var agent = await builder.BuildAsync();
 
-        Assert.Same(agent.Config!.EventComposition!.Codec, agent.Config.SessionStore!.EventCodec);
-        Assert.True(agent.Config.EventComposition.Codec.TryGetByType(
+        Assert.Same(agent.Runtime.EventComposition!.Codec, agent.Runtime.SessionStore!.EventCodec);
+        Assert.True(agent.Runtime.EventComposition.Codec.TryGetByType(
             typeof(StateSnapshotEvent), out var descriptor));
         Assert.Equal(AgentEventDurability.Durable, descriptor.Durability);
     }
@@ -305,6 +305,6 @@ public class SessionBuilderExtensionTests : AgentTestBase
         Assert.Same(builder, result);
         Assert.Equal("TestAgent", builder.Config.Name);
         Assert.Equal(50, builder.Config.MaxAgenticIterations);
-        Assert.Same(store, builder.Config.SessionStore);
+        Assert.Same(store, builder.RuntimeOptions.SessionStore);
     }
 }

@@ -35,10 +35,12 @@ public static class TestAgentFactory
         // Add tools to config if provided
         if (tools.Length > 0)
         {
-            config.ServerConfiguredTools ??= new List<Microsoft.Extensions.AI.AITool>();
+            builder.RuntimeOptions.ServerConfiguredTools ??= new List<Microsoft.Extensions.AI.AITool>();
             foreach (var tool in tools)
-                config.ServerConfiguredTools.Add(tool);
+                builder.RuntimeOptions.ServerConfiguredTools.Add(tool);
         }
+
+        builder.WithEventComposition(TestEventApplication.Composition);
 
         // Register standard iteration middlewares for loop protection
         // These are essential for preventing infinite loops in tests
@@ -62,7 +64,6 @@ public static class TestAgentFactory
         {
             Name = "TestAgent",
             MaxAgenticIterations = 50,
-            EventComposition = TestEventApplication.Composition,
             SystemInstructions = "You are a helpful test agent.",
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
                 Provider = TestSelection(),

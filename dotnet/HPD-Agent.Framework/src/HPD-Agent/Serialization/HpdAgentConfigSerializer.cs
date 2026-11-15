@@ -84,21 +84,49 @@ public static class HpdAgentConfigSerializer
         return HpdConfigSerializer.Serialize(config, HPDJsonContext.Default.SubAgentRunConfig, format);
     }
     public static AgentConfig? ReadFile(string path)
-        => AttachSourceDirectory(Deserialize(File.ReadAllText(path), GetFileFormat(path)), path);
+        => ReadFileWithSource(path)?.Config;
+
+    /// <summary>Reads a configuration file and preserves its host loading context.</summary>
+    public static LoadedAgentConfig? ReadFileWithSource(string path)
+    {
+        var config = Deserialize(File.ReadAllText(path), GetFileFormat(path));
+        return Loaded(config, path);
+    }
 
     public static ValueTask<AgentConfig?> ReadFileAsync(
         string path,
         CancellationToken cancellationToken = default)
         => ReadPortableFileAsync(path, cancellationToken);
 
+    /// <summary>Reads a configuration file asynchronously and preserves its host loading context.</summary>
+    public static async ValueTask<LoadedAgentConfig?> ReadFileWithSourceAsync(
+        string path,
+        CancellationToken cancellationToken = default)
+    {
+        var config = Deserialize(
+            await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false),
+            GetFileFormat(path));
+        return Loaded(config, path);
+    }
+
     /// <summary>Reads JSON or YAML and binds its provider-specific payloads through a generated composition.</summary>
     /// <param name="path">The configuration file path. The <c>.yaml</c> and <c>.yml</c> extensions select YAML; all others select JSON.</param>
     /// <param name="providerComposition">The consuming host's generated provider composition.</param>
     /// <returns>The deserialized configuration, or <see langword="null"/> when the document is null.</returns>
     public static AgentConfig? ReadFile(string path, ProviderComposition providerComposition)
-        => AttachSourceDirectory(
-            Deserialize(File.ReadAllText(path), providerComposition, GetFileFormat(path)),
-            path);
+        => ReadFileWithSource(path, providerComposition)?.Config;
+
+    /// <summary>Reads a composed configuration file and preserves its host loading context.</summary>
+    public static LoadedAgentConfig? ReadFileWithSource(
+        string path,
+        ProviderComposition providerComposition)
+    {
+        var config = Deserialize(
+            File.ReadAllText(path),
+            providerComposition,
+            GetFileFormat(path));
+        return Loaded(config, path);
+    }
 
     /// <summary>Reads JSON or YAML asynchronously and binds its provider-specific payloads through a generated composition.</summary>
     /// <param name="path">The configuration file path. The <c>.yaml</c> and <c>.yml</c> extensions select YAML; all others select JSON.</param>
@@ -109,12 +137,20 @@ public static class HpdAgentConfigSerializer
         string path,
         ProviderComposition providerComposition,
         CancellationToken cancellationToken = default)
+        => (await ReadFileWithSourceAsync(path, providerComposition, cancellationToken)
+            .ConfigureAwait(false))?.Config;
+
+    /// <summary>Reads a composed configuration file and preserves its host loading context.</summary>
+    public static async ValueTask<LoadedAgentConfig?> ReadFileWithSourceAsync(
+        string path,
+        ProviderComposition providerComposition,
+        CancellationToken cancellationToken = default)
     {
         var config = Deserialize(
             await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false),
             providerComposition,
             GetFileFormat(path));
-        return AttachSourceDirectory(config, path);
+        return Loaded(config, path);
     }
 
     public static void WriteFile(string path, AgentConfig config)
@@ -157,17 +193,36 @@ public static class HpdAgentConfigSerializer
         string path,
         CancellationToken cancellationToken)
     {
-        var config = Deserialize(
-            await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false),
-            GetFileFormat(path));
-        return AttachSourceDirectory(config, path);
+        return (await ReadFileWithSourceAsync(path, cancellationToken).ConfigureAwait(false))?.Config;
     }
 
-    private static AgentConfig? AttachSourceDirectory(AgentConfig? config, string path)
+    private static LoadedAgentConfig? Loaded(AgentConfig? config, string path)
     {
-        if (config is not null)
-            config.SourceDirectory = Path.GetDirectoryName(Path.GetFullPath(path));
-        return config;
+        if (config is null)
+            return null;
+
+        var sourceDirectory = Path.GetDirectoryName(Path.GetFullPath(path))
+            ?? throw new InvalidOperationException("The configuration file has no parent directory.");
+        NormalizeRelativeReferences(config, sourceDirectory);
+        return new LoadedAgentConfig(config, sourceDirectory);
+    }
+
+    private static void NormalizeRelativeReferences(AgentConfig config, string sourceDirectory)
+    {
+        if (config.Mcp is null)
+            return;
+
+        for (var index = 0; index < config.Mcp.Manifests.Count; index++)
+        {
+            var manifest = config.Mcp.Manifests[index];
+            if (string.IsNullOrWhiteSpace(manifest.Path) || Path.IsPathRooted(manifest.Path))
+                continue;
+
+            config.Mcp.Manifests[index] = manifest with
+            {
+                Path = Path.GetFullPath(manifest.Path, sourceDirectory)
+            };
+        }
     }
 
     private static HpdConfigFormat GetFileFormat(string path)

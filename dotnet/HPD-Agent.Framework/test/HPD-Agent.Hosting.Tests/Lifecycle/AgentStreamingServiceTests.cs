@@ -218,12 +218,15 @@ public sealed class AgentStreamingServiceTests : IAsyncLifetime
         await using var childAgent = new Agent(
             new AgentConfig
             {
-                Name = "child-agent",
-                SessionStore = _sessionStore,
-                EventComposition = CoreAgentEventComposition.Instance
+                Name = "child-agent"
             },
             baseClient: null,
-            mergedOptions: null);
+            mergedOptions: null,
+            runtimeOptions: new AgentRuntimeOptions
+            {
+                SessionStore = _sessionStore,
+                EventComposition = CoreAgentEventComposition.Instance
+            });
         var controller = ThreadExecutionControllerRegistry.For(_sessionStore);
         var acquired = await controller.TryAcquireAsync(
             new ThreadExecutionStartRequest(route, "child-run-1", childAgent));
@@ -269,8 +272,7 @@ public sealed class AgentStreamingServiceTests : IAsyncLifetime
                         ModelName = "test-model"
                     }
                 }
-            },
-            "agent-1");
+            });
         _sessionManager.TryReserveThreadExecution(stored.Id, sessionId, threadId, out var execution)
             .Should().BeTrue();
         _sessionManager.ActivateThreadExecution(sessionId, threadId, execution.ThreadExecutionId)

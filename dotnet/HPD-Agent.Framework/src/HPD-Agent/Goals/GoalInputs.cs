@@ -44,7 +44,7 @@ internal sealed class GoalContinuationInputHandler : IAgentInputHandler<GoalCont
         AgentInputHandlingContext context, CancellationToken cancellationToken)
     {
         if (context.Config.Goals is not { Enabled: true }) throw new InvalidOperationException("goals_not_enabled");
-        var store = context.Config.SessionStore ?? throw new InvalidOperationException("goal_store_required");
+        var store = context.RuntimeOptions.SessionStore ?? throw new InvalidOperationException("goal_store_required");
         var key = new ThreadKey(input.SessionId ?? throw new InvalidOperationException("goal_session_required"),
             input.ThreadId ?? throw new InvalidOperationException("goal_thread_required"));
         var publisher = new AgentEventPublisher(store, context.EventCoordinator);

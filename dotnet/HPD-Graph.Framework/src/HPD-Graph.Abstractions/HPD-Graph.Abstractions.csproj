@@ -10,7 +10,7 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <!-- Inherits TargetFrameworks from Directory.Build.props: net11.0;net10.0 -->
     <RootNamespace>HPD.Graph.Abstractions</RootNamespace>
     <AssemblyName>HPD.Graph.Abstractions</AssemblyName>
     <IsPackable>true</IsPackable>

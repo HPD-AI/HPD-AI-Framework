@@ -28,7 +28,9 @@ jobs:
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: |
+            10.0.x
+            11.0.x
       - name: Publish and execute mandatory sparse-vector capacity gate
         shell: bash
         run: |
@@ -69,7 +71,9 @@ jobs:
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: |
+            10.0.x
+            11.0.x
       - name: Publish and execute certified graph
         shell: bash
         run: |

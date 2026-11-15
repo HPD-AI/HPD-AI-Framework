@@ -24,11 +24,10 @@ public class PermissionTests : AgentTestBase
         config.EnsureChatClientConfig().Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" };
         config.EnsureChatClientConfig().ModelName = "test-model";
         config.EnsureChatClientConfig().Override = ClientOverride<IChatClient>.Borrow(client, "test", "local", "test.chat");
-        config.ServerConfiguredTools ??= new List<AITool>();
-        foreach (var tool in tools)
-            config.ServerConfiguredTools.Add(tool);
-
         var builder = new AgentBuilder(config, new TestProviderRegistry(client));
+        builder.RuntimeOptions.ServerConfiguredTools ??= new List<AITool>();
+        foreach (var tool in tools)
+            builder.RuntimeOptions.ServerConfiguredTools.Add(tool);
         builder.WithEventComposition(TestEventApplication.Composition)
             .WithSessionStore(new InMemorySessionStore(TestEventApplication.Codec))
             .WithPermissions();

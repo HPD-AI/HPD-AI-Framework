@@ -18,13 +18,13 @@ public sealed class PermissionMiddleware : IAgentMiddleware
     private readonly AuthorizationMode _mode;
     private readonly ConditionalWeakTable<AgentContext, ConcurrentDictionary<string, PreparedAdmission>> _batches = new();
 
-    internal PermissionMiddleware(AgentConfig? config = null, string? middlewareName = null,
+    internal PermissionMiddleware(string? agentId = null, string? agentName = null, string? middlewareName = null,
         PermissionOverrideRegistry? overrideRegistry = null, IPermissionDescriptorCatalog? descriptorCatalog = null,
         AuthorizationMode authorizationMode = AuthorizationMode.Enforce)
     {
         if (!Enum.IsDefined(authorizationMode)) throw new ArgumentOutOfRangeException(nameof(authorizationMode));
-        _stableAgentId = string.IsNullOrWhiteSpace(config?.AgentId) ? null : config.AgentId;
-        _agentId = _stableAgentId ?? config?.Name ?? "Agent";
+        _stableAgentId = string.IsNullOrWhiteSpace(agentId) ? null : agentId;
+        _agentId = _stableAgentId ?? agentName ?? "Agent";
         _source = middlewareName ?? "PermissionMiddleware";
         PermissionValidation.Text(_source, 256, "PermissionRequestInvalid", required: true);
         _overrides = overrideRegistry;
@@ -34,8 +34,8 @@ public sealed class PermissionMiddleware : IAgentMiddleware
 
     internal AuthorizationMode Mode => _mode;
 
-    internal PermissionMiddleware ForAgent(AgentConfig config) =>
-        new(config, _source, _overrides, _catalog, _mode);
+    internal PermissionMiddleware ForAgent(string agentId, string agentName) =>
+        new(agentId, agentName, _source, _overrides, _catalog, _mode);
 
     public Task BeforeIterationAsync(BeforeIterationContext context, CancellationToken cancellationToken) => Task.CompletedTask;
 

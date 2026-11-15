@@ -159,7 +159,7 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(List<IToolResultContent>))]
 [JsonSerializable(typeof(TextContent))]
 [JsonSerializable(typeof(BinaryContent))]
-[JsonSerializable(typeof(JsonContent))]
+[JsonSerializable(typeof(HPD.Agent.ClientTools.JsonContent))]
 [JsonSerializable(typeof(ClientToolInvokeOutcomeKind))]
 [JsonSerializable(typeof(ClientToolOperationOutcomeState))]
 [JsonSerializable(typeof(ClientAppProviderReference))]

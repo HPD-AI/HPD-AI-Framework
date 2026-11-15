@@ -3,7 +3,7 @@
 Optional ASP.NET Core endpoints for querying HPD evaluation scores, analytics,
 runs, datasets, and red-team findings.
 
-The package targets `net8.0`, `net9.0`, and `net10.0`.
+The package targets `net10.0` and `net11.0`.
 
 ## Install
 

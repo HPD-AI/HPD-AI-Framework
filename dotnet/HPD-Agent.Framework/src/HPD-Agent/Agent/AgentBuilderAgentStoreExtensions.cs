@@ -14,7 +14,7 @@ public static class AgentBuilderAgentStoreExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
 
-        builder.Config.AgentId = agentId;
+        builder.RuntimeOptions.AgentId = agentId;
         return builder;
     }
 
@@ -26,7 +26,7 @@ public static class AgentBuilderAgentStoreExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(store);
-        builder.Config.AgentStore = store;
+        builder.RuntimeOptions.AgentStore = store;
         return builder;
     }
 
@@ -42,8 +42,8 @@ public static class AgentBuilderAgentStoreExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(store);
 
-        builder.Config.AgentStore = store;
-        builder.Config.AgentStoreOptions = new AgentStoreOptions { PersistOnBuild = persistOnBuild };
+        builder.RuntimeOptions.AgentStore = store;
+        builder.RuntimeOptions.AgentStoreOptions = new AgentStoreOptions { PersistOnBuild = persistOnBuild };
         return builder;
     }
 
@@ -62,8 +62,8 @@ public static class AgentBuilderAgentStoreExtensions
         var options = new AgentStoreOptions();
         configure(options);
 
-        builder.Config.AgentStore = store;
-        builder.Config.AgentStoreOptions = options;
+        builder.RuntimeOptions.AgentStore = store;
+        builder.RuntimeOptions.AgentStoreOptions = options;
         return builder;
     }
 

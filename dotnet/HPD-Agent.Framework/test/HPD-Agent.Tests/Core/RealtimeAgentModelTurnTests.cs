@@ -68,8 +68,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             ]);
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
-        config.SessionStore = store;
-        var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
+        var agent = TestAgentFactory.CreateWithSessionStore(config, store, circuitBreakerThreshold: 10);
         var capture = SubscribeEvents(agent);
 
         try
@@ -120,8 +119,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             ]);
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
-        config.SessionStore = store;
-        var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
+        var agent = TestAgentFactory.CreateWithSessionStore(config, store, circuitBreakerThreshold: 10);
         var capture = SubscribeEvents(agent);
         var audioMessage = new ChatMessage(
             ChatRole.User,
@@ -190,8 +188,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             ]);
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
-        config.SessionStore = store;
-        var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
+        var agent = TestAgentFactory.CreateWithSessionStore(config, store, circuitBreakerThreshold: 10);
         var capture = SubscribeEvents(agent);
         var audioMessage = new ChatMessage(
             ChatRole.User,
@@ -253,9 +250,9 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             ]);
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
-        config.SessionStore = store;
-        var agent = TestAgentFactory.CreateWithMiddlewares(
+        var agent = TestAgentFactory.CreateWithMiddlewaresAndSessionStore(
             config,
+            store,
             middlewares: [new ReplacingUserMessageMiddleware()],
             circuitBreakerThreshold: 10);
         var capture = SubscribeEvents(agent);
@@ -314,8 +311,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             ]);
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
-        config.SessionStore = store;
-        var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
+        var agent = TestAgentFactory.CreateWithSessionStore(config, store, circuitBreakerThreshold: 10);
 
         try
         {
@@ -347,8 +343,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             ]);
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
-        config.SessionStore = store;
-        var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
+        var agent = TestAgentFactory.CreateWithSessionStore(config, store, circuitBreakerThreshold: 10);
 
         try
         {
@@ -392,8 +387,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             ]);
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
-        config.SessionStore = store;
-        var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
+        var agent = TestAgentFactory.CreateWithSessionStore(config, store, circuitBreakerThreshold: 10);
 
         try
         {
@@ -449,8 +443,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             ]);
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
-        config.SessionStore = store;
-        var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
+        var agent = TestAgentFactory.CreateWithSessionStore(config, store, circuitBreakerThreshold: 10);
 
         await agent.CreateSessionAsync("session-error", cancellationToken: TestCancellationToken);
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
@@ -493,8 +486,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             ]);
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
-        config.SessionStore = store;
-        var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
+        var agent = TestAgentFactory.CreateWithSessionStore(config, store, circuitBreakerThreshold: 10);
 
         try
         {

@@ -75,7 +75,7 @@ public sealed class QuestionToolTests
         Assert.True((await agent.AnswerRequestAsync(answer)).Accepted);
         Assert.False((await agent.AnswerRequestAsync(answer)).Accepted);
         await run;
-        var persisted = Assert.Single((await agent.Config!.SessionStore!.CollectThreadEventsAsync(key))!
+        var persisted = Assert.Single((await agent.Runtime.SessionStore!.CollectThreadEventsAsync(key))!
             .OfType<QuestionResponseEvent>());
         Assert.Equal(question.ThreadExecutionId, persisted.ThreadExecutionId);
         Assert.Equal("Proceed with staging", persisted.Answers[0].CustomText);
@@ -122,7 +122,7 @@ public sealed class QuestionToolTests
         await agent.RunAsync("Ask", sessionId: "deadline", runConfig: new() { AllowUserQuestions = true }, cancellationToken: deadline.Token);
         var key = new ThreadKey("deadline", "main");
         Assert.Empty(agent.GetPendingRequests(key));
-        var events = (await agent.Config!.SessionStore!.CollectThreadEventsAsync(key))!;
+        var events = (await agent.Runtime.SessionStore!.CollectThreadEventsAsync(key))!;
         Assert.Single(events.OfType<UserQuestionRequestEvent>());
         Assert.Single(events.OfType<AgentRequestTerminatedEvent>());
         Assert.Empty(events.OfType<QuestionResponseEvent>());

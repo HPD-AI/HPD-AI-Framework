@@ -294,7 +294,7 @@ public sealed class MultiAgent
             if (opts.OutputMode == AgentOutputMode.Handoff && opts.HandoffTargets is not { Count: > 0 })
                 throw new InvalidOperationException($"Node '{id}' requires handoff targets.");
             if (_host is not null && _agents.TryGetValue(id, out var prebuilt) &&
-                (!ReferenceEquals(prebuilt.Config?.EventComposition, _host.Events) || !ReferenceEquals(prebuilt.Config?.SessionStore, _host.SessionStore)))
+                (!ReferenceEquals(prebuilt.Runtime.EventComposition, _host.Events) || !ReferenceEquals(prebuilt.Runtime.SessionStore, _host.SessionStore)))
                 throw new InvalidOperationException($"Prebuilt node '{id}' does not share the host event composition/session store.");
         }
 

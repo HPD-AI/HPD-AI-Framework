@@ -20,8 +20,8 @@ public static class AgentBuilderSessionExtensions
         if (builder._sessionStoreFactory is not null)
             throw new InvalidOperationException("An explicit session store cannot be combined with a session-store factory.");
 
-        builder.Config.SessionStore = store;
-        builder.Config.SessionStoreOptions = new SessionStoreOptions { PersistAfterTurn = true };
+        builder.RuntimeOptions.SessionStore = store;
+        builder.RuntimeOptions.SessionStoreOptions = new SessionStoreOptions { PersistAfterTurn = true };
         return builder;
     }
 
@@ -40,8 +40,8 @@ public static class AgentBuilderSessionExtensions
         if (builder._sessionStoreFactory is not null)
             throw new InvalidOperationException("An explicit session store cannot be combined with a session-store factory.");
 
-        builder.Config.SessionStore = store;
-        builder.Config.SessionStoreOptions = new SessionStoreOptions { PersistAfterTurn = persistAfterTurn };
+        builder.RuntimeOptions.SessionStore = store;
+        builder.RuntimeOptions.SessionStoreOptions = new SessionStoreOptions { PersistAfterTurn = persistAfterTurn };
         return builder;
     }
 
@@ -63,8 +63,8 @@ public static class AgentBuilderSessionExtensions
         var options = new SessionStoreOptions();
         configure(options);
 
-        builder.Config.SessionStore = store;
-        builder.Config.SessionStoreOptions = options;
+        builder.RuntimeOptions.SessionStore = store;
+        builder.RuntimeOptions.SessionStoreOptions = options;
         return builder;
     }
 
@@ -77,7 +77,7 @@ public static class AgentBuilderSessionExtensions
         ArgumentNullException.ThrowIfNull(builder);
         EnsureFactoryCanBeSelected(builder);
         builder._sessionStoreFactory = composition => new InMemorySessionStore(composition.Codec);
-        builder.Config.SessionStoreOptions = new SessionStoreOptions { PersistAfterTurn = true };
+        builder.RuntimeOptions.SessionStoreOptions = new SessionStoreOptions { PersistAfterTurn = true };
         return builder;
     }
 
@@ -92,13 +92,13 @@ public static class AgentBuilderSessionExtensions
         EnsureFactoryCanBeSelected(builder);
         builder._sessionStoreFactory = composition => new FileSessionStore(path, composition.Codec);
         builder._implicitContentStoreFactory = () => new LocalFileContentStore(Path.Combine(path, "content"));
-        builder.Config.SessionStoreOptions = new SessionStoreOptions { PersistAfterTurn = true };
+        builder.RuntimeOptions.SessionStoreOptions = new SessionStoreOptions { PersistAfterTurn = true };
         return builder;
     }
 
     private static void EnsureFactoryCanBeSelected(AgentBuilder builder)
     {
-        if (builder.Config.SessionStore is not null)
+        if (builder.RuntimeOptions.SessionStore is not null)
             throw new InvalidOperationException("A session-store factory cannot be combined with an explicit session store.");
         if (builder._sessionStoreFactory is not null)
             throw new InvalidOperationException("Only one session-store factory may be configured.");

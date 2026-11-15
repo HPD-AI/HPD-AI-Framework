@@ -2,17 +2,17 @@
 
   <PropertyGroup>
     <HpdAgentEventPrecompileRequireAnalyzer>false</HpdAgentEventPrecompileRequireAnalyzer>
-    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <!-- Inherits TargetFrameworks from Directory.Build.props: net11.0;net10.0 -->
     <RootNamespace>HPD.Agent</RootNamespace>
     <HpdAgentEventModuleId>hpd.agent.core</HpdAgentEventModuleId>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
-    <!-- System.Text.Json 9/10 reports Exception.TargetSite while generating metadata for
+    <!-- System.Text.Json reports Exception.TargetSite while generating metadata for
          Microsoft.Extensions.AI content types. Live exception values are excluded from the
-         durable event contract, and the net8.0 build audits the same source graph without it. -->
-    <NoWarn Condition="'$(TargetFramework)' != 'net8.0'">$(NoWarn);IL2026</NoWarn>
+         durable event contract, so the unsupported reflection path is not emitted. -->
+    <NoWarn>$(NoWarn);IL2026</NoWarn>
     <!-- Native AOT Configuration -->
     <PublishAot>true</PublishAot>
     <IsAotCompatible>true</IsAotCompatible>
@@ -80,8 +80,8 @@
       <None Include="../HPD-Agent.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../HPD-Agent.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll')" />
       <None Include="../HPD-Agent.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../HPD-Agent.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll')" />
       <None Include="buildTransitive/HPD-Agent.Framework.targets" Pack="true" PackagePath="buildTransitive/HPD-Agent.Framework.targets" Visible="false" />
-      <None Include="../HPD-Agent.EventPrecompiler/bin/Debug/net8.0/*.dll;../HPD-Agent.EventPrecompiler/bin/Debug/net8.0/*.json"
-            Pack="true" PackagePath="tools/net8.0/" Visible="false" />
+      <None Include="../HPD-Agent.EventPrecompiler/bin/Debug/net10.0/*.dll;../HPD-Agent.EventPrecompiler/bin/Debug/net10.0/*.json"
+            Pack="true" PackagePath="tools/net10.0/" Visible="false" />
     </ItemGroup>
   </Target>
 
@@ -120,6 +120,7 @@
     <InternalsVisibleTo Include="HPD-Agent.EventComposition.AotSmoke" />
     <InternalsVisibleTo Include="HPD-Agent.Stores.HpdBase" />
     <InternalsVisibleTo Include="HPD-Agent.Stores.HpdBase.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.Audio.LiveKit" />
   </ItemGroup>
 
 </Project>

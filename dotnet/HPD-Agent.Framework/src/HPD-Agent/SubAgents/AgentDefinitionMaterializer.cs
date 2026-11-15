@@ -32,10 +32,7 @@ internal sealed class AgentDefinitionMaterializer(IAgentStore store)
             ParentAgentConfiguration => AgentConfigSnapshot.Create(parentConfig),
             _ => throw new ArgumentOutOfRangeException(nameof(definition.Configuration))
         };
-        config.AgentId = definition.AgentId;
         config.EnableParentCommunication ??= true;
-        config.AgentStore = null;
-        config.AgentStoreOptions = null;
 
         var fingerprint = Fingerprint(config);
         var existing = await store.LoadAsync(definition.AgentId, cancellationToken).ConfigureAwait(false);
@@ -59,7 +56,6 @@ internal sealed class AgentDefinitionMaterializer(IAgentStore store)
         await store.SaveAsync(new StoredAgent
         {
             Id = definition.AgentId,
-            Name = config.Name,
             Config = config,
             CreatedAt = existing?.CreatedAt ?? DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,

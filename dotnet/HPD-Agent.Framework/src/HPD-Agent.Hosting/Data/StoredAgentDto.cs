@@ -25,9 +25,10 @@ public record StoredAgentDto(
 /// <summary>Request body for explicitly creating a new agent definition.</summary>
 public record CreateAgentRequest(
     string AgentId,
-    string Name,
     AgentConfig Config,
     Dictionary<string, object>? Metadata = null);
 
 /// <summary>Request body for updating an existing agent definition.</summary>
-public record UpdateAgentRequest(AgentConfig Config);
+public record UpdateAgentRequest(
+    AgentConfig Config,
+    Dictionary<string, object>? Metadata = null);

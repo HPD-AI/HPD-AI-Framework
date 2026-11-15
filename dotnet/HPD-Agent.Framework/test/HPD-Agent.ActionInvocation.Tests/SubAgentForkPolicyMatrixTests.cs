@@ -204,12 +204,15 @@ public sealed class SubAgentForkPolicyMatrixTests
         var agent = new Agent(
             new AgentConfig
             {
-                Name = "test-agent",
-                SessionStore = store,
-                EventComposition = CoreAgentEventComposition.Instance
+                Name = "test-agent"
             },
             baseClient: null,
-            mergedOptions: null);
+            mergedOptions: null,
+            runtimeOptions: new AgentRuntimeOptions
+            {
+                SessionStore = store,
+                EventComposition = CoreAgentEventComposition.Instance
+            });
         var session = new Session("subagent-fork-matrix");
         await store.SaveSessionAsync(session);
         var source = session.CreateThread("test-agent", "main");

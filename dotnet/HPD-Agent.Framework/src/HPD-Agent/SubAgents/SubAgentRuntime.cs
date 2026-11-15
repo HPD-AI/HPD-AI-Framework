@@ -400,7 +400,7 @@ internal static class SubAgentRuntime
                     contextPolicy,
                     invocationMode), cancellationToken).ConfigureAwait(false);
             }
-            await (agent.Config?.SessionStore
+            await (agent.Runtime.SessionStore
                 ?? throw new InvalidOperationException("subagent_unavailable: no durable parent session store is configured."))
                 .AppendThreadEventsAsync(new(route.SessionId, route.ThreadId),
                 [new SubAgentExecutionControllerEvent(threadExecutionId, admission.Creation.Key.Parent)
@@ -415,7 +415,7 @@ internal static class SubAgentRuntime
                 threadExecutionId,
                 cancellationToken).ConfigureAwait(false);
 
-            var text = await SubAgentResults.ReadReportAsync(agent.Config.SessionStore!,
+            var text = await SubAgentResults.ReadReportAsync(agent.Runtime.SessionStore!,
                 new(route.SessionId, route.ThreadId), threadExecutionId, cancellationToken).ConfigureAwait(false);
             if (request.ParentContext is not null)
             {
@@ -1241,7 +1241,7 @@ internal static class SubAgentRuntime
         };
         var reservation = new CoordinatorWorkReservation(
             childAgent.AgentId, childThread.SessionId, childThread.ThreadId, threadExecutionId);
-        var executionStore = controllingContext?.GetParentSessionStore() ?? childAgent.Config?.SessionStore
+        var executionStore = controllingContext?.GetParentSessionStore() ?? childAgent.Runtime.SessionStore
             ?? throw new InvalidOperationException("subagent_unavailable: no durable child session store is configured.");
         BindExecutionOwnership(reservation, executionStore, childAgent, childThread, threadExecutionId);
         await childAgent.RunAsync(
@@ -1668,7 +1668,7 @@ internal static class SubAgentRuntime
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
-        var store = agent.Config?.SessionStore
+        var store = agent.Runtime.SessionStore
             ?? throw new InvalidOperationException("No session store configured.");
 
         var session = await store.LoadSessionAsync(sessionId, cancellationToken).ConfigureAwait(false)
@@ -1728,9 +1728,9 @@ internal static class SubAgentRuntime
         var stored = await agentStore.LoadAsync(subAgent.AgentId, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Subagent definition '{subAgent.AgentId}' was not found.");
         var config = AgentConfigSnapshot.Create(stored.Config);
-        config.AgentId = subAgent.AgentId;
         config.EnableParentCommunication ??= true;
         var builder = new AgentBuilder(config)
+            .WithAgentId(subAgent.AgentId)
             .WithAgentStore(agentStore)
             .WithSessionStore(sessionStore);
         if (functionContext.Services is not null)
@@ -1804,7 +1804,7 @@ internal static class SubAgentRuntime
             return;
         }
 
-        var store = agent.Config?.SessionStore
+        var store = agent.Runtime.SessionStore
             ?? throw new InvalidOperationException("No session store configured.");
         if (await store.LoadSessionAsync(sessionId, cancellationToken).ConfigureAwait(false) is null)
         {
@@ -1828,7 +1828,7 @@ internal static class SubAgentRuntime
         CompactionSpecification? handoffCompaction = null)
     {
         var metadata = BuildMetadata(subAgent, functionContext, storageName, invocationId, contextPolicy);
-        var exactStore = agent.Config?.SessionStore
+        var exactStore = agent.Runtime.SessionStore
             ?? throw new InvalidOperationException("No session store configured.");
         if (await exactStore.GetThreadAsync(route, cancellationToken).ConfigureAwait(false) is { } existing)
         {

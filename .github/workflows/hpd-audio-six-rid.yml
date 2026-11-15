@@ -33,15 +33,14 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: |
-            8.0.x
-            9.0.x
             10.0.x
+            11.0.x
       - name: Build and execute integrated kernel on matching host
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $log = Join-Path $env:RUNNER_TEMP 'hpd-integrated-kernel.log'
-          foreach ($tfm in @('net8.0','net9.0','net10.0')) {
+          foreach ($tfm in @('net10.0','net11.0')) {
             "BEGIN $tfm ${{ matrix.rid }}" | Out-File $log -Append
             dotnet build src/HPD-Agent/HPD-Agent.csproj -c Release -f $tfm -r '${{ matrix.rid }}' -m:1 /nodeReuse:false 2>&1 | Out-File $log -Append
             if ($LASTEXITCODE) { Get-Content $log -Tail 120; exit $LASTEXITCODE }

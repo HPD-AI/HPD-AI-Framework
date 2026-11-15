@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>net11.0;net10.0</TargetFrameworks>
     <RootNamespace>HPD.Agent.AspNetCore.OpenApi</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -20,8 +20,12 @@
       must not instantiate the XML-comment source generator across every HPD
       project reference. The consuming application owns that generator.
     -->
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.14"
-                      ExcludeAssets="analyzers" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="11.0.0"
+                      ExcludeAssets="analyzers"
+                      Condition="'$(TargetFramework)' == 'net11.0'" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.15"
+                      ExcludeAssets="analyzers"
+                      Condition="'$(TargetFramework)' == 'net10.0'" />
     <ProjectReference Include="../HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj" />
   </ItemGroup>
 

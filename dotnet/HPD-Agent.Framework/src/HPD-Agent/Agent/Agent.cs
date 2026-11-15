@@ -211,6 +211,11 @@ public sealed partial class Agent : IAsyncDisposable
     /// </summary>
     public AgentConfig? Config { get; private set; }
 
+    /// <summary>
+    /// Host-owned runtime state paired with <see cref="Config"/>.
+    /// </summary>
+    internal AgentRuntimeOptions Runtime { get; }
+
     private AgentConfig RequireConfig() =>
         Config ?? throw new InvalidOperationException("Agent configuration is not available.");
 
@@ -323,7 +328,8 @@ public sealed partial class Agent : IAsyncDisposable
         IAsyncDisposable? providerRuntimeOwner = null,
         bool ownsSessionStore = false,
         bool ownsContentStore = false,
-        IAsyncDisposable? agentResourceOwner = null)
+        IAsyncDisposable? agentResourceOwner = null,
+        AgentRuntimeOptions? runtimeOptions = null)
     {
         _providerRegistry = providerRegistry;
         _contentStore = contentStore;
@@ -345,9 +351,10 @@ public sealed partial class Agent : IAsyncDisposable
             ?? ImmutableDictionary<string, MiddlewareStateFactory>.Empty;
         _ownedHttpClients = ownedHttpClients;
         Config = config ?? throw new ArgumentNullException(nameof(config));
+        Runtime = runtimeOptions ?? new AgentRuntimeOptions();
         _ephemeralEventJournal = new InMemorySessionStore(
-            config.EventComposition?.Codec
-            ?? throw new InvalidOperationException("AgentConfig.EventComposition must be resolved before Agent construction."));
+            Runtime.EventComposition?.Codec
+            ?? throw new InvalidOperationException("Agent runtime event composition must be resolved before Agent construction."));
         _clientSet = clientSet;
         _providerRuntimeOwner = providerRuntimeOwner;
         _agentResources = agentResourceOwner as AgentResourceRegistry ?? new AgentResourceRegistry([]);
@@ -388,9 +395,9 @@ public sealed partial class Agent : IAsyncDisposable
         // Direct use of HPD.Events.EventCoordinator (no wrapper)
         _eventCoordinator = new HPD.Events.Core.EventCoordinator();
         AgentEventRoutes.Initialize(_eventCoordinator);
-        var operationThreadEvents = Config.SessionStore is null
+        var operationThreadEvents = Runtime.SessionStore is null
             ? null
-            : CreateEventPublisher(Config.SessionStore, _eventCoordinator);
+            : CreateEventPublisher(Runtime.SessionStore, _eventCoordinator);
         _operationRegistry = new AgentOperationRegistry(
             new AgentOperationEventSink(_eventCoordinator, operationThreadEvents),
             Config.OperationRetention);
@@ -402,7 +409,7 @@ public sealed partial class Agent : IAsyncDisposable
         _functionExecutionCore = new FunctionExecutionCore(
             _middlewarePipeline,
             config.ErrorHandling,
-            config.ServerConfiguredTools,
+            Runtime.ServerConfiguredTools,
             config.AgenticLoop);
         _functionCallProcessor = new FunctionCallProcessor(
             _eventCoordinator, // Pass IEventCoordinator for decoupled event emission
@@ -410,14 +417,14 @@ public sealed partial class Agent : IAsyncDisposable
             _functionExecutionCore,
             config.MaxAgenticIterations,
             config.ErrorHandling,
-            config.ServerConfiguredTools,
+            Runtime.ServerConfiguredTools,
             config.AgenticLoop,  // Pass agentic loop config for TerminateOnUnknownCalls
             _name,
             _stateFactories);
         _agentTurn = new AgentTurn(
             _baseClient,
-            config.ConfigureOptions,
-            config.ClientMiddleware?.Chat,
+            Runtime.ConfigureOptions,
+            Runtime.ClientMiddleware?.Chat,
             serviceProvider);
         _chatModelTurnExecutor = new ChatModelTurnExecutor(_agentTurn);
         _realtimeProviderProtocolParticipant = new RealtimeProviderProtocolParticipantV1();
@@ -439,7 +446,7 @@ public sealed partial class Agent : IAsyncDisposable
     /// Stable agent identity used for store lookup, hosted routing, and observability.
     /// Falls back to <see cref="Name"/> for non-store-backed agents.
     /// </summary>
-    public string AgentId => Config?.AgentId ?? _name;
+    public string AgentId => Runtime.AgentId ?? _name;
 
     /// <summary>
     /// Agent name
@@ -659,7 +666,7 @@ public sealed partial class Agent : IAsyncDisposable
             : new FunctionExecutionCore(
                 pipeline,
                 Config?.ErrorHandling,
-                Config?.ServerConfiguredTools,
+                Runtime.ServerConfiguredTools,
                 Config?.AgenticLoop);
 
         return new FunctionCallProcessor(
@@ -668,7 +675,7 @@ public sealed partial class Agent : IAsyncDisposable
             functionExecutionCore,
             Config?.MaxAgenticIterations ?? 10,
             Config?.ErrorHandling,
-            Config?.ServerConfiguredTools,
+            Runtime.ServerConfiguredTools,
             Config?.AgenticLoop,
             _name,
             _stateFactories);
@@ -1055,7 +1062,7 @@ public sealed partial class Agent : IAsyncDisposable
         if (threadHistoryMessages.Length > 0)
             thread.AddMessages(threadHistoryMessages);
 
-        var store = Config?.SessionStore;
+        var store = Runtime.SessionStore;
         if (store == null)
             return;
 
@@ -1157,7 +1164,7 @@ public sealed partial class Agent : IAsyncDisposable
 
         thread.LastActivity = DateTime.UtcNow;
 
-        var store = Config?.SessionStore;
+        var store = Runtime.SessionStore;
         if (store == null)
             return;
 
@@ -1268,7 +1275,7 @@ public sealed partial class Agent : IAsyncDisposable
                 .ConfigureAwait(false);
         }
 
-        var store = Config?.SessionStore;
+        var store = Runtime.SessionStore;
         if (store == null)
         {
             return await CreateEventPublisher(_ephemeralEventJournal, eventCoordinator)
@@ -1440,7 +1447,7 @@ public sealed partial class Agent : IAsyncDisposable
         var threadEvent = CreateAgentThreadEvent(
             thread, evt, messageTurnId, conversationId, iteration,
             inputMessageCount, isResume, turnMessageCount);
-        var publisher = CreateEventPublisher(Config!.SessionStore!, eventCoordinator);
+        var publisher = CreateEventPublisher(Runtime.SessionStore!, eventCoordinator);
         return await publisher.StageAndPublishDeltaAsync(
             new ThreadKey(thread.SessionId, thread.Id), threadEvent, cancellationToken).ConfigureAwait(false);
     }
@@ -1460,7 +1467,7 @@ public sealed partial class Agent : IAsyncDisposable
         var threadEvent = CreateAgentThreadEvent(
             thread, evt, messageTurnId, conversationId, iteration,
             inputMessageCount, isResume, turnMessageCount);
-        var publisher = CreateEventPublisher(Config!.SessionStore!, eventCoordinator);
+        var publisher = CreateEventPublisher(Runtime.SessionStore!, eventCoordinator);
         var result = await publisher.FinalizeAndPublishDeltasAsync(
             new ThreadKey(thread.SessionId, thread.Id), threadEvent, cancellationToken).ConfigureAwait(false);
         return result.CommittedEvents[^1];
@@ -1478,7 +1485,7 @@ public sealed partial class Agent : IAsyncDisposable
         int turnMessageCount,
         HPD.Events.IEventCoordinator eventCoordinator)
     {
-        if (thread is null || Config?.SessionStore is null)
+        if (thread is null || Runtime.SessionStore is null)
             return;
 
         foreach (var messageId in stagedTextMessages.ToArray())
@@ -1689,7 +1696,7 @@ public sealed partial class Agent : IAsyncDisposable
                 result.Add(evt);
             }
 
-            if (Config?.SessionStoreOptions?.PersistAfterTurn == true)
+            if (Runtime.SessionStoreOptions?.PersistAfterTurn == true)
             {
                 await SaveSessionAndThreadAsync(session, thread, cancellationToken).ConfigureAwait(false);
             }
@@ -1810,7 +1817,7 @@ public sealed partial class Agent : IAsyncDisposable
         }
 
         if (registration.RoutingClass != AgentInputRoutingClass.Work ||
-            RequireConfig().SessionStore is not { } executionStore ||
+            Runtime.SessionStore is not { } executionStore ||
             input.SessionId is not { Length: > 0 } executionSessionId ||
             input.ThreadId is not { Length: > 0 } executionThreadId)
         {
@@ -1932,8 +1939,10 @@ public sealed partial class Agent : IAsyncDisposable
         ActiveRuntimeInput? activeInput)
         => new()
         {
+            AgentId = AgentId,
             AgentName = _name,
             Config = Config ?? throw new InvalidOperationException("Agent configuration is not available."),
+            RuntimeOptions = Runtime,
             EventCoordinator = eventCoordinator,
             Services = _serviceProvider,
             ClientSet = _clientSet,
@@ -2067,7 +2076,7 @@ public sealed partial class Agent : IAsyncDisposable
             session: session,
             thread: thread,
             cancellationToken: cancellationToken,
-            threadEvents: config?.SessionStore is { } store
+            threadEvents: Runtime.SessionStore is { } store
                 ? CreateEventPublisher(store, eventCoordinator)
                 : null,
             effectiveChatClient: _defaultChatClientHandle,
@@ -2078,8 +2087,9 @@ public sealed partial class Agent : IAsyncDisposable
             threadExecutionId: threadExecutionId,
             agentId: AgentId,
             parentAgentMetadata: AgentMetadata,
-            parentAgentStore: Config?.AgentStore,
+            parentAgentStore: Runtime.AgentStore,
             config: config ?? Config,
+            runtimeOptions: Runtime,
             clientSet: clientSet ?? _clientSet,
             contentStore: contentStore ?? _contentStore,
             structEvents: structEvents ?? GetActiveStructEvents(),
@@ -2244,7 +2254,7 @@ public sealed partial class Agent : IAsyncDisposable
     {
         if (string.IsNullOrWhiteSpace(evt.SessionId) || string.IsNullOrWhiteSpace(evt.ThreadId))
         {
-            var codec = Config?.EventComposition?.Codec
+            var codec = Runtime.EventComposition?.Codec
                 ?? throw new InvalidOperationException("Agent runtime has no event composition authority.");
             if (!codec.TryGetByType(evt.GetType(), out _))
                 throw new InvalidOperationException($"Agent event type '{evt.GetType().FullName}' is not present in codec '{codec.Digest}'.");
@@ -2253,14 +2263,14 @@ public sealed partial class Agent : IAsyncDisposable
             return live;
         }
 
-        var store = Config?.SessionStore;
+        var store = Runtime.SessionStore;
         if (store is null)
         {
             var stateless = ThreadEventValidation.PrepareForAppend(
                 evt.SessionId,
                 evt.ThreadId,
                 evt) with { ThreadSequenceNumber = 0 };
-            var codec = Config?.EventComposition?.Codec
+            var codec = Runtime.EventComposition?.Codec
                 ?? throw new InvalidOperationException("Agent runtime has no event composition authority.");
             if (!codec.TryGetByType(stateless.GetType(), out _))
                 throw new InvalidOperationException($"Agent event type '{stateless.GetType().FullName}' is not present in codec '{codec.Digest}'.");
@@ -2306,7 +2316,7 @@ public sealed partial class Agent : IAsyncDisposable
             runtimeCts = new CancellationTokenSource();
             runtimeCoordinator = _eventCoordinator.CreateChild(HPD.Events.EventChildOwnership.InheritOwner);
             AgentEventRoutes.AttachCoordinator(runtimeCoordinator, _eventCoordinator);
-            runtimeThreadEvents = Config?.SessionStore is { } store
+            runtimeThreadEvents = Runtime.SessionStore is { } store
                 ? CreateEventPublisher(store, runtimeCoordinator)
                 : null;
             runtimeStructEvents = new StructEventHub();
@@ -2319,7 +2329,9 @@ public sealed partial class Agent : IAsyncDisposable
             runtimeWorkScheduler = new AgentWorkScheduler(_runtimeLock, runtimeInbox.Writer);
             runtimeContext = new Middleware.AgentRuntimeContext(
                 _name,
+                AgentId,
                 Config ?? throw new InvalidOperationException("Agent configuration is not available."),
+                Runtime,
                 _serviceProvider,
                 runtimeCoordinator,
                 runtimeStructEvents,
@@ -3010,7 +3022,7 @@ public sealed partial class Agent : IAsyncDisposable
             return coordinator.Respond(response.RequestId, responseEvent).ToAgentResult();
         }
 
-        var store = Config?.SessionStore
+        var store = Runtime.SessionStore
             ?? throw new InvalidOperationException(
                 "A scoped response requires the configured session store so it can commit before request completion.");
         var publisher = CreateEventPublisher(store, coordinator);
@@ -3174,7 +3186,7 @@ public sealed partial class Agent : IAsyncDisposable
     private void ValidateCommunicationRunConfig(AgentRunConfig runConfig)
     {
         if (runConfig.AllowUserQuestions == true &&
-            Config?.explicitlyRegisteredToolHarnesses.Contains(
+            Runtime.ExplicitlyRegisteredToolHarnesses.Contains(
                 nameof(QuestionToolHarness)) != true)
         {
             throw new AgentRunConfigurationException(
@@ -3184,7 +3196,7 @@ public sealed partial class Agent : IAsyncDisposable
         }
 
         if (runConfig.EnableParentCommunication == true &&
-            Config?.explicitlyRegisteredToolHarnesses.Contains(
+            Runtime.ExplicitlyRegisteredToolHarnesses.Contains(
                 nameof(ParentToolHarness)) != true)
         {
             throw new AgentRunConfigurationException(
@@ -3446,7 +3458,7 @@ public sealed partial class Agent : IAsyncDisposable
                 conversationId: conversationId,
                 initialState: state,
                 eventCoordinator: eventCoordinator,
-                threadEvents: Config?.SessionStore is { } turnStore
+                threadEvents: Runtime.SessionStore is { } turnStore
                     ? CreateEventPublisher(turnStore, eventCoordinator)
                     : null,
                 session: session,
@@ -3460,8 +3472,9 @@ public sealed partial class Agent : IAsyncDisposable
                 threadExecutionId: sourceInput?.ThreadExecutionId ?? activeInput?.ThreadExecutionId,
                 agentId: AgentId,
                 parentAgentMetadata: AgentMetadata,
-                parentAgentStore: Config?.AgentStore,
+                parentAgentStore: Runtime.AgentStore,
                 config: Config,
+                runtimeOptions: Runtime,
                 clientSet: effectiveClientSet,
                 contentStore: _contentStore,
                 structEvents: GetActiveStructEvents(),
@@ -5050,7 +5063,7 @@ public sealed partial class Agent : IAsyncDisposable
                 // the same commit-before-publish path and may not disappear on append failure.
                 state.MiddlewareState.SaveToThread(thread, _stateFactories);
 
-                if (Config?.SessionStore != null && thread.MiddlewareState.Count > 0)
+                if (Runtime.SessionStore != null && thread.MiddlewareState.Count > 0)
                 {
                     await CommitAndPublishThreadEventAsync(
                         thread,
@@ -5355,7 +5368,7 @@ public sealed partial class Agent : IAsyncDisposable
         if (_ownsContentStore)
             await AttemptAsync(() => DisposeOwnedStoreAsync(_contentStore)).ConfigureAwait(false);
         if (_ownsSessionStore)
-            await AttemptAsync(() => DisposeOwnedStoreAsync(config.SessionStore)).ConfigureAwait(false);
+            await AttemptAsync(() => DisposeOwnedStoreAsync(Runtime.SessionStore)).ConfigureAwait(false);
 
         if (failures.Count > 0)
             throw new AggregateException("Agent shutdown encountered one or more cleanup failures.", failures);
@@ -5889,7 +5902,7 @@ public sealed partial class Agent : IAsyncDisposable
                 stagedReasoningMessages.Add(reasoningStart.MessageId);
             }
 
-            var useStagedDeltaLifecycle = thread is not null && Config?.SessionStore is not null;
+            var useStagedDeltaLifecycle = thread is not null && Runtime.SessionStore is not null;
             AgentEvent outputEvent;
             if (useStagedDeltaLifecycle &&
                 (evt is TextDeltaEvent textDelta && stagedTextMessages.Contains(textDelta.MessageId) ||
@@ -5981,7 +5994,7 @@ public sealed partial class Agent : IAsyncDisposable
                 messageTurnId, conversationId, currentIteration,
                 inputMessages.Count, isResume, turnHistory.Count,
                 eventCoordinator).ConfigureAwait(false);
-            if (thread is not null && sourceInput is not null && Config?.SessionStore is { } goalStore &&
+            if (thread is not null && sourceInput is not null && Runtime.SessionStore is { } goalStore &&
                 _middlewarePipeline.Middlewares.OfType<Goals.GoalMiddleware>().SingleOrDefault() is { } goals)
             {
                 bool stopping;
@@ -7214,7 +7227,7 @@ public sealed partial class Agent : IAsyncDisposable
         }
 
         // Auto-save if configured
-        if (RequireConfig().SessionStoreOptions?.PersistAfterTurn == true)
+        if (Runtime.SessionStoreOptions?.PersistAfterTurn == true)
         {
             await SaveSessionAndThreadAsync(session, thread, cancellationToken);
         }
@@ -7258,7 +7271,7 @@ public sealed partial class Agent : IAsyncDisposable
         }
 
         // Auto-save if configured
-        if (RequireConfig().SessionStoreOptions?.PersistAfterTurn == true)
+        if (Runtime.SessionStoreOptions?.PersistAfterTurn == true)
         {
             await SaveSessionAndThreadAsync(session, thread, cancellationToken);
         }
@@ -7286,7 +7299,7 @@ public sealed partial class Agent : IAsyncDisposable
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
 
-        var store = RequireConfig().SessionStore
+        var store = Runtime.SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
@@ -7374,7 +7387,7 @@ public sealed partial class Agent : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(thread);
 
-        var store = RequireConfig().SessionStore
+        var store = Runtime.SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
@@ -7403,7 +7416,7 @@ public sealed partial class Agent : IAsyncDisposable
         Dictionary<string, object>? metadata = null,
         CancellationToken cancellationToken = default)
     {
-        var store = RequireConfig().SessionStore
+        var store = Runtime.SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
@@ -7437,7 +7450,7 @@ public sealed partial class Agent : IAsyncDisposable
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
 
-        var store = RequireConfig().SessionStore
+        var store = Runtime.SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
@@ -7471,7 +7484,7 @@ public sealed partial class Agent : IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
-        var store = Config?.SessionStore;
+        var store = Runtime.SessionStore;
         if (store == null)
             return null;
 
@@ -7494,7 +7507,7 @@ public sealed partial class Agent : IAsyncDisposable
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
 
-        var store = Config?.SessionStore;
+        var store = Runtime.SessionStore;
         if (store == null)
             return [];
 
@@ -7515,7 +7528,7 @@ public sealed partial class Agent : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(thread);
 
-        var store = Config?.SessionStore;
+        var store = Runtime.SessionStore;
         if (store != null)
         {
             await store.DeleteThreadAsync(thread.SessionId, thread.Id, cancellationToken);
@@ -7568,7 +7581,7 @@ public sealed partial class Agent : IAsyncDisposable
         if (forkOptions.Metadata?.Keys.Any(static key => key is
                 "forkOperationId" or "forkSourceSessionId" or "forkSourceThreadId" or "forkRequestFingerprint") == true)
             throw new InvalidOperationException("thread_fork_reserved_metadata_key");
-        var store = RequireConfig().SessionStore
+        var store = Runtime.SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
@@ -7778,7 +7791,7 @@ public sealed partial class Agent : IAsyncDisposable
                     conversationId: sourceThread.SessionId,
                     initialState: forkState,
                     eventCoordinator: forkEventCoordinator,
-                    threadEvents: Config?.SessionStore is { } forkStore
+                    threadEvents: Runtime.SessionStore is { } forkStore
                         ? CreateEventPublisher(forkStore, forkEventCoordinator)
                         : null,
                     session: sourceThread.Session,
@@ -7790,8 +7803,9 @@ public sealed partial class Agent : IAsyncDisposable
                     runtimeCapabilities: _runtimeContext?.RuntimeCapabilities,
                     agentId: AgentId,
                     parentAgentMetadata: AgentMetadata,
-                    parentAgentStore: Config?.AgentStore,
+                    parentAgentStore: Runtime.AgentStore,
                     config: Config,
+                    runtimeOptions: Runtime,
                     clientSet: _clientSet,
                     contentStore: _contentStore,
                     structEvents: GetActiveStructEvents());
@@ -8124,7 +8138,7 @@ public sealed partial class Agent : IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceThreadId);
         ArgumentException.ThrowIfNullOrWhiteSpace(newThreadId);
 
-        var store = RequireConfig().SessionStore
+        var store = Runtime.SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
@@ -8191,7 +8205,7 @@ public sealed partial class Agent : IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceThreadId);
         ArgumentException.ThrowIfNullOrWhiteSpace(newThreadId);
 
-        var store = RequireConfig().SessionStore
+        var store = Runtime.SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
@@ -9225,7 +9239,7 @@ public sealed partial class Agent : IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
-        var store = RequireConfig().SessionStore
+        var store = Runtime.SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
@@ -9282,7 +9296,7 @@ public sealed partial class Agent : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(session);
 
-        var store = RequireConfig().SessionStore
+        var store = Runtime.SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
@@ -9300,7 +9314,7 @@ public sealed partial class Agent : IAsyncDisposable
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
 
-        var store = RequireConfig().SessionStore
+        var store = Runtime.SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
@@ -9335,7 +9349,7 @@ public sealed partial class Agent : IAsyncDisposable
     public async Task<List<string>> ListSessionsAsync(
         CancellationToken cancellationToken = default)
     {
-        var store = RequireConfig().SessionStore;
+        var store = Runtime.SessionStore;
         if (store == null)
             return [];
 
