@@ -766,13 +766,14 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
             if (!string.IsNullOrEmpty(ToolHarness.MetadataTypeName))
             {
                 sb.AppendLine($"                MetadataType: typeof({ToolHarness.MetadataTypeName}),");
-                sb.AppendLine($"                // No JSON metadata is registered for tool metadata type");
                 sb.AppendLine($"                DeserializeMetadata: json => JsonSerializer.Deserialize(json, GetJsonTypeInfo<{ToolHarness.MetadataTypeName}>()),");
+                sb.AppendLine($"                SerializeMetadata: metadata => JsonSerializer.SerializeToElement(({ToolHarness.MetadataTypeName})metadata, GetJsonTypeInfo<{ToolHarness.MetadataTypeName}>()),");
             }
             else
             {
                 sb.AppendLine($"                MetadataType: null,");
                 sb.AppendLine($"                DeserializeMetadata: null,");
+                sb.AppendLine($"                SerializeMetadata: null,");
             }
 
             // NEW: Function names for selective registration

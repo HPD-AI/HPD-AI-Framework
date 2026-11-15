@@ -93,6 +93,38 @@ public sealed class HarnessConfigurationTests
     }
 
     [Fact]
+    public async Task TypedBuilderSettings_MaterializeAndRebuildFromPortableConfig()
+    {
+        var builder = Builder().WithToolHarness<ConfiguredHarness>(options => options.Configure(
+            new HarnessTestSettings
+            {
+                MaxItems = 20,
+                Nested = new HarnessNestedSettings { Label = "roundtrip" }
+            }));
+
+        var reference = Assert.Single(builder.Config.ToolHarnesses);
+        var selected = Assert.Single(
+            builder._selectedToolHarnessFactories,
+            factory => factory.Name == nameof(ConfiguredHarness));
+        Assert.Equal(selected.ActivationIdentity, reference.Name);
+        Assert.NotNull(reference.Config);
+        using (var json = JsonDocument.Parse(reference.Config!.Value.GetRawText()))
+        {
+            Assert.Equal(20, json.RootElement.GetProperty("maxItems").GetInt32());
+            Assert.Equal("roundtrip", json.RootElement.GetProperty("nested").GetProperty("label").GetString());
+        }
+
+        var document = HpdAgentConfigSerializer.Serialize(
+            builder.Config,
+            HpdConfigFormat.Json);
+        var restored = HpdAgentConfigSerializer.Deserialize(document) ??
+            throw new InvalidOperationException("Agent configuration did not round-trip.");
+        await using var agent = await Builder(restored).BuildAsync();
+
+        Assert.Equal("20:roundtrip", await Invoke(agent, agent.CaptureRunConfig(null)));
+    }
+
+    [Fact]
     public async Task InvalidConstructionJson_FailsWithStructuredPathAndSourceLocation()
     {
         var config = HpdAgentConfigSerializer.Deserialize(

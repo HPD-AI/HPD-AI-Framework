@@ -403,7 +403,8 @@ public sealed class CompiledHarnessInheritanceTests
                 public static class McpCapabilitySourceFactory
                 {
                     public static HPD.Agent.IAgentCapabilitySourceFactory? FromServer(
-                        string id, global::McpServerConfig config, string owner, bool collapse, bool? permission) => null;
+                        string id, global::McpServerConfig config, string owner, bool collapse, bool? permission,
+                        object? options = null, string? parentCapabilityId = null) => null;
                 }
             }
             namespace SourcePackage
@@ -565,7 +566,8 @@ public sealed class CompiledHarnessInheritanceTests
                 public static class McpCapabilitySourceFactory
                 {
                     public static IAgentCapabilitySourceFactory FromServer(
-                        string id, global::McpServerConfig config, string owner, bool collapse, bool? permission)
+                        string id, global::McpServerConfig config, string owner, bool collapse, bool? permission,
+                        object? options = null, string? parentCapabilityId = null)
                         => new FakeFactory(CapabilitySourceId.Create(id));
                 }
                 internal sealed class FakeFactory(CapabilitySourceId id) : IAgentCapabilitySourceFactory

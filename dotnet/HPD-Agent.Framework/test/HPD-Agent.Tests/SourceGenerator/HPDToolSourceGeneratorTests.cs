@@ -606,6 +606,9 @@ namespace Ns
         Assert.NotNull(generatedCode);
         AssertDoesNotContainGenericRawTextDeserialize(generatedCode, "Ns.SearchMetadata", "SearchMetadata");
         Assert.Contains("JsonSerializer.Deserialize(json, GetJsonTypeInfo<Ns.SearchMetadata>())", StripGlobalQualifiers(generatedCode));
+        Assert.Contains(
+            "JsonSerializer.SerializeToElement((Ns.SearchMetadata)metadata, GetJsonTypeInfo<Ns.SearchMetadata>())",
+            StripGlobalQualifiers(generatedCode));
         Assert.Contains("No JSON metadata is registered for tool metadata type", generatedCode);
         Assert.Contains("typeof(T).FullName", generatedCode);
     }

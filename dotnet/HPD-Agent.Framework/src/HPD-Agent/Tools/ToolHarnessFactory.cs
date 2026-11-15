@@ -189,7 +189,10 @@ public record ToolHarnessFactory(
 
     /// <summary>Generated owner-local defaults; external DI graphs remain opaque.</summary>
     IReadOnlyList<ToolHarnessDependency>? DependencyDefaults = null,
-    HarnessConfigurationContract? Configuration = null
+    HarnessConfigurationContract? Configuration = null,
+
+    /// <summary>Delegate to serialize supported typed metadata without reflection.</summary>
+    Func<IToolMetadata, JsonElement>? SerializeMetadata = null
 )
 {
     /// <summary>Gets the non-empty stable activation identity.</summary>

@@ -133,7 +133,6 @@ public class AgentBuilder
     private readonly object _builtAgentToken = new();
     private HarnessConfigurationCatalog? _harnessConfigurationCatalog;
     private readonly Dictionary<string, ToolHarnessReference> _harnessConfigurationSources = new(StringComparer.Ordinal);
-    internal readonly Dictionary<string, object> _harnessConfiguredSettings = new(StringComparer.Ordinal);
     internal readonly Dictionary<string, IReadOnlyDictionary<Type, object>> _harnessDependencies = new(StringComparer.Ordinal);
 
     private object GetOrActivateOwner(ToolHarnessFactory factory)
@@ -146,14 +145,13 @@ public class AgentBuilder
         _harnessDependencies.TryGetValue(factory.ActivationIdentity, out var dependencies);
         JsonElement? config = _toolharnessConfigs.TryGetValue(factory.ActivationIdentity, out var exact) ? exact
             : _toolharnessConfigs.TryGetValue(factory.Name, out var alias) ? alias : null;
-        _harnessConfiguredSettings.TryGetValue(factory.ActivationIdentity, out var configuredSettings);
-        if (configuredSettings is not null && factory.Configuration is null)
+        if (config is not null && factory.Configuration is null)
             throw new InvalidOperationException($"Harness '{factory.ActivationIdentity}' has no typed settings contract.");
         _harnessConfigurationSources.TryGetValue(factory.ActivationIdentity, out var configurationSource);
         object instance;
         if (supplied.Length == 1)
         {
-            if (config is not null || configuredSettings is not null || dependencies?.Count > 0)
+            if (config is not null || dependencies?.Count > 0)
                 throw new InvalidOperationException($"Supplied harness '{factory.ActivationIdentity}' cannot replace constructor configuration or dependencies.");
             instance = supplied[0].Instance;
             if (factory.Configuration is not null)
@@ -165,7 +163,7 @@ public class AgentBuilder
                 throw new InvalidOperationException($"Harness '{factory.ActivationIdentity}' has no generated activation contract. Rebuild its library with the source generator.");
             var entry = factory.Configuration is null ? null
                 : (_harnessConfigurationCatalog ??= new(_builtAgentToken)).Bind(
-                    factory, config, configuredSettings, configurationSource);
+                    factory, config, null, configurationSource);
             var construction = new ToolHarnessConstructionContext(factory.ActivationIdentity,
                 _serviceProvider, dependencies ?? new Dictionary<Type, object>(), _secretResolver, config,
                 factory.DependencyDefaults ?? [], _harnessOwnerLifetime, entry?.Handle);
@@ -202,13 +200,6 @@ public class AgentBuilder
     /// Only ToolHarnesses in this list will have their functions created during Build().
     /// </summary>
     internal readonly List<ToolHarnessFactory> _selectedToolHarnessFactories = new();
-
-    /// <summary>
-    /// ToolHarness overrides from builder calls (takes precedence over config).
-    /// Maps toolharness name -> ToolHarnessReference with updated config/metadata.
-    /// Used for Config = Base, Builder = Override/Extend pattern.
-    /// </summary>
-    internal readonly Dictionary<string, ToolHarnessReference> _toolharnessOverrides = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Tracks which toolharnesses were added via builder (not config).
@@ -893,7 +884,6 @@ public class AgentBuilder
         for (var index = 0; index < (_config.ToolHarnesses?.Count ?? 0); index++)
         {
             var reference = _config.ToolHarnesses![index];
-            if (_toolharnessOverrides.TryGetValue(reference.Name, out var replacement)) reference = replacement;
             if (!_availableToolHarnesses.TryGetValue(reference.Name, out var factory))
                 throw new AgentRunConfigurationException("HarnessNotRegistered", $"toolHarnesses[{index}].name",
                     $"Harness '{reference.Name}' has no generated registration.");
@@ -1092,7 +1082,19 @@ public class AgentBuilder
     /// </summary>
     public AgentBuilder WithToolHarnessOverride(ToolHarnessReference reference)
     {
-        _toolharnessOverrides[reference.Name] = reference;
+        ArgumentNullException.ThrowIfNull(reference);
+        ArgumentException.ThrowIfNullOrWhiteSpace(reference.Name);
+        ToolHarnessFactory? replacementFactory = null;
+        _ = _availableToolHarnesses.TryGetValue(reference.Name, out replacementFactory);
+        var existingIndex = _config.ToolHarnesses.FindIndex(candidate =>
+            string.Equals(candidate.Name, reference.Name, StringComparison.OrdinalIgnoreCase) ||
+            replacementFactory is not null &&
+            _availableToolHarnesses.TryGetValue(candidate.Name, out var existingFactory) &&
+            existingFactory.ActivationIdentity == replacementFactory.ActivationIdentity);
+        if (existingIndex >= 0)
+            _config.ToolHarnesses[existingIndex] = reference;
+        else
+            _config.ToolHarnesses.Add(reference);
         return this;
     }
 
@@ -4994,18 +4996,7 @@ public static class AgentBuilderToolHarnessExtensions
 
         var factory = GetToolHarnessFactory(builder, typeof(T), toolharnessName);
 
-        // Register one concrete owner; graph references reuse its activation record.
-        if (builder._selectedToolHarnessFactories.Any(selected => selected.ActivationIdentity == factory.ActivationIdentity))
-            throw new InvalidOperationException($"Harness '{factory.ActivationIdentity}' is already registered.");
-        builder._selectedToolHarnessFactories.Add(factory);
-        builder._builderAddedToolHarnesses.Add(toolharnessName);
-        builder._builderAddedToolHarnesses.Add(factory.ActivationIdentity);
-
-        // Track as explicitly registered (for ToolVisibilityManager)
-        builder._explicitlyRegisteredToolHarnesses.Add(toolharnessName);
-
-        // Store context
-        builder.ToolHarnessContexts[factory.ActivationIdentity] = context;
+        RegisterBuilderToolHarness(builder, factory, context);
 
         // Auto-discover skill dependencies using catalog (zero reflection)
         AutoRegisterDependenciesFromFactory(builder, factory);
@@ -5050,27 +5041,74 @@ public static class AgentBuilderToolHarnessExtensions
                 $"Available generated functions: {availableList}.");
         }
 
-        if (!builder._selectedToolHarnessFactories.Any(f => f.ToolHarnessType == factory.ToolHarnessType))
-        {
-            builder._selectedToolHarnessFactories.Add(factory);
-        }
-
-        builder._explicitlyRegisteredToolHarnesses.Add(factory.Name);
-        builder.ToolHarnessContexts[factory.ActivationIdentity] = context;
+        var reference = RegisterBuilderToolHarness(builder, factory, context);
 
         if (builder.TryGetHarnessFilter(factory, out var existingFilter))
         {
-            builder._toolFunctionFilters[factory.Name] = existingFilter
+            var merged = existingFilter
                 .Concat(new[] { functionName })
                 .Distinct(StringComparer.Ordinal)
                 .ToArray();
+            builder._toolFunctionFilters[factory.Name] = merged;
+            reference.Functions = merged.ToList();
         }
         else
         {
             builder._toolFunctionFilters[factory.Name] = new[] { functionName };
+            reference.Functions = [functionName];
         }
 
         AutoRegisterDependenciesFromFactory(builder, factory);
+    }
+
+    private static ToolHarnessReference RegisterBuilderToolHarness(
+        AgentBuilder builder,
+        ToolHarnessFactory factory,
+        IToolMetadata? context,
+        bool selectGeneratedOwner = true)
+    {
+        if (selectGeneratedOwner &&
+            !builder._selectedToolHarnessFactories.Any(selected =>
+                selected.ActivationIdentity == factory.ActivationIdentity))
+        {
+            builder._selectedToolHarnessFactories.Add(factory);
+        }
+
+        builder._builderAddedToolHarnesses.Add(factory.Name);
+        builder._builderAddedToolHarnesses.Add(factory.ActivationIdentity);
+        builder._explicitlyRegisteredToolHarnesses.Add(factory.Name);
+        builder.ToolHarnessContexts[factory.ActivationIdentity] = context;
+
+        var reference = builder.Config.ToolHarnesses.FirstOrDefault(candidate =>
+            string.Equals(candidate.Name, factory.Name, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(candidate.Name, factory.ActivationIdentity, StringComparison.Ordinal));
+        if (reference is null)
+        {
+            reference = new ToolHarnessReference { Name = factory.ActivationIdentity };
+            builder.Config.ToolHarnesses.Add(reference);
+        }
+
+        if (context is not null && factory.SerializeMetadata is not null)
+        {
+            try
+            {
+                reference.Metadata = factory.SerializeMetadata(context).Clone();
+            }
+            catch (NotSupportedException)
+            {
+                // Metadata without registered JSON contracts remains host-owned for this build.
+            }
+            catch (Exception exception) when (exception is JsonException or InvalidCastException)
+            {
+                throw new AgentRunConfigurationException(
+                    "HarnessMetadataSerializationFailed",
+                    $"toolHarnesses[{reference.Name}].metadata",
+                    $"Metadata for harness '{factory.Name}' does not match its generated metadata contract.",
+                    innerException: exception);
+            }
+        }
+
+        return reference;
     }
 
     private static (string ToolHarnessName, string FunctionName) ParseToolReference(string functionName, string defaultToolHarnessName)
@@ -5125,7 +5163,8 @@ public static class AgentBuilderToolHarnessExtensions
                 $"Harness '{registeredFactory.ActivationIdentity}' has no generated settings contract.");
             var captured = contract.Decode(contract.Encode(options.Configuration));
             contract.Validate(captured);
-            builder._harnessConfiguredSettings.Add(registeredFactory.ActivationIdentity, captured);
+            var reference = RegisterBuilderToolHarness(builder, registeredFactory, context);
+            reference.Config = contract.Encode(captured).Clone();
         }
         if (options.Dependencies.Count > 0)
             builder._harnessDependencies.Add(registeredFactory.ActivationIdentity,
@@ -5208,12 +5247,7 @@ public static class AgentBuilderToolHarnessExtensions
 
         // Register as instance registration (will use the generated ToolHarnessFactory delegate for function creation)
         builder._instanceRegistrations.Add(new ToolInstanceRegistration(instance, factory.ActivationIdentity));
-        builder._builderAddedToolHarnesses.Add(toolharnessName);
-        builder._builderAddedToolHarnesses.Add(factory.ActivationIdentity);
-        builder.ToolHarnessContexts[factory.ActivationIdentity] = context;
-
-        // Track this as explicitly registered
-        builder._explicitlyRegisteredToolHarnesses.Add(toolharnessName);
+        RegisterBuilderToolHarness(builder, factory, context, selectGeneratedOwner: false);
 
         AutoRegisterDependenciesFromFactory(builder, factory);
 
@@ -5237,18 +5271,7 @@ public static class AgentBuilderToolHarnessExtensions
 
         var factory = GetToolHarnessFactory(builder, toolharnessType, toolharnessName);
 
-        // Register one concrete owner; graph references reuse its activation record.
-        if (builder._selectedToolHarnessFactories.Any(selected => selected.ActivationIdentity == factory.ActivationIdentity))
-            throw new InvalidOperationException($"Harness '{factory.ActivationIdentity}' is already registered.");
-        builder._selectedToolHarnessFactories.Add(factory);
-        builder._builderAddedToolHarnesses.Add(toolharnessName);
-        builder._builderAddedToolHarnesses.Add(factory.ActivationIdentity);
-
-        // Track as explicitly registered (for ToolVisibilityManager)
-        builder._explicitlyRegisteredToolHarnesses.Add(toolharnessName);
-
-        // Store context
-        builder.ToolHarnessContexts[factory.ActivationIdentity] = context;
+        RegisterBuilderToolHarness(builder, factory, context);
 
         // Auto-discover skill dependencies using catalog (zero reflection)
         AutoRegisterDependenciesFromFactory(builder, factory);

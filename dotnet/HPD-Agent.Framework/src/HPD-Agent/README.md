@@ -229,6 +229,11 @@ var agent = await new AgentBuilder(agentConfig)
     .BuildAsync();
 ```
 
+The effective `AgentConfig.ToolHarnesses` contains the selected harness,
+function filters, and encoded typed settings. The portable definition can be
+stored and rebuilt without repeating those builder calls. Dependency instances
+remain host-owned.
+
 See [ToolHarness construction](Tools/TOOL_HARNESS_CONSTRUCTION.md) for settings,
 run overrides, dependency ownership, supplied instances, and migration.
 

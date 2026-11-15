@@ -39,8 +39,9 @@ public class ToolHarnessReference
     internal IReadOnlyDictionary<string, HPD.Serialization.HpdConfigSourceLocation>? SourceLocations { get; set; }
 
     /// <summary>
-    /// Name of the toolharness (always the class name).
-    /// This is the lookup key in the source-generated toolharness registry.
+    /// Stable generated owner identity used for exact activation lookup.
+    /// Hand-authored documents may use the class name when that alias is
+    /// unambiguous; builder-authored documents persist the exact identity.
     /// </summary>
     public string Name { get; set; } = "";
 

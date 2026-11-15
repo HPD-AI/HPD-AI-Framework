@@ -76,6 +76,14 @@ await using var agent = await new AgentBuilder(agentConfig)
     .BuildAsync();
 ```
 
+The builder records the selected harness and encoded settings in
+`AgentConfig.ToolHarnesses`. Persisting or exporting that configuration and
+rebuilding without the original fluent calls produces the same portable harness
+selection. Supplied dependencies and preconstructed harness instances remain
+host-owned and do not enter the configuration document. Builder-authored
+references use the generated owner's stable identity. Hand-authored JSON/YAML
+may keep using the short class name while it is unambiguous.
+
 Dependency precedence is:
 
 ```text

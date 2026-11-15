@@ -136,6 +136,54 @@ public class AgentBuilderWithToolTests
     }
 
     [Fact]
+    public void WithToolHarness_Generic_MaterializesPortableReference()
+    {
+        var builder = new AgentBuilder()
+            .WithToolHarness<NamedWeatherToolHarness>()
+            .WithToolHarness<NamedWeatherToolHarness>();
+
+        var reference = Assert.Single(builder.Config.ToolHarnesses);
+        var selected = Assert.Single(
+            builder._selectedToolHarnessFactories,
+            factory => factory.Name == nameof(NamedWeatherToolHarness));
+        Assert.Equal(selected.ActivationIdentity, reference.Name);
+    }
+
+    [Fact]
+    public void WithTool_MaterializesSelectedFunctionsOnPortableReference()
+    {
+        var builder = new AgentBuilder()
+            .WithTool<NamedWeatherToolHarness>("get_weather")
+            .WithTool<NamedWeatherToolHarness>("get_forecast");
+
+        var reference = Assert.Single(builder.Config.ToolHarnesses);
+        var selected = Assert.Single(
+            builder._selectedToolHarnessFactories,
+            factory => factory.Name == nameof(NamedWeatherToolHarness));
+        Assert.Equal(selected.ActivationIdentity, reference.Name);
+        Assert.Equal(["get_weather", "get_forecast"], reference!.Functions);
+    }
+
+    [Fact]
+    public void WithToolHarnessOverride_ReplacesPortableReference()
+    {
+        var config = new AgentConfig
+        {
+            ToolHarnesses = [new() { Name = nameof(NamedWeatherToolHarness), Functions = ["get_weather"] }]
+        };
+        var builder = new AgentBuilder(config);
+        var replacement = new ToolHarnessReference
+        {
+            Name = nameof(NamedWeatherToolHarness),
+            Functions = ["get_forecast"]
+        };
+
+        builder.WithToolHarnessOverride(replacement);
+
+        Assert.Same(replacement, Assert.Single(builder.Config.ToolHarnesses));
+    }
+
+    [Fact]
     public void WithTool_UnknownFunction_ThrowsHelpfulError()
     {
         var ex = Assert.Throws<InvalidOperationException>(() =>
