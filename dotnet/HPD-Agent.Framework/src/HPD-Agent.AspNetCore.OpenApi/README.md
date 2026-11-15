@@ -1,6 +1,6 @@
 # HPD-Agent.AspNetCore.OpenApi
 
-Optional `.NET 10` OpenAPI 3.1 document generation for the HPD-Agent HTTP API.
+Optional `.NET 10` and `.NET 11` OpenAPI 3.1 document generation for the HPD-Agent HTTP API.
 
 ## Registration
 

@@ -2,6 +2,19 @@
 
 All notable changes to the HPD AI Framework are documented in this file.
 
+## Unreleased
+
+### Changed
+
+- HPD-Agent runtime packages now target .NET 10 LTS and .NET 11 STS. .NET 8
+  and .NET 9 reached end of support on 2026-11-10 and are no longer part of
+  the package support matrix.
+- The event precompiler now targets .NET 10 and uses major-version runtime
+  roll-forward, so it runs on .NET 10 or a newer installed runtime.
+- Source generators and the event precompiler now use Roslyn 5.12.
+- ASP.NET Core OpenAPI packages select the matching .NET 10 or .NET 11
+  dependency and OpenAPI model surface per target framework.
+
 ## HPD-Agent 0.9.5 - 2026-11-09
 
 ### Pre-1.0 release

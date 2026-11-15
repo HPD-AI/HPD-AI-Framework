@@ -8,7 +8,7 @@ shift || true
 CONFIGURATION="${CONFIGURATION:-Release}"
 
 case "$TARGET_FRAMEWORK" in
-  net8.0|net9.0|net10.0) ;;
+  net10.0|net11.0) ;;
   *)
     echo "Unsupported target framework: $TARGET_FRAMEWORK" >&2
     exit 2
@@ -48,7 +48,7 @@ for relative_project in "${TEST_PROJECTS[@]}"; do
       elsif (m#<TargetFramework>([^<]+)</TargetFramework>#) { print $1 }
     ' "$project"
   )"
-  target_frameworks="${target_frameworks:-net10.0;net9.0;net8.0}"
+  target_frameworks="${target_frameworks:-net11.0;net10.0}"
 
   if [[ ";$target_frameworks;" != *";$TARGET_FRAMEWORK;"* ]]; then
     continue

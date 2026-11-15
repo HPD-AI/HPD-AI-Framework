@@ -1,6 +1,6 @@
 # HPD-Agent.Client
 
-Invariant .NET 10 runtime used by generated HPD Agent clients.
+Invariant .NET 10 and .NET 11 runtime used by generated HPD Agent clients.
 
 It provides:
 

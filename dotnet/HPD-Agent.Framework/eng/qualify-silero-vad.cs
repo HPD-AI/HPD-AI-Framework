@@ -51,7 +51,7 @@ try
         root);
     Console.WriteLine("voice-activity-architecture=pass");
 
-    foreach (var framework in new[] { "net8.0", "net9.0", "net10.0" })
+    foreach (var framework in new[] { "net10.0", "net11.0" })
     {
         var environment = new Dictionary<string, string> { ["HPD_SILERO_VAD_MODEL_PATH"] = modelPath };
         var testLog = Path.Combine(work, $"test-{framework}.log");

@@ -85,7 +85,7 @@ internal sealed class MitmCertificateAuthority : IAsyncDisposable
             password: null,
             X509KeyStorageFlags.Exportable);
 #else
-#pragma warning disable SYSLIB0057 // X509CertificateLoader is unavailable on net8.0.
+#pragma warning disable SYSLIB0057 // Retain the legacy certificate path for supported targets.
         var certificate = new X509Certificate2(
             generated.Export(X509ContentType.Pfx),
             (string?)null,
