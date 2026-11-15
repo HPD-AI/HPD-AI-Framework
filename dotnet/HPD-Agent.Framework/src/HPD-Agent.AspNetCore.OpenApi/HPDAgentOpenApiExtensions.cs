@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.OpenApi;
+using System.Text;
 
 namespace HPD.Agent.AspNetCore.OpenApi;
 
@@ -51,8 +53,49 @@ public static class HPDAgentOpenApiExtensions
             Configure(options);
             configure?.Invoke(options);
         });
+        AddDocumentProviderDecorator(services, documentName);
 
         return services;
+    }
+
+    private static void AddDocumentProviderDecorator(
+        IServiceCollection services,
+        string documentName)
+    {
+        // The framework registers one AnyKey provider for all document names.
+        // Replace that descriptor with a wrapper that finalizes the generated
+        // document while preserving the requested keyed document identity.
+        var providerIndex = services
+            .Select(static (descriptor, index) => (descriptor, index))
+            .Where(static item =>
+                item.descriptor.ServiceType == typeof(IOpenApiDocumentProvider) &&
+                item.descriptor.IsKeyedService &&
+                (Equals(item.descriptor.ServiceKey, KeyedService.AnyKey) ||
+                 Equals(item.descriptor.ServiceKey, "*")) &&
+                item.descriptor.KeyedImplementationType is not null)
+            .Select(static item => item.index)
+            .LastOrDefault(-1);
+        var provider = providerIndex >= 0
+            ? services[providerIndex]
+            : null;
+        if (provider?.KeyedImplementationType is not { } implementationType)
+            return;
+
+        services.RemoveAt(providerIndex);
+        services.AddKeyedSingleton<IOpenApiDocumentProvider>(
+            KeyedService.AnyKey,
+            (serviceProvider, serviceKey) =>
+            {
+                var resolvedDocumentName = serviceKey is string requested &&
+                                           requested != "*"
+                    ? requested
+                    : documentName;
+                var inner = (IOpenApiDocumentProvider)ActivatorUtilities.CreateInstance(
+                    serviceProvider,
+                    implementationType,
+                    resolvedDocumentName);
+                return new HPDAgentOpenApiDocumentProvider(inner);
+            });
     }
 
     /// <summary>
@@ -69,7 +112,34 @@ public static class HPDAgentOpenApiExtensions
     {
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentException.ThrowIfNullOrWhiteSpace(pattern);
-        return endpoints.MapOpenApi(pattern);
+        var yaml = pattern.EndsWith(".yaml", StringComparison.OrdinalIgnoreCase) ||
+                   pattern.EndsWith(".yml", StringComparison.OrdinalIgnoreCase);
+        RequestDelegate handler = async context =>
+        {
+            var documentName =
+                context.Request.RouteValues["documentName"] as string ??
+                DefaultDocumentName;
+            var provider = context.RequestServices
+                .GetRequiredKeyedService<IOpenApiDocumentProvider>(documentName);
+            var document = await provider.GetOpenApiDocumentAsync(
+                    context.RequestAborted)
+                .ConfigureAwait(false);
+            var content = yaml
+                ? await document.SerializeAsYamlAsync(
+                        OpenApiSpecVersion.OpenApi3_1,
+                        context.RequestAborted)
+                    .ConfigureAwait(false)
+                : await document.SerializeAsJsonAsync(
+                        OpenApiSpecVersion.OpenApi3_1,
+                        context.RequestAborted)
+                    .ConfigureAwait(false);
+            var result = Results.Text(
+                content,
+                yaml ? "application/yaml" : "application/json",
+                Encoding.UTF8);
+            await result.ExecuteAsync(context).ConfigureAwait(false);
+        };
+        return endpoints.MapGet(pattern, handler);
     }
 
     /// <summary>

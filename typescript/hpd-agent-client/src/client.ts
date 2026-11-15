@@ -223,13 +223,26 @@ interface RuntimeScope {
   threadId: string;
 }
 
+type UserMessageContent = NonNullable<
+  NonNullable<
+    NonNullable<
+      Extract<HpdAgentInputEvent, { type: 'USER_MESSAGES_INPUT' }>['messages']
+    >[number]['contents']
+  >[number]
+>;
+
 function messageInput(input: string | readonly MessageContent[], runConfig?: AgentRunConfig):
   Extract<HpdAgentInputEvent, { type: 'USER_MESSAGES_INPUT' }> & { version: '1.0' } {
   return {
     version: '1.0',
     type: 'USER_MESSAGES_INPUT',
     runConfig,
-    messages: [{ role: 'user' as const, contents: typeof input === 'string' ? [{ $type: 'text', text: input }] : [...input] }],
+    messages: [{
+      role: 'user' as const,
+      contents: (typeof input === 'string'
+        ? [{ $type: 'text', text: input }]
+        : [...input]) as UserMessageContent[],
+    }],
   };
 }
 

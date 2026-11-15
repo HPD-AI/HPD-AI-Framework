@@ -1,3 +1,8 @@
+import type {
+  ClientToolDefinition,
+  ClientToolHarnessDefinition,
+} from './generated/models.js';
+
 export interface ClientOptions {
   fetch?: typeof globalThis.fetch;
   headers?: Record<string, string>;
@@ -108,24 +113,9 @@ export type ClientToolHandlerResult =
 export type ClientToolHandler = (invocation: ClientToolInvocation) =>
   ClientToolHandlerResult | Promise<ClientToolHandlerResult>;
 
-export interface PortableClientToolDefinition {
-  name: string;
-  description: string;
-  parametersSchema: unknown;
-  defaultPolicy?: unknown;
-  operationContract?: unknown;
-  metadata?: unknown;
-}
+export type PortableClientToolDefinition = ClientToolDefinition;
 
-export interface PortableClientToolHarness {
-  name: string;
-  description: string;
-  tools: PortableClientToolDefinition[];
-  skills?: unknown[];
-  functionResult?: string;
-  systemPrompt?: string;
-  startCollapsed?: boolean;
-}
+export type PortableClientToolHarness = ClientToolHarnessDefinition;
 
 export class ClientToolRegistry {
   private readonly handlers = new Map<string, ClientToolHandler>();

@@ -4,8 +4,10 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.OpenApi;
-using System.Text.Json.Schema;
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Schema;
+using System.Text.Json.Serialization.Metadata;
 
 #if NET11_0_OR_GREATER
 using OpenApiMediaContentType = Microsoft.OpenApi.IOpenApiMediaType;
@@ -696,9 +698,17 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
                 {
                     // Use the portable serializer metadata. The HTTP converter is
                     // opaque to the framework's default OpenAPI schema exporter.
-                    var schema = HPDJsonContext.Default.AgentRunConfig.GetJsonSchemaAsNode();
+                    var (schema, componentTypes) =
+                        ExportPortableConfigSchema(HPDJsonContext.Default.AgentRunConfig);
+                    await RegisterPortableComponentsAsync(
+                            context,
+                            componentTypes,
+                            cancellationToken)
+                        .ConfigureAwait(false);
                     resolved.Properties["runConfig"] = RegisterComponent(
-                        context, nameof(HPD.Agent.AgentRunConfig), PortableConfigSchema(schema));
+                        context,
+                        nameof(HPD.Agent.AgentRunConfig),
+                        PortableConfigSchema(schema, context));
                 }
                 ComponentizeProperty(
                     context,
@@ -715,12 +725,140 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
         return new OpenApiSchema { OneOf = branches };
     }
 
-    private static OpenApiSchema PortableConfigSchema(JsonNode? node)
+    private static (
+        JsonNode Schema,
+        IReadOnlyDictionary<string, Type> ComponentTypes)
+        ExportPortableConfigSchema(JsonTypeInfo rootTypeInfo)
+    {
+        var componentTypes = new Dictionary<string, Type>(StringComparer.Ordinal);
+        var schema = rootTypeInfo.GetJsonSchemaAsNode(
+            new JsonSchemaExporterOptions
+            {
+                TransformSchemaNode = (schemaContext, schema) =>
+                {
+                    if (ReferenceEquals(schemaContext.TypeInfo, rootTypeInfo) ||
+                        !ShouldComponentize(schemaContext.TypeInfo.Type))
+                        return schema;
+
+                    var type = schemaContext.TypeInfo.Type;
+                    var componentName = PortableComponentName(type, componentTypes);
+                    componentTypes[componentName] = type;
+                    var reference = new JsonObject
+                    {
+                        ["$ref"] = "#/components/schemas/" +
+                                   EscapeReference(componentName)
+                    };
+                    if (!IsNullableSchema(schema))
+                        return reference;
+
+                    var nullSchema = new JsonObject
+                    {
+                        ["type"] = JsonValue.Create("null")
+                    };
+                    var branches = new JsonArray();
+                    branches.Add((JsonNode)nullSchema);
+                    branches.Add((JsonNode)reference);
+                    return new JsonObject { ["anyOf"] = branches };
+                }
+            }) ??
+            throw new InvalidOperationException(
+                "AgentRunConfig produced no JSON schema.");
+        return (schema, componentTypes);
+    }
+
+    private static async Task RegisterPortableComponentsAsync(
+        OpenApiOperationTransformerContext context,
+        IReadOnlyDictionary<string, Type> componentTypes,
+        CancellationToken cancellationToken)
+    {
+        foreach (var (name, type) in componentTypes
+                     .OrderBy(static pair => pair.Key, StringComparer.Ordinal))
+        {
+            if (context.Document?.Components?.Schemas?.ContainsKey(name) == true)
+                continue;
+            var generated = await context.GetOrCreateSchemaAsync(
+                    type,
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            if (ResolveSchema(context, generated) is { } resolved)
+                RegisterComponent(context, name, resolved);
+        }
+    }
+
+    private static bool ShouldComponentize(Type type)
+    {
+        if (Nullable.GetUnderlyingType(type) is not null)
+            return false;
+        if (type.IsPrimitive ||
+            type.IsEnum ||
+            type == typeof(string) ||
+            type == typeof(decimal) ||
+            type == typeof(DateTime) ||
+            type == typeof(DateTimeOffset) ||
+            type == typeof(Guid) ||
+            type == typeof(TimeSpan) ||
+            type == typeof(JsonElement) ||
+            type == typeof(JsonDocument) ||
+            typeof(JsonNode).IsAssignableFrom(type) ||
+            type.IsArray ||
+            typeof(System.Collections.IEnumerable).IsAssignableFrom(type))
+            return false;
+
+        return type.FullName is not null;
+    }
+
+    private static string PortableComponentName(
+        Type type,
+        IReadOnlyDictionary<string, Type> componentTypes)
+    {
+        var fullName = type.FullName?.Replace('+', '.')
+            ?? throw new InvalidOperationException(
+                $"Type '{type}' has no stable component identity.");
+        if (type.Namespace?.StartsWith("HPD.Agent", StringComparison.Ordinal) == true &&
+            (!componentTypes.TryGetValue(type.Name, out var existing) ||
+             existing == type))
+            return type.Name;
+        return fullName;
+    }
+
+    private static bool IsNullableSchema(JsonNode? node)
+    {
+        if (node is not JsonObject value)
+            return false;
+        if (value["type"] is JsonValue type &&
+            type.TryGetValue<string>(out var typeName) &&
+            typeName == "null")
+            return true;
+        if (value["type"] is JsonArray types &&
+            types.Any(static item =>
+                item is JsonValue candidate &&
+                candidate.TryGetValue<string>(out var name) &&
+                name == "null"))
+            return true;
+        return value["anyOf"] is JsonArray branches &&
+               branches.Any(IsNullableSchema);
+    }
+
+    private static IOpenApiSchema PortableConfigSchema(
+        JsonNode? node,
+        OpenApiOperationTransformerContext context)
     {
         if (node is not JsonObject value)
             return new OpenApiSchema();
 
         var schema = new OpenApiSchema();
+        if (value["$ref"] is JsonValue reference &&
+            reference.TryGetValue<string>(out var referenceText) &&
+            referenceText.StartsWith(
+                "#/components/schemas/",
+                StringComparison.Ordinal) &&
+            context.Document is { } document)
+        {
+            var componentName = UnescapeReference(
+                referenceText["#/components/schemas/".Length..]);
+            return new OpenApiSchemaReference(componentName, document);
+        }
+
         var types = value["type"] is JsonArray array ? array : new JsonArray(value["type"]?.DeepClone());
         foreach (var type in types)
         {
@@ -729,19 +867,48 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
         }
         if (value["properties"] is JsonObject properties)
             schema.Properties = properties.ToDictionary(property => property.Key,
-                property => (IOpenApiSchema)PortableConfigSchema(property.Value));
+                property => (IOpenApiSchema)PortableConfigSchema(property.Value, context));
         if (value["required"] is JsonArray required)
             schema.Required = required.Select(property => property!.GetValue<string>()).ToHashSet(StringComparer.Ordinal);
         if (value["items"] is { } items)
-            schema.Items = PortableConfigSchema(items);
+            schema.Items = PortableConfigSchema(items, context);
         if (value["additionalProperties"] is JsonObject additional)
-            schema.AdditionalProperties = PortableConfigSchema(additional);
+            schema.AdditionalProperties = PortableConfigSchema(additional, context);
+        else if (value["additionalProperties"] is JsonValue additionalValue &&
+                 additionalValue.TryGetValue<bool>(out var allowed))
+            schema.AdditionalPropertiesAllowed = allowed;
         if (value["enum"] is JsonArray values)
             schema.Enum = values.Where(item => item is not null).Select(item => item!.DeepClone()).ToList();
+        else if (value["const"] is { } constant)
+            schema.Enum = [constant.DeepClone()];
         if (value["anyOf"] is JsonArray variants)
-            schema.AnyOf = variants.Select(item => (IOpenApiSchema)PortableConfigSchema(item)).ToList();
+            schema.AnyOf = variants
+                .Select(item => (IOpenApiSchema)PortableConfigSchema(item, context))
+                .ToList();
+        if (value["oneOf"] is JsonArray oneOfVariants)
+            schema.OneOf = oneOfVariants
+                .Select(item => (IOpenApiSchema)PortableConfigSchema(item, context))
+                .ToList();
+        if (value["allOf"] is JsonArray allOfVariants)
+            schema.AllOf = allOfVariants
+                .Select(item => (IOpenApiSchema)PortableConfigSchema(item, context))
+                .ToList();
+        if (value["format"] is JsonValue format &&
+            format.TryGetValue<string>(out var formatName))
+            schema.Format = formatName;
+        if (value["pattern"] is JsonValue pattern &&
+            pattern.TryGetValue<string>(out var patternText))
+            schema.Pattern = patternText;
         return schema;
     }
+
+    private static string UnescapeReference(string value) =>
+        value.Replace("~1", "/", StringComparison.Ordinal)
+            .Replace("~0", "~", StringComparison.Ordinal);
+
+    private static string EscapeReference(string value) =>
+        value.Replace("~", "~0", StringComparison.Ordinal)
+            .Replace("/", "~1", StringComparison.Ordinal);
 
     private static void ComponentizeProperty(
         OpenApiOperationTransformerContext context,

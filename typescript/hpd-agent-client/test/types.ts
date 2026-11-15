@@ -2,9 +2,16 @@ import {
   AgentClient,
   ClientToolRegistry,
   createExpandedToolHarness,
+  model,
+  type AgentConfig,
+  type AgentConfigUpdate,
+  type AgentRunConfig,
   type EventHandlers,
+  type MiddlewareReference,
+  type ProviderAuthentication,
   type RequestOptions,
   type ThreadHistory,
+  type ToolHarnessReference,
 } from '../src/index.js';
 
 declare const client: AgentClient;
@@ -75,3 +82,82 @@ const harness = createExpandedToolHarness('test', 'Test tools', [{
   parametersSchema: { type: 'object' },
 }]);
 new ClientToolRegistry().registerHarness(harness, () => 'echoed');
+
+const portableHarness: ToolHarnessReference = "SupportTools";
+const richHarness: ToolHarnessReference = {
+  name: "SearchTools",
+  functions: ["Search", "Read"],
+  config: { maxResults: 20 },
+};
+const portableMiddleware: MiddlewareReference = "LoggingMiddleware";
+const richMiddleware: MiddlewareReference = {
+  name: "RateLimitMiddleware",
+  config: { requestsPerMinute: 60 },
+};
+void [portableHarness, richHarness, portableMiddleware, richMiddleware];
+
+// @ts-expect-error A rich ToolHarness reference has no arbitrary top-level fields.
+const invalidHarness: ToolHarnessReference = { name: "SearchTools", typo: true };
+// @ts-expect-error A rich middleware reference has no arbitrary top-level fields.
+const invalidMiddleware: MiddlewareReference = { name: "RateLimitMiddleware", typo: true };
+void [invalidHarness, invalidMiddleware];
+
+const config = {
+  name: "Support Assistant",
+  systemInstructions: "Resolve support requests.",
+  clients: {
+    chat: model("openai", "gpt-5-mini"),
+  },
+  toolHarnesses: [
+    "SupportTools",
+    { name: "SearchTools", functions: ["Search", "Read"] },
+  ],
+} satisfies AgentConfig;
+void config;
+
+const invalidHarnessConfig = {
+  // @ts-expect-error AgentConfig preserves the rich ToolHarness reference shape.
+  toolHarnesses: [{ name: "SearchTools", typo: true }],
+} satisfies AgentConfig;
+const invalidMiddlewareConfig = {
+  // @ts-expect-error AgentConfig preserves the rich middleware reference shape.
+  middlewares: [{ name: "RateLimitMiddleware", typo: true }],
+} satisfies AgentConfig;
+void [invalidHarnessConfig, invalidMiddlewareConfig];
+
+const patch = {
+  systemInstructions: "Escalate ambiguous requests.",
+  toolHarnesses: [],
+  clear: ["validation"],
+} satisfies AgentConfigUpdate;
+void patch;
+
+const runConfig = {
+  clients: { chat: model("anthropic", "claude-sonnet-4.5") },
+  systemInstructions: { append: "Use a concise diagnostic style." },
+} satisfies AgentRunConfig;
+void runConfig;
+
+const authentication: ProviderAuthentication = {
+  type: "api-key",
+  secretKey: "configured-key",
+};
+if (authentication.type === "api-key") {
+  const secretKey: string = authentication.secretKey;
+  void secretKey;
+}
+
+// @ts-expect-error API-key authentication requires secretKey.
+const invalidAuthentication: ProviderAuthentication = { type: "api-key" };
+const invalidNestedAuthentication = {
+  clients: {
+    chat: {
+      provider: {
+        key: "openai",
+        // @ts-expect-error Nested provider authentication preserves required fields.
+        authentication: { type: "api-key" },
+      },
+    },
+  },
+} satisfies AgentConfig;
+void [invalidAuthentication, invalidNestedAuthentication];

@@ -16,7 +16,9 @@ internal sealed class TypeScriptNames
             static type => type.Schema,
             StringComparer.Ordinal);
         _models = ir.Types
-            .Where(static type => type.Schema.ObjectModel)
+            .Where(static type =>
+                type.Schema.ObjectModel ||
+                type.Schema.Kind is "union" or "intersection")
             .ToDictionary(
                 static type => type.ComponentId,
                 static type => Pascal(type.ComponentId),
@@ -37,7 +39,11 @@ internal sealed class TypeScriptNames
             : throw new InvalidOperationException(
                 $"Component '{componentId}' has no TypeScript model.");
 
-    public string Type(HpdTypeIr type, bool optional = false, int depth = 0)
+    public string Type(
+        HpdTypeIr type,
+        bool optional = false,
+        int depth = 0,
+        bool includeNullable = true)
     {
         if (depth > 32)
             return "unknown";
@@ -54,21 +60,30 @@ internal sealed class TypeScriptNames
                 _ => "unknown"
             },
             "literal" => Quote(type.Literal ?? string.Empty),
-            "enum" => "string",
+            "enum" => type.EnumValues is { Count: > 0 } values
+                ? string.Join(
+                    " | ",
+                    values.Select(Quote))
+                : "string",
             "array" => "Array<" + (type.ItemType is null
                 ? "unknown"
                 : Type(type.ItemType, depth: depth + 1)) + ">",
             "map" => "Record<string, " + (type.ValueType is null
                 ? "unknown"
                 : Type(type.ValueType, depth: depth + 1)) + ">",
-            "union" when type.Branches is { Count: > 0 } branches =>
+            "union" or "intersection"
+                when type.Branches is { Count: > 0 } branches =>
                 string.Join(
                     type.Composition == "allOf" ? " & " : " | ",
                     branches.Select(branch => Type(branch, depth: depth + 1))
                         .Distinct(StringComparer.Ordinal)),
             _ => "unknown"
         };
-        return (optional || type.Nullable) && mapped is not "unknown" and not "null"
+        return includeNullable &&
+               (optional || type.Nullable) &&
+               mapped is not "unknown" and not "null" &&
+               !mapped.Split(" | ", StringSplitOptions.TrimEntries)
+                   .Contains("null", StringComparer.Ordinal)
             ? mapped + " | null"
             : mapped;
     }

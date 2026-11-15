@@ -15,6 +15,9 @@ internal sealed class HPDAgentOpenApiSchemaTransformer : IOpenApiSchemaTransform
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (context.JsonTypeInfo?.Type is { } schemaType)
+            HPDAgentOpenApiPortableSchema.ApplyAuthenticationDiscriminator(schema, schemaType);
+
         var property = context.JsonPropertyInfo;
         if (property is null)
             return Task.CompletedTask;

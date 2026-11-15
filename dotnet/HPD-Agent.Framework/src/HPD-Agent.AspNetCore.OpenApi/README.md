@@ -25,6 +25,12 @@ Documents are available at:
 /openapi/hpd-agent-v1.yaml
 ```
 
+Use `MapHPDAgentOpenApi` or `MapHPDAgentOpenApiDocuments` to expose the
+canonical document. These endpoints finalize custom converter-backed portable
+configuration schemas before serialization, including the typed ToolHarness
+and middleware reference arrays. Calling the framework's `MapOpenApi` directly
+bypasses that finalization.
+
 The document adds HPD-specific descriptions for:
 
 - typed public agent inputs;

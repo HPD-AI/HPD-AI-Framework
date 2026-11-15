@@ -88,6 +88,7 @@ public sealed class TypeScriptSdkGenerator
             files["src/projection.ts"] = ReadSdkSource("projection.ts");
             files["src/generated/event-schemas.ts"] = RenderEventSchemas(ir);
             files["src/client.ts"] = ReadSdkSource("client.ts");
+            files["src/authoring.ts"] = ReadSdkSource("authoring.ts");
             files["src/index.ts"] = ReadSdkSource("index.ts");
             files["test/client.test.mjs"] = ReadSdkSource("client.test.mjs");
             files["test/types.ts"] = ReadSdkSource("types.ts");
@@ -161,8 +162,19 @@ public sealed class TypeScriptSdkGenerator
                 static group => group.Key,
                 static group => group.First().Discriminator,
                 StringComparer.Ordinal);
+        foreach (var type in ir.Types.Where(static type =>
+                     type.Schema.Kind is "union" or "intersection"))
+        {
+            var name = names.Model(type.ComponentId);
+            builder.Append("export type ").Append(name).Append(" = ")
+                .Append(names.Type(type.Schema, includeNullable: false))
+                .AppendLine(";")
+                .AppendLine();
+        }
         foreach (var type in ir.Types.Where(static type => type.Schema.ObjectModel))
         {
+            if (type.Schema.Kind is "union" or "intersection")
+                continue;
             var name = names.Model(type.ComponentId);
             discriminatorByComponent.TryGetValue(type.ComponentId, out var discriminator);
             builder.Append("export interface ").Append(name).AppendLine(" {");
@@ -433,19 +445,19 @@ public sealed class TypeScriptSdkGenerator
     }
 
     private static string RenderReadme(TypeScriptGenerationManifest manifest) =>
-        $"""
+        $$"""
         # Generated HPD Agent TypeScript SDK
 
-        - Generator: `{manifest.GeneratorVersion}`
-        - IR: `{manifest.IrVersion}`
-        - OpenAPI SHA-256: `{manifest.OpenApiSha256}`
-        - Input digest: `{manifest.InputDigest}`
-        - IR SHA-256: `{manifest.IrSha256}`
-        - Operations: {manifest.OperationCount}
-        - Models: {manifest.ModelCount}
-        - Events: {manifest.EventCount}
-        - Public inputs: {manifest.InputCount}
-        - Supported capabilities: {string.Join(", ", manifest.SupportedCapabilities)}
+        - Generator: `{{manifest.GeneratorVersion}}`
+        - IR: `{{manifest.IrVersion}}`
+        - OpenAPI SHA-256: `{{manifest.OpenApiSha256}}`
+        - Input digest: `{{manifest.InputDigest}}`
+        - IR SHA-256: `{{manifest.IrSha256}}`
+        - Operations: {{manifest.OperationCount}}
+        - Models: {{manifest.ModelCount}}
+        - Events: {{manifest.EventCount}}
+        - Public inputs: {{manifest.InputCount}}
+        - Supported capabilities: {{string.Join(", ", manifest.SupportedCapabilities)}}
 
         The generated contract is the primary implementation. The hand-written
         runtime owns fetch, retries, ProblemDetails, SSE framing, cursor state,
@@ -462,6 +474,20 @@ public sealed class TypeScriptSdkGenerator
         First-class resources include `client.agents`, `session.threads`,
         `thread.content`, `thread.executions`, and `client.evaluations`.
         `thread.history()` returns a finite protocol-level message projection.
+
+        Agent definitions and per-run overrides use the generated
+        `AgentConfig`, `AgentConfigUpdate`, and `AgentRunConfig` objects.
+        `ToolHarnessReference` and `MiddlewareReference` support string and rich
+        object forms. The `model(...)` helper returns a generated
+        `ChatClientConfig` fragment.
+
+        ```ts
+        const config = {
+          name: 'Support Assistant',
+          clients: { chat: model('openai', 'gpt-5-mini') },
+          toolHarnesses: ['SupportTools'],
+        } satisfies AgentConfig;
+        ```
 
         Every generated service operation accepts a second `RequestOptions`
         argument. Client-wide and per-call abort signals compose, and request

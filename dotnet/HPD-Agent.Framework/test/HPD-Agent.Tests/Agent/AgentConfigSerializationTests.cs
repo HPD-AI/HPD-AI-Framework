@@ -43,6 +43,35 @@ public sealed class AgentConfigSerializationTests
     }
 
     [Fact]
+    public void Deserialize_CurrentProviderAndHarnessYaml_LoadsPortableDefinition()
+    {
+        var config = HpdAgentConfigSerializer.Deserialize(
+            """
+            clients:
+              chat:
+                provider:
+                  key: openrouter
+                modelName: deepseek/deepseek-v4-pro
+                temperature: 0.1
+                maxOutputTokens: 64
+            toolHarnesses:
+              - name: CodingHarness
+              - name: ComputerHarness
+            """,
+            format: HpdConfigFormat.Yaml);
+
+        config.Should().NotBeNull();
+        config!.Clients.Chat.Should().NotBeNull();
+        var chat = config.Clients.Chat!;
+        chat.Provider!.Key.Should().Be("openrouter");
+        chat.ModelName.Should().Be("deepseek/deepseek-v4-pro");
+        chat.Temperature.Should().Be(0.1);
+        chat.MaxOutputTokens.Should().Be(64);
+        config.ToolHarnesses.Select(reference => reference.Name)
+            .Should().Equal("CodingHarness", "ComputerHarness");
+    }
+
+    [Fact]
     public void AgentBuilder_FromFile_YamlExtension_LoadsAgentConfig()
     {
         var path = Path.Combine(Path.GetTempPath(), $"hpd-agent-builder-{Guid.NewGuid():N}.yaml");

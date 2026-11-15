@@ -5,6 +5,7 @@ import {
   ClientToolRegistry,
   ThreadHistoryProjection,
   createExpandedToolHarness,
+  model,
 } from '../dist/index.js';
 
 const origin = { sessionId: 's', threadId: 'main' };
@@ -359,4 +360,17 @@ test('history projection preserves tool-call status, arguments, and result', () 
     result: { text: 'Open' },
     toolHarnessName: 'support',
   }]);
+});
+
+test('model authoring helper returns one generated chat configuration fragment', () => {
+  assert.deepEqual(
+    model(' openai ', ' gpt-5-mini ', { temperature: 0.2 }),
+    {
+      provider: { key: 'openai' },
+      modelName: 'gpt-5-mini',
+      temperature: 0.2,
+    },
+  );
+  assert.throws(() => model(' ', 'gpt-5-mini'), /provider/);
+  assert.throws(() => model('openai', ' '), /modelName/);
 });

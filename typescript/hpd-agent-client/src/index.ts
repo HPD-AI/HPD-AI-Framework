@@ -1,4 +1,5 @@
 export * from './client.js';
+export * from './authoring.js';
 export * from './generated/models.js';
 export * from './generated/events.js';
 export {

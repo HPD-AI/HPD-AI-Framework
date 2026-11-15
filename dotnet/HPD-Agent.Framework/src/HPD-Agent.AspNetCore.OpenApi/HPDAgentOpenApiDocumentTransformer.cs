@@ -32,6 +32,8 @@ internal sealed class HPDAgentOpenApiDocumentTransformer : IOpenApiDocumentTrans
         document.Extensions["x-hpd-document-name"] = new JsonNodeExtension(
             JsonValue.Create(context.DocumentName));
 
+        HPDAgentOpenApiPortableSchema.EnsureReferenceComponents(document);
+
         return Task.CompletedTask;
     }
 }

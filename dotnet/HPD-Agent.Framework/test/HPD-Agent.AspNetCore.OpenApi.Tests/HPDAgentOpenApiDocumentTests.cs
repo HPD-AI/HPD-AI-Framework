@@ -24,9 +24,13 @@ public sealed class HPDAgentOpenApiDocumentTests
     {
         using var server = CreateServer();
 
-        var document = await server.Services
+        var provider = server.Services
             .GetRequiredKeyedService<IOpenApiDocumentProvider>(
-                HPDAgentOpenApiExtensions.DefaultDocumentName)
+                HPDAgentOpenApiExtensions.DefaultDocumentName);
+        Assert.Equal(
+            "HPD.Agent.AspNetCore.OpenApi.HPDAgentOpenApiDocumentProvider",
+            provider.GetType().FullName);
+        var document = await provider
             .GetOpenApiDocumentAsync();
 
         Assert.Equal("HPD Agent API", document.Info.Title);
@@ -118,6 +122,11 @@ public sealed class HPDAgentOpenApiDocumentTests
         Assert.True(json.GetProperty("paths").TryGetProperty(
             "/agents/{agentId}/sessions/{sessionId}/threads/{threadId}/events",
             out _));
+        var serializedSchemas = json.GetProperty("components").GetProperty("schemas");
+        Assert.True(serializedSchemas.TryGetProperty("ToolHarnessReference", out _));
+        Assert.True(serializedSchemas.TryGetProperty("MiddlewareReference", out _));
+        Assert.True(serializedSchemas.TryGetProperty("ToolHarnessReferences", out _));
+        Assert.True(serializedSchemas.TryGetProperty("MiddlewareReferences", out _));
     }
 
     [Fact]
@@ -125,9 +134,13 @@ public sealed class HPDAgentOpenApiDocumentTests
     {
         using var server = CreateFullFeatureServer();
 
-        var document = await server.Services
+        var provider = server.Services
             .GetRequiredKeyedService<IOpenApiDocumentProvider>(
-                HPDAgentOpenApiExtensions.DefaultDocumentName)
+                HPDAgentOpenApiExtensions.DefaultDocumentName);
+        Assert.Equal(
+            "HPD.Agent.AspNetCore.OpenApi.HPDAgentOpenApiDocumentProvider",
+            provider.GetType().FullName);
+        var document = await provider
             .GetOpenApiDocumentAsync();
 
         Assert.Contains("GetScores", document.Paths["/evals/scores"].Operations.Values
@@ -167,6 +180,93 @@ public sealed class HPDAgentOpenApiDocumentTests
         Assert.IsType<OpenApiSchemaReference>(updateAgentSchema.Properties["config"]);
         Assert.IsType<OpenApiSchemaReference>(
             document.Components.Schemas["AgentConfigUpdate"].Properties["validation"]);
+
+        var agentConfig = Assert.IsType<OpenApiSchema>(
+            document.Components.Schemas["AgentConfig"]);
+        var configuredToolHarnesses = Assert.IsType<OpenApiSchemaReference>(
+            agentConfig.Properties["toolHarnesses"]);
+        Assert.Equal("ToolHarnessReferences", configuredToolHarnesses.Reference.Id);
+
+        var toolHarnessCollection = Assert.IsType<OpenApiSchema>(
+            document.Components.Schemas["ToolHarnessReferences"]);
+        var toolHarnessReference = Assert.IsType<OpenApiSchemaReference>(
+            toolHarnessCollection.Items);
+        Assert.Equal("ToolHarnessReference", toolHarnessReference.Reference.Id);
+        var middlewareCollection = Assert.IsType<OpenApiSchema>(
+            document.Components.Schemas["MiddlewareReferences"]);
+        var middlewareReference = Assert.IsType<OpenApiSchemaReference>(
+            middlewareCollection.Items);
+        Assert.Equal("MiddlewareReference", middlewareReference.Reference.Id);
+
+        var toolHarnessContract = Assert.IsType<OpenApiSchema>(
+            document.Components.Schemas["ToolHarnessReference"]);
+        Assert.Contains(
+            toolHarnessContract.OneOf!.OfType<OpenApiSchema>(),
+            static schema => schema.Type == JsonSchemaType.String);
+        var toolHarnessObject = toolHarnessContract.OneOf!
+            .OfType<OpenApiSchema>()
+            .Single(static schema =>
+                schema.Type?.HasFlag(JsonSchemaType.Object) == true);
+        Assert.Contains("name", toolHarnessObject.Required!);
+        Assert.Contains("functions", toolHarnessObject.Properties!.Keys);
+        Assert.Contains("config", toolHarnessObject.Properties.Keys);
+        Assert.Contains("metadata", toolHarnessObject.Properties.Keys);
+        Assert.Contains("middlewareConfigs", toolHarnessObject.Properties.Keys);
+
+        var middlewareContract = Assert.IsType<OpenApiSchema>(
+            document.Components.Schemas["MiddlewareReference"]);
+        var middlewareObject = middlewareContract.OneOf!
+            .OfType<OpenApiSchema>()
+            .Single(static schema =>
+                schema.Type?.HasFlag(JsonSchemaType.Object) == true);
+        Assert.Contains("name", middlewareObject.Required!);
+        Assert.Contains("config", middlewareObject.Properties!.Keys);
+
+        var agentRunConfig = Assert.IsType<OpenApiSchema>(
+            document.Components.Schemas["AgentRunConfig"]);
+        var runClients = Assert.IsType<OpenApiSchemaReference>(
+            agentRunConfig.Properties["clients"]);
+        Assert.Equal("AgentClientsConfig", runClients.Reference.Id);
+        Assert.DoesNotContain(document.Components.Schemas.Keys, static key =>
+            key.StartsWith("Inline_AgentRunConfig_clients", StringComparison.Ordinal));
+
+        foreach (var authentication in new[]
+                 {
+                     "ProviderAuthenticationApiKeyProviderAuthentication",
+                     "ProviderAuthenticationOAuthProviderAuthentication",
+                     "ProviderAuthenticationExternalIdentityProviderAuthentication",
+                     "ProviderAuthenticationAnonymousProviderAuthentication"
+                 })
+        {
+            var authenticationSchema = Assert.IsType<OpenApiSchema>(
+                document.Components.Schemas[authentication]);
+            Assert.Contains("type", authenticationSchema.Required!);
+            Assert.Single(authenticationSchema.Properties!["type"].Enum!);
+        }
+
+        using var client = server.CreateClient();
+        var json = await client.GetStringAsync("/openapi/hpd-agent-v1.json");
+        using var serializedDocument = System.Text.Json.JsonDocument.Parse(json);
+        Assert.Equal(
+            "#/components/schemas/ToolHarnessReferences",
+            serializedDocument.RootElement
+                .GetProperty("components")
+                .GetProperty("schemas")
+                .GetProperty("AgentConfig")
+                .GetProperty("properties")
+                .GetProperty("toolHarnesses")
+                .GetProperty("$ref")
+                .GetString());
+        Assert.Equal(
+            "#/components/schemas/MiddlewareReferences",
+            serializedDocument.RootElement
+                .GetProperty("components")
+                .GetProperty("schemas")
+                .GetProperty("AgentConfig")
+                .GetProperty("properties")
+                .GetProperty("middlewares")
+                .GetProperty("$ref")
+                .GetString());
     }
 
     [Fact]
