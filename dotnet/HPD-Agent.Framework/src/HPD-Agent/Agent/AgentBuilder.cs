@@ -50,7 +50,7 @@ internal record AgentToolBuildResult(
 /// Builder for creating dual interface agents with sophisticated capabilities
 /// This is your equivalent of the AgentBuilder from Semantic Kernel, but for the new architecture
 /// </summary>
-public class AgentBuilder
+public partial class AgentBuilder
 {
     private sealed class CompositeDisposable(params IDisposable[] disposables) : IDisposable
     {
@@ -2170,6 +2170,8 @@ public class AgentBuilder
             !_builderAddedToolHarnesses.Contains(nameof(QuestionToolHarness)))
             this.WithToolHarness<QuestionToolHarness>();
         var hostServices = _serviceProvider;
+        if (hostServices?.GetService(typeof(AgentPolicyExtensionRegistry)) is AgentPolicyExtensionRegistry parentExtensions)
+            _runtimeOptions.PolicyExtensions.SetParent(parentExtensions);
         if (_config.Goals is { Enabled: true } goals)
         {
             _goalMiddleware = new Goals.GoalMiddleware(goals, hostServices);
@@ -2202,7 +2204,8 @@ public class AgentBuilder
             credentialSource,
             externalRegistry,
             strategyRegistry,
-            storeRegistry);
+            storeRegistry,
+            _runtimeOptions.PolicyExtensions);
 
         // Skill sources participate in epoch-zero tool construction, so their infrastructure
         // must be final before BuildDependenciesAsync invokes BuildToolOptionsAsync.
@@ -2752,9 +2755,29 @@ public class AgentBuilder
     private void RegisterConfiguredResilienceMiddleware()
     {
         var resilience = _config.Resilience;
-        if (resilience?.Retry is { } retry && !_middlewares.OfType<RetryMiddleware>().Any())
+        if (resilience?.Retry is { } retry)
         {
-            _middlewares.Add(new RetryMiddleware(retry));
+            var retryMiddleware = _middlewares.OfType<RetryMiddleware>().FirstOrDefault();
+            if (retryMiddleware is null)
+            {
+                retryMiddleware = new RetryMiddleware(retry);
+                _middlewares.Add(retryMiddleware);
+            }
+
+            if (retry.FunctionCustomRetryStrategy is { } functionStrategy)
+            {
+                var configured = ResolveFunctionRetryStrategy(
+                    functionStrategy,
+                    "resilience.retry.functionCustomRetryStrategy");
+                retryMiddleware.FunctionCustomRetryStrategy ??= configured;
+            }
+            if (retry.ModelCustomRetryStrategy is { } modelStrategy)
+            {
+                var configured = ResolveModelRetryStrategy(
+                    modelStrategy,
+                    "resilience.retry.modelCustomRetryStrategy");
+                retryMiddleware.ModelCustomRetryStrategy ??= configured;
+            }
         }
         if (resilience?.CircuitBreaker is { } circuitBreaker &&
             !_middlewares.OfType<CircuitBreakerMiddleware>().Any())
@@ -2774,14 +2797,26 @@ public class AgentBuilder
                 TerminationMessageTemplate = consecutive.TerminationMessageTemplate
             });
         }
-        if (resilience?.TotalErrors is { } total &&
-            !_middlewares.OfType<TotalErrorThresholdMiddleware>().Any())
+        if (resilience?.TotalErrors is { } total)
         {
-            _middlewares.Add(new TotalErrorThresholdMiddleware
+            var middleware = _middlewares.OfType<TotalErrorThresholdMiddleware>().FirstOrDefault();
+            if (middleware is null)
             {
-                MaxTotalErrors = total.MaxTotalErrors,
-                TerminationMessageTemplate = total.TerminationMessageTemplate
-            });
+                middleware = new TotalErrorThresholdMiddleware
+                {
+                    MaxTotalErrors = total.MaxTotalErrors,
+                    TerminationMessageTemplate = total.TerminationMessageTemplate
+                };
+                _middlewares.Add(middleware);
+            }
+
+            if (total.CustomErrorDetector is { } detectorName)
+            {
+                var configured = ResolveErrorDetector(
+                    detectorName,
+                    "resilience.totalErrors.customErrorDetector");
+                middleware.CustomErrorDetector ??= configured;
+            }
         }
         if (resilience?.FunctionTimeout is { } timeout &&
             !_middlewares.OfType<Middleware.Function.FunctionTimeoutMiddleware>().Any())
@@ -2789,29 +2824,40 @@ public class AgentBuilder
             _middlewares.Add(new Middleware.Function.FunctionTimeoutMiddleware(timeout));
         }
 
-        if (_config.Privacy?.PII is { } pii &&
-            !_middlewares.OfType<PIIMiddleware>().Any())
+        if (_config.Privacy?.PII is { } pii)
         {
-            var middleware = new PIIMiddleware
+            var middleware = _middlewares.OfType<PIIMiddleware>().FirstOrDefault();
+            if (middleware is null)
             {
-                EmailStrategy = pii.EmailStrategy,
-                CreditCardStrategy = pii.CreditCardStrategy,
-                SSNStrategy = pii.SSNStrategy,
-                PhoneStrategy = pii.PhoneStrategy,
-                IPAddressStrategy = pii.IPAddressStrategy,
-                ApplyToInput = pii.ApplyToInput,
-                ApplyToOutput = pii.ApplyToOutput,
-                ApplyToToolResults = pii.ApplyToToolResults
-            };
-            foreach (var detector in pii.CustomDetectors)
-            {
-                middleware.AddCustomDetector(
-                    detector.Name,
-                    detector.Pattern,
-                    detector.Strategy,
-                    detector.Replacement);
+                middleware = new PIIMiddleware
+                {
+                    EmailStrategy = pii.EmailStrategy,
+                    CreditCardStrategy = pii.CreditCardStrategy,
+                    SSNStrategy = pii.SSNStrategy,
+                    PhoneStrategy = pii.PhoneStrategy,
+                    IPAddressStrategy = pii.IPAddressStrategy,
+                    ApplyToInput = pii.ApplyToInput,
+                    ApplyToOutput = pii.ApplyToOutput,
+                    ApplyToToolResults = pii.ApplyToToolResults
+                };
+                foreach (var detector in pii.CustomDetectors)
+                {
+                    middleware.AddCustomDetector(
+                        detector.Name,
+                        detector.Pattern,
+                        detector.Strategy,
+                        detector.Replacement);
+                }
+                _middlewares.Insert(0, middleware);
             }
-            _middlewares.Insert(0, middleware);
+
+            if (pii.ExternalDetector is { } detectorName)
+            {
+                var configured = ResolveExternalPIIDetector(
+                    detectorName,
+                    "privacy.pii.externalDetector");
+                middleware.ExternalDetector ??= configured;
+            }
         }
 
         if (_config.Observability?.Logging is not null)

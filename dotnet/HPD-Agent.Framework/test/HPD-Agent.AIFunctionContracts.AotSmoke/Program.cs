@@ -94,6 +94,7 @@ if (!operationJson.Contains("reviewer-1", StringComparison.Ordinal) ||
 var retryConfig = new RetryPolicySection
 {
     ModelRetries = new() { MaxRetries = 2 },
+    FunctionCustomRetryStrategy = "aot-function-retry",
     FunctionRetries = new()
     {
         MaxRetries = 1,
@@ -109,6 +110,7 @@ var retryJson = HpdAgentConfigSerializer.Serialize(new AgentConfig
 var restored = HpdAgentConfigSerializer.Deserialize(retryJson);
 if (restored?.Resilience?.Retry?.ModelRetries.MaxRetries != 2 ||
     restored.Resilience.Retry.FunctionRetries.MaxRetries != 1 ||
+    restored.Resilience.Retry.FunctionCustomRetryStrategy != "aot-function-retry" ||
     restored.Resilience.Retry.FunctionRetries.Exclude.Harnesses.Single() != "OtherHarness")
 {
     return 9;

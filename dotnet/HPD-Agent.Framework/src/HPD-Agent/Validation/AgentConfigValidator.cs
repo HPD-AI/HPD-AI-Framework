@@ -138,6 +138,14 @@ public static class AgentConfigValidator
             ValidateRetryPolicy(retry.FunctionRetries, "resilience.retry.functionRetries", errors);
             ValidateRetryExclusions(retry.FunctionRetries.Exclude,
                 "resilience.retry.functionRetries.exclude", errors);
+            ValidateExtensionName(
+                retry.ModelCustomRetryStrategy,
+                "resilience.retry.modelCustomRetryStrategy",
+                errors);
+            ValidateExtensionName(
+                retry.FunctionCustomRetryStrategy,
+                "resilience.retry.functionCustomRetryStrategy",
+                errors);
         }
         if (resilience.CircuitBreaker is { } circuitBreaker &&
             circuitBreaker.MaxConsecutiveCalls is < 1 or > 100)
@@ -145,9 +153,15 @@ public static class AgentConfigValidator
         if (resilience.ConsecutiveErrors is { } consecutive &&
             consecutive.MaxConsecutiveErrors is < 1 or > 100)
             errors.Add("resilience.consecutiveErrors.maxConsecutiveErrors must be between 1 and 100.");
-        if (resilience.TotalErrors is { } total &&
-            total.MaxTotalErrors is < 1 or > 1000)
-            errors.Add("resilience.totalErrors.maxTotalErrors must be between 1 and 1000.");
+        if (resilience.TotalErrors is { } total)
+        {
+            if (total.MaxTotalErrors is < 1 or > 1000)
+                errors.Add("resilience.totalErrors.maxTotalErrors must be between 1 and 1000.");
+            ValidateExtensionName(
+                total.CustomErrorDetector,
+                "resilience.totalErrors.customErrorDetector",
+                errors);
+        }
         if (resilience.FunctionTimeout is { } timeout && timeout <= TimeSpan.Zero)
             errors.Add("resilience.functionTimeout must be positive.");
     }
@@ -179,6 +193,7 @@ public static class AgentConfigValidator
                 errors.Add($"{path}.pattern is not a valid regular expression.");
             }
         }
+        ValidateExtensionName(pii.ExternalDetector, "privacy.pii.externalDetector", errors);
     }
 
     private static void ValidateObservability(AgentConfig config, List<string> errors)
@@ -253,6 +268,24 @@ public static class AgentConfigValidator
             else if (!seen.Add(selector))
                 errors.Add($"{path} contains duplicate selector '{selector}'.");
         }
+    }
+
+    private static void ValidateExtensionName(
+        string? name,
+        string path,
+        List<string> errors)
+    {
+        if (name is null)
+            return;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            errors.Add($"{path} must not be empty.");
+            return;
+        }
+        if (name.Length > 128)
+            errors.Add($"{path} must be at most 128 characters.");
+        if (name.Any(char.IsControl))
+            errors.Add($"{path} must not contain control characters.");
     }
 
     private static void ValidateCompaction(AgentConfig config, List<string> errors)

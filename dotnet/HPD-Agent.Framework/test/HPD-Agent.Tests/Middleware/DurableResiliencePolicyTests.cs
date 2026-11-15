@@ -100,4 +100,172 @@ public sealed class DurableResiliencePolicyTests
         Assert.Contains(errors, error =>
             error.Contains("privacy.pii.customDetectors[0].pattern", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public async Task NamedExecutablePolicies_ResolveOnlyFromHostRegistry()
+    {
+        var config = new AgentConfig
+        {
+            Name = "Named executable policies",
+            Resilience = new ResilienceConfig
+            {
+                Retry = new RetryPolicySection
+                {
+                    FunctionCustomRetryStrategy = "production-function-retry",
+                    ModelCustomRetryStrategy = "production-model-retry"
+                },
+                TotalErrors = new TotalErrorPolicy
+                {
+                    CustomErrorDetector = "application-error-detector"
+                }
+            },
+            Privacy = new PrivacyConfig
+            {
+                PII = new PIIProtectionPolicy
+                {
+                    ExternalDetector = "company-pii"
+                }
+            }
+        };
+        var restored = HpdAgentConfigSerializer.Deserialize(
+            HpdAgentConfigSerializer.Serialize(config))!;
+        var functionRetryCalls = 0;
+        var modelRetryCalls = 0;
+        var piiCalls = 0;
+
+        await using var agent = await new AgentBuilder(restored)
+            .WithChatClient(new FakeChatClient())
+            .WithEventComposition(TestEventApplication.Composition)
+            .WithFunctionRetryStrategy(
+                "production-function-retry",
+                (_, _, _) =>
+                {
+                    functionRetryCalls++;
+                    return Task.FromResult<TimeSpan?>(TimeSpan.FromSeconds(2));
+                })
+            .WithModelRetryStrategy(
+                "production-model-retry",
+                (_, _, _) =>
+                {
+                    modelRetryCalls++;
+                    return Task.FromResult<TimeSpan?>(TimeSpan.FromSeconds(3));
+                })
+            .WithErrorDetector(
+                "application-error-detector",
+                static result => result.Exception is not null)
+            .WithExternalPIIDetector(
+                "company-pii",
+                (_, _) =>
+                {
+                    piiCalls++;
+                    return Task.FromResult<IEnumerable<PIIMatch>>([]);
+                })
+            .BuildAsync();
+
+        var retry = Assert.Single(agent.Middlewares.OfType<HPD.Agent.Middleware.Function.RetryMiddleware>());
+        Assert.Equal(
+            TimeSpan.FromSeconds(2),
+            await retry.FunctionCustomRetryStrategy!(
+                new InvalidOperationException(),
+                1,
+                CancellationToken.None));
+        Assert.Equal(
+            TimeSpan.FromSeconds(3),
+            await retry.ModelCustomRetryStrategy!(
+                new InvalidOperationException(),
+                1,
+                CancellationToken.None));
+        Assert.Equal(1, functionRetryCalls);
+        Assert.Equal(1, modelRetryCalls);
+
+        var totalErrors = Assert.Single(agent.Middlewares.OfType<TotalErrorThresholdMiddleware>());
+        Assert.NotNull(totalErrors.CustomErrorDetector);
+
+        var pii = Assert.Single(agent.Middlewares.OfType<PIIMiddleware>());
+        Assert.Empty(await pii.ExternalDetector!("no matches", CancellationToken.None));
+        Assert.Equal(1, piiCalls);
+    }
+
+    [Fact]
+    public async Task MissingNamedExecutablePolicy_FailsAtPortablePath()
+    {
+        var config = new AgentConfig
+        {
+            Name = "Missing executable policy",
+            Resilience = new ResilienceConfig
+            {
+                TotalErrors = new TotalErrorPolicy
+                {
+                    CustomErrorDetector = "missing-detector"
+                }
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<AgentRunConfigurationException>(async () =>
+            await new AgentBuilder(config)
+                .WithChatClient(new FakeChatClient())
+                .WithEventComposition(TestEventApplication.Composition)
+                .BuildAsync());
+
+        Assert.Equal("error_detector_not_found", exception.Code);
+        Assert.Equal("resilience.totalErrors.customErrorDetector", exception.Path);
+    }
+
+    [Fact]
+    public void DuplicateNamedExecutablePolicy_IsRejectedAtRegistration()
+    {
+        var builder = new AgentBuilder()
+            .WithFunctionRetryStrategy("same-name", (_, _, _) => Task.FromResult<TimeSpan?>(null));
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            builder.WithFunctionRetryStrategy(
+                "same-name",
+                (_, _, _) => Task.FromResult<TimeSpan?>(null)));
+
+        Assert.Contains("already registered", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ChildBuilder_ResolvesNamedPolicyFromParentRuntimeRegistry()
+    {
+        var config = new AgentConfig
+        {
+            Name = "Child policy",
+            Resilience = new ResilienceConfig
+            {
+                Retry = new RetryPolicySection
+                {
+                    FunctionCustomRetryStrategy = "parent-retry"
+                }
+            }
+        };
+        var parentRegistry = new AgentPolicyExtensionRegistry();
+        parentRegistry.AddFunctionRetryStrategy(
+            "parent-retry",
+            (_, _, _) => Task.FromResult<TimeSpan?>(TimeSpan.FromSeconds(4)));
+
+        await using var agent = await new AgentBuilder(config)
+            .WithServiceProvider(new SingleServiceProvider(parentRegistry))
+            .WithChatClient(new FakeChatClient())
+            .WithEventComposition(TestEventApplication.Composition)
+            .BuildAsync();
+
+        var retry = Assert.Single(agent.Middlewares.OfType<HPD.Agent.Middleware.Function.RetryMiddleware>());
+        Assert.NotNull(retry.FunctionCustomRetryStrategy);
+    }
+
+    private sealed class SingleServiceProvider(object service) : IServiceProvider
+    {
+        public object? GetService(Type serviceType)
+        {
+            if (serviceType.IsInstanceOfType(service))
+                return service;
+            if (serviceType.IsGenericType &&
+                serviceType.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+            {
+                return Array.CreateInstance(serviceType.GenericTypeArguments[0], 0);
+            }
+            return null;
+        }
+    }
 }

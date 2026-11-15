@@ -82,4 +82,45 @@ public sealed class RetryConfigurationValidationTests
             error.Contains("actions[2]", StringComparison.Ordinal) &&
             error.Contains("duplicates", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void Validate_RejectsInvalidPortableExtensionNames()
+    {
+        var config = new AgentConfig
+        {
+            Name = "Extension Validation",
+            Resilience = new ResilienceConfig
+            {
+                Retry = new RetryPolicySection
+                {
+                    ModelCustomRetryStrategy = " ",
+                    FunctionCustomRetryStrategy = "retry\nstrategy"
+                },
+                TotalErrors = new TotalErrorPolicy
+                {
+                    CustomErrorDetector = new string('x', 129)
+                }
+            },
+            Privacy = new PrivacyConfig
+            {
+                PII = new PIIProtectionPolicy
+                {
+                    ExternalDetector = ""
+                }
+            }
+        };
+
+        var errors = AgentConfigValidator.Validate(config);
+
+        Assert.Contains(errors, error =>
+            error.Contains("resilience.retry.modelCustomRetryStrategy", StringComparison.Ordinal));
+        Assert.Contains(errors, error =>
+            error.Contains("resilience.retry.functionCustomRetryStrategy", StringComparison.Ordinal) &&
+            error.Contains("control characters", StringComparison.Ordinal));
+        Assert.Contains(errors, error =>
+            error.Contains("resilience.totalErrors.customErrorDetector", StringComparison.Ordinal) &&
+            error.Contains("128", StringComparison.Ordinal));
+        Assert.Contains(errors, error =>
+            error.Contains("privacy.pii.externalDetector", StringComparison.Ordinal));
+    }
 }

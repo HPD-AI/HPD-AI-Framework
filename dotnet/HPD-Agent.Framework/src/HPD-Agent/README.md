@@ -136,6 +136,30 @@ definition.Observability = new ObservabilityConfig
 Loading the persisted `AgentConfig` installs equivalent middleware without
 repeating the fluent calls.
 
+Executable policy extensions use stable names in the definition and explicit
+host registrations on the builder:
+
+```csharp
+definition.Resilience = new ResilienceConfig
+{
+    Retry = new RetryPolicySection
+    {
+        FunctionCustomRetryStrategy = "productionRetry"
+    }
+};
+
+await using var agent = await new AgentBuilder(definition)
+    .WithFunctionRetryStrategy(
+        "productionRetry",
+        (exception, attempt, cancellationToken) =>
+            productionPolicy.GetDelayAsync(exception, attempt, cancellationToken))
+    .BuildAsync();
+```
+
+The same pattern applies to model retry strategies, total-error detectors, and
+external PII detectors. Unknown names fail construction with the portable
+configuration path.
+
 ## Middleware
 
 `IAgentMiddleware` adds cross-cutting behavior around agent turns, iterations, model

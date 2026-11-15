@@ -27,6 +27,12 @@ public sealed class RetryPolicySection
 
     /// <summary>Gets or sets function-call retry behavior.</summary>
     public FunctionRetryConfig FunctionRetries { get; set; } = new();
+
+    /// <summary>Gets or sets the host-registered model retry strategy name.</summary>
+    public string? ModelCustomRetryStrategy { get; set; }
+
+    /// <summary>Gets or sets the host-registered function retry strategy name.</summary>
+    public string? FunctionCustomRetryStrategy { get; set; }
 }
 
 /// <summary>Portable repeated-call circuit-breaker policy.</summary>
@@ -57,6 +63,9 @@ public sealed class TotalErrorPolicy
     public string TerminationMessageTemplate { get; set; } =
         "Total error threshold ({totalErrors}/{maxErrors}) exceeded. " +
         "Encountered too many errors of varying types. Stopping execution.";
+
+    /// <summary>Gets or sets the host-registered function error detector name.</summary>
+    public string? CustomErrorDetector { get; set; }
 }
 
 /// <summary>Portable privacy policy.</summary>
@@ -78,6 +87,9 @@ public sealed class PIIProtectionPolicy
     public bool ApplyToOutput { get; set; }
     public bool ApplyToToolResults { get; set; }
     public List<DeclarativePIIDetector> CustomDetectors { get; set; } = [];
+
+    /// <summary>Gets or sets the host-registered external PII detector name.</summary>
+    public string? ExternalDetector { get; set; }
 }
 
 /// <summary>Portable bounded regular-expression PII detector.</summary>

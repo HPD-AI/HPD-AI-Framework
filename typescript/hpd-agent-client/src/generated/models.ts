@@ -25217,6 +25217,7 @@ export interface PIIProtectionPolicy {
   applyToOutput?: boolean | null;
   applyToToolResults?: boolean | null;
   customDetectors?: Array<DeclarativePIIDetector> | null;
+  externalDetector?: string | null;
 }
 
 export interface PreviousHistoryLimit {
@@ -25364,6 +25365,8 @@ export interface RetryExclusionConfig {
 export interface RetryPolicySection {
   modelRetries?: ModelRetryConfig | null;
   functionRetries?: FunctionRetryConfig | null;
+  modelCustomRetryStrategy?: string | null;
+  functionCustomRetryStrategy?: string | null;
 }
 
 export interface RiskAutonomyDataPoint {
@@ -25860,6 +25863,7 @@ export interface ToolUsageSummary {
 export interface TotalErrorPolicy {
   maxTotalErrors?: number | null;
   terminationMessageTemplate?: string | null;
+  customErrorDetector?: string | null;
 }
 
 export interface TraceCapturePolicy {

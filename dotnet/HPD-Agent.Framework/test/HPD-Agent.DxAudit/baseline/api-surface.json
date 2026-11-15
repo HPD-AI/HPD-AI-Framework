@@ -1,11 +1,11 @@
 {
   "TypeCount": 1564,
-  "MethodCount": 6064,
+  "MethodCount": 6068,
   "ConstructorCount": 1019,
-  "PropertyCount": 5413,
+  "PropertyCount": 5417,
   "FieldCount": 1169,
   "EventCount": 1,
-  "Fingerprint": "10aaa67d0fac048b8203c494e15fe27ae9a79fcdc978db15cd8658f0cdfb047a",
+  "Fingerprint": "a836cd3f38157fe9c07efdebe21b65907fce938f7afc761557631fe9dc221158",
   "Types": [
     {
       "FullName": "AIDescriptionAttribute",
@@ -886,6 +886,7 @@
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithContentStore(System.String[]HPD.Agent.IContentStore store)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithContinuationExtensionAmount(System.String[]System.Int32 extensionAmount)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithDistributedCaching(System.String[]Microsoft.Extensions.Caching.Distributed.IDistributedCache? storage = null,System.String[]System.Action\u003CMicrosoft.Extensions.AI.DistributedCachingChatClient\u003E? configure = null)",
+        "System.String[]System.String[]HPD.Agent.AgentBuilder WithErrorDetector(System.String[]System.String name,System.String[]System.Func\u003CMicrosoft.Extensions.AI.FunctionResultContent,System.Boolean\u003E detector)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithEventApplicationIdentity(System.String[]System.String applicationAssemblyIdentity)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithEventComposition(System.String[]HPD.Agent.Serialization.AgentEventComposition composition)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithEventDurability(System.String[]System.String discriminator,System.String[]HPD.Agent.Serialization.AgentEventDurability durability)",
@@ -893,10 +894,13 @@
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithEventDurability\u003CTEvent\u003E where TEvent : HPD.Agent.AgentEvent(System.String[]HPD.Agent.Serialization.AgentEventDurability durability)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithEventDurabilityPolicy(System.String[]HPD.Agent.Serialization.AgentEventDurabilityPolicy policy)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithEventSubscription(System.String[]System.Func\u003CHPD.Events.IEventCoordinator,System.IDisposable\u003E subscriptionFactory)",
+        "System.String[]System.String[]HPD.Agent.AgentBuilder WithExternalPIIDetector(System.String[]System.String name,System.String[]System.Func\u003CSystem.String,System.Threading.CancellationToken,System.Threading.Tasks.Task\u003CSystem.Collections.Generic.IEnumerable\u003CHPD.Agent.PIIMatch\u003E\u003E\u003E detector)",
+        "System.String[]System.String[]HPD.Agent.AgentBuilder WithFunctionRetryStrategy(System.String[]System.String name,System.String[]System.Func\u003CSystem.Exception,System.Int32,System.Threading.CancellationToken,System.Threading.Tasks.Task\u003CSystem.Nullable\u003CSystem.TimeSpan\u003E\u003E\u003E strategy)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithInstructions(System.String[]System.String instructions)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithLogging(System.String[]Microsoft.Extensions.Logging.ILoggerFactory loggerFactory,System.String[]HPD.Agent.Middleware.LoggingMiddlewareOptions? options = null)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithLogging(System.String[]System.Boolean enableSensitiveData = false,System.String[]HPD.Agent.Middleware.LoggingMiddlewareOptions? options = null)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithMaxFunctionCallTurns(System.String[]System.Int32 maxTurns)",
+        "System.String[]System.String[]HPD.Agent.AgentBuilder WithModelRetryStrategy(System.String[]System.String name,System.String[]System.Func\u003CSystem.Exception,System.Int32,System.Threading.CancellationToken,System.Threading.Tasks.Task\u003CSystem.Nullable\u003CSystem.TimeSpan\u003E\u003E\u003E strategy)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithName(System.String[]System.String name)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithNativeFunction(System.String[]HPD.Agent.HPDAIFunctionFactory\u002BHPDAIFunction function)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithOptionsConfiguration(System.String[]System.Action\u003CMicrosoft.Extensions.AI.ChatOptions\u003E configureOptions)",
@@ -21311,7 +21315,8 @@
         "System.String[]System.Boolean ApplyToInput { get; set; }",
         "System.String[]System.Boolean ApplyToOutput { get; set; }",
         "System.String[]System.Boolean ApplyToToolResults { get; set; }",
-        "System.String[]System.Collections.Generic.List\u003CHPD.Agent.DeclarativePIIDetector\u003E CustomDetectors { get; set; }"
+        "System.String[]System.Collections.Generic.List\u003CHPD.Agent.DeclarativePIIDetector\u003E CustomDetectors { get; set; }",
+        "System.String[]System.String? ExternalDetector { get; set; }"
       ],
       "Fields": [],
       "Events": []
@@ -28643,7 +28648,9 @@
       "Methods": [],
       "Properties": [
         "System.String[]HPD.Agent.FunctionRetryConfig FunctionRetries { get; set; }",
-        "System.String[]HPD.Agent.ModelRetryConfig ModelRetries { get; set; }"
+        "System.String[]HPD.Agent.ModelRetryConfig ModelRetries { get; set; }",
+        "System.String[]System.String? FunctionCustomRetryStrategy { get; set; }",
+        "System.String[]System.String? ModelCustomRetryStrategy { get; set; }"
       ],
       "Fields": [],
       "Events": []
@@ -36930,7 +36937,8 @@
       "Methods": [],
       "Properties": [
         "System.String[]System.Int32 MaxTotalErrors { get; set; }",
-        "System.String[]System.String TerminationMessageTemplate { get; set; }"
+        "System.String[]System.String TerminationMessageTemplate { get; set; }",
+        "System.String[]System.String? CustomErrorDetector { get; set; }"
       ],
       "Fields": [],
       "Events": []

@@ -1,4 +1,8 @@
 using HPD.Agent.StructuredOutput;
+using System.Reflection;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
+using System.Text.Json.Serialization;
 
 namespace HPD.Agent.Tests.Core;
 
@@ -20,6 +24,47 @@ public sealed class AgentRunConfigSnapshotTests
             declaredProperties.SetEquals(AgentRunConfigSnapshot.CapturedPropertyNames),
             $"Snapshot ownership map mismatch. Declared: {string.Join(", ", declaredProperties.Order())}; " +
             $"mapped: {string.Join(", ", AgentRunConfigSnapshot.CapturedPropertyNames.Order())}.");
+    }
+
+    [Fact]
+    public void JsonProjection_ExactlyCoversNonIgnoredPublicProperties()
+    {
+        var publicProperties = typeof(AgentRunConfig)
+            .GetProperties(BindingFlags.Instance | BindingFlags.Public)
+            .Where(static property => property.GetCustomAttribute<JsonIgnoreAttribute>() is null)
+            .ToArray();
+        var expectedJsonNames = publicProperties
+            .Select(static property =>
+                property.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ??
+                JsonNamingPolicy.CamelCase.ConvertName(property.Name))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            TypeInfoResolver = new DefaultJsonTypeInfoResolver()
+        };
+        var projectedJsonNames = options.GetTypeInfo(typeof(AgentRunConfig)).Properties
+            .Where(static property => property.Get is not null)
+            .Select(static property => property.Name)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(expectedJsonNames, projectedJsonNames);
+    }
+
+    [Fact]
+    public void SourceGeneratedProjection_ExcludesRuntimeOnlyPublicValues()
+    {
+        var source = new AgentRunConfig
+        {
+            RuntimeMiddleware = [new NoOpMiddleware()],
+            Evaluations = new SnapshottingEvaluationConfig()
+        };
+
+        var json = JsonSerializer.Serialize(source, HPDJsonContext.Default.AgentRunConfig);
+
+        Assert.DoesNotContain("\"runtimeMiddleware\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"evaluations\"", json, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -87,4 +132,6 @@ public sealed class AgentRunConfigSnapshotTests
     {
         public IAgentRunEvaluationConfig Snapshot() => throw new InvalidOperationException("boom");
     }
+
+    private sealed class NoOpMiddleware : HPD.Agent.Middleware.IAgentMiddleware;
 }

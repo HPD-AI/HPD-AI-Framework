@@ -88,8 +88,7 @@ builder state:
 - `WithLogging(...)` writes `AgentConfig.Observability.Logging`.
 
 Loading that configuration installs the corresponding middleware without
-repeating the fluent calls. Custom executable retry strategies, custom total-error
-detectors, and external PII detectors remain host-owned middleware state.
+repeating the fluent calls.
 
 ## Function retry
 
@@ -126,16 +125,32 @@ emit `FunctionRetryEvent`; model retries emit `ModelCallRetryEvent`. A model ret
 follow partially streamed text, so streaming UIs should clear or mark the failed
 partial response before rendering the retry.
 
-Custom executable strategies are assigned on the middleware instance:
+Executable strategies use a stable name in portable configuration and an
+explicit host registration:
 
 ```csharp
-var middleware = new RetryMiddleware(
-    new RetryPolicySection { FunctionRetries = new() { MaxRetries = 3 } })
+var config = new AgentConfig
 {
-    FunctionCustomRetryStrategy = async (error, attempt, cancellationToken) =>
-        await policy.GetRetryDelayAsync(error, attempt, cancellationToken)
+    Resilience = new ResilienceConfig
+    {
+        Retry = new RetryPolicySection
+        {
+            FunctionCustomRetryStrategy = "productionRetry"
+        }
+    }
 };
+
+var builder = new AgentBuilder(config)
+    .WithFunctionRetryStrategy(
+        "productionRetry",
+        async (error, attempt, cancellationToken) =>
+            await policy.GetRetryDelayAsync(error, attempt, cancellationToken));
 ```
+
+Model retry strategies, total-error detectors, and external PII detectors use
+the equivalent `WithModelRetryStrategy`, `WithErrorDetector`, and
+`WithExternalPIIDetector` registrations. An unregistered or invalid name fails
+agent construction at its configuration path.
 
 ## Function timeout
 

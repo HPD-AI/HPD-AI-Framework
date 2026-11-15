@@ -2,9 +2,9 @@
 
 - Generator: `0.1.0`
 - IR: `1.0`
-- OpenAPI SHA-256: `sha256:7d07ba8b66ed74773a972350add6d90396764e6d0f0c7a8c38ab5a253f3b1136`
+- OpenAPI SHA-256: `sha256:8db5c381352e94762b974f723884c945a7750d1d2b3ef65cfd353e8ee1bce9dc`
 - Input digest: `sha256:be4f985d04fabf388ad5fb7410ef875025d1c5cb0038dfb1a05ff0abe38a7cf3`
-- IR SHA-256: `sha256:2d241b9c5e21768007c6b840cde577167f529272226a14cd0af66d49ceb1cf1e`
+- IR SHA-256: `sha256:b76439b752209f69dfa002a34a9f731de6893ff2bee0fd8a3e92f490211b95ca`
 - Operations: 74
 - Models: 3210
 - Events: 144
