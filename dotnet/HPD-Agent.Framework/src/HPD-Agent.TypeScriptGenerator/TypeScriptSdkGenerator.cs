@@ -85,6 +85,7 @@ public sealed class TypeScriptSdkGenerator
         {
             files["src/observation.ts"] = ReadSdkSource("observation.ts");
             files["src/event-schema.ts"] = ReadSdkSource("event-schema.ts");
+            files["src/projection.ts"] = ReadSdkSource("projection.ts");
             files["src/generated/event-schemas.ts"] = RenderEventSchemas(ir);
             files["src/client.ts"] = ReadSdkSource("client.ts");
             files["src/index.ts"] = ReadSdkSource("index.ts");
@@ -240,7 +241,7 @@ public sealed class TypeScriptSdkGenerator
                     .OrderBy(static name => name, StringComparer.Ordinal)))
             .AppendLine("} from './models.js';")
             .AppendLine("import type { HpdAgentInputEvent, HpdAgentResponseInput } from './events.js';")
-            .AppendLine("import { HpdTransport, type ClientOptions, type HpdSseMessage } from '../runtime.js';")
+            .AppendLine("import { HpdTransport, type ClientOptions, type HpdSseMessage, type RequestOptions } from '../runtime.js';")
             .AppendLine();
         foreach (var group in ir.Operations
                      .GroupBy(static operation => operation.Tag, StringComparer.Ordinal)
@@ -302,7 +303,8 @@ public sealed class TypeScriptSdkGenerator
             builder.Append("async *");
         else
             builder.Append("async ");
-        builder.Append(method).Append("(args: ").Append(argsType).Append("): ");
+        builder.Append(method).Append("(args: ").Append(argsType)
+            .Append(", options: RequestOptions = {}): ");
         if (operation.ContentKind == "sse")
             builder.Append(returnType);
         else
@@ -339,32 +341,34 @@ public sealed class TypeScriptSdkGenerator
         if (operation.ContentKind == "sse")
         {
             builder.Append("    yield* this.transport.streamSse('")
-                .Append(operation.Method).AppendLine("', path, query, args.lastEventId, args);");
+                .Append(operation.Method).AppendLine(
+                    "', path, query, args.lastEventId, { ...options, onConnect: args.onConnect });");
         }
         else if (operation.ContentKind == "multipart")
         {
             builder.Append("    return this.transport.requestMultipart<").Append(returnType).Append(">('")
-                .Append(operation.Method).Append("', path, query, ").Append(bodyExpression).AppendLine(");");
+                .Append(operation.Method).Append("', path, query, ").Append(bodyExpression)
+                .AppendLine(", options);");
         }
         else if (operation.ContentKind == "binary")
         {
             builder.Append("    return this.transport.requestBytes('")
                 .Append(operation.Method).Append("', path, query, undefined, ")
-                .Append(operation.ReplaySafe ? "true" : "false").AppendLine(");");
+                .Append(operation.ReplaySafe ? "true" : "false").AppendLine(", options);");
         }
         else if (operation.ContentKind == "empty")
         {
             builder.Append("    await this.transport.requestJson<void>('")
                 .Append(operation.Method).Append("', path, query, ")
                 .Append(bodyExpression).Append(", ")
-                .Append(operation.ReplaySafe ? "true" : "false").AppendLine(");");
+                .Append(operation.ReplaySafe ? "true" : "false").AppendLine(", options);");
         }
         else
         {
             builder.Append("    return this.transport.requestJson<").Append(returnType)
                 .Append(">('").Append(operation.Method).Append("', path, query, ")
                 .Append(bodyExpression).Append(", ")
-                .Append(operation.ReplaySafe ? "true" : "false").AppendLine(");");
+                .Append(operation.ReplaySafe ? "true" : "false").AppendLine(", options);");
         }
         builder.AppendLine("  }").AppendLine();
     }
@@ -387,7 +391,6 @@ public sealed class TypeScriptSdkGenerator
         if (operation.ContentKind == "sse")
         {
             builder.AppendLine("  lastEventId?: string;")
-                .AppendLine("  signal?: AbortSignal;")
                 .AppendLine("  onConnect?: () => void;");
         }
         builder.AppendLine("};").AppendLine();
@@ -455,6 +458,14 @@ public sealed class TypeScriptSdkGenerator
         Create a session with `client.sessions.create(...)`, then use the
         returned thread to observe routed events and send input. The client
         exposes generated endpoints through `client.api`.
+
+        First-class resources include `client.agents`, `session.threads`,
+        `thread.content`, `thread.executions`, and `client.evaluations`.
+        `thread.history()` returns a finite protocol-level message projection.
+
+        Every generated service operation accepts a second `RequestOptions`
+        argument. Client-wide and per-call abort signals compose, and request
+        timeouts cover JSON, multipart, binary, and SSE transport operations.
 
         Observation resolves when the stream opens. Await `observation.done`
         for terminal stream or handler errors. Supply `onRebase` to reset your

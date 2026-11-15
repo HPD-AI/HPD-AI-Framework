@@ -33,6 +33,10 @@ export function installResources<T extends Record<string, any>>(spies: T) {
       create: async (arg: unknown) => ({
         session: { descriptor: await spies.createSession(arg) },
       }),
+      update: async (sessionId: string, input: unknown) => ({
+        descriptor: await spies.updateSession(sessionId, input),
+      }),
+      delete: async (sessionId: string) => spies.deleteSession(sessionId),
     },
     api: {
       threads: {

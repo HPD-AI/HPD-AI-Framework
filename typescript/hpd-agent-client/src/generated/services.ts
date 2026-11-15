@@ -2326,7 +2326,7 @@ import type {
   WriteScoreRequest
 } from './models.js';
 import type { HpdAgentInputEvent, HpdAgentResponseInput } from './events.js';
-import { HpdTransport, type ClientOptions, type HpdSseMessage } from '../runtime.js';
+import { HpdTransport, type ClientOptions, type HpdSseMessage, type RequestOptions } from '../runtime.js';
 
 export type AgentEventsServiceGetAgentEventCatalogArgs = {
 };
@@ -2338,20 +2338,19 @@ export type AgentEventsServiceObserveLiveEventsWithSseArgs = {
   after?: string | null;
   hierarchy?: string | null;
   lastEventId?: string;
-  signal?: AbortSignal;
   onConnect?: () => void;
 };
 
 export class AgentEventsService {
   public constructor(private readonly transport: HpdTransport) {}
 
-  public async getAgentEventCatalog(args: AgentEventsServiceGetAgentEventCatalogArgs): Promise<InlineEventCatalogGetResponse200ApplicationJson> {
+  public async getAgentEventCatalog(args: AgentEventsServiceGetAgentEventCatalogArgs, options: RequestOptions = {}): Promise<InlineEventCatalogGetResponse200ApplicationJson> {
     const path = `/event-catalog`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<InlineEventCatalogGetResponse200ApplicationJson>('GET', path, query, undefined, false);
+    return this.transport.requestJson<InlineEventCatalogGetResponse200ApplicationJson>('GET', path, query, undefined, false, options);
   }
 
-  public async *observeLiveEventsWithSse(args: AgentEventsServiceObserveLiveEventsWithSseArgs): AsyncGenerator<HpdSseMessage> {
+  public async *observeLiveEventsWithSse(args: AgentEventsServiceObserveLiveEventsWithSseArgs, options: RequestOptions = {}): AsyncGenerator<HpdSseMessage> {
     const path = `/agents/${encodeURIComponent(String(args.agentId))}/sessions/${encodeURIComponent(String(args.sessionId))}/threads/${encodeURIComponent(String(args.threadId))}/events`;
     const query = new URLSearchParams();
     if (args.after !== undefined) {
@@ -2360,7 +2359,7 @@ export class AgentEventsService {
     if (args.hierarchy !== undefined) {
       query.set("hierarchy", String(args.hierarchy));
     }
-    yield* this.transport.streamSse('GET', path, query, args.lastEventId, args);
+    yield* this.transport.streamSse('GET', path, query, args.lastEventId, { ...options, onConnect: args.onConnect });
   }
 
 }
@@ -2371,10 +2370,10 @@ export type AgentInputsServiceGetAgentInputCatalogArgs = {
 export class AgentInputsService {
   public constructor(private readonly transport: HpdTransport) {}
 
-  public async getAgentInputCatalog(args: AgentInputsServiceGetAgentInputCatalogArgs): Promise<InlineInputCatalogGetResponse200ApplicationJson> {
+  public async getAgentInputCatalog(args: AgentInputsServiceGetAgentInputCatalogArgs, options: RequestOptions = {}): Promise<InlineInputCatalogGetResponse200ApplicationJson> {
     const path = `/input-catalog`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<InlineInputCatalogGetResponse200ApplicationJson>('GET', path, query, undefined, false);
+    return this.transport.requestJson<InlineInputCatalogGetResponse200ApplicationJson>('GET', path, query, undefined, false, options);
   }
 
 }
@@ -2389,10 +2388,10 @@ export type AgentInteractionsServiceRespondToAgentRequestArgs = {
 export class AgentInteractionsService {
   public constructor(private readonly transport: HpdTransport) {}
 
-  public async respondToAgentRequest(args: AgentInteractionsServiceRespondToAgentRequestArgs): Promise<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdResponsesPostResponse200ApplicationJson> {
+  public async respondToAgentRequest(args: AgentInteractionsServiceRespondToAgentRequestArgs, options: RequestOptions = {}): Promise<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdResponsesPostResponse200ApplicationJson> {
     const path = `/agents/${encodeURIComponent(String(args.agentId))}/sessions/${encodeURIComponent(String(args.sessionId))}/threads/${encodeURIComponent(String(args.threadId))}/responses`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdResponsesPostResponse200ApplicationJson>('POST', path, query, args.input, false);
+    return this.transport.requestJson<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdResponsesPostResponse200ApplicationJson>('POST', path, query, args.input, false, options);
   }
 
 }
@@ -2434,31 +2433,31 @@ export type AgentRuntimeServiceSubmitControlledSubAgentInputArgs = {
 export class AgentRuntimeService {
   public constructor(private readonly transport: HpdTransport) {}
 
-  public async estimateAgentThreadContextUsage(args: AgentRuntimeServiceEstimateAgentThreadContextUsageArgs): Promise<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdContextUsagePostResponse200ApplicationJson> {
+  public async estimateAgentThreadContextUsage(args: AgentRuntimeServiceEstimateAgentThreadContextUsageArgs, options: RequestOptions = {}): Promise<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdContextUsagePostResponse200ApplicationJson> {
     const path = `/agents/${encodeURIComponent(String(args.agentId))}/sessions/${encodeURIComponent(String(args.sessionId))}/threads/${encodeURIComponent(String(args.threadId))}/context-usage`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdContextUsagePostResponse200ApplicationJson>('POST', path, query, args.input, false);
+    return this.transport.requestJson<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdContextUsagePostResponse200ApplicationJson>('POST', path, query, args.input, false, options);
   }
 
-  public async getAgentStorageInfo(args: AgentRuntimeServiceGetAgentStorageInfoArgs): Promise<InlineStorageGetResponse200ApplicationJson> {
+  public async getAgentStorageInfo(args: AgentRuntimeServiceGetAgentStorageInfoArgs, options: RequestOptions = {}): Promise<InlineStorageGetResponse200ApplicationJson> {
     const path = `/storage`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<InlineStorageGetResponse200ApplicationJson>('GET', path, query, undefined, false);
+    return this.transport.requestJson<InlineStorageGetResponse200ApplicationJson>('GET', path, query, undefined, false, options);
   }
 
-  public async getAgentThreadRuntimeState(args: AgentRuntimeServiceGetAgentThreadRuntimeStateArgs): Promise<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJson> {
+  public async getAgentThreadRuntimeState(args: AgentRuntimeServiceGetAgentThreadRuntimeStateArgs, options: RequestOptions = {}): Promise<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJson> {
     const path = `/agents/${encodeURIComponent(String(args.agentId))}/sessions/${encodeURIComponent(String(args.sessionId))}/threads/${encodeURIComponent(String(args.threadId))}/state`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJson>('GET', path, query, undefined, false);
+    return this.transport.requestJson<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJson>('GET', path, query, undefined, false, options);
   }
 
-  public async submitAgentInput(args: AgentRuntimeServiceSubmitAgentInputArgs): Promise<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJson> {
+  public async submitAgentInput(args: AgentRuntimeServiceSubmitAgentInputArgs, options: RequestOptions = {}): Promise<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJson> {
     const path = `/agents/${encodeURIComponent(String(args.agentId))}/sessions/${encodeURIComponent(String(args.sessionId))}/threads/${encodeURIComponent(String(args.threadId))}/inputs`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJson>('POST', path, query, args.input, false);
+    return this.transport.requestJson<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdInputsPostResponse202ApplicationJson>('POST', path, query, args.input, false, options);
   }
 
-  public async submitControlledSubAgentInput(args: AgentRuntimeServiceSubmitControlledSubAgentInputArgs): Promise<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJson> {
+  public async submitControlledSubAgentInput(args: AgentRuntimeServiceSubmitControlledSubAgentInputArgs, options: RequestOptions = {}): Promise<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJson> {
     const path = `/agents/${encodeURIComponent(String(args.agentId))}/sessions/${encodeURIComponent(String(args.sessionId))}/threads/${encodeURIComponent(String(args.threadId))}/subagents/${encodeURIComponent(String(args.localId))}/inputs`;
     const query = new URLSearchParams();
     if (args.childAgentId !== undefined) {
@@ -2470,7 +2469,7 @@ export class AgentRuntimeService {
     if (args.childThreadId !== undefined) {
       query.set("childThreadId", String(args.childThreadId));
     }
-    return this.transport.requestJson<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJson>('POST', path, query, args.input, false);
+    return this.transport.requestJson<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdSubagentsLocalIdInputsPostResponse202ApplicationJson>('POST', path, query, args.input, false, options);
   }
 
 }
@@ -2498,34 +2497,34 @@ export type AgentsServiceUpdateAgentArgs = {
 export class AgentsService {
   public constructor(private readonly transport: HpdTransport) {}
 
-  public async createAgent(args: AgentsServiceCreateAgentArgs): Promise<StoredAgentDto> {
+  public async createAgent(args: AgentsServiceCreateAgentArgs, options: RequestOptions = {}): Promise<StoredAgentDto> {
     const path = `/agents`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<StoredAgentDto>('POST', path, query, args.input, false);
+    return this.transport.requestJson<StoredAgentDto>('POST', path, query, args.input, false, options);
   }
 
-  public async deleteAgent(args: AgentsServiceDeleteAgentArgs): Promise<void> {
+  public async deleteAgent(args: AgentsServiceDeleteAgentArgs, options: RequestOptions = {}): Promise<void> {
     const path = `/agents/${encodeURIComponent(String(args.agentId))}`;
     const query = new URLSearchParams();
-    await this.transport.requestJson<void>('DELETE', path, query, undefined, false);
+    await this.transport.requestJson<void>('DELETE', path, query, undefined, false, options);
   }
 
-  public async getAgent(args: AgentsServiceGetAgentArgs): Promise<StoredAgentDto> {
+  public async getAgent(args: AgentsServiceGetAgentArgs, options: RequestOptions = {}): Promise<StoredAgentDto> {
     const path = `/agents/${encodeURIComponent(String(args.agentId))}`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<StoredAgentDto>('GET', path, query, undefined, false);
+    return this.transport.requestJson<StoredAgentDto>('GET', path, query, undefined, false, options);
   }
 
-  public async listAgents(args: AgentsServiceListAgentsArgs): Promise<Array<AgentSummaryDto>> {
+  public async listAgents(args: AgentsServiceListAgentsArgs, options: RequestOptions = {}): Promise<Array<AgentSummaryDto>> {
     const path = `/agents`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<Array<AgentSummaryDto>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<AgentSummaryDto>>('GET', path, query, undefined, false, options);
   }
 
-  public async updateAgent(args: AgentsServiceUpdateAgentArgs): Promise<StoredAgentDto> {
+  public async updateAgent(args: AgentsServiceUpdateAgentArgs, options: RequestOptions = {}): Promise<StoredAgentDto> {
     const path = `/agents/${encodeURIComponent(String(args.agentId))}`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<StoredAgentDto>('PUT', path, query, args.input, false);
+    return this.transport.requestJson<StoredAgentDto>('PUT', path, query, args.input, false, options);
   }
 
 }
@@ -2546,17 +2545,17 @@ export type ClientToolsServiceListClientToolProvidersArgs = {
 export class ClientToolsService {
   public constructor(private readonly transport: HpdTransport) {}
 
-  public async connectClientToolProvider(args: ClientToolsServiceConnectClientToolProviderArgs): Promise<never> {
+  public async connectClientToolProvider(args: ClientToolsServiceConnectClientToolProviderArgs, options: RequestOptions = {}): Promise<never> {
     throw new Error('Provider WebSocket is not supported by this generated TypeScript target yet.');
   }
 
-  public async getClientToolProvider(args: ClientToolsServiceGetClientToolProviderArgs): Promise<ClientToolProviderSnapshot> {
+  public async getClientToolProvider(args: ClientToolsServiceGetClientToolProviderArgs, options: RequestOptions = {}): Promise<ClientToolProviderSnapshot> {
     const path = `/client-tool-providers/${encodeURIComponent(String(args.clientRuntimeId))}`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<ClientToolProviderSnapshot>('GET', path, query, undefined, false);
+    return this.transport.requestJson<ClientToolProviderSnapshot>('GET', path, query, undefined, false, options);
   }
 
-  public async listClientToolProviders(args: ClientToolsServiceListClientToolProvidersArgs): Promise<Array<ClientToolProviderSnapshot>> {
+  public async listClientToolProviders(args: ClientToolsServiceListClientToolProvidersArgs, options: RequestOptions = {}): Promise<Array<ClientToolProviderSnapshot>> {
     const path = `/client-tool-providers`;
     const query = new URLSearchParams();
     if (args.appKind !== undefined) {
@@ -2568,7 +2567,7 @@ export class ClientToolsService {
     if (args.includeDisconnected !== undefined) {
       query.set("includeDisconnected", String(args.includeDisconnected));
     }
-    return this.transport.requestJson<Array<ClientToolProviderSnapshot>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<ClientToolProviderSnapshot>>('GET', path, query, undefined, false, options);
   }
 
 }
@@ -2599,28 +2598,28 @@ export type ContentServiceUploadContentArgs = {
 export class ContentService {
   public constructor(private readonly transport: HpdTransport) {}
 
-  public async deleteContent(args: ContentServiceDeleteContentArgs): Promise<void> {
+  public async deleteContent(args: ContentServiceDeleteContentArgs, options: RequestOptions = {}): Promise<void> {
     const path = `/sessions/${encodeURIComponent(String(args.sessionId))}/threads/${encodeURIComponent(String(args.threadId))}/content/${encodeURIComponent(String(args.contentId))}`;
     const query = new URLSearchParams();
-    await this.transport.requestJson<void>('DELETE', path, query, undefined, false);
+    await this.transport.requestJson<void>('DELETE', path, query, undefined, false, options);
   }
 
-  public async downloadContent(args: ContentServiceDownloadContentArgs): Promise<ArrayBuffer> {
+  public async downloadContent(args: ContentServiceDownloadContentArgs, options: RequestOptions = {}): Promise<ArrayBuffer> {
     const path = `/sessions/${encodeURIComponent(String(args.sessionId))}/threads/${encodeURIComponent(String(args.threadId))}/content/${encodeURIComponent(String(args.contentId))}`;
     const query = new URLSearchParams();
-    return this.transport.requestBytes('GET', path, query, undefined, false);
+    return this.transport.requestBytes('GET', path, query, undefined, false, options);
   }
 
-  public async listContent(args: ContentServiceListContentArgs): Promise<Array<ContentDto>> {
+  public async listContent(args: ContentServiceListContentArgs, options: RequestOptions = {}): Promise<Array<ContentDto>> {
     const path = `/sessions/${encodeURIComponent(String(args.sessionId))}/threads/${encodeURIComponent(String(args.threadId))}/content`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<Array<ContentDto>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<ContentDto>>('GET', path, query, undefined, false, options);
   }
 
-  public async uploadContent(args: ContentServiceUploadContentArgs): Promise<ContentDto> {
+  public async uploadContent(args: ContentServiceUploadContentArgs, options: RequestOptions = {}): Promise<ContentDto> {
     const path = `/sessions/${encodeURIComponent(String(args.sessionId))}/threads/${encodeURIComponent(String(args.threadId))}/content`;
     const query = new URLSearchParams();
-    return this.transport.requestMultipart<ContentDto>('POST', path, query, args.input);
+    return this.transport.requestMultipart<ContentDto>('POST', path, query, args.input, options);
   }
 
 }
@@ -2796,7 +2795,7 @@ export type EvaluationsServiceWriteScoreArgs = {
 export class EvaluationsService {
   public constructor(private readonly transport: HpdTransport) {}
 
-  public async compareStringEvaluationDatasetVersions(args: EvaluationsServiceCompareStringEvaluationDatasetVersionsArgs): Promise<StringDatasetDiffResponse> {
+  public async compareStringEvaluationDatasetVersions(args: EvaluationsServiceCompareStringEvaluationDatasetVersionsArgs, options: RequestOptions = {}): Promise<StringDatasetDiffResponse> {
     const path = `/evals/datasets/${encodeURIComponent(String(args.datasetId))}/diff`;
     const query = new URLSearchParams();
     if (args.fromVersion !== undefined) {
@@ -2805,10 +2804,10 @@ export class EvaluationsService {
     if (args.toVersion !== undefined) {
       query.set("toVersion", String(args.toVersion));
     }
-    return this.transport.requestJson<StringDatasetDiffResponse>('GET', path, query, undefined, false);
+    return this.transport.requestJson<StringDatasetDiffResponse>('GET', path, query, undefined, false, options);
   }
 
-  public async deleteEvaluationRuns(args: EvaluationsServiceDeleteEvaluationRunsArgs): Promise<void> {
+  public async deleteEvaluationRuns(args: EvaluationsServiceDeleteEvaluationRunsArgs, options: RequestOptions = {}): Promise<void> {
     const path = `/evals/runs`;
     const query = new URLSearchParams();
     if (args.executionName !== undefined) {
@@ -2820,19 +2819,19 @@ export class EvaluationsService {
     if (args.scenarioName !== undefined) {
       query.set("scenarioName", String(args.scenarioName));
     }
-    await this.transport.requestJson<void>('DELETE', path, query, undefined, false);
+    await this.transport.requestJson<void>('DELETE', path, query, undefined, false, options);
   }
 
-  public async getActiveStringEvaluationCases(args: EvaluationsServiceGetActiveStringEvaluationCasesArgs): Promise<Array<StringEvalCaseDto>> {
+  public async getActiveStringEvaluationCases(args: EvaluationsServiceGetActiveStringEvaluationCasesArgs, options: RequestOptions = {}): Promise<Array<StringEvalCaseDto>> {
     const path = `/evals/datasets/${encodeURIComponent(String(args.datasetId))}/active-cases`;
     const query = new URLSearchParams();
     if (args.at !== undefined) {
       query.set("at", String(args.at));
     }
-    return this.transport.requestJson<Array<StringEvalCaseDto>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<StringEvalCaseDto>>('GET', path, query, undefined, false, options);
   }
 
-  public async getAgentComparison(args: EvaluationsServiceGetAgentComparisonArgs): Promise<Record<string, ScoreAggregate>> {
+  public async getAgentComparison(args: EvaluationsServiceGetAgentComparisonArgs, options: RequestOptions = {}): Promise<Record<string, ScoreAggregate>> {
     const path = `/evals/analytics/agent-comparison/${encodeURIComponent(String(args.evaluatorName))}`;
     const query = new URLSearchParams();
     if (args.agentNames !== undefined) {
@@ -2844,10 +2843,10 @@ export class EvaluationsService {
     if (args.to !== undefined) {
       query.set("to", String(args.to));
     }
-    return this.transport.requestJson<Record<string, ScoreAggregate>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Record<string, ScoreAggregate>>('GET', path, query, undefined, false, options);
   }
 
-  public async getCost(args: EvaluationsServiceGetCostArgs): Promise<Record<string, number>> {
+  public async getCost(args: EvaluationsServiceGetCostArgs, options: RequestOptions = {}): Promise<Record<string, number>> {
     const path = `/evals/analytics/cost`;
     const query = new URLSearchParams();
     if (args.from !== undefined) {
@@ -2856,31 +2855,31 @@ export class EvaluationsService {
     if (args.to !== undefined) {
       query.set("to", String(args.to));
     }
-    return this.transport.requestJson<Record<string, number>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Record<string, number>>('GET', path, query, undefined, false, options);
   }
 
-  public async getEvaluationDataset(args: EvaluationsServiceGetEvaluationDatasetArgs): Promise<DatasetRecord> {
+  public async getEvaluationDataset(args: EvaluationsServiceGetEvaluationDatasetArgs, options: RequestOptions = {}): Promise<DatasetRecord> {
     const path = `/evals/datasets/${encodeURIComponent(String(args.datasetId))}`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<DatasetRecord>('GET', path, query, undefined, false);
+    return this.transport.requestJson<DatasetRecord>('GET', path, query, undefined, false, options);
   }
 
-  public async getEvaluationDatasetVersions(args: EvaluationsServiceGetEvaluationDatasetVersionsArgs): Promise<Array<DatasetVersionRecord>> {
+  public async getEvaluationDatasetVersions(args: EvaluationsServiceGetEvaluationDatasetVersionsArgs, options: RequestOptions = {}): Promise<Array<DatasetVersionRecord>> {
     const path = `/evals/datasets/${encodeURIComponent(String(args.datasetId))}/versions`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<Array<DatasetVersionRecord>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<DatasetVersionRecord>>('GET', path, query, undefined, false, options);
   }
 
-  public async getEvaluationRunExecutions(args: EvaluationsServiceGetEvaluationRunExecutionsArgs): Promise<Array<string>> {
+  public async getEvaluationRunExecutions(args: EvaluationsServiceGetEvaluationRunExecutionsArgs, options: RequestOptions = {}): Promise<Array<string>> {
     const path = `/evals/runs/executions`;
     const query = new URLSearchParams();
     if (args.count !== undefined) {
       query.set("count", String(args.count));
     }
-    return this.transport.requestJson<Array<string>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<string>>('GET', path, query, undefined, false, options);
   }
 
-  public async getEvaluationRunIterations(args: EvaluationsServiceGetEvaluationRunIterationsArgs): Promise<Array<string>> {
+  public async getEvaluationRunIterations(args: EvaluationsServiceGetEvaluationRunIterationsArgs, options: RequestOptions = {}): Promise<Array<string>> {
     const path = `/evals/runs/iterations`;
     const query = new URLSearchParams();
     if (args.executionName !== undefined) {
@@ -2889,19 +2888,19 @@ export class EvaluationsService {
     if (args.scenarioName !== undefined) {
       query.set("scenarioName", String(args.scenarioName));
     }
-    return this.transport.requestJson<Array<string>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<string>>('GET', path, query, undefined, false, options);
   }
 
-  public async getEvaluationRunScenarios(args: EvaluationsServiceGetEvaluationRunScenariosArgs): Promise<Array<string>> {
+  public async getEvaluationRunScenarios(args: EvaluationsServiceGetEvaluationRunScenariosArgs, options: RequestOptions = {}): Promise<Array<string>> {
     const path = `/evals/runs/scenarios`;
     const query = new URLSearchParams();
     if (args.executionName !== undefined) {
       query.set("executionName", String(args.executionName));
     }
-    return this.transport.requestJson<Array<string>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<string>>('GET', path, query, undefined, false, options);
   }
 
-  public async getEvaluationRuns(args: EvaluationsServiceGetEvaluationRunsArgs): Promise<Array<EvaluationRunRecord>> {
+  public async getEvaluationRuns(args: EvaluationsServiceGetEvaluationRunsArgs, options: RequestOptions = {}): Promise<Array<EvaluationRunRecord>> {
     const path = `/evals/runs`;
     const query = new URLSearchParams();
     if (args.executionName !== undefined) {
@@ -2913,16 +2912,16 @@ export class EvaluationsService {
     if (args.scenarioName !== undefined) {
       query.set("scenarioName", String(args.scenarioName));
     }
-    return this.transport.requestJson<Array<EvaluationRunRecord>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<EvaluationRunRecord>>('GET', path, query, undefined, false, options);
   }
 
-  public async getEvaluatorCatalog(args: EvaluationsServiceGetEvaluatorCatalogArgs): Promise<Array<EvaluatorCatalogItem>> {
+  public async getEvaluatorCatalog(args: EvaluationsServiceGetEvaluatorCatalogArgs, options: RequestOptions = {}): Promise<Array<EvaluatorCatalogItem>> {
     const path = `/evals/evaluators/catalog`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<Array<EvaluatorCatalogItem>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<EvaluatorCatalogItem>>('GET', path, query, undefined, false, options);
   }
 
-  public async getEvaluatorSummary(args: EvaluationsServiceGetEvaluatorSummaryArgs): Promise<Array<EvaluatorSummary>> {
+  public async getEvaluatorSummary(args: EvaluationsServiceGetEvaluatorSummaryArgs, options: RequestOptions = {}): Promise<Array<EvaluatorSummary>> {
     const path = `/evals/analytics/evaluators`;
     const query = new URLSearchParams();
     if (args.from !== undefined) {
@@ -2931,10 +2930,10 @@ export class EvaluationsService {
     if (args.to !== undefined) {
       query.set("to", String(args.to));
     }
-    return this.transport.requestJson<Array<EvaluatorSummary>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<EvaluatorSummary>>('GET', path, query, undefined, false, options);
   }
 
-  public async getFailureRate(args: EvaluationsServiceGetFailureRateArgs): Promise<FailureRateResponse> {
+  public async getFailureRate(args: EvaluationsServiceGetFailureRateArgs, options: RequestOptions = {}): Promise<FailureRateResponse> {
     const path = `/evals/analytics/failure-rate/${encodeURIComponent(String(args.evaluatorName))}`;
     const query = new URLSearchParams();
     if (args.from !== undefined) {
@@ -2943,10 +2942,10 @@ export class EvaluationsService {
     if (args.to !== undefined) {
       query.set("to", String(args.to));
     }
-    return this.transport.requestJson<FailureRateResponse>('GET', path, query, undefined, false);
+    return this.transport.requestJson<FailureRateResponse>('GET', path, query, undefined, false, options);
   }
 
-  public async getPassRate(args: EvaluationsServiceGetPassRateArgs): Promise<RateResponse> {
+  public async getPassRate(args: EvaluationsServiceGetPassRateArgs, options: RequestOptions = {}): Promise<RateResponse> {
     const path = `/evals/analytics/pass-rate/${encodeURIComponent(String(args.evaluatorName))}`;
     const query = new URLSearchParams();
     if (args.from !== undefined) {
@@ -2955,10 +2954,10 @@ export class EvaluationsService {
     if (args.to !== undefined) {
       query.set("to", String(args.to));
     }
-    return this.transport.requestJson<RateResponse>('GET', path, query, undefined, false);
+    return this.transport.requestJson<RateResponse>('GET', path, query, undefined, false, options);
   }
 
-  public async getRedTeamAnalytics(args: EvaluationsServiceGetRedTeamAnalyticsArgs): Promise<RedTeamAnalyticsSummary> {
+  public async getRedTeamAnalytics(args: EvaluationsServiceGetRedTeamAnalyticsArgs, options: RequestOptions = {}): Promise<RedTeamAnalyticsSummary> {
     const path = `/evals/analytics/red-team`;
     const query = new URLSearchParams();
     if (args.from !== undefined) {
@@ -2967,10 +2966,10 @@ export class EvaluationsService {
     if (args.to !== undefined) {
       query.set("to", String(args.to));
     }
-    return this.transport.requestJson<RedTeamAnalyticsSummary>('GET', path, query, undefined, false);
+    return this.transport.requestJson<RedTeamAnalyticsSummary>('GET', path, query, undefined, false, options);
   }
 
-  public async getRedTeamAttackSuccessByPlugin(args: EvaluationsServiceGetRedTeamAttackSuccessByPluginArgs): Promise<Record<string, number>> {
+  public async getRedTeamAttackSuccessByPlugin(args: EvaluationsServiceGetRedTeamAttackSuccessByPluginArgs, options: RequestOptions = {}): Promise<Record<string, number>> {
     const path = `/evals/analytics/red-team/by-plugin`;
     const query = new URLSearchParams();
     if (args.from !== undefined) {
@@ -2979,10 +2978,10 @@ export class EvaluationsService {
     if (args.to !== undefined) {
       query.set("to", String(args.to));
     }
-    return this.transport.requestJson<Record<string, number>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Record<string, number>>('GET', path, query, undefined, false, options);
   }
 
-  public async getRedTeamAttackSuccessByStrategy(args: EvaluationsServiceGetRedTeamAttackSuccessByStrategyArgs): Promise<Record<string, number>> {
+  public async getRedTeamAttackSuccessByStrategy(args: EvaluationsServiceGetRedTeamAttackSuccessByStrategyArgs, options: RequestOptions = {}): Promise<Record<string, number>> {
     const path = `/evals/analytics/red-team/by-strategy`;
     const query = new URLSearchParams();
     if (args.from !== undefined) {
@@ -2991,10 +2990,10 @@ export class EvaluationsService {
     if (args.to !== undefined) {
       query.set("to", String(args.to));
     }
-    return this.transport.requestJson<Record<string, number>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Record<string, number>>('GET', path, query, undefined, false, options);
   }
 
-  public async getRedTeamFindings(args: EvaluationsServiceGetRedTeamFindingsArgs): Promise<Array<RedTeamFinding>> {
+  public async getRedTeamFindings(args: EvaluationsServiceGetRedTeamFindingsArgs, options: RequestOptions = {}): Promise<Array<RedTeamFinding>> {
     const path = `/evals/analytics/red-team/findings`;
     const query = new URLSearchParams();
     if (args.from !== undefined) {
@@ -3003,22 +3002,22 @@ export class EvaluationsService {
     if (args.to !== undefined) {
       query.set("to", String(args.to));
     }
-    return this.transport.requestJson<Array<RedTeamFinding>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<RedTeamFinding>>('GET', path, query, undefined, false, options);
   }
 
-  public async getRedTeamPluginCatalog(args: EvaluationsServiceGetRedTeamPluginCatalogArgs): Promise<Array<RedTeamPluginCatalogItem>> {
+  public async getRedTeamPluginCatalog(args: EvaluationsServiceGetRedTeamPluginCatalogArgs, options: RequestOptions = {}): Promise<Array<RedTeamPluginCatalogItem>> {
     const path = `/evals/red-team/plugins`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<Array<RedTeamPluginCatalogItem>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<RedTeamPluginCatalogItem>>('GET', path, query, undefined, false, options);
   }
 
-  public async getRedTeamStrategyCatalog(args: EvaluationsServiceGetRedTeamStrategyCatalogArgs): Promise<Array<RedTeamStrategyCatalogItem>> {
+  public async getRedTeamStrategyCatalog(args: EvaluationsServiceGetRedTeamStrategyCatalogArgs, options: RequestOptions = {}): Promise<Array<RedTeamStrategyCatalogItem>> {
     const path = `/evals/red-team/strategies`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<Array<RedTeamStrategyCatalogItem>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<RedTeamStrategyCatalogItem>>('GET', path, query, undefined, false, options);
   }
 
-  public async getRiskAutonomy(args: EvaluationsServiceGetRiskAutonomyArgs): Promise<Array<RiskAutonomyDataPoint>> {
+  public async getRiskAutonomy(args: EvaluationsServiceGetRiskAutonomyArgs, options: RequestOptions = {}): Promise<Array<RiskAutonomyDataPoint>> {
     const path = `/evals/analytics/risk-autonomy`;
     const query = new URLSearchParams();
     if (args.from !== undefined) {
@@ -3027,10 +3026,10 @@ export class EvaluationsService {
     if (args.to !== undefined) {
       query.set("to", String(args.to));
     }
-    return this.transport.requestJson<Array<RiskAutonomyDataPoint>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<RiskAutonomyDataPoint>>('GET', path, query, undefined, false, options);
   }
 
-  public async getSafetyAnalytics(args: EvaluationsServiceGetSafetyAnalyticsArgs): Promise<SafetyAnalyticsSummary> {
+  public async getSafetyAnalytics(args: EvaluationsServiceGetSafetyAnalyticsArgs, options: RequestOptions = {}): Promise<SafetyAnalyticsSummary> {
     const path = `/evals/analytics/safety`;
     const query = new URLSearchParams();
     if (args.from !== undefined) {
@@ -3039,10 +3038,10 @@ export class EvaluationsService {
     if (args.to !== undefined) {
       query.set("to", String(args.to));
     }
-    return this.transport.requestJson<SafetyAnalyticsSummary>('GET', path, query, undefined, false);
+    return this.transport.requestJson<SafetyAnalyticsSummary>('GET', path, query, undefined, false, options);
   }
 
-  public async getScores(args: EvaluationsServiceGetScoresArgs): Promise<Array<ScoreRecord>> {
+  public async getScores(args: EvaluationsServiceGetScoresArgs, options: RequestOptions = {}): Promise<Array<ScoreRecord>> {
     const path = `/evals/scores`;
     const query = new URLSearchParams();
     if (args.evaluatorName !== undefined) {
@@ -3054,10 +3053,10 @@ export class EvaluationsService {
     if (args.to !== undefined) {
       query.set("to", String(args.to));
     }
-    return this.transport.requestJson<Array<ScoreRecord>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<ScoreRecord>>('GET', path, query, undefined, false, options);
   }
 
-  public async getScoresByThread(args: EvaluationsServiceGetScoresByThreadArgs): Promise<Array<ScoreRecord>> {
+  public async getScoresByThread(args: EvaluationsServiceGetScoresByThreadArgs, options: RequestOptions = {}): Promise<Array<ScoreRecord>> {
     const path = `/evals/scores/by-thread`;
     const query = new URLSearchParams();
     if (args.sessionId !== undefined) {
@@ -3066,10 +3065,10 @@ export class EvaluationsService {
     if (args.threadId !== undefined) {
       query.set("threadId", String(args.threadId));
     }
-    return this.transport.requestJson<Array<ScoreRecord>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<ScoreRecord>>('GET', path, query, undefined, false, options);
   }
 
-  public async getScoresByVersion(args: EvaluationsServiceGetScoresByVersionArgs): Promise<Array<ScoreRecord>> {
+  public async getScoresByVersion(args: EvaluationsServiceGetScoresByVersionArgs, options: RequestOptions = {}): Promise<Array<ScoreRecord>> {
     const path = `/evals/scores/by-version`;
     const query = new URLSearchParams();
     if (args.evaluatorName !== undefined) {
@@ -3078,22 +3077,22 @@ export class EvaluationsService {
     if (args.version !== undefined) {
       query.set("version", String(args.version));
     }
-    return this.transport.requestJson<Array<ScoreRecord>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<ScoreRecord>>('GET', path, query, undefined, false, options);
   }
 
-  public async getStringEvaluationCaseHistory(args: EvaluationsServiceGetStringEvaluationCaseHistoryArgs): Promise<Array<StringEvalCaseDto>> {
+  public async getStringEvaluationCaseHistory(args: EvaluationsServiceGetStringEvaluationCaseHistoryArgs, options: RequestOptions = {}): Promise<Array<StringEvalCaseDto>> {
     const path = `/evals/datasets/${encodeURIComponent(String(args.datasetId))}/cases/${encodeURIComponent(String(args.caseId))}/history`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<Array<StringEvalCaseDto>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<StringEvalCaseDto>>('GET', path, query, undefined, false, options);
   }
 
-  public async getStringEvaluationDatasetVersion(args: EvaluationsServiceGetStringEvaluationDatasetVersionArgs): Promise<StringDatasetVersionResponse> {
+  public async getStringEvaluationDatasetVersion(args: EvaluationsServiceGetStringEvaluationDatasetVersionArgs, options: RequestOptions = {}): Promise<StringDatasetVersionResponse> {
     const path = `/evals/datasets/${encodeURIComponent(String(args.datasetId))}/versions/${encodeURIComponent(String(args.version))}`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<StringDatasetVersionResponse>('GET', path, query, undefined, false);
+    return this.transport.requestJson<StringDatasetVersionResponse>('GET', path, query, undefined, false, options);
   }
 
-  public async getThreadComparison(args: EvaluationsServiceGetThreadComparisonArgs): Promise<ThreadComparisonResult> {
+  public async getThreadComparison(args: EvaluationsServiceGetThreadComparisonArgs, options: RequestOptions = {}): Promise<ThreadComparisonResult> {
     const path = `/evals/analytics/thread-comparison`;
     const query = new URLSearchParams();
     if (args.evaluatorNames !== undefined) {
@@ -3108,10 +3107,10 @@ export class EvaluationsService {
     if (args.threadId2 !== undefined) {
       query.set("threadId2", String(args.threadId2));
     }
-    return this.transport.requestJson<ThreadComparisonResult>('GET', path, query, undefined, false);
+    return this.transport.requestJson<ThreadComparisonResult>('GET', path, query, undefined, false, options);
   }
 
-  public async getToolUsage(args: EvaluationsServiceGetToolUsageArgs): Promise<Record<string, ToolUsageSummary>> {
+  public async getToolUsage(args: EvaluationsServiceGetToolUsageArgs, options: RequestOptions = {}): Promise<Record<string, ToolUsageSummary>> {
     const path = `/evals/analytics/tool-usage`;
     const query = new URLSearchParams();
     if (args.from !== undefined) {
@@ -3120,10 +3119,10 @@ export class EvaluationsService {
     if (args.to !== undefined) {
       query.set("to", String(args.to));
     }
-    return this.transport.requestJson<Record<string, ToolUsageSummary>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Record<string, ToolUsageSummary>>('GET', path, query, undefined, false, options);
   }
 
-  public async getTrend(args: EvaluationsServiceGetTrendArgs): Promise<ScoreTrend> {
+  public async getTrend(args: EvaluationsServiceGetTrendArgs, options: RequestOptions = {}): Promise<ScoreTrend> {
     const path = `/evals/analytics/trend/${encodeURIComponent(String(args.evaluatorName))}`;
     const query = new URLSearchParams();
     if (args.bucketSize !== undefined) {
@@ -3135,25 +3134,25 @@ export class EvaluationsService {
     if (args.to !== undefined) {
       query.set("to", String(args.to));
     }
-    return this.transport.requestJson<ScoreTrend>('GET', path, query, undefined, false);
+    return this.transport.requestJson<ScoreTrend>('GET', path, query, undefined, false, options);
   }
 
-  public async listEvaluationDatasets(args: EvaluationsServiceListEvaluationDatasetsArgs): Promise<Array<DatasetRecord>> {
+  public async listEvaluationDatasets(args: EvaluationsServiceListEvaluationDatasetsArgs, options: RequestOptions = {}): Promise<Array<DatasetRecord>> {
     const path = `/evals/datasets`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<Array<DatasetRecord>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<DatasetRecord>>('GET', path, query, undefined, false, options);
   }
 
-  public async registerStringEvaluationDataset(args: EvaluationsServiceRegisterStringEvaluationDatasetArgs): Promise<DatasetVersionRecord> {
+  public async registerStringEvaluationDataset(args: EvaluationsServiceRegisterStringEvaluationDatasetArgs, options: RequestOptions = {}): Promise<DatasetVersionRecord> {
     const path = `/evals/datasets`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<DatasetVersionRecord>('POST', path, query, args.input, false);
+    return this.transport.requestJson<DatasetVersionRecord>('POST', path, query, args.input, false, options);
   }
 
-  public async writeScore(args: EvaluationsServiceWriteScoreArgs): Promise<ScoreRecord> {
+  public async writeScore(args: EvaluationsServiceWriteScoreArgs, options: RequestOptions = {}): Promise<ScoreRecord> {
     const path = `/evals/scores`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<ScoreRecord>('POST', path, query, args.input, false);
+    return this.transport.requestJson<ScoreRecord>('POST', path, query, args.input, false, options);
   }
 
 }
@@ -3187,28 +3186,28 @@ export type ExecutionsServiceStartQueuedThreadWorkArgs = {
 export class ExecutionsService {
   public constructor(private readonly transport: HpdTransport) {}
 
-  public async cancelThreadExecution(args: ExecutionsServiceCancelThreadExecutionArgs): Promise<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdExecutionsThreadExecutionIdCancelPostResponse200ApplicationJson> {
+  public async cancelThreadExecution(args: ExecutionsServiceCancelThreadExecutionArgs, options: RequestOptions = {}): Promise<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdExecutionsThreadExecutionIdCancelPostResponse200ApplicationJson> {
     const path = `/agents/${encodeURIComponent(String(args.agentId))}/sessions/${encodeURIComponent(String(args.sessionId))}/threads/${encodeURIComponent(String(args.threadId))}/executions/${encodeURIComponent(String(args.threadExecutionId))}/cancel`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdExecutionsThreadExecutionIdCancelPostResponse200ApplicationJson>('POST', path, query, undefined, false);
+    return this.transport.requestJson<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdExecutionsThreadExecutionIdCancelPostResponse200ApplicationJson>('POST', path, query, undefined, false, options);
   }
 
-  public async getThreadExecution(args: ExecutionsServiceGetThreadExecutionArgs): Promise<ThreadExecutionDto> {
+  public async getThreadExecution(args: ExecutionsServiceGetThreadExecutionArgs, options: RequestOptions = {}): Promise<ThreadExecutionDto> {
     const path = `/agents/${encodeURIComponent(String(args.agentId))}/sessions/${encodeURIComponent(String(args.sessionId))}/threads/${encodeURIComponent(String(args.threadId))}/executions/${encodeURIComponent(String(args.threadExecutionId))}`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<ThreadExecutionDto>('GET', path, query, undefined, false);
+    return this.transport.requestJson<ThreadExecutionDto>('GET', path, query, undefined, false, options);
   }
 
-  public async listThreadExecutions(args: ExecutionsServiceListThreadExecutionsArgs): Promise<Array<ThreadExecutionDto>> {
+  public async listThreadExecutions(args: ExecutionsServiceListThreadExecutionsArgs, options: RequestOptions = {}): Promise<Array<ThreadExecutionDto>> {
     const path = `/agents/${encodeURIComponent(String(args.agentId))}/sessions/${encodeURIComponent(String(args.sessionId))}/threads/${encodeURIComponent(String(args.threadId))}/executions`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<Array<ThreadExecutionDto>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<ThreadExecutionDto>>('GET', path, query, undefined, false, options);
   }
 
-  public async startQueuedThreadWork(args: ExecutionsServiceStartQueuedThreadWorkArgs): Promise<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdQueueStartPostResponse200ApplicationJson> {
+  public async startQueuedThreadWork(args: ExecutionsServiceStartQueuedThreadWorkArgs, options: RequestOptions = {}): Promise<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdQueueStartPostResponse200ApplicationJson> {
     const path = `/agents/${encodeURIComponent(String(args.agentId))}/sessions/${encodeURIComponent(String(args.sessionId))}/threads/${encodeURIComponent(String(args.threadId))}/queue/start`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdQueueStartPostResponse200ApplicationJson>('POST', path, query, undefined, false);
+    return this.transport.requestJson<InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdQueueStartPostResponse200ApplicationJson>('POST', path, query, undefined, false, options);
   }
 
 }
@@ -3219,10 +3218,10 @@ export type RuntimeExtensionsServiceGetRuntimeAgentExtensionCatalogArgs = {
 export class RuntimeExtensionsService {
   public constructor(private readonly transport: HpdTransport) {}
 
-  public async getRuntimeAgentExtensionCatalog(args: RuntimeExtensionsServiceGetRuntimeAgentExtensionCatalogArgs): Promise<InlineRuntimeExtensionCatalogGetResponse200ApplicationJson> {
+  public async getRuntimeAgentExtensionCatalog(args: RuntimeExtensionsServiceGetRuntimeAgentExtensionCatalogArgs, options: RequestOptions = {}): Promise<InlineRuntimeExtensionCatalogGetResponse200ApplicationJson> {
     const path = `/runtime-extension-catalog`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<InlineRuntimeExtensionCatalogGetResponse200ApplicationJson>('GET', path, query, undefined, false);
+    return this.transport.requestJson<InlineRuntimeExtensionCatalogGetResponse200ApplicationJson>('GET', path, query, undefined, false, options);
   }
 
 }
@@ -3254,40 +3253,40 @@ export type SessionsServiceUpdateSessionArgs = {
 export class SessionsService {
   public constructor(private readonly transport: HpdTransport) {}
 
-  public async createSession(args: SessionsServiceCreateSessionArgs): Promise<SessionDto> {
+  public async createSession(args: SessionsServiceCreateSessionArgs, options: RequestOptions = {}): Promise<SessionDto> {
     const path = `/sessions`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<SessionDto>('POST', path, query, args.input, false);
+    return this.transport.requestJson<SessionDto>('POST', path, query, args.input, false, options);
   }
 
-  public async deleteSession(args: SessionsServiceDeleteSessionArgs): Promise<void> {
+  public async deleteSession(args: SessionsServiceDeleteSessionArgs, options: RequestOptions = {}): Promise<void> {
     const path = `/sessions/${encodeURIComponent(String(args.sessionId))}`;
     const query = new URLSearchParams();
-    await this.transport.requestJson<void>('DELETE', path, query, undefined, false);
+    await this.transport.requestJson<void>('DELETE', path, query, undefined, false, options);
   }
 
-  public async getSession(args: SessionsServiceGetSessionArgs): Promise<SessionDto> {
+  public async getSession(args: SessionsServiceGetSessionArgs, options: RequestOptions = {}): Promise<SessionDto> {
     const path = `/sessions/${encodeURIComponent(String(args.sessionId))}`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<SessionDto>('GET', path, query, undefined, false);
+    return this.transport.requestJson<SessionDto>('GET', path, query, undefined, false, options);
   }
 
-  public async listSessions(args: SessionsServiceListSessionsArgs): Promise<Array<SessionDto>> {
+  public async listSessions(args: SessionsServiceListSessionsArgs, options: RequestOptions = {}): Promise<Array<SessionDto>> {
     const path = `/sessions`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<Array<SessionDto>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<SessionDto>>('GET', path, query, undefined, false, options);
   }
 
-  public async searchSessions(args: SessionsServiceSearchSessionsArgs): Promise<Array<SessionDto>> {
+  public async searchSessions(args: SessionsServiceSearchSessionsArgs, options: RequestOptions = {}): Promise<Array<SessionDto>> {
     const path = `/sessions/search`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<Array<SessionDto>>('POST', path, query, args.input, false);
+    return this.transport.requestJson<Array<SessionDto>>('POST', path, query, args.input, false, options);
   }
 
-  public async updateSession(args: SessionsServiceUpdateSessionArgs): Promise<SessionDto> {
+  public async updateSession(args: SessionsServiceUpdateSessionArgs, options: RequestOptions = {}): Promise<SessionDto> {
     const path = `/sessions/${encodeURIComponent(String(args.sessionId))}`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<SessionDto>('PATCH', path, query, args.input, false);
+    return this.transport.requestJson<SessionDto>('PATCH', path, query, args.input, false, options);
   }
 
 }
@@ -3338,55 +3337,55 @@ export type ThreadsServiceUpdateThreadArgs = {
 export class ThreadsService {
   public constructor(private readonly transport: HpdTransport) {}
 
-  public async createThread(args: ThreadsServiceCreateThreadArgs): Promise<ThreadDto> {
+  public async createThread(args: ThreadsServiceCreateThreadArgs, options: RequestOptions = {}): Promise<ThreadDto> {
     const path = `/agents/${encodeURIComponent(String(args.agentId))}/sessions/${encodeURIComponent(String(args.sessionId))}/threads`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<ThreadDto>('POST', path, query, args.input, false);
+    return this.transport.requestJson<ThreadDto>('POST', path, query, args.input, false, options);
   }
 
-  public async deleteThread(args: ThreadsServiceDeleteThreadArgs): Promise<void> {
+  public async deleteThread(args: ThreadsServiceDeleteThreadArgs, options: RequestOptions = {}): Promise<void> {
     const path = `/sessions/${encodeURIComponent(String(args.sessionId))}/threads/${encodeURIComponent(String(args.threadId))}`;
     const query = new URLSearchParams();
     if (args.recursive !== undefined) {
       query.set("recursive", String(args.recursive));
     }
-    await this.transport.requestJson<void>('DELETE', path, query, undefined, false);
+    await this.transport.requestJson<void>('DELETE', path, query, undefined, false, options);
   }
 
-  public async forkThread(args: ThreadsServiceForkThreadArgs): Promise<ThreadForkResultDto> {
+  public async forkThread(args: ThreadsServiceForkThreadArgs, options: RequestOptions = {}): Promise<ThreadForkResultDto> {
     const path = `/agents/${encodeURIComponent(String(args.agentId))}/sessions/${encodeURIComponent(String(args.sessionId))}/threads/${encodeURIComponent(String(args.threadId))}/fork`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<ThreadForkResultDto>('POST', path, query, args.input, false);
+    return this.transport.requestJson<ThreadForkResultDto>('POST', path, query, args.input, false, options);
   }
 
-  public async getThread(args: ThreadsServiceGetThreadArgs): Promise<ThreadDto> {
+  public async getThread(args: ThreadsServiceGetThreadArgs, options: RequestOptions = {}): Promise<ThreadDto> {
     const path = `/sessions/${encodeURIComponent(String(args.sessionId))}/threads/${encodeURIComponent(String(args.threadId))}`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<ThreadDto>('GET', path, query, undefined, false);
+    return this.transport.requestJson<ThreadDto>('GET', path, query, undefined, false, options);
   }
 
-  public async getThreadGraph(args: ThreadsServiceGetThreadGraphArgs): Promise<ThreadGraphDto> {
+  public async getThreadGraph(args: ThreadsServiceGetThreadGraphArgs, options: RequestOptions = {}): Promise<ThreadGraphDto> {
     const path = `/sessions/${encodeURIComponent(String(args.sessionId))}/thread-graph`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<ThreadGraphDto>('GET', path, query, undefined, false);
+    return this.transport.requestJson<ThreadGraphDto>('GET', path, query, undefined, false, options);
   }
 
-  public async listThreadSubAgents(args: ThreadsServiceListThreadSubAgentsArgs): Promise<Array<SubAgentDto>> {
+  public async listThreadSubAgents(args: ThreadsServiceListThreadSubAgentsArgs, options: RequestOptions = {}): Promise<Array<SubAgentDto>> {
     const path = `/sessions/${encodeURIComponent(String(args.sessionId))}/threads/${encodeURIComponent(String(args.threadId))}/subagents`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<Array<SubAgentDto>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<SubAgentDto>>('GET', path, query, undefined, false, options);
   }
 
-  public async listThreads(args: ThreadsServiceListThreadsArgs): Promise<Array<ThreadDto>> {
+  public async listThreads(args: ThreadsServiceListThreadsArgs, options: RequestOptions = {}): Promise<Array<ThreadDto>> {
     const path = `/sessions/${encodeURIComponent(String(args.sessionId))}/threads`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<Array<ThreadDto>>('GET', path, query, undefined, false);
+    return this.transport.requestJson<Array<ThreadDto>>('GET', path, query, undefined, false, options);
   }
 
-  public async updateThread(args: ThreadsServiceUpdateThreadArgs): Promise<ThreadDto> {
+  public async updateThread(args: ThreadsServiceUpdateThreadArgs, options: RequestOptions = {}): Promise<ThreadDto> {
     const path = `/sessions/${encodeURIComponent(String(args.sessionId))}/threads/${encodeURIComponent(String(args.threadId))}`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<ThreadDto>('PATCH', path, query, args.input, false);
+    return this.transport.requestJson<ThreadDto>('PATCH', path, query, args.input, false, options);
   }
 
 }

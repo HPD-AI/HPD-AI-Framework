@@ -188,10 +188,11 @@ describe('SessionList', () => {
     expect(sessionList.getSnapshot().selectedSessionId).toBe('created');
 
     target.querySelector<HTMLButtonElement>('[data-testid="delete-created"]')?.click();
-    await Promise.resolve();
+    await vi.waitFor(() => {
+      expect(sessionList.getSnapshot().sessions.map((item) => item.id)).not.toContain('created');
+    });
     flushSync();
 
-    expect(sessionList.getSnapshot().sessions.map((item) => item.id)).not.toContain('created');
     expect(sessionList.getSnapshot().selectedSessionId).toBe('main');
 
     await unmount(component);

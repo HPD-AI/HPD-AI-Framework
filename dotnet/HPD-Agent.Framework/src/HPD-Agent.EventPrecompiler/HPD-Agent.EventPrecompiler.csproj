@@ -9,6 +9,7 @@
     <PublishAot>false</PublishAot>
     <SelfContained>false</SelfContained>
     <RuntimeIdentifier></RuntimeIdentifier>
+    <RollForward>Major</RollForward>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>

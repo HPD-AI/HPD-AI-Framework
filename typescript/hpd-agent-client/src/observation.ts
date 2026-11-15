@@ -1,7 +1,14 @@
 import type { HpdAgentEvent } from './generated/events.js';
 import { isRecord, validateEvent } from './event-schema.js';
 import type { AgentEventsService, AgentEventsServiceObserveLiveEventsWithSseArgs } from './generated/services.js';
-import { HpdApiError, HpdJournalRebasedError, HpdSseState, HpdStreamError, type HpdSseAppliedCursor } from './runtime.js';
+import {
+  HpdApiError,
+  HpdJournalRebasedError,
+  HpdSseState,
+  HpdStreamError,
+  type HpdSseAppliedCursor,
+  type RequestOptions,
+} from './runtime.js';
 
 export interface ThreadKey {
   readonly sessionId: string;
@@ -25,8 +32,7 @@ export type EventHandlers = {
   [Type in HpdAgentEvent['type']]?: (delivery: EventDelivery<Extract<HpdAgentEvent, { type: Type }>>) => void | Promise<void>;
 };
 
-export interface ObserveOptions {
-  signal?: AbortSignal;
+export interface ObserveOptions extends RequestOptions {
   after?: Readonly<HpdSseAppliedCursor>;
   hierarchy?: 'exactThread' | 'directChildren' | 'threadAndDirectChildren' | 'descendants' | 'threadAndDescendants';
   handlers?: EventHandlers;
@@ -110,16 +116,21 @@ export async function observeThread(
     while (!signal.aborted) {
       let rebase = false;
       try {
-        for await (const frame of service.observeLiveEventsWithSse({
-          ...scope,
-          after: `${applied.generation}:${applied.sequence}`,
-          hierarchy: options.hierarchy ?? 'exactThread',
-          signal,
-          onConnect: () => {
-            connected = true;
-            ready();
+        for await (const frame of service.observeLiveEventsWithSse(
+          {
+            ...scope,
+            after: `${applied.generation}:${applied.sequence}`,
+            hierarchy: options.hierarchy ?? 'exactThread',
+            onConnect: () => {
+              connected = true;
+              ready();
+            },
           },
-        })) {
+          {
+            signal,
+            timeoutMs: options.timeoutMs,
+            headers: options.headers,
+          })) {
           signal.throwIfAborted();
           try {
             if (frame.event === 'thread-journal-rebased') {

@@ -35,7 +35,7 @@ export class FileAttachmentState {
       }
       const session = await options.client.sessions.get(sessionId);
       const thread = await session.threads.get(threadId);
-      return thread.upload(file, file.name);
+      return thread.content.upload(file, file.name);
     });
   }
 

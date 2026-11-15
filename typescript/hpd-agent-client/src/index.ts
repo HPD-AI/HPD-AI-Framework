@@ -19,5 +19,16 @@ export type {
   HpdSseAppliedCursor,
   PortableClientToolDefinition,
   PortableClientToolHarness,
+  RequestOptions,
 } from './runtime.js';
 export type { EventDelivery, EventHandlers, EventRoute, ObserveOptions, ThreadKey, ThreadObservation } from './observation.js';
+export { ThreadHistoryProjection } from './projection.js';
+export type {
+  ThreadHistory,
+  ThreadHistoryMessage,
+  ThreadHistoryMessagePersistence,
+  ThreadHistoryMessageSource,
+  ThreadHistoryMessageVisibility,
+  ThreadHistoryToolCall,
+  ThreadHistoryToolCallStatus,
+} from './projection.js';

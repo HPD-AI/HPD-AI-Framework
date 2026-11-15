@@ -139,10 +139,12 @@ class SessionListControllerImpl implements SessionListController {
     request: UpdateSessionRequest,
     options: SessionListUpdateOptions = {},
   ): Promise<SessionDto> {
-    void options.signal;
     this._error = null;
     try {
-      const session = await this.client.api.sessions.updateSession({ sessionId, input: request });
+      const session = (await this.client.sessions.update(
+        sessionId,
+        request,
+        { signal: options.signal })).descriptor;
       this.sessions = this.sessions.map((existing) => existing.id === session.id ? session : existing);
       this.emit();
       return session;
@@ -154,10 +156,9 @@ class SessionListControllerImpl implements SessionListController {
   }
 
   async delete(sessionId: string, options: SessionListDeleteOptions = {}): Promise<void> {
-    void options.signal;
     this._error = null;
     try {
-      await this.client.api.sessions.deleteSession({ sessionId });
+      await this.client.sessions.delete(sessionId, { signal: options.signal });
       this.sessions = this.sessions.filter((session) => session.id !== sessionId);
       if (this._selectedSessionId === sessionId) {
         this._selectedSessionId = options.selectFallback ?? true

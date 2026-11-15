@@ -3,10 +3,16 @@ import {
   ClientToolRegistry,
   createExpandedToolHarness,
   type EventHandlers,
+  type RequestOptions,
+  type ThreadHistory,
 } from '../src/index.js';
 
 declare const client: AgentClient;
-const { thread } = await client.sessions.create({ agentId: 'assistant' });
+declare const signal: AbortSignal;
+const requestOptions: RequestOptions = { signal, timeoutMs: 10_000 };
+const { session, thread } = await client.sessions.create(
+  { agentId: 'assistant' },
+  requestOptions);
 
 const handlers: EventHandlers = {
   TEXT_DELTA: ({ event }) => {
@@ -16,9 +22,9 @@ const handlers: EventHandlers = {
   },
 };
 
-await thread.observe({ handlers });
+await thread.observe({ handlers, ...requestOptions });
 
-const state = await thread.state();
+const state = await thread.state({ ...requestOptions, agentId: 'assistant' });
 const pendingRequest = state.pendingRequests[0]?.request;
 if (pendingRequest) {
   const type: 'CLIENT_TOOL_INVOKE_REQUEST'
@@ -40,7 +46,28 @@ await thread.respond({
   permissionId: 'permission-1',
   sourceName: 'test',
   choiceId: 'allow_once',
-});
+}, requestOptions);
+
+const history: ThreadHistory = await thread.history(requestOptions);
+const firstText: string | undefined = history.messages[0]?.text;
+const appliedGeneration: number = history.appliedCursor.generation;
+
+const content = await thread.content.upload(new Blob(['hello']), 'hello.txt', requestOptions);
+const contentRef = content.toMessageContent('hello.txt');
+await thread.content.list(requestOptions);
+await thread.content.download(content.contentId, requestOptions);
+await thread.content.delete(content.contentId, requestOptions);
+await thread.executions.list({ ...requestOptions, agentId: 'assistant' });
+await thread.contextUsage({ ...requestOptions, agentId: 'assistant' });
+await thread.graph(requestOptions);
+await thread.subagents(requestOptions);
+await thread.update({ name: 'Renamed', description: null, tags: null }, requestOptions);
+await session.update({ metadata: {} }, requestOptions);
+
+await client.agents.list(requestOptions);
+await client.agents.get('assistant', requestOptions);
+await client.evaluations.catalog(requestOptions);
+await client.api.agents.listAgents({}, requestOptions);
 
 const harness = createExpandedToolHarness('test', 'Test tools', [{
   name: 'echo',

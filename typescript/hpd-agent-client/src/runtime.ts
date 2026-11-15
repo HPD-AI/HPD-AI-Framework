@@ -3,6 +3,13 @@ export interface ClientOptions {
   headers?: Record<string, string>;
   maxRetries?: number;
   timeoutMs?: number;
+  abortSignal?: AbortSignal;
+}
+
+export interface RequestOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  headers?: Record<string, string>;
 }
 
 export interface HpdSseAppliedCursor {
@@ -223,6 +230,7 @@ export class HpdTransport {
   private readonly headers: Record<string, string>;
   private readonly maxRetries: number;
   private readonly timeoutMs: number;
+  private readonly abortSignal?: AbortSignal;
 
   public constructor(baseUrl: string, options: ClientOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/+$/, '') + '/';
@@ -230,6 +238,13 @@ export class HpdTransport {
     this.headers = { Accept: 'application/json', ...(options.headers ?? {}) };
     this.maxRetries = Math.max(0, options.maxRetries ?? 3);
     this.timeoutMs = options.timeoutMs ?? 60_000;
+    this.abortSignal = options.abortSignal;
+    if (!Number.isSafeInteger(this.maxRetries) || this.maxRetries > 10) {
+      throw new RangeError('maxRetries must be an integer between zero and ten');
+    }
+    if (!Number.isFinite(this.timeoutMs) || this.timeoutMs <= 0) {
+      throw new RangeError('timeoutMs must be a positive finite number');
+    }
   }
 
   public async requestJson<T>(
@@ -238,10 +253,23 @@ export class HpdTransport {
     query: URLSearchParams,
     body: unknown,
     replaySafe: boolean,
+    options: RequestOptions = {},
   ): Promise<T> {
-    const response = await this.request(method, path, query, body, replaySafe, 'application/json');
-    const text = await response.text();
-    return text.length === 0 ? undefined as T : JSON.parse(text) as T;
+    const lease = await this.request(
+      method,
+      path,
+      query,
+      body,
+      replaySafe,
+      'application/json',
+      options,
+      'json');
+    try {
+      const text = await lease.response.text();
+      return text.length === 0 ? undefined as T : JSON.parse(text) as T;
+    } finally {
+      lease.dispose();
+    }
   }
 
   public async requestMultipart<T>(
@@ -249,13 +277,22 @@ export class HpdTransport {
     path: string,
     query: URLSearchParams,
     body: FormData,
+    options: RequestOptions = {},
   ): Promise<T> {
-    const headers = new Headers(this.headers);
-    headers.set('Accept', 'application/json');
-    headers.delete('Content-Type');
-    const response = await this.fetchImpl(this.url(path, query), { method, headers, body });
-    if (!response.ok) throw await this.apiError(response);
-    return await response.json() as T;
+    const lease = await this.request(
+      method,
+      path,
+      query,
+      body,
+      false,
+      'application/json',
+      options,
+      'form');
+    try {
+      return await lease.response.json() as T;
+    } finally {
+      lease.dispose();
+    }
   }
 
   public async requestBytes(
@@ -264,9 +301,22 @@ export class HpdTransport {
     query: URLSearchParams,
     body: unknown,
     replaySafe: boolean,
+    options: RequestOptions = {},
   ): Promise<ArrayBuffer> {
-    const response = await this.request(method, path, query, body, replaySafe, 'application/octet-stream');
-    return response.arrayBuffer();
+    const lease = await this.request(
+      method,
+      path,
+      query,
+      body,
+      replaySafe,
+      'application/octet-stream',
+      options,
+      'json');
+    try {
+      return await lease.response.arrayBuffer();
+    } finally {
+      lease.dispose();
+    }
   }
 
   public async *streamSse(
@@ -274,25 +324,28 @@ export class HpdTransport {
     path: string,
     query: URLSearchParams,
     lastEventId?: string,
-    options: { signal?: AbortSignal; onConnect?: () => void } = {},
+    options: RequestOptions & { onConnect?: () => void } = {},
   ): AsyncGenerator<HpdSseMessage> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-    const abort = () => controller.abort(options.signal?.reason);
-    options.signal?.addEventListener('abort', abort, { once: true });
-    if (options.signal?.aborted) abort();
+    const requestOptions = {
+      ...options,
+      headers: {
+        ...(options.headers ?? {}),
+        ...(lastEventId ? { 'Last-Event-ID': lastEventId } : {}),
+      },
+    };
+    const lease = await this.request(
+      method,
+      path,
+      query,
+      undefined,
+      true,
+      'text/event-stream',
+      requestOptions,
+      'json');
     try {
-      const headers: Record<string, string> = {
-        ...this.headers,
-        Accept: 'text/event-stream',
-        'Cache-Control': 'no-cache',
-      };
-      if (lastEventId) headers['Last-Event-ID'] = lastEventId;
-      const url = this.url(path, query);
-      const response = await this.fetchImpl(url, { method, headers, signal: controller.signal });
-      if (!response.ok) throw await this.apiError(response);
+      const response = lease.response;
       if (!response.body) throw new HpdStreamError('SSE response has no body');
-      clearTimeout(timeout);
+      lease.clearTimeout();
       options.onConnect?.();
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -341,13 +394,11 @@ export class HpdTransport {
           }
         }
       } finally {
-        controller.abort();
         void reader.cancel().catch(() => {});
         reader.releaseLock();
       }
     } finally {
-      clearTimeout(timeout);
-      options.signal?.removeEventListener('abort', abort);
+      lease.dispose();
     }
   }
 
@@ -358,37 +409,112 @@ export class HpdTransport {
     body: unknown,
     replaySafe: boolean,
     accept: string,
-  ): Promise<Response> {
+    options: RequestOptions,
+    bodyKind: 'json' | 'form',
+  ): Promise<ResponseLease> {
     const idempotent = ['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE'].includes(method);
     const attempts = idempotent || replaySafe ? this.maxRetries + 1 : 1;
-    const headers = {
-      ...this.headers,
-      Accept: accept,
-      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-    };
+    let lastError: unknown;
     for (let attempt = 0; attempt < attempts; attempt++) {
+      const requestSignal = this.createRequestSignal(options);
       try {
+        const headers = new Headers({
+          ...this.headers,
+          ...(options.headers ?? {}),
+          Accept: accept,
+          ...(body !== undefined && bodyKind === 'json' ? { 'Content-Type': 'application/json' } : {}),
+        });
+        if (bodyKind === 'form') headers.delete('Content-Type');
         const response = await this.fetchImpl(this.url(path, query), {
           method,
           headers,
-          body: body === undefined ? undefined : JSON.stringify(body),
+          body: body === undefined ? undefined : bodyKind === 'json' ? JSON.stringify(body) : body as BodyInit,
+          signal: requestSignal.signal,
         });
-        if (response.ok) return response;
+        if (response.ok) return {
+          response,
+          clearTimeout: requestSignal.clearTimeout,
+          dispose: requestSignal.dispose,
+        };
         if (attempt + 1 < attempts && [409, 429, 502, 503, 504].includes(response.status)) {
-          await delay(response.headers.get('Retry-After'), attempt);
+          try {
+            await delay(response.headers.get('Retry-After'), attempt, requestSignal.signal);
+          } finally {
+            requestSignal.dispose();
+          }
           continue;
         }
-        throw await this.apiError(response);
+        const error = await this.apiError(response);
+        requestSignal.dispose();
+        throw error;
       } catch (error) {
         if (error instanceof HpdApiError) throw error;
+        lastError = error;
+        if (requestSignal.signal?.aborted) {
+          requestSignal.dispose();
+          throw requestSignal.signal.reason;
+        }
         if (attempt + 1 < attempts) {
-          await delay(null, attempt);
+          try {
+            await delay(null, attempt, requestSignal.signal);
+          } finally {
+            requestSignal.dispose();
+          }
           continue;
         }
+        requestSignal.dispose();
         throw new HpdApiError(0, 'transport-error', error instanceof Error ? error.message : String(error));
       }
     }
-    throw new HpdApiError(0, 'retry-exhausted', 'request failed');
+    throw new HpdApiError(
+      0,
+      'retry-exhausted',
+      lastError instanceof Error ? lastError.message : 'request failed');
+  }
+
+  private createRequestSignal(options: RequestOptions): RequestSignal {
+    const timeoutMs = options.timeoutMs ?? this.timeoutMs;
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      throw new RangeError('timeoutMs must be a positive finite number');
+    }
+    const signals = [this.abortSignal, options.signal].filter(
+      (signal): signal is AbortSignal => signal !== undefined);
+    const controller = signals.length > 0 || timeoutMs > 0 ? new AbortController() : undefined;
+    if (!controller) {
+      return {
+        signal: undefined,
+        clearTimeout() {},
+        dispose() {},
+      };
+    }
+    const abort = (signal: AbortSignal) => controller.abort(signal.reason);
+    const listeners = new Map<AbortSignal, () => void>();
+    for (const signal of signals) {
+      const listener = () => abort(signal);
+      listeners.set(signal, listener);
+      signal.addEventListener('abort', listener, { once: true });
+      if (signal.aborted) abort(signal);
+    }
+    const timeout = setTimeout(() => controller.abort(abortError(
+      `Request timed out after ${timeoutMs}ms`)), timeoutMs);
+    if (controller.signal.aborted) {
+      clearTimeout(timeout);
+      for (const [signal, listener] of listeners) signal.removeEventListener('abort', listener);
+      throw controller.signal.reason;
+    }
+    let disposed = false;
+    return {
+      signal: controller.signal,
+      clearTimeout() {
+        clearTimeout(timeout);
+      },
+      dispose() {
+        if (disposed) return;
+        disposed = true;
+        clearTimeout(timeout);
+        for (const [signal, listener] of listeners) signal.removeEventListener('abort', listener);
+      },
+    };
   }
 
   private url(path: string, query: URLSearchParams): URL {
@@ -414,10 +540,43 @@ export class HpdTransport {
   }
 }
 
-async function delay(retryAfter: string | null, attempt: number): Promise<void> {
+interface RequestSignal {
+  readonly signal?: AbortSignal;
+  clearTimeout(): void;
+  dispose(): void;
+}
+
+interface ResponseLease {
+  readonly response: Response;
+  clearTimeout(): void;
+  dispose(): void;
+}
+
+function abortError(message: string): Error {
+  const error = new Error(message);
+  error.name = 'AbortError';
+  return error;
+}
+
+async function delay(
+  retryAfter: string | null,
+  attempt: number,
+  signal?: AbortSignal,
+): Promise<void> {
   const seconds = retryAfter ? Number(retryAfter) : Number.NaN;
   const milliseconds = Number.isFinite(seconds)
     ? seconds * 1_000
     : Math.min(250 * 2 ** attempt, 4_000);
-  await new Promise(resolve => setTimeout(resolve, milliseconds));
+  signal?.throwIfAborted();
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    }, milliseconds);
+    const abort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+  });
 }
