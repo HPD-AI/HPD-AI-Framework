@@ -1,3 +1,4 @@
+import { installResources } from './sdk-client-fixture.js';
 import { describe, expect, it, vi } from 'vitest';
 import { EventTypes, type AgentClient, type EventSubscription } from '@hpd-research/hpd-agent-client';
 import { createThreadController } from '../src/index.js';
@@ -47,7 +48,7 @@ function fakeClient(): TestAgentClient {
       for (const handler of handlers) await handler(event);
     },
   };
-  return client as unknown as TestAgentClient;
+  return installResources(client) as unknown as TestAgentClient;
 }
 
 describe('createThreadController', () => {
@@ -94,7 +95,7 @@ describe('createThreadController', () => {
     });
 
     expect(client.run).toHaveBeenCalledWith({
-      type: EventTypes.USER_MESSAGES_INPUT,
+      type: 'USER_MESSAGES_INPUT',
       agentId: 'agent',
       sessionId: 's1',
       threadId: 'main',
@@ -141,7 +142,7 @@ describe('createThreadController', () => {
     });
 
     expect(client.run).toHaveBeenCalledWith({
-      type: EventTypes.USER_MESSAGES_INPUT,
+      type: 'USER_MESSAGES_INPUT',
       agentId: 'agent',
       sessionId: 's1',
       threadId: 'main',
@@ -431,7 +432,7 @@ describe('createThreadController', () => {
     expect(controller.projection.getSnapshot().transcriptMessages.map((message) => message.id)).toEqual(['a1']);
   });
 
-  it('can detach listeners without stopping a caller-owned client', async () => {
+  it('closes only its own thread observation', async () => {
     const client = fakeClient() as AgentClient & {
       __emit(event: unknown): Promise<void>;
     };
@@ -440,7 +441,6 @@ describe('createThreadController', () => {
       agentId: 'agent',
       sessionId: 's1',
       threadId: 'main',
-      stopClientOnDisconnect: false,
     });
 
     await controller.connect();
@@ -456,7 +456,7 @@ describe('createThreadController', () => {
       threadId: 'main',
     });
 
-    expect(client.stop).not.toHaveBeenCalled();
+    expect(client.stop).toHaveBeenCalledOnce();
     expect(controller.projection.getSnapshot().transcriptMessages).toEqual([]);
   });
 });

@@ -1,9 +1,10 @@
+import { installResources } from './sdk-client-fixture.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentClient } from '@hpd-research/hpd-agent-client';
 import { loadThreadSnapshot } from '../src/index.js';
 
 function fakeClient(): AgentClient {
-  return {
+  return installResources({
     getThread: vi.fn(async () => ({ id: 'main', sessionId: 's1' })),
     getThreadState: vi.fn(async () => ({
       observedCursor: { generation: 1, sequenceNumber: 0 },
@@ -20,7 +21,7 @@ function fakeClient(): AgentClient {
       }],
     })),
     getThreadExecutions: vi.fn(async () => []),
-  } as unknown as AgentClient;
+  }) as unknown as AgentClient;
 }
 
 describe('loadThreadSnapshot', () => {

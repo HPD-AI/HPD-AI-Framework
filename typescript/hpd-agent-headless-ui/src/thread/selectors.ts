@@ -1,4 +1,4 @@
-import type { Thread, ThreadRuntimeChild } from '@hpd-research/hpd-agent-client';
+import type { ThreadDto, ThreadRuntimeChildDto } from '@hpd-research/hpd-agent-client';
 import type {
   Message,
   RuntimeRequest,
@@ -34,9 +34,9 @@ export interface BranchChoicePosition {
 }
 
 export interface RuntimeChildGroups {
-  subAgents: ThreadRuntimeChild[];
-  visible: ThreadRuntimeChild[];
-  hidden: ThreadRuntimeChild[];
+  subAgents: ThreadRuntimeChildDto[];
+  visible: ThreadRuntimeChildDto[];
+  hidden: ThreadRuntimeChildDto[];
 }
 
 interface ThreadTimelineMessagePosition {
@@ -313,45 +313,45 @@ export function getThreadBranchChoiceControlLabel(control: ThreadBranchChoiceCon
     : `Fork ${control.position.current} / ${control.position.total}`;
 }
 
-export function isSubAgentThread(thread: Thread | ThreadRuntimeChild | null | undefined): boolean {
-  return thread?.kind === 'SubAgent';
+export function isSubAgentThread(thread: ThreadDto | ThreadRuntimeChildDto | null | undefined): boolean {
+  return thread?.kind === 1;
 }
 
-export function isMainAgentThread(thread: Thread | ThreadRuntimeChild | null | undefined): boolean {
-  return thread?.kind === 'MainAgent';
+export function isMainAgentThread(thread: ThreadDto | ThreadRuntimeChildDto | null | undefined): boolean {
+  return thread?.kind === 0;
 }
 
-export function isHiddenThread(thread: Thread | ThreadRuntimeChild | null | undefined): boolean {
-  return thread?.visibility === 'Hidden';
+export function isHiddenThread(thread: ThreadDto | ThreadRuntimeChildDto | null | undefined): boolean {
+  return thread?.visibility === 1;
 }
 
-export function isVisibleThread(thread: Thread | ThreadRuntimeChild | null | undefined): boolean {
-  return thread?.visibility === 'Visible';
+export function isVisibleThread(thread: ThreadDto | ThreadRuntimeChildDto | null | undefined): boolean {
+  return thread?.visibility === 0;
 }
 
-export function getParentThreadId(thread: Thread | ThreadRuntimeChild | null | undefined): string | null {
+export function getParentThreadId(thread: ThreadDto | ThreadRuntimeChildDto | null | undefined): string | null {
   return thread?.parentThreadId ?? null;
 }
 
-export function getThreadDisplayName(thread: Thread | ThreadRuntimeChild | null | undefined): string {
+export function getThreadDisplayName(thread: ThreadDto | ThreadRuntimeChildDto | null | undefined): string {
   if (!thread) return '';
-  return thread.subAgentTaskName ?? thread.name ?? thread.subAgentName ?? ('id' in thread ? thread.id : thread.threadId);
+  return thread.name ?? thread.subAgentName ?? ('id' in thread ? thread.id : thread.threadId);
 }
 
-export function getThreadKindLabel(thread: Thread | ThreadRuntimeChild | null | undefined): string {
+export function getThreadKindLabel(thread: ThreadDto | ThreadRuntimeChildDto | null | undefined): string {
   if (!thread) return '';
   return isSubAgentThread(thread) ? 'Subagent' : 'Thread';
 }
 
-export function getSubAgentRuntimeChildren(snapshot: ThreadBranchNavigationSnapshot): ThreadRuntimeChild[] {
+export function getSubAgentRuntimeChildren(snapshot: ThreadBranchNavigationSnapshot): ThreadRuntimeChildDto[] {
   return snapshot.runtimeChildren.filter(isSubAgentThread);
 }
 
-export function getVisibleRuntimeChildren(snapshot: ThreadBranchNavigationSnapshot): ThreadRuntimeChild[] {
+export function getVisibleRuntimeChildren(snapshot: ThreadBranchNavigationSnapshot): ThreadRuntimeChildDto[] {
   return snapshot.runtimeChildren.filter(isVisibleThread);
 }
 
-export function getInspectableRuntimeChildren(snapshot: ThreadBranchNavigationSnapshot): ThreadRuntimeChild[] {
+export function getInspectableRuntimeChildren(snapshot: ThreadBranchNavigationSnapshot): ThreadRuntimeChildDto[] {
   return [...snapshot.runtimeChildren];
 }
 

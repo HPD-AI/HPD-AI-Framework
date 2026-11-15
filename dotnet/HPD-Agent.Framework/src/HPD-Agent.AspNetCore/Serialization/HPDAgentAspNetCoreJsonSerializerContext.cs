@@ -32,6 +32,7 @@ namespace HPD.Agent.AspNetCore.Serialization;
 [JsonSerializable(typeof(RuntimeAgentExtensionDescriptor))]
 [JsonSerializable(typeof(RuntimeAgentExtensionSchema))]
 [JsonSerializable(typeof(AgentEventRoute))]
+[JsonSerializable(typeof(ThreadRuntimeStateEnvelope))]
 internal partial class HPDAgentAspNetCoreJsonSerializerContext : JsonSerializerContext
 {
 }

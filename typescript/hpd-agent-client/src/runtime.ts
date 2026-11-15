@@ -1,4 +1,3 @@
-/* eslint-disable */
 export interface ClientOptions {
   fetch?: typeof globalThis.fetch;
   headers?: Record<string, string>;
@@ -41,24 +40,33 @@ export class HpdJournalRebasedError extends HpdStreamError {
 }
 
 export class HpdSseState {
-  public constructor(public cursor: HpdSseAppliedCursor = { generation: 0, sequence: 0 }) {}
+  public constructor(public cursor: HpdSseAppliedCursor = { generation: 1, sequence: 0 }) {}
 
   public apply(message: HpdSseMessage, sequence?: number): 'live' | 'duplicate' | 'committed' {
     if (message.event === 'thread-journal-rebased') {
-      const data = message.data as { previousGeneration?: number; currentGeneration?: number };
-      const previous = Number(data?.previousGeneration ?? 0);
-      const current = Number(data?.currentGeneration ?? 0);
+      const data = message.data as { previousGeneration?: unknown; currentGeneration?: unknown } | null;
+      const previous = data?.previousGeneration;
+      const current = data?.currentGeneration;
+      if (previous !== this.cursor.generation || typeof current !== 'number'
+        || !Number.isSafeInteger(current) || current <= previous) {
+        throw new HpdStreamError('Invalid journal rebase');
+      }
       this.cursor = { generation: current, sequence: 0 };
       throw new HpdJournalRebasedError(previous, current);
     }
     if (!message.id) return 'live';
     const [generationText, sequenceText] = message.id.split(':', 2);
+    if (!/^[1-9]\d*:[1-9]\d*$/.test(message.id)) {
+      throw new HpdStreamError(`invalid event cursor ${message.id}`);
+    }
     const generation = Number(generationText);
     const cursorSequence = Number(sequenceText);
+    if (!Number.isSafeInteger(generation) || !Number.isSafeInteger(cursorSequence)) {
+      throw new HpdStreamError(`invalid event cursor ${message.id}`);
+    }
     if (sequence !== undefined && sequence !== cursorSequence) {
       throw new HpdStreamError(`event sequence ${sequence} did not match cursor ${message.id}`);
     }
-    if (generation === this.cursor.generation && cursorSequence === this.cursor.sequence) return 'duplicate';
     if (generation !== this.cursor.generation) {
       throw new HpdStreamError(`cursor generation ${generation} did not match ${this.cursor.generation}`);
     }
@@ -76,16 +84,45 @@ export interface ClientToolInvocation {
 }
 
 export interface ClientToolResult {
-  outcome: 'Completed' | 'Failed';
+  outcome: 'Completed' | 'AcceptedBackground' | 'Rejected' | 'Failed';
   content?: Array<Record<string, unknown>>;
   errorMessage?: string;
+  clientOperationId?: string;
+  operationKind?: number;
+  operationCapabilities?: number;
+  augmentation?: unknown;
 }
 
+export type ClientToolHandlerResult =
+  | string
+  | unknown
+  | ClientToolResult;
+
 export type ClientToolHandler = (invocation: ClientToolInvocation) =>
-  ClientToolResult | Promise<ClientToolResult>;
+  ClientToolHandlerResult | Promise<ClientToolHandlerResult>;
+
+export interface PortableClientToolDefinition {
+  name: string;
+  description: string;
+  parametersSchema: unknown;
+  defaultPolicy?: unknown;
+  operationContract?: unknown;
+  metadata?: unknown;
+}
+
+export interface PortableClientToolHarness {
+  name: string;
+  description: string;
+  tools: PortableClientToolDefinition[];
+  skills?: unknown[];
+  functionResult?: string;
+  systemPrompt?: string;
+  startCollapsed?: boolean;
+}
 
 export class ClientToolRegistry {
   private readonly handlers = new Map<string, ClientToolHandler>();
+  private readonly harnesses = new Map<string, PortableClientToolHarness>();
   private fallback?: ClientToolHandler;
 
   public register(name: string, handler: ClientToolHandler): this {
@@ -96,6 +133,21 @@ export class ClientToolRegistry {
   public registerFallback(handler: ClientToolHandler): this {
     this.fallback = handler;
     return this;
+  }
+
+  public registerHarness(
+    harness: PortableClientToolHarness,
+    handler?: ClientToolHandler,
+  ): this {
+    this.harnesses.set(harness.name, harness);
+    if (handler) {
+      for (const tool of harness.tools) this.register(tool.name, handler);
+    }
+    return this;
+  }
+
+  public get clientToolHarnesses(): PortableClientToolHarness[] {
+    return [...this.harnesses.values()];
   }
 
   public canHandle(name: string): boolean {
@@ -110,7 +162,11 @@ export class ClientToolRegistry {
     const handler = this.handlers.get(normalizeClientToolName(invocation.toolName)) ?? this.fallback;
     if (!handler) return { outcome: 'Failed', errorMessage: `Unknown client tool: ${invocation.toolName}` };
     try {
-      return await handler(invocation);
+      const result = await handler(invocation);
+      if (typeof result === 'string') return clientToolText(result);
+      if (isClientToolResult(result)) return result;
+      if (Array.isArray(result)) return { outcome: 'Completed', content: result as Array<Record<string, unknown>> };
+      return clientToolJson(result);
     } catch (error) {
       return {
         outcome: 'Failed',
@@ -128,6 +184,37 @@ export function normalizeClientToolName(value: string): string {
 
 export function clientToolText(text: string): ClientToolResult {
   return { outcome: 'Completed', content: [{ type: 'text', text }] };
+}
+
+export function clientToolJson(value: unknown): ClientToolResult {
+  return { outcome: 'Completed', content: [{ type: 'json', value }] };
+}
+
+export function createCollapsedToolHarness(
+  name: string,
+  description: string,
+  tools: PortableClientToolDefinition[],
+  options: Omit<PortableClientToolHarness, 'name' | 'description' | 'tools' | 'startCollapsed'> = {},
+): PortableClientToolHarness {
+  return { name, description, tools, ...options, startCollapsed: true };
+}
+
+export function createExpandedToolHarness(
+  name: string,
+  description: string,
+  tools: PortableClientToolDefinition[],
+  options: Omit<PortableClientToolHarness, 'name' | 'description' | 'tools' | 'startCollapsed'> = {},
+): PortableClientToolHarness {
+  return { name, description, tools, ...options, startCollapsed: false };
+}
+
+function isClientToolResult(value: unknown): value is ClientToolResult {
+  return typeof value === 'object' && value !== null
+    && 'outcome' in value
+    && (value.outcome === 'Completed'
+      || value.outcome === 'AcceptedBackground'
+      || value.outcome === 'Rejected'
+      || value.outcome === 'Failed');
 }
 
 export class HpdTransport {
@@ -157,6 +244,20 @@ export class HpdTransport {
     return text.length === 0 ? undefined as T : JSON.parse(text) as T;
   }
 
+  public async requestMultipart<T>(
+    method: string,
+    path: string,
+    query: URLSearchParams,
+    body: FormData,
+  ): Promise<T> {
+    const headers = new Headers(this.headers);
+    headers.set('Accept', 'application/json');
+    headers.delete('Content-Type');
+    const response = await this.fetchImpl(this.url(path, query), { method, headers, body });
+    if (!response.ok) throw await this.apiError(response);
+    return await response.json() as T;
+  }
+
   public async requestBytes(
     method: string,
     path: string,
@@ -173,9 +274,13 @@ export class HpdTransport {
     path: string,
     query: URLSearchParams,
     lastEventId?: string,
+    options: { signal?: AbortSignal; onConnect?: () => void } = {},
   ): AsyncGenerator<HpdSseMessage> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const abort = () => controller.abort(options.signal?.reason);
+    options.signal?.addEventListener('abort', abort, { once: true });
+    if (options.signal?.aborted) abort();
     try {
       const headers: Record<string, string> = {
         ...this.headers,
@@ -186,7 +291,9 @@ export class HpdTransport {
       const url = this.url(path, query);
       const response = await this.fetchImpl(url, { method, headers, signal: controller.signal });
       if (!response.ok) throw await this.apiError(response);
-      if (!response.body) return;
+      if (!response.body) throw new HpdStreamError('SSE response has no body');
+      clearTimeout(timeout);
+      options.onConnect?.();
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -199,41 +306,48 @@ export class HpdTransport {
         data = [];
         try {
           return { event: eventName, ...(eventId ? { id: eventId } : {}), data: JSON.parse(raw) };
-        } catch {
-          return undefined;
+        } catch (cause) {
+          throw new HpdStreamError('Invalid SSE JSON', { cause });
         } finally {
           eventName = 'message';
           eventId = undefined;
         }
       };
-      while (true) {
-        const { done, value } = await reader.read();
-        buffer += decoder.decode(value, { stream: !done });
-        const lines = buffer.split(/\r?\n/);
-        buffer = lines.pop() ?? '';
-        for (const line of lines) {
-          if (line === '') {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          buffer += decoder.decode(value, { stream: !done });
+          const lines = buffer.split(/\r?\n/);
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            if (line === '') {
+              const message = flush();
+              if (message) yield message;
+            } else if (line.startsWith(':')) {
+              continue;
+            } else {
+              const separator = line.indexOf(':');
+              const field = separator < 0 ? line : line.slice(0, separator);
+              const rawValue = separator < 0 ? '' : line.slice(separator + 1).replace(/^ /, '');
+              if (field === 'event') eventName = rawValue;
+              else if (field === 'id') eventId = rawValue;
+              else if (field === 'data') data.push(rawValue);
+            }
+          }
+          if (done) {
             const message = flush();
             if (message) yield message;
-          } else if (line.startsWith(':')) {
-            continue;
-          } else {
-            const separator = line.indexOf(':');
-            const field = separator < 0 ? line : line.slice(0, separator);
-            const rawValue = separator < 0 ? '' : line.slice(separator + 1).replace(/^ /, '');
-            if (field === 'event') eventName = rawValue;
-            else if (field === 'id') eventId = rawValue;
-            else if (field === 'data') data.push(rawValue);
+            break;
           }
         }
-        if (done) {
-          const message = flush();
-          if (message) yield message;
-          break;
-        }
+      } finally {
+        controller.abort();
+        void reader.cancel().catch(() => {});
+        reader.releaseLock();
       }
     } finally {
       clearTimeout(timeout);
+      options.signal?.removeEventListener('abort', abort);
     }
   }
 

@@ -1,4 +1,4 @@
-import type { Session, SearchSessionsRequest, UpdateSessionRequest } from '@hpd-research/hpd-agent-client';
+import type { SessionDto, SearchSessionsRequest, UpdateSessionRequest } from '@hpd-research/hpd-agent-client';
 import { createSessionListItems } from './selectors.js';
 import type {
   SessionListController,
@@ -24,8 +24,8 @@ class SessionListControllerImpl implements SessionListController {
   private readonly getLabel;
   private readonly getSubtitle;
   private subscribers = new Set<SessionListSubscriber>();
-  private sessions: Session[] = [];
-  private search: SearchSessionsRequest;
+  private sessions: SessionDto[] = [];
+  private search: Partial<SearchSessionsRequest>;
   private _selectedSessionId: string | null;
   private _loading = false;
   private _error: string | null = null;
@@ -88,7 +88,7 @@ class SessionListControllerImpl implements SessionListController {
     this.emit();
 
     try {
-      this.sessions = await this.client.searchSessions(this.search);
+      this.sessions = (await this.client.sessions.search(this.search)).map(session => session.descriptor);
       if (!options.preserveSelection) {
         this.reconcileSelection();
       } else if (this._selectedSessionId && !this.sessions.some((session) => session.id === this._selectedSessionId)) {
@@ -114,14 +114,14 @@ class SessionListControllerImpl implements SessionListController {
     return this.getSnapshot();
   }
 
-  async create(options: SessionListCreateOptions = {}): Promise<Session> {
+  async create(options: SessionListCreateOptions = {}): Promise<SessionDto> {
     const { select = true, signal: _signal, ...request } = options;
     this._loading = true;
     this._error = null;
     this.emit();
 
     try {
-      const session = await this.client.createSession(request);
+      const session = (await this.client.sessions.create(request)).session.descriptor;
       this.sessions = [session, ...this.sessions.filter((existing) => existing.id !== session.id)];
       if (select) this._selectedSessionId = session.id;
       return session;
@@ -138,11 +138,11 @@ class SessionListControllerImpl implements SessionListController {
     sessionId: string,
     request: UpdateSessionRequest,
     options: SessionListUpdateOptions = {},
-  ): Promise<Session> {
+  ): Promise<SessionDto> {
     void options.signal;
     this._error = null;
     try {
-      const session = await this.client.updateSession(sessionId, request);
+      const session = await this.client.api.sessions.updateSession({ sessionId, input: request });
       this.sessions = this.sessions.map((existing) => existing.id === session.id ? session : existing);
       this.emit();
       return session;
@@ -157,7 +157,7 @@ class SessionListControllerImpl implements SessionListController {
     void options.signal;
     this._error = null;
     try {
-      await this.client.deleteSession(sessionId);
+      await this.client.api.sessions.deleteSession({ sessionId });
       this.sessions = this.sessions.filter((session) => session.id !== sessionId);
       if (this._selectedSessionId === sessionId) {
         this._selectedSessionId = options.selectFallback ?? true
@@ -192,7 +192,7 @@ class SessionListControllerImpl implements SessionListController {
   }
 }
 
-function cloneSearch(search: SearchSessionsRequest): SearchSessionsRequest {
+function cloneSearch(search: Partial<SearchSessionsRequest>): Partial<SearchSessionsRequest> {
   return {
     ...search,
     metadata: search.metadata ? { ...search.metadata } : undefined,

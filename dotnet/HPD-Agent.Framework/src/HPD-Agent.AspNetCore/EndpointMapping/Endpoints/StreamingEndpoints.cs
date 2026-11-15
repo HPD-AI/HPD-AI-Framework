@@ -27,6 +27,7 @@ internal static class StreamingEndpoints
         IEndpointRouteBuilder endpoints,
         IAgentStreamingService streaming,
         AgentInputCodec inputCodec,
+        AgentEventCodec eventCodec,
         string endpointName)
     {
         // POST /agents/{agentId}/sessions/{sessionId}/threads/{threadId}/inputs - Submit runtime-owned input
@@ -55,7 +56,8 @@ internal static class StreamingEndpoints
 
         endpoints.MapGet("/agents/{agentId}/sessions/{sessionId}/threads/{threadId}/state",
                 async (string agentId, string sessionId, string threadId, CancellationToken ct) =>
-                    ToValueHttpResult(await streaming.GetThreadStateAsync(RouteValue.Decode(agentId), RouteValue.Decode(sessionId), RouteValue.Decode(threadId), ct)))
+                    ToThreadStateHttpResult(await streaming.GetThreadStateAsync(
+                        RouteValue.Decode(agentId), RouteValue.Decode(sessionId), RouteValue.Decode(threadId), ct), eventCodec))
             .WithHostName(endpointName, "GetAgentThreadRuntimeState")
             .WithSummary("Get one authoritative thread history and active-run snapshot");
 
@@ -238,6 +240,22 @@ internal static class StreamingEndpoints
         return false;
     }
 
+    private static IResult ToThreadStateHttpResult(
+        AgentServiceResult<ThreadRuntimeStateDto> result, AgentEventCodec codec)
+    {
+        if (result.Status != AgentServiceStatus.Success || result.Value is not { } state)
+            return ToValueHttpResult(result);
+
+        var pending = state.PendingRequests.Select(item =>
+        {
+            using var document = JsonDocument.Parse(codec.Serialize(item.Request));
+            return new PendingAgentRequestEnvelope(document.RootElement.Clone(), item.CreatedAt);
+        }).ToArray();
+        return TypedResults.Json(
+            new ThreadRuntimeStateEnvelope(state.ObservedCursor, state.ActiveExecution, pending),
+            HPDAgentAspNetCoreJsonSerializerContext.Default.ThreadRuntimeStateEnvelope);
+    }
+
     private static IResult ToSubmissionHttpResult(AgentServiceResult<InputSubmissionDto> result)
     {
         return result.Status switch
@@ -287,3 +305,10 @@ internal static class StreamingEndpoints
             statusCode: StatusCodes.Status409Conflict);
 
 }
+
+internal sealed record ThreadRuntimeStateEnvelope(
+    ThreadJournalCursor ObservedCursor,
+    ThreadExecutionDto? ActiveExecution,
+    IReadOnlyList<PendingAgentRequestEnvelope> PendingRequests);
+
+internal sealed record PendingAgentRequestEnvelope(JsonElement Request, DateTimeOffset CreatedAt);

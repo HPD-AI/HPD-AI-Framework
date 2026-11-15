@@ -1,4 +1,4 @@
-import type { ClarificationRequestEvent } from '@hpd-research/hpd-agent-client';
+import type { InlineHPDAgentUserQuestionRequestEventQuestionsItem } from '@hpd-research/hpd-agent-client';
 import type { AcpSessionState } from './session.js';
 import type { AcpWriter } from '../acp/writer.js';
 
@@ -16,7 +16,8 @@ import type { AcpWriter } from '../acp/writer.js';
  * instead of starting a new stream. See the routing logic in index.ts.
  */
 export function handleClarificationRequest(
-  event: ClarificationRequestEvent,
+  requestId: string,
+  question: InlineHPDAgentUserQuestionRequestEventQuestionsItem,
   session: AcpSessionState,
   writer: AcpWriter,
 ): Promise<string> {
@@ -24,18 +25,18 @@ export function handleClarificationRequest(
     // Emit the question as a visible agent message with hpd.dev meta extension
     writer.notifySessionUpdate(session.acpSessionId, {
       sessionUpdate: 'agent_message_chunk',
-      content: { type: 'text', text: event.question },
+      content: { type: 'text', text: question.text },
       _meta: {
         'hpd.dev': {
           type: 'clarification_request',
-          requestId: event.requestId,
-          options: event.options ?? [],
+          requestId: requestId,
+          options: question.options ?? [],
         },
       },
     });
 
     session.pendingClarification = {
-      hpdRequestId: event.requestId,
+      hpdRequestId: requestId,
       resolve,
       reject,
     };

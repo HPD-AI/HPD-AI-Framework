@@ -1,4 +1,4 @@
-import type { AgentResponseInput } from '@hpd-research/hpd-agent-client';
+import type { HpdAgentResponseInput as AgentResponseInput } from '@hpd-research/hpd-agent-client';
 import type { RuntimeRequest } from '@hpd-research/hpd-agent-headless-ui';
 import type { ThreadState } from '../thread-state.js';
 import { mergeProps } from '../thread-composer/index.js';

@@ -16,8 +16,8 @@
   } from '@hpd-research/hpd-agent-headless-ui';
   import type {
     AgentClient,
-    Thread,
-    ThreadGraph,
+    ThreadDto as Thread,
+    ThreadGraphDto as ThreadGraph,
   } from '@hpd-research/hpd-agent-client';
 
   type Layout = 'timeline' | 'pager' | 'list' | 'tree';
@@ -58,7 +58,6 @@
     const threads = [
       thread('main', {
         name: 'Original answer',
-        childThreads: ['subagent-1', 'audit-1'],
         totalForks: 2,
       }),
       thread('edit-1', {
@@ -118,23 +117,38 @@
       runtimeChildren: [
         {
           threadId: 'subagent-1',
+          sessionId: 's1',
+          defaultAgentId: 'researcher',
           parentSessionId: 's1',
           parentThreadId: 'main',
           name: 'Research subagent',
-          kind: 'SubAgent',
-          visibility: 'Hidden',
+          kind: 1,
+          visibility: 1,
           subAgentName: 'Researcher',
+          invocationId: 'invocation-1',
+          subAgentSourceKind: null,
+          parentToolCallId: null,
+          contextPolicy: null,
+          status: 'completed',
           messageCount: 6,
           createdAt: '2026-01-01T00:00:00.000Z',
           lastActivity: '2026-01-01T00:00:00.000Z',
         },
         {
           threadId: 'audit-1',
+          sessionId: 's1',
+          defaultAgentId: 'auditor',
           parentSessionId: 's1',
           parentThreadId: 'main',
           name: 'Audit worker',
-          kind: 'MainAgent',
-          visibility: 'Hidden',
+          kind: 0,
+          visibility: 1,
+          subAgentName: null,
+          invocationId: null,
+          subAgentSourceKind: null,
+          parentToolCallId: null,
+          contextPolicy: null,
+          status: 'completed',
           messageCount: 6,
           createdAt: '2026-01-01T00:00:00.000Z',
           lastActivity: '2026-01-01T00:00:00.000Z',
@@ -143,7 +157,11 @@
     };
 
     return {
-      getThreadGraph: async () => graph,
+      api: {
+        threads: {
+          getThreadGraph: async () => graph,
+        },
+      },
     } as unknown as AgentClient;
   }
 
@@ -151,13 +169,19 @@
     return {
       id,
       sessionId: 's1',
+      defaultAgentId: 'agent',
       name: id,
+      description: null,
+      forkedFrom: null,
+      forkedAtMessageId: null,
+      forkedAtMessageIndex: null,
       createdAt: '2026-01-01T00:00:00.000Z',
       lastActivity: '2026-01-01T00:00:00.000Z',
       messageCount: 6,
-      kind: 'MainAgent',
-      visibility: 'Visible',
-      childThreads: [],
+      tags: null,
+      ancestors: null,
+      kind: 0,
+      visibility: 0,
       totalForks: 0,
       ...overrides,
     };

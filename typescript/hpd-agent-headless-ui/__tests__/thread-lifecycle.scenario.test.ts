@@ -1,3 +1,4 @@
+import { installResources } from './sdk-client-fixture.js';
 import { describe, expect, it, vi } from 'vitest';
 import {
   EventTypes,
@@ -23,8 +24,8 @@ function thread(id: string, overrides: Partial<Thread> = {}): Thread {
     createdAt: '2026-01-01T00:00:00.000Z',
     lastActivity: '2026-01-01T00:00:00.000Z',
     messageCount: 1,
-    kind: 'MainAgent',
-    visibility: 'Visible',
+    kind: 0,
+    visibility: 0,
     childThreads: [],
     totalForks: 0,
     ...overrides,
@@ -80,8 +81,8 @@ function fakeClient(): AgentClient & { emit(event: AgentEvent): Promise<void> } 
       parentSessionId: 's1',
       parentThreadId: 'main',
       name: 'Reviewer',
-      kind: 'SubAgent',
-      visibility: 'Hidden',
+      kind: 1,
+      visibility: 1,
       subAgentName: 'Reviewer',
       messageCount: 1,
       createdAt: '2026-01-01T00:00:00.000Z',
@@ -165,7 +166,7 @@ function fakeClient(): AgentClient & { emit(event: AgentEvent): Promise<void> } 
     },
   };
 
-  return client as unknown as AgentClient & { emit(event: AgentEvent): Promise<void> };
+  return installResources(client) as unknown as AgentClient & { emit(event: AgentEvent): Promise<void> };
 }
 
 describe('thread lifecycle scenario', () => {
@@ -257,7 +258,7 @@ describe('thread lifecycle scenario', () => {
     });
 
     await client.emit({
-      type: EventTypes.PERMISSION_RESOLVED,
+      type: 'PERMISSION_RESPONSE',
       permissionId: 'p1',
       agentId: 'agent', domain: 'ToolExecution', decisionKind: 'Allow', decisionSource: 'UserDecision',
       sessionId: 's1',

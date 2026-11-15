@@ -12,6 +12,14 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="../../../../typescript/hpd-agent-client/src/*.ts"
+                      LogicalName="SdkSource.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="../../../../typescript/hpd-agent-client/test/client.test.mjs"
+                      LogicalName="SdkSource.client.test.mjs" />
+    <EmbeddedResource Include="../../../../typescript/hpd-agent-client/test/types.ts"
+                      LogicalName="SdkSource.types.ts" />
+    <EmbeddedResource Include="../../../../typescript/hpd-agent-client/test/tsconfig.json"
+                      LogicalName="SdkSource.tsconfig.json" />
     <ProjectReference Include="../HPD-Agent.SDK.Contract/HPD-Agent.SDK.Contract.csproj" />
   </ItemGroup>
 </Project>

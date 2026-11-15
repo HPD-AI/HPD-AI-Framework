@@ -1,3 +1,4 @@
+import type { Execution } from '@hpd-research/hpd-agent-client';
 import type { RequestId } from '../types/acp.js';
 
 export type PendingResolver<T> = (value: T) => void;
@@ -32,6 +33,7 @@ export interface AcpSessionState {
    * Aborted when session/cancel arrives.
    */
   streamAbort: AbortController | null;
+  execution?: Execution;
 
   /**
    * Pending permission resolvers keyed by HPD permissionId.

@@ -1,3 +1,4 @@
+import { installResources } from './sdk-client-fixture.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentClient, Session } from '@hpd-research/hpd-agent-client';
 import {
@@ -19,7 +20,7 @@ function session(id: string, metadata: Record<string, unknown> = {}): Session {
 
 function fakeClient(sessions: Session[]): AgentClient {
   let current = [...sessions];
-  return {
+  return installResources({
     searchSessions: vi.fn(async (request = {}) => {
       const filter = request.metadata ?? {};
       return current.filter((item) =>
@@ -45,7 +46,7 @@ function fakeClient(sessions: Session[]): AgentClient {
     deleteSession: vi.fn(async (sessionId) => {
       current = current.filter((item) => item.id !== sessionId);
     }),
-  } as unknown as AgentClient;
+  }) as unknown as AgentClient;
 }
 
 describe('createSessionListController', () => {

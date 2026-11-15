@@ -1,7 +1,7 @@
 import type { Snippet } from 'svelte';
 import type { Attachment } from 'svelte/attachments';
 import type { SvelteHTMLElements } from 'svelte/elements';
-import type { AIContent } from '@hpd-research/hpd-agent-client';
+import type { AIContent } from '@hpd-research/hpd-agent-headless-ui';
 import type { TextSubmissionState } from '@hpd-research/hpd-agent-headless-ui';
 import type { ThreadState } from '../thread-state.js';
 import type { ThreadQuote } from '../selection-toolbar/index.js';

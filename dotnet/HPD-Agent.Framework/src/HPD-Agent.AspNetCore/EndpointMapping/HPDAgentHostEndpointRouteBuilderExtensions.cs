@@ -210,6 +210,7 @@ public static class HPDAgentHostEndpointRouteBuilderExtensions
                 new HPD.Agent.Serialization.AgentInputCodec(
                     endpoints.ServiceProvider.GetRequiredService<HPD.Agent.Providers.ProviderComposition>(),
                     inputComposition),
+                eventComposition.Codec,
                 endpointName);
         if (options.MapMiddlewareResponses)
             MiddlewareResponseEndpoints.Map(

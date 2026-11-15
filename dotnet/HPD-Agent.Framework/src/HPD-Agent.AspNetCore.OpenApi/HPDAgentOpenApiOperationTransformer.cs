@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.OpenApi;
+using System.Text.Json.Schema;
 using System.Text.Json.Nodes;
 
 namespace HPD.Agent.AspNetCore.OpenApi;
@@ -61,6 +62,28 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
                 await DescribeTypedResponseAsync<ThreadRuntimeStateDto>(
                         operation, context, "200", "Authoritative thread state snapshot.", cancellationToken)
                     .ConfigureAwait(false);
+                if (operation.Responses?["200"].Content?["application/json"].Schema is { } stateSchema
+                    && ResolveSchema(context, stateSchema) is { } resolvedState)
+                {
+                    if (resolvedState.Properties?.TryGetValue("activeExecution", out var active) == true
+                        && ResolveSchema(context, active)?.Type?.HasFlag(JsonSchemaType.Null) == true)
+                    {
+                        resolvedState.Required?.Remove("activeExecution");
+                    }
+                    if (resolvedState.Properties?.TryGetValue("pendingRequests", out var pending) == true
+                        && ResolveSchema(context, pending)?.Items is { } item
+                        && ResolveSchema(context, item)?.Properties is { } requestProperties)
+                    {
+                        var requests = ResolveEventComposition(context.ApplicationServices).Fragments
+                            .SelectMany(static fragment => fragment.Events)
+                            .Where(static descriptor => typeof(IAgentRequestEvent).IsAssignableFrom(descriptor.EventType))
+                            .OrderBy(static descriptor => descriptor.Discriminator, StringComparer.Ordinal)
+                            .ToArray();
+                        if (requests.Length > 0)
+                            requestProperties["request"] = await CreateAgentEventUnionAsync(context, requests, cancellationToken)
+                                .ConfigureAwait(false);
+                    }
+                }
                 await AddCommonErrorsAsync(operation, context, includeNotFound: true, includeConflict: true, cancellationToken: cancellationToken)
                     .ConfigureAwait(false);
                 break;
@@ -581,6 +604,7 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
                 };
                 resolved.Required ??= new HashSet<string>();
                 resolved.Required.Add("type");
+                OmitNullEventProperties(context, resolved, new HashSet<OpenApiSchema>(ReferenceEqualityComparer.Instance));
                 ComponentizeProperty(
                     context,
                     resolved,
@@ -611,6 +635,35 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
         };
     }
 
+    private static void OmitNullEventProperties(
+        OpenApiOperationTransformerContext context,
+        IOpenApiSchema candidate,
+        HashSet<OpenApiSchema> visited)
+    {
+        if (ResolveSchema(context, candidate) is not { } schema || !visited.Add(schema))
+            return;
+
+        // The event codec omits nulls throughout the payload, including properties
+        // the schema exporter marked required from nullable constructor parameters.
+        if (schema.Properties is { } properties)
+        {
+            foreach (var (name, property) in properties)
+            {
+                var resolved = ResolveSchema(context, property);
+                if (resolved?.Type?.HasFlag(JsonSchemaType.Null) == true
+                    || resolved?.Enum?.Contains(null!) == true)
+                    schema.Required?.Remove(name);
+                OmitNullEventProperties(context, property, visited);
+            }
+        }
+        if (schema.Items is { } items)
+            OmitNullEventProperties(context, items, visited);
+        if (schema.AdditionalProperties is { } additional)
+            OmitNullEventProperties(context, additional, visited);
+        foreach (var branch in (schema.AllOf ?? []).Concat(schema.AnyOf ?? []).Concat(schema.OneOf ?? []))
+            OmitNullEventProperties(context, branch, visited);
+    }
+
     private static async Task<OpenApiSchema> CreateEnvelopeUnionAsync(
         OpenApiOperationTransformerContext context,
         IReadOnlyList<(Type Type, string Discriminator)> variants,
@@ -633,11 +686,14 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
                 };
                 resolved.Required ??= new HashSet<string>();
                 resolved.Required.Add("type");
-                ComponentizeProperty(
-                    context,
-                    resolved,
-                    "runConfig",
-                    nameof(HPD.Agent.AgentRunConfig));
+                if (resolved.Properties.ContainsKey("runConfig"))
+                {
+                    // Use the portable serializer metadata. The HTTP converter is
+                    // opaque to the framework's default OpenAPI schema exporter.
+                    var schema = HPDJsonContext.Default.AgentRunConfig.GetJsonSchemaAsNode();
+                    resolved.Properties["runConfig"] = RegisterComponent(
+                        context, nameof(HPD.Agent.AgentRunConfig), PortableConfigSchema(schema));
+                }
                 ComponentizeProperty(
                     context,
                     resolved,
@@ -651,6 +707,34 @@ internal sealed class HPDAgentOpenApiOperationTransformer : IOpenApiOperationTra
         }
 
         return new OpenApiSchema { OneOf = branches };
+    }
+
+    private static OpenApiSchema PortableConfigSchema(JsonNode? node)
+    {
+        if (node is not JsonObject value)
+            return new OpenApiSchema();
+
+        var schema = new OpenApiSchema();
+        var types = value["type"] is JsonArray array ? array : new JsonArray(value["type"]?.DeepClone());
+        foreach (var type in types)
+        {
+            if (Enum.TryParse<JsonSchemaType>(type?.GetValue<string>(), ignoreCase: true, out var kind))
+                schema.Type = (schema.Type ?? 0) | kind;
+        }
+        if (value["properties"] is JsonObject properties)
+            schema.Properties = properties.ToDictionary(property => property.Key,
+                property => (IOpenApiSchema)PortableConfigSchema(property.Value));
+        if (value["required"] is JsonArray required)
+            schema.Required = required.Select(property => property!.GetValue<string>()).ToHashSet(StringComparer.Ordinal);
+        if (value["items"] is { } items)
+            schema.Items = PortableConfigSchema(items);
+        if (value["additionalProperties"] is JsonObject additional)
+            schema.AdditionalProperties = PortableConfigSchema(additional);
+        if (value["enum"] is JsonArray values)
+            schema.Enum = values.Where(item => item is not null).Select(item => item!.DeepClone()).ToList();
+        if (value["anyOf"] is JsonArray variants)
+            schema.AnyOf = variants.Select(item => (IOpenApiSchema)PortableConfigSchema(item)).ToList();
+        return schema;
     }
 
     private static void ComponentizeProperty(

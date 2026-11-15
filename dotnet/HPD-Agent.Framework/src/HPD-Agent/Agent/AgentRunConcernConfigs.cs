@@ -26,7 +26,6 @@ public sealed class AgentToolsRunConfig
     public IReadOnlyList<AIFunction>? Additional { get; set; }
 
     /// <summary>Gets or sets client tool input for this run.</summary>
-    [JsonIgnore]
     public ClientTools.AgentClientInput? ClientInput { get; set; }
 
     /// <summary>Gets or sets connected client-app providers selected for this run.</summary>

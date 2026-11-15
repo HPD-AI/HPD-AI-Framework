@@ -1,3 +1,4 @@
+import { installResources } from './sdk-client-fixture.js';
 import { describe, expect, it, vi } from 'vitest';
 import {
   EventTypes,
@@ -20,8 +21,8 @@ function thread(id: string): Thread {
     createdAt: '2026-01-01T00:00:00.000Z',
     lastActivity: '2026-01-01T00:00:00.000Z',
     messageCount: 1,
-    kind: 'MainAgent',
-    visibility: 'Visible',
+    kind: 0,
+    visibility: 0,
     childThreads: [],
     totalForks: 0,
   };
@@ -91,7 +92,7 @@ function fakeClient(): AgentClient & { emit(event: AgentEvent): Promise<void> } 
     },
   };
 
-  return client as unknown as AgentClient & { emit(event: AgentEvent): Promise<void> };
+  return installResources(client) as unknown as AgentClient & { emit(event: AgentEvent): Promise<void> };
 }
 
 describe('createThreadState', () => {
@@ -165,7 +166,7 @@ describe('createThreadState', () => {
     await state.sendMessage({ contents: [{ $type: 'text', text: 'hello' }] });
 
     expect(client.run).toHaveBeenCalledWith({
-      type: EventTypes.USER_MESSAGES_INPUT,
+      type: 'USER_MESSAGES_INPUT',
       agentId: 'agent',
       sessionId: 's1',
       threadId: 'main',

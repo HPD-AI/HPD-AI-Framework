@@ -1,7 +1,7 @@
+import { installResources } from './sdk-client-fixture.js';
 import { describe, expect, it, vi } from 'vitest';
 import {
   EventTypes,
-  mapThreadMessages,
   type AgentClient,
   type Thread,
   type ThreadMessage,
@@ -27,8 +27,8 @@ function thread(id: string): Thread {
     createdAt: '2026-01-01T00:00:00.000Z',
     lastActivity: '2026-01-01T00:00:00.000Z',
     messageCount: 1,
-    kind: 'MainAgent',
-    visibility: 'Visible',
+    kind: 0,
+    visibility: 0,
     childThreads: [],
     totalForks: 0,
   };
@@ -84,7 +84,7 @@ function fakeClient(messages: ThreadMessage[] = transcript()): AgentClient {
     run: vi.fn(async () => undefined),
   };
 
-  return client as unknown as AgentClient;
+  return installResources(client) as unknown as AgentClient;
 }
 
 function transcript(): ThreadMessage[] {
@@ -104,8 +104,9 @@ function createState(client: AgentClient, callbacks: {
     agentId: 'agent',
     sessionId: 's1',
     threadId: 'main',
-    loadMessages: async () => mapThreadMessages(
-      await (client as unknown as { getThreadMessages(): Promise<ThreadMessage[]> }).getThreadMessages()),
+    loadMessages: async () => (await (client as unknown as { getThreadMessages(): Promise<ThreadMessage[]> }).getThreadMessages()).map(message => ({
+      ...message, text: message.contents.filter(content => content.$type === 'text').map(content => content.text).join(''), toolCalls: [],
+    })),
     ...callbacks,
   });
 }
@@ -135,7 +136,7 @@ describe('createThreadRevisionState', () => {
     )).toBe(true);
     expect(onRevisionCreated).toHaveBeenCalledWith(result);
     expect(client.run).toHaveBeenCalledWith({
-      type: EventTypes.USER_MESSAGES_INPUT,
+      type: 'USER_MESSAGES_INPUT',
       agentId: 'agent',
       sessionId: 's1',
       threadId: 'fork-1',
@@ -173,7 +174,7 @@ describe('createThreadRevisionState', () => {
       },
     });
     expect(client.run).toHaveBeenCalledWith(expect.objectContaining({
-      type: EventTypes.USER_MESSAGES_INPUT,
+      type: 'USER_MESSAGES_INPUT',
       threadId: 'fork-1',
       messages: [{
         role: 'user',

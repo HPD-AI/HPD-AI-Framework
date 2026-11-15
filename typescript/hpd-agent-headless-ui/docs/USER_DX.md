@@ -56,7 +56,6 @@ import {
 
 const client = new AgentClient({
   baseUrl: 'http://localhost:5000',
-  transport: 'sse',
 });
 
 const thread = createThreadController({
@@ -104,7 +103,8 @@ await revisions.forkAndEditMessage('user-message-id', 'Replacement prompt');
 
 Retry resends the same resolved user message and can target a user or assistant
 message. Edit sends replacement text and is intentionally user-message only.
-Both operations use the client `forkThread` and `run` primitives.
+Both operations use the generated thread-fork and agent-input APIs through the
+SDK client.
 
 `start()` is explicit composition:
 
@@ -541,26 +541,14 @@ durable outcome.
 
 ## Connection Ownership
 
-By default, a controller assumes it owns a dedicated `AgentClient` connection.
+Each controller owns its thread observation while sharing the `AgentClient`.
 
 ```ts
 await thread.disconnect();
 ```
 
-If a caller owns a shared client, opt out of stopping the client:
-
-```ts
-const thread = createThreadController({
-  client,
-  agentId,
-  sessionId,
-  threadId,
-  stopClientOnDisconnect: false,
-});
-```
-
-Then `disconnect()` detaches this controller's listeners without stopping the
-shared transport.
+`disconnect()` closes this controller's observation and leaves the client
+available for other sessions and threads.
 
 ## Strict Scope Defaults
 

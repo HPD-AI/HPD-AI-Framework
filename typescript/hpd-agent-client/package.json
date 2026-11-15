@@ -17,6 +17,8 @@
     "clean": "rm -rf dist",
     "build": "npm run clean && tsc",
     "check": "npm run build",
+    "test": "npm run build && node --test",
+    "type-test": "tsc -p test/tsconfig.json",
     "conformance": "node conformance.mjs",
     "prepublishOnly": "npm run build"
   },

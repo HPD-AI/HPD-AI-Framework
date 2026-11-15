@@ -40,6 +40,7 @@ import type {
   AgentOperationRetentionPolicy,
   AgentProviderBackendProfile,
   AgentProviderFamilyDefault,
+  AgentRunConfig,
   AgentShutdownOptions,
   AgentSummaryDto,
   AgenticLoopConfig,
@@ -124,7 +125,6 @@ import type {
   HPDAgentAgentOperationNotificationQueuedEvent,
   HPDAgentAgentOperationNotificationSuppressedEvent,
   HPDAgentAgentOperationRegisteredEvent,
-  HPDAgentAgentOperationTombstoneEvictedEvent,
   HPDAgentAgentOperationTombstonedEvent,
   HPDAgentAgentOperationTransitionedEvent,
   HPDAgentAgentRequestTerminatedEvent,
@@ -270,6 +270,96 @@ import type {
   HttpValidationProblemDetails,
   ImageGenerationClientConfig,
   ImageSizeRunConfig,
+  InlineAgentRunConfigAudio,
+  InlineAgentRunConfigAudioPacing,
+  InlineAgentRunConfigAudioPacingBoundaries,
+  InlineAgentRunConfigAudioPacingContinuation,
+  InlineAgentRunConfigAudioPacingFiltering,
+  InlineAgentRunConfigAudioPacingFirst,
+  InlineAgentRunConfigBackgroundResponses,
+  InlineAgentRunConfigClients,
+  InlineAgentRunConfigClientsChat,
+  InlineAgentRunConfigClientsChatProvider,
+  InlineAgentRunConfigClientsChatProviderAuthenticationAnyOf0,
+  InlineAgentRunConfigClientsChatProviderAuthenticationAnyOf1,
+  InlineAgentRunConfigClientsChatProviderAuthenticationAnyOf2,
+  InlineAgentRunConfigClientsChatProviderAuthenticationAnyOf3,
+  InlineAgentRunConfigClientsChatReasoning,
+  InlineAgentRunConfigClientsEmbeddings,
+  InlineAgentRunConfigClientsEmbeddingsProvider,
+  InlineAgentRunConfigClientsEndOfTurn,
+  InlineAgentRunConfigClientsEndOfTurnProvider,
+  InlineAgentRunConfigClientsHostedFiles,
+  InlineAgentRunConfigClientsHostedFilesProvider,
+  InlineAgentRunConfigClientsImageGeneration,
+  InlineAgentRunConfigClientsImageGenerationImageSize,
+  InlineAgentRunConfigClientsImageGenerationProvider,
+  InlineAgentRunConfigClientsRealtime,
+  InlineAgentRunConfigClientsRealtimeOutputAudioFormat,
+  InlineAgentRunConfigClientsRealtimeProvider,
+  InlineAgentRunConfigClientsRealtimeTranscription,
+  InlineAgentRunConfigClientsSpeechToText,
+  InlineAgentRunConfigClientsSpeechToTextProvider,
+  InlineAgentRunConfigClientsTextToSpeech,
+  InlineAgentRunConfigClientsTextToSpeechProvider,
+  InlineAgentRunConfigClientsVoiceActivity,
+  InlineAgentRunConfigClientsVoiceActivityProvider,
+  InlineAgentRunConfigCollapsing,
+  InlineAgentRunConfigCompaction,
+  InlineAgentRunConfigCompactionAutomatic,
+  InlineAgentRunConfigCompactionAutomaticCompaction,
+  InlineAgentRunConfigCompactionAutomaticCompactionPointAnyOf0,
+  InlineAgentRunConfigCompactionAutomaticCompactionPointAnyOf1,
+  InlineAgentRunConfigCompactionAutomaticCompactionPointAnyOf2,
+  InlineAgentRunConfigCompactionAutomaticCompactionPreservationAnyOf0,
+  InlineAgentRunConfigCompactionAutomaticCompactionPreservationAnyOf1,
+  InlineAgentRunConfigCompactionAutomaticCompactionPreservationAnyOf2,
+  InlineAgentRunConfigCompactionAutomaticCompactionPreservationAnyOf2LimitAnyOf0,
+  InlineAgentRunConfigCompactionAutomaticCompactionPreservationAnyOf2LimitAnyOf1,
+  InlineAgentRunConfigCompactionAutomaticCompactionStrategyAnyOf0,
+  InlineAgentRunConfigCompactionAutomaticCompactionStrategyAnyOf1,
+  InlineAgentRunConfigCompactionAutomaticCompactionStrategyAnyOf1Evidence,
+  InlineAgentRunConfigCompactionAutomaticCompactionStrategyAnyOf1Summarizer,
+  InlineAgentRunConfigCompactionAutomaticTriggerAnyOf0,
+  InlineAgentRunConfigCompactionAutomaticTriggerAnyOf1,
+  InlineAgentRunConfigCompactionAutomaticTriggerAnyOf2,
+  InlineAgentRunConfigContext,
+  InlineAgentRunConfigGoals,
+  InlineAgentRunConfigGoalsPolicies,
+  InlineAgentRunConfigHarnessesItem,
+  InlineAgentRunConfigSecurity,
+  InlineAgentRunConfigSecurityPermissionOverridesItem,
+  InlineAgentRunConfigSecurityPermissionOverridesItemSelector,
+  InlineAgentRunConfigSecuritySandbox,
+  InlineAgentRunConfigSecuritySandboxCapabilities,
+  InlineAgentRunConfigSecuritySandboxCapabilitiesFilesystemItem,
+  InlineAgentRunConfigSecuritySandboxCapabilitiesInteractive,
+  InlineAgentRunConfigSecuritySandboxCapabilitiesNetwork,
+  InlineAgentRunConfigSecuritySandboxCapabilitiesNetworkAllowedDomainsItem,
+  InlineAgentRunConfigSecuritySandboxCapabilitiesNetworkParentProxy,
+  InlineAgentRunConfigSecuritySandboxCapabilitiesNetworkParentProxyCredential,
+  InlineAgentRunConfigSecuritySandboxCapabilitiesNetworkRequestFilter,
+  InlineAgentRunConfigSecuritySandboxCapabilitiesNetworkRequestFilterProviderRuleSet,
+  InlineAgentRunConfigSecuritySandboxCapabilitiesNetworkRequestFilterProviderRuleSetContentType,
+  InlineAgentRunConfigSecuritySandboxCapabilitiesNetworkRequestFilterProviderRuleSetProviderId,
+  InlineAgentRunConfigSecuritySandboxCapabilitiesNetworkRequestFilterProviderRuleSetSchemaId,
+  InlineAgentRunConfigStreaming,
+  InlineAgentRunConfigStructuredOutput,
+  InlineAgentRunConfigSystemInstructions,
+  InlineAgentRunConfigToolOutputs,
+  InlineAgentRunConfigToolOutputsRetrievalLimits,
+  InlineAgentRunConfigTools,
+  InlineAgentRunConfigToolsClientInput,
+  InlineAgentRunConfigToolsClientInputClientToolHarnessesItem,
+  InlineAgentRunConfigToolsClientInputClientToolHarnessesItemSkillsItem,
+  InlineAgentRunConfigToolsClientInputClientToolHarnessesItemSkillsItemReferencesItem,
+  InlineAgentRunConfigToolsClientInputClientToolHarnessesItemToolsItem,
+  InlineAgentRunConfigToolsClientInputClientToolHarnessesItemToolsItemDefaultPolicy,
+  InlineAgentRunConfigToolsClientInputClientToolHarnessesItemToolsItemDefaultPolicyOperationNotification,
+  InlineAgentRunConfigToolsClientInputClientToolHarnessesItemToolsItemDefaultPolicyPermission,
+  InlineAgentRunConfigToolsClientInputClientToolHarnessesItemToolsItemOperationContract,
+  InlineAgentRunConfigToolsClientInputClientToolHarnessesItemToolsItemOperationContractActionsAdditionalProperty,
+  InlineAgentRunConfigToolsClientInputContextItem,
   InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdContextUsagePostRequestApplicationJson,
   InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdContextUsagePostResponse200ApplicationJson,
   InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdContextUsagePostResponse400ApplicationProblemJson,
@@ -342,8 +432,6 @@ import type {
   InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJsonActiveExecutionOperationsItem,
   InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJsonObservedCursor,
   InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJsonPendingRequestsItem,
-  InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJsonPendingRequestsItemRequest,
-  InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse200ApplicationJsonPendingRequestsItemRequestMetadata,
   InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse404ApplicationProblemJson,
   InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse409ApplicationProblemJson,
   InlineAgentsAgentIdSessionsSessionIdThreadsThreadIdStateGetResponse500ApplicationProblemJson,
@@ -2131,6 +2219,20 @@ import type {
   InlineSubAgentRunConfigSystemInstructions,
   InlineSubAgentRunConfigToolOutputs,
   InlineSubAgentRunConfigToolOutputsRetrievalLimits,
+  InlineSubAgentRunConfigTools,
+  InlineSubAgentRunConfigToolsClientInput,
+  InlineSubAgentRunConfigToolsClientInputClientToolHarnessesItem,
+  InlineSubAgentRunConfigToolsClientInputClientToolHarnessesItemSkillsItem,
+  InlineSubAgentRunConfigToolsClientInputClientToolHarnessesItemSkillsItemReferencesItem,
+  InlineSubAgentRunConfigToolsClientInputClientToolHarnessesItemToolsItem,
+  InlineSubAgentRunConfigToolsClientInputClientToolHarnessesItemToolsItemDefaultPolicy,
+  InlineSubAgentRunConfigToolsClientInputClientToolHarnessesItemToolsItemDefaultPolicyOperationNotification,
+  InlineSubAgentRunConfigToolsClientInputClientToolHarnessesItemToolsItemDefaultPolicyPermission,
+  InlineSubAgentRunConfigToolsClientInputClientToolHarnessesItemToolsItemOperationContract,
+  InlineSubAgentRunConfigToolsClientInputClientToolHarnessesItemToolsItemOperationContractActionsAdditionalProperty,
+  InlineSubAgentRunConfigToolsClientInputClientToolHarnessesItemToolsItemOperationContractActionsAdditionalPropertyOperationNotification,
+  InlineSubAgentRunConfigToolsClientInputClientToolHarnessesItemToolsItemOperationContractActionsAdditionalPropertyPermission,
+  InlineSubAgentRunConfigToolsClientInputContextItem,
   InlineUpdateSessionRequestMetadata,
   InputMediaPolicy,
   JudgeCallRecord,
@@ -2224,6 +2326,7 @@ import type {
   VoiceActivityClientConfig,
   WriteScoreRequest
 } from './models.js';
+import type { HpdAgentInputEvent, HpdAgentResponseInput } from './events.js';
 import { HpdTransport, type ClientOptions, type HpdSseMessage } from '../runtime.js';
 
 export type AgentEventsServiceGetAgentEventCatalogArgs = {
@@ -2236,6 +2339,8 @@ export type AgentEventsServiceObserveLiveEventsWithSseArgs = {
   after?: string | null;
   hierarchy?: string | null;
   lastEventId?: string;
+  signal?: AbortSignal;
+  onConnect?: () => void;
 };
 
 export class AgentEventsService {
@@ -2256,7 +2361,7 @@ export class AgentEventsService {
     if (args.hierarchy !== undefined) {
       query.set("hierarchy", String(args.hierarchy));
     }
-    yield* this.transport.streamSse('GET', path, query, args.lastEventId);
+    yield* this.transport.streamSse('GET', path, query, args.lastEventId, args);
   }
 
 }
@@ -2279,7 +2384,7 @@ export type AgentInteractionsServiceRespondToAgentRequestArgs = {
   agentId: string;
   sessionId: string;
   threadId: string;
-  input: unknown;
+  input: HpdAgentResponseInput & { version: '1.0' };
 };
 
 export class AgentInteractionsService {
@@ -2313,7 +2418,7 @@ export type AgentRuntimeServiceSubmitAgentInputArgs = {
   agentId: string;
   sessionId: string;
   threadId: string;
-  input: unknown;
+  input: HpdAgentInputEvent & { version: '1.0' };
 };
 
 export type AgentRuntimeServiceSubmitControlledSubAgentInputArgs = {
@@ -2324,7 +2429,7 @@ export type AgentRuntimeServiceSubmitControlledSubAgentInputArgs = {
   childAgentId: string;
   childSessionId: string;
   childThreadId: string;
-  input: unknown;
+  input: HPDAgentAgentOperationNotificationInputEvent | HPDAgentAudioSessionInputEvent | HPDAgentClientToolsClientToolOperationOutcomeEvent | HPDAgentCompactThreadInputEvent | HPDAgentGoalsCreateGoalInputEvent | HPDAgentRuntimeAgentInputEvent | HPDAgentUserMessagesInputEvent;
 };
 
 export class AgentRuntimeService {
@@ -2489,7 +2594,7 @@ export type ContentServiceListContentArgs = {
 export type ContentServiceUploadContentArgs = {
   sessionId: string;
   threadId: string;
-  input: InlineSessionsSessionIdThreadsThreadIdContentPostRequestMultipartFormData;
+  input: FormData;
 };
 
 export class ContentService {
@@ -2513,8 +2618,10 @@ export class ContentService {
     return this.transport.requestJson<Array<ContentDto>>('GET', path, query, undefined, false);
   }
 
-  public async uploadContent(args: ContentServiceUploadContentArgs): Promise<never> {
-    throw new Error('Multipart upload is not supported by this generated TypeScript target yet.');
+  public async uploadContent(args: ContentServiceUploadContentArgs): Promise<ContentDto> {
+    const path = `/sessions/${encodeURIComponent(String(args.sessionId))}/threads/${encodeURIComponent(String(args.threadId))}/content`;
+    const query = new URLSearchParams();
+    return this.transport.requestMultipart<ContentDto>('POST', path, query, args.input);
   }
 
 }
@@ -3122,7 +3229,7 @@ export class RuntimeExtensionsService {
 }
 
 export type SessionsServiceCreateSessionArgs = {
-  input?: unknown;
+  input?: null | CreateSessionRequest | null;
 };
 
 export type SessionsServiceDeleteSessionArgs = {
@@ -3137,7 +3244,7 @@ export type SessionsServiceListSessionsArgs = {
 };
 
 export type SessionsServiceSearchSessionsArgs = {
-  input?: unknown;
+  input?: null | SearchSessionsRequest | null;
 };
 
 export type SessionsServiceUpdateSessionArgs = {

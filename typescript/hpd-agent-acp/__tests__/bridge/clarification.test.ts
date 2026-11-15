@@ -14,7 +14,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { PassThrough } from 'node:stream';
-import { handleClarificationRequest, tryResolveClarification } from '../../src/bridge/clarification.js';
+import { handleClarificationRequest as handleQuestion, tryResolveClarification } from '../../src/bridge/clarification.js';
 import { AcpWriter } from '../../src/acp/writer.js';
 import { SessionRegistry } from '../../src/bridge/session.js';
 
@@ -40,6 +40,18 @@ function makeClarificationEvent(overrides?: Partial<{ question: string; requestI
     options: overrides?.options ?? ['Option A', 'Option B'],
     version: '1.0',
   };
+}
+
+function handleClarificationRequest(
+  event: ReturnType<typeof makeClarificationEvent>,
+  session: ReturnType<typeof makeSession>,
+  writer: AcpWriter,
+) {
+  return handleQuestion(event.requestId, {
+    id: 'question',
+    text: event.question,
+    options: event.options.map(label => ({ id: label, label })),
+  }, session, writer);
 }
 
 // ---------------------------------------------------------------------------
@@ -85,7 +97,7 @@ describe('handleClarificationRequest', () => {
     );
 
     const update = spy.mock.calls[0]![1] as any;
-    expect(update._meta?.['hpd.dev']?.options).toEqual(['A', 'B', 'C']);
+    expect(update._meta?.['hpd.dev']?.options).toEqual(['A', 'B', 'C'].map(label => ({ id: label, label })));
   });
 
   it('sets pendingClarification on the session', () => {

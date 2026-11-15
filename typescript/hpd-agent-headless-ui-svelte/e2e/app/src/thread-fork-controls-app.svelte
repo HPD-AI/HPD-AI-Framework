@@ -1,22 +1,31 @@
 <script lang="ts">
   import {
     getThreadBranchChoiceControlLabel,
-    getThreadBranchChoiceControlsForMessage,
+    getThreadBranchChoiceControlsForTimeline,
     type Message,
     type ThreadBranchNavigationSnapshot,
   } from '@hpd-research/hpd-agent-headless-ui';
-  import type { ThreadForkGroup, ThreadForkGroupMember, ThreadRuntimeChild } from '@hpd-research/hpd-agent-client';
+  import type {
+    ThreadForkGroupDto as ThreadForkGroup,
+    ThreadForkGroupMemberDto as ThreadForkGroupMember,
+    ThreadRuntimeChildDto as ThreadRuntimeChild,
+  } from '@hpd-research/hpd-agent-client';
 
   const stamp = '2026-01-01T00:00:00.000Z';
 
   type BranchId = 'main' | 'fork-a' | 'fork-b' | 'fork-a-retry';
 
-  const members = (ids: BranchId[]): ThreadForkGroupMember[] =>
+  const members = (
+    ids: BranchId[],
+    choiceMessageId: string,
+  ): ThreadForkGroupMember[] =>
     ids.map((threadId, index) => ({
       threadId,
       name: threadId,
       index,
       isSource: index === 0,
+      choiceMessageId,
+      choiceMessageIndex: choiceMessageId === 'm2' ? 1 : 3,
       messageCount: index + 1,
       createdAt: stamp,
       lastActivity: stamp,
@@ -28,7 +37,7 @@
     forkedAtMessageId: 'm2',
     forkedAtMessageIndex: 1,
     choiceMessageIndex: 2,
-    members: members(['main', 'fork-a', 'fork-b']),
+    members: members(['main', 'fork-a', 'fork-b'], 'm2'),
   };
 
   const nestedGroup: ThreadForkGroup = {
@@ -37,17 +46,24 @@
     forkedAtMessageId: 'm4',
     forkedAtMessageIndex: 3,
     choiceMessageIndex: 4,
-    members: members(['fork-a', 'fork-a-retry']),
+    members: members(['fork-a', 'fork-a-retry'], 'm4'),
   };
 
   const runtimeChild: ThreadRuntimeChild = {
     threadId: 'subagent-reviewer',
+    sessionId: 's1',
+    defaultAgentId: 'reviewer',
     parentSessionId: 's1',
     parentThreadId: 'main',
     name: 'Reviewer',
-    kind: 'SubAgent',
-    visibility: 'Hidden',
+    kind: 1,
+    visibility: 1,
     subAgentName: 'Reviewer',
+    invocationId: 'invocation-1',
+    subAgentSourceKind: null,
+    parentToolCallId: null,
+    contextPolicy: null,
+    status: 'active',
     messageCount: 1,
     createdAt: stamp,
     lastActivity: stamp,
@@ -131,7 +147,16 @@
   }
 
   function controlsForMessage(messageId: string) {
-    return getThreadBranchChoiceControlsForMessage(navigation, messageId);
+    const timeline = messages.map(message => ({
+      type: 'message' as const,
+      id: message.id,
+      message,
+      turnId: null,
+      conversationId: null,
+      executionId: null,
+    }));
+    return getThreadBranchChoiceControlsForTimeline(navigation, timeline)
+      .filter(control => control.renderTimelineItemId === messageId);
   }
 </script>
 

@@ -10,7 +10,6 @@ import type {
   HPDAgentAgentOperationNotificationQueuedEvent,
   HPDAgentAgentOperationNotificationSuppressedEvent,
   HPDAgentAgentOperationRegisteredEvent,
-  HPDAgentAgentOperationTombstoneEvictedEvent,
   HPDAgentAgentOperationTombstonedEvent,
   HPDAgentAgentOperationTransitionedEvent,
   HPDAgentAgentRequestTerminatedEvent,
@@ -170,7 +169,6 @@ export type HpdAgentEvent =
   | HPDAgentAgentOperationNotificationQueuedEvent
   | HPDAgentAgentOperationNotificationSuppressedEvent
   | HPDAgentAgentOperationRegisteredEvent
-  | HPDAgentAgentOperationTombstoneEvictedEvent
   | HPDAgentAgentOperationTombstonedEvent
   | HPDAgentAgentOperationTransitionedEvent
   | HPDAgentAgentRequestTerminatedEvent
@@ -327,7 +325,6 @@ export const EventTypes = {
   AGENT_OPERATION_NOTIFICATION_SUPPRESSED: "AGENT_OPERATION_NOTIFICATION_SUPPRESSED",
   AGENT_OPERATION_REGISTERED: "AGENT_OPERATION_REGISTERED",
   AGENT_OPERATION_TOMBSTONED: "AGENT_OPERATION_TOMBSTONED",
-  AGENT_OPERATION_TOMBSTONE_EVICTED: "AGENT_OPERATION_TOMBSTONE_EVICTED",
   AGENT_OPERATION_TRANSITIONED: "AGENT_OPERATION_TRANSITIONED",
   AGENT_REQUEST_TERMINATED: "AGENT_REQUEST_TERMINATED",
   AGENT_TURN_CAPABILITIES_PINNED: "AGENT_TURN_CAPABILITIES_PINNED",

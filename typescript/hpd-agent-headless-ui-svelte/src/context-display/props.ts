@@ -41,10 +41,10 @@ export function createContextDisplayModel(options: {
     outputTokens: normalizeTokenCount(usage?.outputTokenCount) ?? undefined,
     cachedInputTokens: normalizeTokenCount(usage?.cachedInputTokenCount) ?? undefined,
     reasoningTokens: normalizeTokenCount(usage?.reasoningTokenCount) ?? undefined,
-    inputAudioTokens: normalizeTokenCount(usage?.inputAudioTokenCount) ?? undefined,
-    inputTextTokens: normalizeTokenCount(usage?.inputTextTokenCount) ?? undefined,
-    outputAudioTokens: normalizeTokenCount(usage?.outputAudioTokenCount) ?? undefined,
-    outputTextTokens: normalizeTokenCount(usage?.outputTextTokenCount) ?? undefined,
+    inputAudioTokens: normalizeTokenCount(usage?.additionalCounts?.inputAudioTokenCount) ?? undefined,
+    inputTextTokens: normalizeTokenCount(usage?.additionalCounts?.inputTextTokenCount) ?? undefined,
+    outputAudioTokens: normalizeTokenCount(usage?.additionalCounts?.outputAudioTokenCount) ?? undefined,
+    outputTextTokens: normalizeTokenCount(usage?.additionalCounts?.outputTextTokenCount) ?? undefined,
     additionalCounts: normalizeAdditionalCounts(usage?.additionalCounts),
   };
 }

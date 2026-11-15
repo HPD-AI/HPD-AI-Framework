@@ -1,9 +1,8 @@
 import {
-  EventTypes,
   type AgentClient,
-  type ThreadMessageReadModel,
 } from '@hpd-research/hpd-agent-client';
 import type {
+  ThreadMessageReadModel,
   ThreadRevisionController,
   ThreadRevisionControllerOptions,
   ThreadRevisionErrorCode,
@@ -123,29 +122,29 @@ class ThreadRevisionControllerImpl implements ThreadRevisionController {
   ): Promise<ThreadRevisionResult> {
     const details = createRevisionForkDetails(kind, revision);
     const forkOptions = resolveForkOptions(options.fork, details);
-    const thread = await this.client.forkThread(this.scope.sessionId, this.scope.threadId, {
-      ...forkOptions,
-      metadata: {
-        ...forkOptions?.metadata,
-        revisionKind: kind,
-        clickedMessageId: details.clickedMessageId,
-        inputMessageId: details.inputMessageId,
-        forkBoundaryMessageId: details.forkBoundaryMessageId,
+    const { target: thread } = await this.client.api.threads.forkThread({
+      ...this.scope,
+      input: {
+        newThreadId: null, name: null, description: null, tags: null,
+        ...forkOptions,
+        metadata: {
+          ...(typeof forkOptions?.metadata === 'object' ? forkOptions.metadata : {}),
+          revisionKind: kind,
+          clickedMessageId: details.clickedMessageId,
+          inputMessageId: details.inputMessageId,
+          forkBoundaryMessageId: details.forkBoundaryMessageId,
+        },
+        fromMessageId: revision.boundary?.id ?? null,
       },
-      agentId: this.scope.agentId,
-      fromMessageId: revision.boundary?.id ?? null,
     });
-
-    await this.client.run({
-      type: EventTypes.USER_MESSAGES_INPUT,
-      agentId: this.scope.agentId,
-      sessionId: this.scope.sessionId,
+    await this.client.api.agentRuntime.submitAgentInput({
+      ...this.scope,
       threadId: thread.id,
-      messages: [{
-        role: 'user',
-        contents: [{ $type: 'text', text: revision.sentText }],
-      }],
-      runConfig: options.runConfig,
+      input: {
+        type: 'USER_MESSAGES_INPUT', version: '1.0',
+        messages: [{ role: 'user', contents: [{ $type: 'text', text: revision.sentText }] }],
+        runConfig: options.runConfig,
+      },
     });
 
     return {

@@ -8,7 +8,7 @@ import type {
   PendingFileAttachment,
 } from './types.js';
 import type { Attachment } from 'svelte/attachments';
-import type { AIContent } from '@hpd-research/hpd-agent-client';
+import type { AIContent } from '@hpd-research/hpd-agent-headless-ui';
 import { mergeProps } from '../thread-composer/props.js';
 
 export interface CreateFileAttachmentElementPropsOptions {

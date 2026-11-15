@@ -1,3 +1,4 @@
+import { installResources } from './sdk-client-fixture.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentClient, Thread, ThreadGraph } from '@hpd-research/hpd-agent-client';
 import {
@@ -15,8 +16,8 @@ function thread(id: string, overrides: Partial<Thread> = {}): Thread {
     createdAt: stamp,
     lastActivity: stamp,
     messageCount: 1,
-    kind: 'MainAgent',
-    visibility: 'Visible',
+    kind: 0,
+    visibility: 0,
     childThreads: [],
     totalForks: 0,
     ...overrides,
@@ -29,7 +30,7 @@ function graph(): ThreadGraph {
       thread('main', { childThreads: ['subagent-1'], totalForks: 1 }),
       thread('edit-1', { forkedFrom: 'main', forkedAtMessageId: 'm1', forkedAtMessageIndex: 0 }),
       thread('retry-1', { forkedFrom: 'main', forkedAtMessageId: 'm1', forkedAtMessageIndex: 0 }),
-      thread('subagent-1', { kind: 'SubAgent', visibility: 'Hidden', parentThreadId: 'main' }),
+      thread('subagent-1', { kind: 1, visibility: 1, parentThreadId: 'main' }),
     ],
     forkGroups: [
       {
@@ -50,8 +51,8 @@ function graph(): ThreadGraph {
       parentSessionId: 's1',
       parentThreadId: 'main',
       name: 'Reviewer',
-      kind: 'SubAgent',
-      visibility: 'Hidden',
+      kind: 1,
+      visibility: 1,
       subAgentName: 'Reviewer',
       messageCount: 1,
       createdAt: stamp,
@@ -61,9 +62,9 @@ function graph(): ThreadGraph {
 }
 
 function fakeClient(threadGraph = graph()): AgentClient {
-  return {
+  return installResources({
     getThreadGraph: vi.fn(async () => threadGraph),
-  } as unknown as AgentClient;
+  }) as unknown as AgentClient;
 }
 
 describe('createThreadBranchNavigationState', () => {

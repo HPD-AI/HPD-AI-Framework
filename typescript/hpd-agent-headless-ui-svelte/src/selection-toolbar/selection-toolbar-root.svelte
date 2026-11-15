@@ -1,6 +1,7 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { Attachment } from 'svelte/attachments';
   import { setSelectionToolbarContext } from './context.js';
   import {
@@ -102,7 +103,7 @@
     window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', onResize);
 
-    refresh();
+    untrack(refresh);
 
     return () => {
       document.removeEventListener('selectionchange', onSelectionChange);

@@ -36,7 +36,6 @@ import {
 
 const client = new AgentClient({
   baseUrl: 'http://localhost:5000',
-  transport: 'sse',
 });
 
 const thread = createThreadController({
@@ -77,6 +76,5 @@ Live events are scoped strictly by default. If an older transport emits
 scope-less events, opt into that behavior explicitly with
 `allowScopeLessEvents: true`.
 
-Controllers assume a dedicated client connection by default. For a caller-owned
-client, pass `stopClientOnDisconnect: false` so `disconnect()` detaches
-listeners without stopping the shared client.
+Each thread controller owns its observation. `disconnect()` closes that
+observation while leaving the shared `AgentClient` available for other threads.

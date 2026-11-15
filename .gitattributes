@@ -1,2 +1,5 @@
 *.sh text eol=lf
 *.cs whitespace=cr-at-eol
+*.ts whitespace=cr-at-eol
+*.svelte whitespace=cr-at-eol
+*.yml text eol=lf

@@ -1,4 +1,4 @@
-import { EventTypes, type AgentClient, type AgentResponseInput, type EventSubscription } from '@hpd-research/hpd-agent-client';
+import { type AgentClient, type HpdAgentResponseInput, type ThreadObservation } from '@hpd-research/hpd-agent-client';
 import type { AcpReader } from './acp/reader.js';
 import type { AcpWriter } from './acp/writer.js';
 import type { SessionRegistry } from './bridge/session.js';
@@ -125,8 +125,7 @@ export function createBridge(
   // ── session/new ─────────────────────────────────────────────────────────────
 
   async function handleSessionNew(req: SessionNewRequest): Promise<void> {
-    const hpdSession = await client.createSession();
-    const hpdThread  = await client.createThread(hpdSession.id);
+    const { session: hpdSession, thread: hpdThread } = await client.sessions.create({ agentId: config.agentName });
 
     const state = sessions.create(hpdSession.id, hpdThread.id, req.params.cwd);
     writer.respondSessionNew(req.id, { sessionId: state.acpSessionId });
@@ -141,7 +140,7 @@ export function createBridge(
 
     if (!session) {
       try {
-        const threads = await client.listThreads(hpdSessionId);
+        const threads = await (await client.sessions.get(hpdSessionId)).threads.list();
         const thread = threads[0];
         if (!thread) throw new Error('No threads found');
         session = sessions.create(hpdSessionId, thread.id, req.params.cwd);
@@ -151,22 +150,31 @@ export function createBridge(
       }
     }
 
-    const thread = await client.getThread(session.hpdSessionId, session.hpdThreadId);
-    const messages = (thread as unknown as { messages?: Array<{
-      role: string;
-      contents: Array<{ $type: string; text?: string }>;
-    }> } | null)?.messages ?? [];
-    for (const msg of messages) {
-      for (const part of msg.contents) {
-        if (part.$type === 'text') {
-          const textPart = part as { $type: 'text'; text: string };
-          const updateType = msg.role === 'user' ? 'user_message_chunk' : 'agent_message_chunk';
-          writer.notifySessionUpdate(hpdSessionId, {
-            sessionUpdate: updateType,
-            content: { type: 'text', text: textPart.text },
-          });
-        }
-      }
+    const thread = await (await client.sessions.get(session.hpdSessionId)).threads.get(session.hpdThreadId);
+    const state = await thread.state();
+    const { generation, sequenceNumber } = state.observedCursor;
+    if (generation != null && sequenceNumber != null && sequenceNumber > 0) {
+      const controller = new AbortController();
+      const roles = new Map<string, string>();
+      const observation = await thread.observe({
+        after: { generation, sequence: 0 },
+        signal: controller.signal,
+        onEvent({ event, cursor }) {
+          if (event.type === 'TEXT_MESSAGE_START' && (event.visibility == null || event.visibility === 0)) {
+            roles.set(event.messageId, event.role);
+          } else if (event.type === 'TEXT_DELTA') {
+            const role = roles.get(event.messageId);
+            if (role === 'user' || role === 'assistant') {
+              writer.notifySessionUpdate(session.acpSessionId, {
+                sessionUpdate: role === 'user' ? 'user_message_chunk' : 'agent_message_chunk',
+                content: { type: 'text', text: event.text },
+              });
+            }
+          }
+          if (cursor && cursor.sequence >= sequenceNumber) controller.abort();
+        },
+      });
+      await observation.done;
     }
 
     writer.respondSessionLoad(req.id);
@@ -191,132 +199,112 @@ export function createBridge(
     }
 
     session.pendingPromptRequestId = req.id;
-    session.streamAbort = new AbortController();
-    let cleanupPrompt = () => {};
+    const controller = new AbortController();
+    session.streamAbort = controller;
+    let observation: ThreadObservation | undefined;
 
     try {
-      const subscriptions: EventSubscription[] = [];
-      const cleanup = () => {
-        for (const sub of subscriptions.splice(0)) sub.dispose();
-      };
-      cleanupPrompt = cleanup;
-      const finish = (stopReason: 'end_turn' | 'cancelled') => {
-        if (!session.pendingPromptRequestId) return;
-        writer.respondSessionPrompt(session.pendingPromptRequestId, stopReason);
-        session.pendingPromptRequestId = null;
-        session.streamAbort = null;
-        cleanup();
-      };
-      const fail = (streamErr: unknown) => {
-        if (!session.pendingPromptRequestId) return;
-        writer.respondError(
-          session.pendingPromptRequestId,
-          JsonRpcErrorCode.InternalError,
-          streamErr instanceof Error ? streamErr.message : String(streamErr),
-        );
-        session.pendingPromptRequestId = null;
-        session.streamAbort = null;
-        cleanup();
-      };
-      const respond = (input: AgentResponseInput) => {
-        void client.respond(input).catch(fail);
-      };
+      const thread = await (await client.sessions.get(session.hpdSessionId)).threads.get(session.hpdThreadId);
+      const state = await thread.state({ agentId: config.agentName });
+      const { generation, sequenceNumber } = state.observedCursor;
+      if (generation == null || sequenceNumber == null) throw new Error('Missing thread cursor');
+      let finishExecution!: (value: { id: string; outcome: string }) => void;
+      const finished = new Promise<{ id: string; outcome: string }>(resolve => { finishExecution = resolve; });
+      let rejectInteraction!: (error: unknown) => void;
+      const interactionFailed = new Promise<never>((_, reject) => { rejectInteraction = reject; });
+      void interactionFailed.catch(() => {});
+      const respond = (input: HpdAgentResponseInput) =>
+        thread.respond(input, { agentId: config.agentName });
 
-      subscriptions.push(
-        client.onAny((event) => {
+      observation = await thread.observe({
+        agentId: config.agentName,
+        after: { generation, sequence: sequenceNumber },
+        signal: controller.signal,
+        onEvent: ({ event }) => {
           const update = hpdEventToAcpUpdate(event);
           if (update) writer.notifySessionUpdate(session.acpSessionId, update);
-        }),
-        client.on(EventTypes.PERMISSION_REQUEST, (event) => {
-          void handlePermissionRequest(event, session, writer)
-            .then((response) => respond({
-              type: EventTypes.PERMISSION_RESPONSE,
-              permissionId: event.permissionId,
-              sourceName: event.sourceName,
-              choiceId: response.choiceId,
-            }))
-            .catch(fail);
-        }),
-        client.on(EventTypes.CLIENT_TOOL_INVOKE_REQUEST, (request) => {
-          void handleClientToolInvoke(request, session, writer, clientCapabilities)
-            .then((response) => respond({
-              type: EventTypes.CLIENT_TOOL_INVOKE_OUTCOME,
-              requestId: response.requestId,
-              outcome: response.outcome,
-              content: response.content,
-              errorMessage: response.errorMessage,
-              clientOperationId: response.clientOperationId,
-              augmentation: response.augmentation,
-            }))
-            .catch(fail);
-        }),
-        client.on(EventTypes.CLARIFICATION_REQUEST, (event) => {
-          void handleClarificationRequest(event, session, writer)
-            .then((answer) => respond({
-              type: EventTypes.CLARIFICATION_RESPONSE,
-              requestId: event.requestId,
-              sourceName: event.sourceName,
-              question: event.question,
-              answer,
-            }))
-            .catch(fail);
-        }),
-        client.on(EventTypes.CONTINUATION_REQUEST, (event) => {
-          respond({
-            type: EventTypes.CONTINUATION_RESPONSE,
-            continuationId: event.continuationId,
-            sourceName: event.sourceName,
-            approved: true,
-          });
-        }),
-        client.on(EventTypes.MESSAGE_TURN_FINISHED, () => finish('end_turn')),
-        client.on(EventTypes.MESSAGE_TURN_ERROR, (event) => fail(event.errorMessage)),
-        client.onError(fail),
-      );
-
-      await client.run({
-        type: EventTypes.USER_MESSAGES_INPUT,
-        sessionId: session.hpdSessionId,
-        threadId: session.hpdThreadId,
-        agentId: config.agentName ?? 'default',
-        messages: [{
-          role: 'user',
-          contents: [{ $type: 'text', text: promptText }],
-        }],
-        runConfig: {
-          clientToolInput: {
-            clientToolHarnesses: capsToToolHarnesses(clientCapabilities),
-            resetClientState: true,
+        },
+        handlers: {
+          PERMISSION_REQUEST: ({ event }) => {
+            void handlePermissionRequest(event, session, writer)
+              .then(({ choiceId }) => respond({
+                type: 'PERMISSION_RESPONSE', permissionId: event.permissionId, sourceName: event.sourceName, choiceId,
+              })).catch(rejectInteraction);
+          },
+          CLIENT_TOOL_INVOKE_REQUEST: ({ event }) => {
+            void handleClientToolInvoke({ ...event, arguments: { ...event.arguments } }, session, writer, clientCapabilities)
+              .then(response => respond({ ...response, type: 'CLIENT_TOOL_INVOKE_OUTCOME' }))
+              .catch(rejectInteraction);
+          },
+          USER_QUESTION_REQUEST: ({ event }) => {
+            void (async () => {
+              const answers: Extract<HpdAgentResponseInput, { type: 'QUESTION_RESPONSE' }>['answers'] = [];
+              for (const question of event.questions) {
+                const answer = await handleClarificationRequest(event.requestId, question, session, writer);
+                const selected = question.options?.find(option => option.id === answer || option.label === answer);
+                answers.push({
+                  questionId: question.id,
+                  selectedOptionIds: selected ? [selected.id] : [],
+                  customText: selected ? undefined : answer,
+                });
+              }
+              await respond({ type: 'QUESTION_RESPONSE', requestId: event.requestId, sourceName: event.sourceName,
+                outcome: 'Answered', answers });
+            })().catch(rejectInteraction);
+          },
+          CONTINUATION_REQUEST: ({ event }) => {
+            void respond({ type: 'CONTINUATION_RESPONSE', continuationId: event.continuationId,
+              sourceName: event.sourceName, approved: true }).catch(rejectInteraction);
+          },
+          THREAD_EXECUTION_FINISHED: ({ event }) => {
+            finishExecution({ id: event.threadExecutionId, outcome: event.outcome });
           },
         },
-      }, { signal: session.streamAbort.signal });
+      });
 
-      finish('end_turn');
+      controller.signal.throwIfAborted();
+      const result = await thread.send(promptText, {
+        agentId: config.agentName,
+        runConfig: { tools: { clientInput: {
+          clientToolHarnesses: capsToToolHarnesses(clientCapabilities),
+          resetClientState: true,
+        } } },
+      });
+      if (result.status === 'busy') throw new Error('Thread already has an active execution');
+      session.execution = result.execution;
+      if (controller.signal.aborted) {
+        await result.execution.cancel();
+        controller.signal.throwIfAborted();
+      }
+      const end = await Promise.race([finished, interactionFailed, observation.done.then(() => {
+        controller.signal.throwIfAborted();
+        throw new Error('Observation closed before the execution finished');
+      })]);
+      const outcome = end.id === result.execution.id ? end.outcome.toLowerCase()
+        : (await result.execution.wait({ signal: controller.signal })).status;
+      if (outcome !== 'succeeded' && outcome !== 'cancelled') throw new Error(`Execution ${outcome}`);
+      writer.respondSessionPrompt(req.id, outcome === 'cancelled' ? 'cancelled' : 'end_turn');
     } catch (caught) {
-      const isAbort = caught instanceof Error && caught.name === 'AbortError';
-      if (!session.pendingPromptRequestId) {
-        cleanupPrompt();
-        return;
+      if (controller.signal.aborted || (caught instanceof Error && caught.name === 'AbortError')) {
+        writer.respondSessionPrompt(req.id, 'cancelled');
       }
-      if (isAbort) {
-        writer.respondSessionPrompt(session.pendingPromptRequestId!, 'cancelled');
-      } else {
-        writer.respondError(
-          session.pendingPromptRequestId!,
-          JsonRpcErrorCode.InternalError,
-          caught instanceof Error ? caught.message : String(caught),
-        );
-      }
+      else writer.respondError(req.id, JsonRpcErrorCode.InternalError,
+        caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      await observation?.close().catch(() => {});
       session.pendingPromptRequestId = null;
       session.streamAbort = null;
-      cleanupPrompt();
+      session.execution = undefined;
     }
   }
 
   // ── session/cancel ──────────────────────────────────────────────────────────
 
   function handleSessionCancel(notification: SessionCancelNotification): void {
-    sessions.cancelAll(notification.params.sessionId);
+    const id = notification.params.sessionId;
+    const execution = sessions.get(id)?.execution;
+    sessions.cancelAll(id);
+    void execution?.cancel().catch(error => process.stderr.write(`HPD execution cancellation failed: ${error}\n`));
   }
 
   // ── session/set_mode ────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@ import type {
   AgentClient,
   CreateSessionRequest,
   SearchSessionsRequest,
-  Session,
+  SessionDto,
   UpdateSessionRequest,
 } from '@hpd-research/hpd-agent-client';
 
@@ -15,7 +15,7 @@ export interface SessionListScope {
 
 export interface SessionListControllerOptions extends SessionListScope {
   client: AgentClient;
-  search?: SearchSessionsRequest;
+  search?: Partial<SearchSessionsRequest>;
   selectedSessionId?: string | null;
   autoSelect?: boolean;
   getLabel?: SessionLabelSelector;
@@ -23,7 +23,7 @@ export interface SessionListControllerOptions extends SessionListScope {
 }
 
 export interface SessionListLoadOptions {
-  search?: SearchSessionsRequest;
+  search?: Partial<SearchSessionsRequest>;
   preserveSelection?: boolean;
   signal?: AbortSignal;
 }
@@ -43,18 +43,18 @@ export interface SessionListDeleteOptions {
 }
 
 export interface SessionListSnapshot {
-  sessions: Session[];
+  sessions: SessionDto[];
   items: SessionListItem[];
   selectedSessionId: string | null;
-  selectedSession: Session | null;
+  selectedSession: SessionDto | null;
   loading: boolean;
   error: string | null;
-  search: SearchSessionsRequest;
+  search: Partial<SearchSessionsRequest>;
   empty: boolean;
 }
 
 export interface SessionListItem {
-  session: Session;
+  session: SessionDto;
   id: string;
   label: string;
   subtitle: string | null;
@@ -64,8 +64,8 @@ export interface SessionListItem {
 
 export type SessionListSubscriber = (snapshot: SessionListSnapshot) => void;
 export type SessionListUnsubscriber = () => void;
-export type SessionLabelSelector = (session: Session) => string;
-export type SessionSubtitleSelector = (session: Session) => string | null | undefined;
+export type SessionLabelSelector = (session: SessionDto) => string;
+export type SessionSubtitleSelector = (session: SessionDto) => string | null | undefined;
 
 export interface SessionListController {
   readonly loading: boolean;
@@ -76,8 +76,8 @@ export interface SessionListController {
   load(options?: SessionListLoadOptions): Promise<SessionListSnapshot>;
   refresh(options?: Omit<SessionListLoadOptions, 'search'>): Promise<SessionListSnapshot>;
   select(sessionId: string | null): SessionListSnapshot;
-  create(options?: SessionListCreateOptions): Promise<Session>;
-  update(sessionId: string, request: UpdateSessionRequest, options?: SessionListUpdateOptions): Promise<Session>;
+  create(options?: SessionListCreateOptions): Promise<SessionDto>;
+  update(sessionId: string, request: UpdateSessionRequest, options?: SessionListUpdateOptions): Promise<SessionDto>;
   delete(sessionId: string, options?: SessionListDeleteOptions): Promise<void>;
   clearError(): void;
 }

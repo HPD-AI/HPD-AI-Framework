@@ -347,32 +347,10 @@ public class ClientToolMiddleware : IAgentMiddleware
         // Convert ToolHarnesses to AIFunctions
         var visibleAIFunctions = ConvertToolHarnessesToAIFunctions(state);
 
-        // Clone options and add Client tools
-        if (context.Options != null)
+        if (context.Options is { } options && visibleAIFunctions.Count > 0)
         {
-            // V2: Options is mutable - modify Tools collection directly
-            if (context.Options.Tools == null)
-            {
-                context.Options.Tools = new List<AITool>(visibleAIFunctions);
-            }
-            else
-            {
-                var toolsList = context.Options.Tools as IList<AITool>;
-                if (toolsList != null)
-                {
-                    foreach (var tool in visibleAIFunctions)
-                    {
-                        toolsList.Add(tool);
-                    }
-                }
-                else
-                {
-                    // Tools is not a mutable list, need to recreate
-                    var existingTools = context.Options.Tools.ToList();
-                    existingTools.AddRange(visibleAIFunctions);
-                    context.Options.Tools = existingTools;
-                }
-            }
+            // Chat options can contain fixed-size tool arrays.
+            options.Tools = (options.Tools ?? []).Concat(visibleAIFunctions).ToList();
         }
 
         return Task.CompletedTask;

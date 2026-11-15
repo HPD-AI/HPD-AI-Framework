@@ -80,6 +80,18 @@ public sealed class HPDAgentOpenApiDocumentTests
         var activeExecution = Assert.IsType<OpenApiSchema>(
             runtimeStateSchema.Properties!["activeExecution"]);
         Assert.True(activeExecution.Type!.Value.HasFlag(JsonSchemaType.Null));
+        Assert.DoesNotContain("activeExecution", runtimeStateSchema.Required!);
+        var pendingRequests = Assert.IsType<OpenApiSchema>(
+            runtimeStateSchema.Properties["pendingRequests"]);
+        var pendingRequest = Assert.IsType<OpenApiSchema>(pendingRequests.Items);
+        var requestUnion = Assert.IsType<OpenApiSchema>(
+            pendingRequest.Properties!["request"]);
+        Assert.Equal(5, requestUnion.OneOf!.Count);
+
+        var permissionRequest = Assert.IsType<OpenApiSchema>(
+            document.Components!.Schemas!["HPD.Agent.PermissionRequestEvent"]);
+        Assert.DoesNotContain("risk", permissionRequest.Required!);
+        Assert.Contains("choices", permissionRequest.Required);
 
         var upload = document.Paths["/sessions/{sessionId}/threads/{threadId}/content"]
             .Operations[HttpMethod.Post];

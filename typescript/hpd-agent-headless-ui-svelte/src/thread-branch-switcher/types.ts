@@ -3,7 +3,7 @@ import type { SvelteHTMLElements } from 'svelte/elements';
 import type {
   ThreadBranchChoiceControl,
 } from '@hpd-research/hpd-agent-headless-ui';
-import type { ThreadForkGroupMember } from '@hpd-research/hpd-agent-client';
+import type { ThreadForkGroupMemberDto as ThreadForkGroupMember } from '@hpd-research/hpd-agent-client';
 
 type DivProps = Omit<SvelteHTMLElements['div'], 'children'>;
 type ButtonProps = Omit<SvelteHTMLElements['button'], 'children'>;

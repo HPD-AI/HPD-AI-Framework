@@ -1,37 +1,49 @@
 import type {
-  AgentClient,
-  AgentEvent,
-  AgentMessagePersistence,
-  AgentMessageSource,
-  AgentMessageVisibility,
-  AgentRequestEvent,
-  AgentResponseInput,
-  AgentRunInputEvent,
-  AIContent,
-  ClientToolAugmentation,
-  ClientToolInvokeOutcome,
-  ForkThreadRequest,
-  Thread,
-  ThreadForkGroup,
-  ThreadForkGroupMember,
-  ThreadGraph,
-  ThreadRuntimeChild,
-  ThreadExecution,
-  ThreadJournalCursor,
-  RequestVisibility,
-  ResponderTarget,
-  ResponseMetadata,
-  ResponsePolicy,
-  RunConfig,
-  InputSubmissionResult,
-  PendingAgentRequest,
-  RespondResult,
-  ToolCallType,
-  ToolResultContent,
-  ThreadMessageReadModel,
-  ToolResultPayload,
-  UsageDetails,
+  AgentClient, AgentRunConfig, ForkThreadRequest, HpdAgentEvent, HpdAgentInputEvent, HpdAgentResponseInput,
+  HPDAgentClientToolsClientToolInvokeOutcomeEvent, HPDAgentClientToolsClientToolInvokeRequestEvent,
+  HPDAgentPermissionRequestEvent, HPDAgentToolCallResultEvent,
+  ThreadDto, ThreadForkGroupDto, ThreadForkGroupMemberDto, ThreadGraphDto, ThreadRuntimeChildDto,
+  ThreadExecutionDto, UsageDetails,
 } from '@hpd-research/hpd-agent-client';
+
+export type AgentEvent = HpdAgentEvent | {
+  type: string;
+  sessionId?: string | null;
+  threadId?: string | null;
+  threadExecutionId?: string | null;
+  threadSequenceNumber?: number | null;
+  eventFlowId?: string | null;
+  timestamp?: string | null;
+  [key: string]: unknown;
+};
+export type AgentMessageSource = 'Unspecified' | 'UserInput' | 'AssistantOutput' | 'SystemInstruction'
+  | 'RuntimeContext' | 'BackgroundNotification' | 'ToolResult' | 'PermissionResponse' | 'Steering' | 'Internal';
+export type AgentMessageVisibility = 'Transcript' | 'Hidden' | 'Diagnostic';
+export type AgentMessagePersistence = 'ThreadHistory' | 'ModelContextOnly' | 'None';
+export type AgentResponseInput = HpdAgentResponseInput;
+export type AgentRunInputEvent = HpdAgentInputEvent;
+export type AIContent = { $type: string; [key: string]: unknown };
+export type ClientToolAugmentation = NonNullable<HPDAgentClientToolsClientToolInvokeOutcomeEvent['augmentation']>;
+export type ClientToolInvokeOutcome = Omit<HPDAgentClientToolsClientToolInvokeOutcomeEvent, 'type'>;
+export type ToolResultContent = Record<string, unknown>;
+export type ToolResultPayload = HPDAgentToolCallResultEvent['result'];
+export type ToolCallType = string;
+export type ThreadJournalCursor = { generation: number; sequenceNumber: number };
+export type ResponderTarget = NonNullable<HPDAgentClientToolsClientToolInvokeRequestEvent['target']>;
+export type ResponsePolicy = number;
+export type RequestVisibility = number;
+export type ResponseMetadata = Pick<ClientToolInvokeOutcome, 'responderId' | 'responderGroup' | 'capabilities'>;
+export type InputSubmissionResult = Awaited<ReturnType<AgentClient['api']['agentRuntime']['submitAgentInput']>>;
+export type RespondResult = Awaited<ReturnType<AgentClient['api']['agentInteractions']['respondToAgentRequest']>>;
+export type PendingAgentRequest = { request: AgentEvent; createdAt: string };
+export type AgentRequestEvent = AgentEvent & {
+  requestId: string; sourceName: string; responsePolicy?: ResponsePolicy;
+  visibility?: RequestVisibility; target?: ResponderTarget | null;
+};
+export type ThreadMessageReadModel = Pick<Message, 'id' | 'role' | 'contents' | 'toolCalls'> & {
+  text: string;
+  placement?: MessagePlacement;
+};
 
 export interface ThreadScope {
   agentId: string;
@@ -40,11 +52,11 @@ export interface ThreadScope {
 }
 
 export interface ThreadSnapshot {
-  thread?: Thread | null;
+  thread?: ThreadDto | null;
   events: AgentEvent[];
   observedCursor: ThreadJournalCursor;
-  executions?: ThreadExecution[];
-  activeExecution?: ThreadExecution | null;
+  executions?: ThreadExecutionDto[];
+  activeExecution?: ThreadExecutionDto | null;
   pendingRequests?: PendingAgentRequest[];
 }
 
@@ -241,12 +253,13 @@ export interface ThreadTimelineWarningItem {
   event?: AgentEvent;
 }
 
-export type PermissionRequest = Omit<import('@hpd-research/hpd-agent-client').PermissionRequestEvent, 'type'>;
+export type PermissionRequest = Omit<HPDAgentPermissionRequestEvent, 'type'>;
 
 export interface ClarificationRequest {
   requestId: string;
   sourceName: string;
   question: string;
+  questionId: string;
   agentName?: string;
   options?: string[];
 }
@@ -325,7 +338,7 @@ export interface ThreadExecutionView {
   finishedAt?: string | null;
   errorType?: string | null;
   errorMessage?: string | null;
-  operations?: ThreadExecution['operations'];
+  operations?: ThreadExecutionDto['operations'];
 }
 
 export interface ThreadActivity {
@@ -372,7 +385,7 @@ export interface ThreadErrorInfo {
 }
 
 export interface ThreadProjectionSnapshot {
-  thread: Thread | null;
+  thread: ThreadDto | null;
   timeline: ThreadTimelineItem[];
   workGroups: ThreadWorkGroup[];
   transcriptMessages: Message[];
@@ -415,7 +428,7 @@ export interface SendMessageInput {
 }
 
 export interface SendMessageOptions {
-  runConfig?: RunConfig;
+  runConfig?: AgentRunConfig;
   signal?: AbortSignal;
 }
 
@@ -429,7 +442,6 @@ export interface ThreadControllerOptions extends ThreadScope {
   client: AgentClient;
   projection?: ThreadProjection;
   autoConnectOnSend?: boolean;
-  stopClientOnDisconnect?: boolean;
   allowScopeLessEvents?: boolean;
 }
 
@@ -476,12 +488,12 @@ export interface ThreadBranchNavigatorOptions {
 export type BranchChoiceRelationship = 'exact-member' | 'descendant-of-member';
 
 export interface ActivePathChoice {
-  group: ThreadForkGroup;
-  selectedMember: ThreadForkGroupMember;
+  group: ThreadForkGroupDto;
+  selectedMember: ThreadForkGroupMemberDto;
   selectedThreadId: string;
   relationship: BranchChoiceRelationship;
-  previous: ThreadForkGroupMember | null;
-  next: ThreadForkGroupMember | null;
+  previous: ThreadForkGroupMemberDto | null;
+  next: ThreadForkGroupMemberDto | null;
   position: {
     current: number;
     total: number;
@@ -502,27 +514,27 @@ export interface ThreadBranchChoiceControl {
   renderTimelineItemId: string;
   renderTimelineIndex: number;
   renderPlacement: ThreadBranchChoiceControlPlacement;
-  selectedMember: ThreadForkGroupMember;
+  selectedMember: ThreadForkGroupMemberDto;
   selectedThreadId: string;
   relationship: BranchChoiceRelationship;
-  members: ThreadForkGroupMember[];
+  members: ThreadForkGroupMemberDto[];
   position: {
     current: number;
     total: number;
   };
-  previous: ThreadForkGroupMember | null;
-  next: ThreadForkGroupMember | null;
+  previous: ThreadForkGroupMemberDto | null;
+  next: ThreadForkGroupMemberDto | null;
 }
 
 export interface ThreadBranchNavigationSnapshot {
   sessionId: string;
   threadId: string;
-  graph: ThreadGraph;
-  current: Thread | null;
-  threads: Thread[];
-  forkGroups: ThreadForkGroup[];
+  graph: ThreadGraphDto;
+  current: ThreadDto | null;
+  threads: ThreadDto[];
+  forkGroups: ThreadForkGroupDto[];
   activePathChoices: ActivePathChoice[];
-  runtimeChildren: ThreadRuntimeChild[];
+  runtimeChildren: ThreadRuntimeChildDto[];
   hasRuntimeChildren: boolean;
 }
 
@@ -548,7 +560,7 @@ export type ThreadRevisionErrorCode =
   | 'unsupported-message-role';
 
 export interface ThreadRevisionForkOptions
-  extends Omit<ForkThreadRequest, 'agentId' | 'fromMessageId'> {}
+  extends Partial<Omit<ForkThreadRequest, 'fromMessageId'>> {}
 
 export interface ThreadRevisionForkDetails {
   kind: ThreadRevisionKind;
@@ -559,13 +571,13 @@ export interface ThreadRevisionForkDetails {
 }
 
 export interface ThreadRevisionOptions {
-  runConfig?: RunConfig;
+  runConfig?: AgentRunConfig;
   fork?: ThreadRevisionForkOptions | ((details: ThreadRevisionForkDetails) => ThreadRevisionForkOptions | undefined);
 }
 
 export interface ThreadRevisionResult {
   kind: ThreadRevisionKind;
-  thread: Thread;
+  thread: ThreadDto;
   threadId: string;
   clickedMessageId: string;
   inputMessageId: string;

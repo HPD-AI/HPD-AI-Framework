@@ -1,4 +1,4 @@
-import type { AgentEvent } from '@hpd-research/hpd-agent-client';
+import type { AgentEvent } from './types.js';
 import type { ThreadScope } from './types.js';
 
 export interface EventScopeOptions {

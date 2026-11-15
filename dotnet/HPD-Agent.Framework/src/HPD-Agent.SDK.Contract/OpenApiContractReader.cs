@@ -138,7 +138,10 @@ public static class OpenApiContractReader
     {
         if (operation.ValueKind != JsonValueKind.Object)
             throw new InvalidDataException($"Operation '{method} {path}' must be an object.");
-        var operationId = RequiredString(operation, "operationId");
+        // Named HPD hosts prefix endpoint names for routing. SDK operation names
+        // come from the final segment and must still be unique within a document.
+        var endpointName = RequiredString(operation, "operationId");
+        var operationId = endpointName[(endpointName.LastIndexOf('.') + 1)..];
         var tag = operation.TryGetProperty("tags", out var tags) &&
                   tags.ValueKind == JsonValueKind.Array &&
                   tags.GetArrayLength() > 0 &&

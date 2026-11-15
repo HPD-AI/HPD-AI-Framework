@@ -47,4 +47,36 @@ public sealed class TypeScriptSdkGeneratorTests
                 Directory.Delete(root, recursive: true);
         }
     }
+
+    [Fact]
+    public async Task HostPrefixedOperationIds_AreAccepted()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            $"hpd-typescript-generator-prefix-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var contractPath = Path.Combine(root, "contract.json");
+            await File.WriteAllTextAsync(
+                contractPath,
+                CSharpSdkGeneratorTests.Contract.Replace(
+                    "\"operationId\": \"",
+                    "\"operationId\": \"test-host.",
+                    StringComparison.Ordinal));
+
+            var manifest = await new TypeScriptSdkGenerator().GenerateAsync(
+                new TypeScriptGeneratorOptions(
+                    contractPath,
+                    Path.Combine(root, "typescript"),
+                    "@example/generated-hpd"));
+
+            Assert.Equal(8, manifest.OperationCount);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
 }

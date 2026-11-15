@@ -555,6 +555,11 @@ public static class HpdSdkIrBuilder
         {
             return true;
         }
+        if (schema.TryGetProperty("enum", out var values) && values.ValueKind == JsonValueKind.Array
+            && values.EnumerateArray().Any(static value => value.ValueKind == JsonValueKind.Null))
+        {
+            return true;
+        }
         return schema.TryGetProperty("type", out var type) &&
                type.ValueKind == JsonValueKind.Array &&
                type.EnumerateArray().Any(static value =>

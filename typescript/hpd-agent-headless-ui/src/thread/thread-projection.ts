@@ -1,21 +1,7 @@
-import {
-  EventTypes,
-  AgentMessagePolicyProperties,
-  formatToolResultPayload,
-  isAgentRequestEvent,
-  isAgentResponseEvent,
-  isErrorEvent,
-  type AgentMessagePersistence,
-  type AgentMessageSource,
-  type AgentMessageVisibility,
-  type AIContent,
-  type AgentEvent,
-  type AgentRequestEvent,
-  type KnownAgentEvent,
-  type MessageTurnUsageSummary,
-  type ThreadExecution,
-} from '@hpd-research/hpd-agent-client';
+import { EventTypes, type HpdAgentEvent as KnownAgentEvent, type ThreadExecutionDto,
+  type InlineHPDAgentMessageTurnFinishedEventUsage as MessageTurnUsageSummary } from '@hpd-research/hpd-agent-client';
 import type {
+  AgentMessagePersistence, AgentMessageSource, AgentMessageVisibility, AIContent, AgentEvent, AgentRequestEvent,
   ClientToolRequest,
   ClarificationRequest,
   Message,
@@ -49,10 +35,10 @@ interface ProjectionContext {
 }
 
 interface ProjectionEventContext {
-  eventFlowId?: string;
+  eventFlowId?: string | null;
   threadExecutionId?: string | null;
   sequenceNumber?: number;
-  timestamp?: string;
+  timestamp?: string | null;
 }
 
 interface MessagePolicy {
@@ -145,7 +131,13 @@ class ThreadProjectionImpl implements ThreadProjection {
         this.onTextMessageEnd(known.messageId);
         break;
       case EventTypes.THREAD_MESSAGE_REPLACED:
-        this.onThreadMessageReplaced(known.messageId, known.replacement);
+        this.onThreadMessageReplaced(known.messageId, {
+          ...known.replacement,
+          messageId: known.replacement.messageId ?? known.messageId,
+          role: typeof known.replacement.role === 'string' ? known.replacement.role : 'assistant',
+          contents: (known.replacement.contents ?? []).filter(isContent),
+          additionalProperties: readRecordProperty(known.replacement, 'additionalProperties'),
+        });
         break;
       case EventTypes.REASONING_MESSAGE_START:
         this.onReasoningMessageStart(known, known.messageId);
@@ -161,8 +153,8 @@ class ThreadProjectionImpl implements ThreadProjection {
           callId: known.callId,
           name: known.name,
           messageId: known.messageId,
-          toolharnessName: known.toolharnessName,
-          callType: known.callType,
+          toolharnessName: known.toolHarnessName ?? undefined,
+          callType: known.callType ?? undefined,
         });
         break;
       case EventTypes.TOOL_CALL_ARGS:
@@ -177,32 +169,36 @@ class ThreadProjectionImpl implements ThreadProjection {
       case EventTypes.PERMISSION_REQUEST:
         this.addPermission(known, known);
         break;
-      case EventTypes.PERMISSION_RESOLVED:
+      case 'PERMISSION_RESPONSE':
         this.removePendingRequest(known.permissionId);
         break;
-      case EventTypes.CLARIFICATION_REQUEST:
+      case EventTypes.USER_QUESTION_REQUEST: {
+        const question = known.questions[0];
+        if (!question) break;
         this.addClarification({
           requestId: known.requestId,
-          sourceName: known.sourceName,
-          question: known.question,
-          agentName: known.agentName,
-          options: known.options,
+          sourceName: known.sourceName ?? undefined,
+          questionId: question.id,
+          question: question.text,
+          agentName: known.metadata?.agentName,
+          options: question.options?.map(option => option.label),
         }, known);
         break;
-      case EventTypes.CLARIFICATION_RESPONSE:
+      }
+      case 'QUESTION_RESPONSE':
         this.removeClarification(known.requestId);
         break;
       case EventTypes.CLIENT_TOOL_INVOKE_REQUEST:
         this.addClientToolRequest({
           requestId: known.requestId,
-          sourceName: known.sourceName,
+          sourceName: known.sourceName ?? undefined,
           toolName: known.toolName,
           callId: known.callId,
-          arguments: known.arguments,
-          description: known.description,
-          responsePolicy: known.responsePolicy,
+          arguments: { ...known.arguments },
+          description: known.description ?? undefined,
+          responsePolicy: known.responsePolicy ?? undefined,
           target: known.target,
-          visibility: known.visibility,
+          visibility: known.visibility ?? undefined,
         }, known);
         break;
       case EventTypes.CLIENT_TOOL_INVOKE_OUTCOME:
@@ -225,18 +221,18 @@ class ThreadProjectionImpl implements ThreadProjection {
           turnId: known.messageTurnId,
           conversationId: known.conversationId,
           executionId: this.snapshot.currentExecutionId,
-          eventFlowId: known.eventFlowId,
-          sequenceNumber: known.threadSequenceNumber,
-        }, known.agentName, known.timestamp);
+          eventFlowId: known.eventFlowId ?? undefined,
+          sequenceNumber: known.threadSequenceNumber ?? undefined,
+        }, known.agentName, known.timestamp ?? undefined);
         break;
       case EventTypes.AGENT_TURN_FINISHED:
-        this.recordAgentTurnUsage(known.usage, known.timestamp);
+        this.recordAgentTurnUsage(known.usage ?? undefined, known.timestamp ?? undefined);
         break;
       case EventTypes.MESSAGE_TURN_FINISHED:
         this.finishWorkGroup(
           known.messageTurnId,
           'worked',
-          known.timestamp,
+          known.timestamp ?? undefined,
           undefined,
           aggregateMessageTurnUsage(known.usage),
         );
@@ -251,7 +247,7 @@ class ThreadProjectionImpl implements ThreadProjection {
         this.finishWorkGroup(
           this.snapshot.currentTurnId ?? event.eventFlowId ?? null,
           'failed',
-          event.timestamp,
+          event.timestamp ?? undefined,
           known.errorMessage,
           aggregateMessageTurnUsage(known.usage),
         );
@@ -312,17 +308,16 @@ class ThreadProjectionImpl implements ThreadProjection {
           childSessionId: known.childSessionId,
           childThreadId: known.childThreadId,
           roleName: known.roleName,
-          taskName: known.taskName,
-          mode: known.mode,
+          mode: known.mode === 'Synchronous' || known.mode === 'Background' ? known.mode : undefined,
           status: 'active',
-          startedAt: known.timestamp,
+          startedAt: known.timestamp ?? undefined,
         });
         break;
       case EventTypes.SUBAGENT_INVOCATION_COMPLETED:
         this.completeSubAgentInvocation(known.invocationId, {
           status: 'completed',
           summary: known.summary,
-          completedAt: known.timestamp,
+          completedAt: known.timestamp ?? undefined,
         });
         break;
       case EventTypes.SUBAGENT_INVOCATION_FAILED:
@@ -330,14 +325,14 @@ class ThreadProjectionImpl implements ThreadProjection {
           status: 'failed',
           errorType: known.errorType,
           errorMessage: known.message,
-          completedAt: known.timestamp,
+          completedAt: known.timestamp ?? undefined,
         });
         break;
       case EventTypes.SUBAGENT_INVOCATION_CANCELLED:
         this.completeSubAgentInvocation(known.invocationId, {
           status: 'cancelled',
           errorMessage: known.reason,
-          completedAt: known.timestamp,
+          completedAt: known.timestamp ?? undefined,
         });
         break;
       default:
@@ -757,7 +752,7 @@ class ThreadProjectionImpl implements ThreadProjection {
       resultText: formatToolResultPayload(event.result),
       status: 'complete',
       endTime: readEventTimestamp(event),
-      toolharnessName: event.toolharnessName ?? tool.toolharnessName,
+      toolharnessName: event.toolHarnessName ?? tool.toolharnessName,
       callType: event.callType ?? tool.callType,
     }));
     this.snapshot = refreshSnapshot({
@@ -825,7 +820,7 @@ class ThreadProjectionImpl implements ThreadProjection {
     const base = this.createRequestBase({
       id: request.requestId,
       sourceName: request.sourceName,
-      requestEventType: event?.type ?? EventTypes.CLARIFICATION_REQUEST,
+      requestEventType: event?.type ?? EventTypes.USER_QUESTION_REQUEST,
     });
     this.addRuntimeRequest({
       ...base,
@@ -936,9 +931,9 @@ class ThreadProjectionImpl implements ThreadProjection {
         this.snapshot.currentExecutionId ??
         this.snapshot.threadExecution?.threadExecutionId ??
         null,
-      eventFlowId: event?.eventFlowId,
+      eventFlowId: event?.eventFlowId ?? undefined,
       sequenceNumber: event?.sequenceNumber,
-      timestamp: event?.timestamp,
+      timestamp: event?.timestamp ?? undefined,
     };
   }
 
@@ -1142,16 +1137,13 @@ function addUsageDetails(
     totalTokenCount: add(current?.totalTokenCount, next.totalTokenCount),
     cachedInputTokenCount: add(current?.cachedInputTokenCount, next.cachedInputTokenCount),
     reasoningTokenCount: add(current?.reasoningTokenCount, next.reasoningTokenCount),
-    inputAudioTokenCount: add(current?.inputAudioTokenCount, next.inputAudioTokenCount),
-    inputTextTokenCount: add(current?.inputTextTokenCount, next.inputTextTokenCount),
-    outputAudioTokenCount: add(current?.outputAudioTokenCount, next.outputAudioTokenCount),
-    outputTextTokenCount: add(current?.outputTextTokenCount, next.outputTextTokenCount),
+
     additionalCounts: Object.keys(additionalCounts).length > 0 ? additionalCounts : undefined,
   };
 }
 
 function aggregateMessageTurnUsage(
-  summary?: MessageTurnUsageSummary,
+  summary?: MessageTurnUsageSummary | null,
 ): ThreadContextUsage['usage'] | undefined {
   return (summary?.operations ?? [])
     .map(operation => operation.usage)
@@ -1350,16 +1342,16 @@ function createMessage(
 function readMessagePolicy(event: AgentEvent): MessagePolicy {
   const additionalProperties = readRecordProperty(event, 'additionalProperties');
   const source = toAgentMessageSource(
-    readStringProperty(event, 'source') ??
-    readStringFromRecord(additionalProperties, AgentMessagePolicyProperties.SOURCE),
+    readPolicyField(event, 'source', ['Unspecified', 'UserInput', 'AssistantOutput', 'SystemInstruction', 'RuntimeContext', 'BackgroundNotification', 'ToolResult', 'PermissionResponse', 'Steering', 'Internal']) ??
+    readStringFromRecord(additionalProperties, 'hpd.message.source'),
   );
   const visibility = toAgentMessageVisibility(
-    readStringProperty(event, 'visibility') ??
-    readStringFromRecord(additionalProperties, AgentMessagePolicyProperties.VISIBILITY),
+    readPolicyField(event, 'visibility', ['Transcript', 'Hidden', 'Diagnostic']) ??
+    readStringFromRecord(additionalProperties, 'hpd.message.visibility'),
   );
   const persistence = toAgentMessagePersistence(
-    readStringProperty(event, 'persistence') ??
-    readStringFromRecord(additionalProperties, AgentMessagePolicyProperties.PERSISTENCE),
+    readPolicyField(event, 'persistence', ['ThreadHistory', 'ModelContextOnly', 'None']) ??
+    readStringFromRecord(additionalProperties, 'hpd.message.persistence'),
   );
 
   return { source, visibility, persistence };
@@ -1560,21 +1552,60 @@ function cloneRuntimeRequest(request: RuntimeRequest): RuntimeRequest {
   return { ...request };
 }
 
-function selectThreadExecution(activeExecution?: ThreadExecution | null, executions?: ThreadExecution[]): ThreadExecutionView | null {
+function selectThreadExecution(activeExecution?: ThreadExecutionDto | null, executions?: ThreadExecutionDto[]): ThreadExecutionView | null {
   if (activeExecution) return mapThreadExecution(activeExecution);
   if (!executions || executions.length === 0) return null;
   return mapThreadExecution(executions[executions.length - 1]);
 }
 
-function mapThreadExecution(execution: ThreadExecution): ThreadExecutionView {
+function mapThreadExecution(execution: ThreadExecutionDto): ThreadExecutionView {
   return {
     threadExecutionId: execution.threadExecutionId,
     agentId: execution.agentId,
-    status: execution.status,
+    status: executionStatus(execution.status),
     startedAt: execution.startedAt,
     finishedAt: execution.finishedAt,
-    errorType: execution.error?.type,
-    errorMessage: execution.error?.message,
+    errorType: readStringProperty(execution.error, 'type'),
+    errorMessage: readStringProperty(execution.error, 'message'),
     operations: execution.operations,
   };
+}
+
+function executionStatus(status: string): ThreadExecutionView['status'] {
+  switch (status) {
+    case 'active':
+    case 'succeeded':
+    case 'failed':
+    case 'interrupted':
+    case 'cancelled': return status;
+    default: return 'idle';
+  }
+}
+
+function readPolicyField(event: AgentEvent, name: string, values: readonly string[]): string | undefined {
+  const value = (event as unknown as Record<string, unknown>)[name];
+  return typeof value === 'number' ? values[value] : typeof value === 'string' ? value : undefined;
+}
+
+function isErrorEvent(event: AgentEvent): event is AgentEvent & { errorMessage: string } {
+  return readBooleanProperty(event, 'isError') && readStringProperty(event, 'errorMessage') !== undefined;
+}
+
+function isAgentRequestEvent(event: AgentEvent): event is AgentRequestEvent {
+  return event.type.endsWith('_REQUEST') && readStringProperty(event, 'requestId') !== undefined
+    && readStringProperty(event, 'sourceName') !== undefined;
+}
+
+function isAgentResponseEvent(event: AgentEvent): event is AgentEvent & { requestId: string } {
+  return event.type.endsWith('_RESPONSE') && readStringProperty(event, 'requestId') !== undefined;
+}
+
+function formatToolResultPayload(result: import('./types.js').ToolResultPayload): string {
+  if (result.text) return result.text;
+  if (result.json != null) return JSON.stringify(result.json);
+  return result.content?.length ? JSON.stringify(result.content) : '';
+}
+
+function isContent(value: unknown): value is AIContent {
+  return typeof value === 'object' && value !== null && '$type' in value && typeof value.$type === 'string';
 }

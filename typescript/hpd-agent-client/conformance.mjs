@@ -6,7 +6,7 @@ import {
   HpdSseState,
   HpdStreamError,
   clientToolText,
-} from './dist/index.js';
+} from './dist/runtime.js';
 
 const document = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 for (const fixture of document.fixtures) {

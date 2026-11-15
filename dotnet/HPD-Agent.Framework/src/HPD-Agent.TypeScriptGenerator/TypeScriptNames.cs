@@ -61,6 +61,11 @@ internal sealed class TypeScriptNames
             "map" => "Record<string, " + (type.ValueType is null
                 ? "unknown"
                 : Type(type.ValueType, depth: depth + 1)) + ">",
+            "union" when type.Branches is { Count: > 0 } branches =>
+                string.Join(
+                    type.Composition == "allOf" ? " & " : " | ",
+                    branches.Select(branch => Type(branch, depth: depth + 1))
+                        .Distinct(StringComparer.Ordinal)),
             _ => "unknown"
         };
         return (optional || type.Nullable) && mapped is not "unknown" and not "null"

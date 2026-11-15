@@ -1,4 +1,3 @@
-import { createTextContent } from '@hpd-research/hpd-agent-client';
 import { mergeProps } from '../thread-composer/index.js';
 import type {
   SuggestionActions,
@@ -129,7 +128,7 @@ export function createSuggestionActions(options: CreateSuggestionActionsOptions)
       options.setSubmitting?.(true);
       try {
         await model.thread.sendMessage({
-          contents: [createTextContent(model.prompt)],
+          contents: [textContent(model.prompt)],
           additionalProperties: createSuggestionAdditionalProperties(model),
         }, { runConfig: options.runConfig });
         await options.onSelect?.(details);
@@ -184,4 +183,8 @@ function createSuggestionAdditionalProperties(
     ...(model.additionalProperties ?? {}),
     ...(suggestionMetadata ? { suggestion: suggestionMetadata } : {}),
   };
+}
+
+function textContent(text: string) {
+  return { $type: 'text', text };
 }

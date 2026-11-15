@@ -1,4 +1,4 @@
-import type { RunConfig } from '@hpd-research/hpd-agent-client';
+import type { AgentRunConfig } from '@hpd-research/hpd-agent-client';
 
 export type ComposerTriggerBehaviorKind = 'directive' | 'action';
 export type ComposerTriggerItemType = 'mention' | 'command' | string;
@@ -59,12 +59,12 @@ export interface ComposerTriggerApplyResult {
   insertedText: string;
   item: ComposerTriggerItem;
   nextCursor: number;
-  runConfigPatch?: RunConfig;
+  runConfigPatch?: AgentRunConfig;
   text: string;
   trigger: string;
 }
 
 export interface ComposerTriggerBehaviorResult {
   additionalPropertiesPatch?: Record<string, unknown>;
-  runConfigPatch?: RunConfig;
+  runConfigPatch?: AgentRunConfig;
 }

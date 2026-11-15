@@ -1,7 +1,7 @@
 import type { Snippet } from 'svelte';
 import type { SvelteHTMLElements } from 'svelte/elements';
 import type {
-  Session,
+  SessionDto as Session,
 } from '@hpd-research/hpd-agent-client';
 import type {
   SessionListItem,

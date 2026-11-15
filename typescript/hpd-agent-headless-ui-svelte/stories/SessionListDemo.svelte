@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AgentClient, Session } from '@hpd-research/hpd-agent-client';
+  import type { AgentClient, SessionDto as Session } from '@hpd-research/hpd-agent-client';
   import {
     createSessionListState,
     SessionListDelete,
@@ -60,25 +60,47 @@
 
   function createStoryClient(getSessions: () => Session[]): AgentClient {
     return {
-      searchSessions: async (request = {}) => {
-        if (renderMode === 'error') throw new Error('Could not load sessions');
-        const filter = request.metadata ?? {};
-        return getSessions().filter((session) =>
-          Object.entries(filter).every(([key, value]) => session.metadata[key] === value));
-      },
-      createSession: async (request = {}) => createSession(request.sessionId ?? 'new-session', request.metadata ?? {}),
-      updateSession: async (sessionId, request) => {
-        const sessions = getSessions();
-        const session = sessions.find((item) => item.id === sessionId) ?? createSession(sessionId, {});
-        return {
-          ...session,
-          metadata: {
-            ...session.metadata,
-            ...request.metadata,
+      sessions: {
+        search: async (request = {}) => {
+          if (renderMode === 'error') throw new Error('Could not load sessions');
+          const filter = request.metadata ?? {};
+          return getSessions()
+            .filter((session) =>
+              Object.entries(filter).every(([key, value]) =>
+                typeof session.metadata === 'object'
+                && session.metadata !== null
+                && !Array.isArray(session.metadata)
+                && session.metadata[key] === value))
+            .map(descriptor => ({ descriptor }));
+        },
+        create: async (request = {}) => ({
+          session: {
+            descriptor: createSession(
+              request.sessionId ?? 'new-session',
+              request.metadata ?? {},
+            ),
           },
-        };
+        }),
       },
-      deleteSession: async () => {},
+      api: {
+        sessions: {
+          updateSession: async ({ sessionId, input }) => {
+            const sessions = getSessions();
+            const session = sessions.find((item) => item.id === sessionId)
+              ?? createSession(sessionId, {});
+            const metadata = typeof session.metadata === 'object'
+              && session.metadata !== null
+              && !Array.isArray(session.metadata)
+              ? session.metadata
+              : {};
+            return {
+              ...session,
+              metadata: { ...metadata, ...input.metadata },
+            };
+          },
+          deleteSession: async () => {},
+        },
+      },
     } as unknown as AgentClient;
   }
 </script>

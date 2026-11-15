@@ -1,4 +1,4 @@
-import type { Thread, ThreadForkGroup, ThreadGraph, ThreadRuntimeChild } from '@hpd-research/hpd-agent-client';
+import type { ThreadDto, ThreadForkGroupDto, ThreadGraphDto, ThreadRuntimeChildDto } from '@hpd-research/hpd-agent-client';
 import type {
   ActivePathChoice,
   ThreadBranchNavigationSnapshot,
@@ -32,7 +32,7 @@ class ThreadBranchNavigatorImpl implements ThreadBranchNavigator {
   }
 
   async load(threadId = this.currentThreadId): Promise<ThreadBranchNavigationSnapshot> {
-    const graph = await this.client.getThreadGraph(this.sessionId);
+    const graph = await this.client.api.threads.getThreadGraph({ sessionId: this.sessionId });
     const current = graph.threads.find((thread) => thread.id === threadId) ?? null;
     const runtimeChildren = current ? loadRuntimeChildrenFromGraph(graph, current.id) : [];
 
@@ -90,7 +90,7 @@ class ThreadBranchNavigatorImpl implements ThreadBranchNavigator {
   }
 }
 
-function getActivePathChoices(graph: ThreadGraph, threadId: string): ActivePathChoice[] {
+function getActivePathChoices(graph: ThreadGraphDto, threadId: string): ActivePathChoice[] {
   const current = graph.threads.find((thread) => thread.id === threadId);
   const threadsById = new Map(graph.threads.map((thread) => [thread.id, thread]));
   const activePath = getActiveThreadPath(graph, threadId);
@@ -133,7 +133,7 @@ function getActivePathChoices(graph: ThreadGraph, threadId: string): ActivePathC
     );
 }
 
-function getActiveThreadPath(graph: ThreadGraph, threadId: string): Thread[] {
+function getActiveThreadPath(graph: ThreadGraphDto, threadId: string): ThreadDto[] {
   const threadsById = new Map(graph.threads.map((thread) => [thread.id, thread]));
   const current = threadsById.get(threadId);
   if (!current) return [];
@@ -144,16 +144,16 @@ function getActiveThreadPath(graph: ThreadGraph, threadId: string): Thread[] {
       left[0].localeCompare(right[0]),
     )
     .map(([, ancestorThreadId]) => threadsById.get(ancestorThreadId))
-    .filter((thread): thread is Thread => Boolean(thread));
+    .filter((thread): thread is ThreadDto => Boolean(thread));
 
   return [...ancestors, current];
 }
 
 function isForkGroupOnActivePath(
-  group: ThreadForkGroup,
+  group: ThreadForkGroupDto,
   selectedMemberThreadId: string,
-  activePath: readonly Thread[],
-  threadsById: ReadonlyMap<string, Thread>,
+  activePath: readonly ThreadDto[],
+  threadsById: ReadonlyMap<string, ThreadDto>,
 ): boolean {
   const activePathIndex = activePath.findIndex((thread) => thread.id === selectedMemberThreadId);
   if (activePathIndex < 0) return false;
@@ -170,9 +170,9 @@ function isForkGroupOnActivePath(
 }
 
 function pathSegmentIncludesForkGroupBoundary(
-  group: ThreadForkGroup,
-  nextPathThread: Thread,
-  threadsById: ReadonlyMap<string, Thread>,
+  group: ThreadForkGroupDto,
+  nextPathThread: ThreadDto,
+  threadsById: ReadonlyMap<string, ThreadDto>,
 ): boolean {
   const nextChoiceIndex = resolveThreadChoiceMessageIndex(nextPathThread);
 
@@ -183,14 +183,14 @@ function pathSegmentIncludesForkGroupBoundary(
   return nextThread?.forkedAtMessageId === group.forkedAtMessageId;
 }
 
-function resolveThreadChoiceMessageIndex(thread: Thread): number | null {
+function resolveThreadChoiceMessageIndex(thread: ThreadDto): number | null {
   if (thread.forkedAtMessageIndex == null) {
     return thread.forkedFrom ? 0 : null;
   }
   return thread.forkedAtMessageIndex + 1;
 }
 
-function loadRuntimeChildrenFromGraph(graph: ThreadGraph, parentThreadId: string): ThreadRuntimeChild[] {
+function loadRuntimeChildrenFromGraph(graph: ThreadGraphDto, parentThreadId: string): ThreadRuntimeChildDto[] {
   return graph.runtimeChildren.filter((child) => child.parentThreadId === parentThreadId);
 }
 
@@ -222,7 +222,7 @@ function cloneSnapshot(snapshot: ThreadBranchNavigationSnapshot): ThreadBranchNa
   };
 }
 
-function cloneGraph(graph: ThreadGraph): ThreadGraph {
+function cloneGraph(graph: ThreadGraphDto): ThreadGraphDto {
   return {
     threads: graph.threads.map(cloneThread),
     forkGroups: graph.forkGroups.map(cloneForkGroup),
@@ -230,7 +230,7 @@ function cloneGraph(graph: ThreadGraph): ThreadGraph {
   };
 }
 
-function cloneForkGroup(group: ThreadForkGroup): ThreadForkGroup {
+function cloneForkGroup(group: ThreadForkGroupDto): ThreadForkGroupDto {
   return {
     ...group,
     members: group.members.map((member) => ({ ...member })),
@@ -249,16 +249,15 @@ function cloneActivePathChoice(choice: ActivePathChoice): ActivePathChoice {
   };
 }
 
-function cloneThread(thread: Thread): Thread {
+function cloneThread(thread: ThreadDto): ThreadDto {
   return {
     ...thread,
-    tags: thread.tags ? [...thread.tags] : undefined,
+    tags: thread.tags ? [...thread.tags] : null,
     metadata: thread.metadata ? { ...thread.metadata } : undefined,
-    ancestors: thread.ancestors ? { ...thread.ancestors } : undefined,
-    childThreads: Array.isArray(thread.childThreads) ? [...thread.childThreads] : [],
+    ancestors: thread.ancestors ? { ...thread.ancestors } : null,
   };
 }
 
-function cloneRuntimeChild(child: ThreadRuntimeChild): ThreadRuntimeChild {
+function cloneRuntimeChild(child: ThreadRuntimeChildDto): ThreadRuntimeChildDto {
   return { ...child };
 }

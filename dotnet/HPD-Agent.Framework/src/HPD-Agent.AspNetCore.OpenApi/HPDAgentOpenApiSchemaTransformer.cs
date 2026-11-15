@@ -16,14 +16,17 @@ internal sealed class HPDAgentOpenApiSchemaTransformer : IOpenApiSchemaTransform
     {
         cancellationToken.ThrowIfCancellationRequested();
         var property = context.JsonPropertyInfo;
-        if (property is null ||
-            property.PropertyType.IsValueType ||
-            !(property.IsGetNullable || property.IsSetNullable))
-        {
+        if (property is null)
             return Task.CompletedTask;
-        }
 
-        schema.Type = (schema.Type ?? JsonSchemaType.Null) | JsonSchemaType.Null;
+        var isNullableValueType = Nullable.GetUnderlyingType(property.PropertyType) is not null;
+        var isNullableReferenceType = !property.PropertyType.IsValueType &&
+            (property.IsGetNullable || property.IsSetNullable);
+        if (!isNullableValueType && !isNullableReferenceType)
+            return Task.CompletedTask;
+
+        if (schema.Type is { } type)
+            schema.Type = type | JsonSchemaType.Null;
         return Task.CompletedTask;
     }
 }

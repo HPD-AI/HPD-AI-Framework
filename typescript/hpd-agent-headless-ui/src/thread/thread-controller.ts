@@ -1,19 +1,8 @@
-import {
-  completeClientTool,
-  EventTypes,
-  type AIContent,
-  type AgentClient,
-  type AgentEvent,
-  type AgentResponseInput,
-  type AgentRunInputEvent,
-  type ClientToolInvokeOutcome,
-  type EventSubscription,
-  type InputSubmissionResult,
-  type RespondResult,
-  type ToolResultContent,
-  type ThreadJournalCursor,
-  ThreadJournalRebasedError,
-} from '@hpd-research/hpd-agent-client';
+import { clientToolText, EventTypes, type AgentClient, type ThreadObservation } from '@hpd-research/hpd-agent-client';
+import type {
+  AIContent, AgentEvent, AgentResponseInput, AgentRunInputEvent, ClientToolInvokeOutcome,
+  InputSubmissionResult, RespondResult, ThreadJournalCursor,
+} from './types.js';
 import { createThreadProjection } from './thread-projection.js';
 import { loadThreadSnapshot } from './load-thread-snapshot.js';
 import { getTextSubmissionState } from './selectors.js';
@@ -42,16 +31,13 @@ class ThreadControllerImpl implements ThreadController {
   readonly projection;
   private readonly client: AgentClient;
   private readonly autoConnectOnSend: boolean;
-  private readonly stopClientOnDisconnect: boolean;
   private readonly allowScopeLessEvents: boolean;
-  private eventSubscription: EventSubscription | null = null;
-  private errorSubscription: EventSubscription | null = null;
+  private observation?: ThreadObservation;
   private disposed = false;
   private _connected = false;
   private _loading = false;
   private _error: string | null = null;
   private appliedCursor: ThreadJournalCursor = { generation: 1, sequenceNumber: 0 };
-  private rebaseRecovery: Promise<void> | null = null;
   private optimisticInputIndex = 0;
 
   constructor(options: ThreadControllerOptions) {
@@ -63,12 +49,11 @@ class ThreadControllerImpl implements ThreadController {
     };
     this.projection = options.projection ?? createThreadProjection();
     this.autoConnectOnSend = options.autoConnectOnSend ?? true;
-    this.stopClientOnDisconnect = options.stopClientOnDisconnect ?? true;
     this.allowScopeLessEvents = options.allowScopeLessEvents ?? false;
   }
 
   get connected(): boolean {
-    return this._connected && this.client.connected;
+    return this._connected;
   }
 
   get loading(): boolean {
@@ -115,38 +100,38 @@ class ThreadControllerImpl implements ThreadController {
     this.throwIfDisposed();
     if (this.connected) return;
 
-    this.eventSubscription ??= this.client.onAny((event) => {
-      this.handleEvent(event);
-    });
-    this.errorSubscription ??= this.client.onError((error) => {
-      if (error instanceof ThreadJournalRebasedError) {
-        this.rebaseRecovery ??= this.recoverFromRebase(error.currentGeneration)
-          .finally(() => { this.rebaseRecovery = null; });
-        return;
-      }
-      this._error = error.message;
-    });
-
     try {
-      await this.client.start({
-        ...this.scope,
-        after: this.appliedCursor,
+      const { sessionId, threadId, agentId } = this.scope;
+      const thread = await (await this.client.sessions.get(sessionId)).threads.get(threadId);
+      const observation = await thread.observe({
+        agentId,
+        after: { generation: this.appliedCursor.generation, sequence: this.appliedCursor.sequenceNumber },
         signal: options.signal,
+        onEvent: ({ event }) => this.handleEvent(event),
+        onRebase: async ({ generation }) => {
+          const snapshot = await loadThreadSnapshot({ client: this.client, ...this.scope });
+          this.projection.rehydrate(snapshot);
+          this.appliedCursor = { generation, sequenceNumber: 0 };
+        },
       });
+      this.observation = observation;
       this._connected = true;
+      void observation.done.catch(error => {
+        this._error = error instanceof Error ? error.message : String(error);
+      }).finally(() => {
+        if (this.observation === observation) this._connected = false;
+      });
     } catch (error) {
-      this.detachListeners();
       this._error = error instanceof Error ? error.message : String(error);
       throw error;
     }
   }
 
   async disconnect(): Promise<void> {
-    if (this.stopClientOnDisconnect) {
-      await this.client.stop();
-    }
-    this.detachListeners();
+    const observation = this.observation;
+    this.observation = undefined;
     this._connected = false;
+    await observation?.close();
   }
 
   async dispose(): Promise<void> {
@@ -178,7 +163,7 @@ class ThreadControllerImpl implements ThreadController {
     this.projectOptimisticUserMessage(contents, clientInputId, input.additionalProperties);
 
     await this.run({
-      type: EventTypes.USER_MESSAGES_INPUT,
+      type: 'USER_MESSAGES_INPUT',
       agentId: this.scope.agentId,
       sessionId: this.scope.sessionId,
       threadId: this.scope.threadId,
@@ -194,51 +179,37 @@ class ThreadControllerImpl implements ThreadController {
 
   async run(input: AgentRunInputEvent): Promise<InputSubmissionResult> {
     this.throwIfDisposed();
-    return this.client.run(stampInputScope(input, this.scope));
+    return this.client.api.agentRuntime.submitAgentInput({ ...this.scope, input: { ...input, version: '1.0' } });
   }
 
   async respond(input: AgentResponseInput): Promise<RespondResult> {
     this.throwIfDisposed();
-    return this.client.respond(stampResponseScope(input, this.scope));
+    return this.client.api.agentInteractions.respondToAgentRequest({ ...this.scope, input: { ...input, version: '1.0' } });
   }
 
   async steer(text: string, options: SendMessageOptions = {}): Promise<InputSubmissionResult> {
     this.throwIfDisposed();
     if (!text.trim()) throw new Error('steer() requires non-empty text.');
-    const state = await this.client.getThreadState(
-      this.scope.agentId,
-      this.scope.sessionId,
-      this.scope.threadId,
-    );
-    if (!state?.activeExecution) {
-      return { disposition: 'no_active_execution', activeExecution: null };
-    }
-    return this.client.submitInput(stampInputScope({
-      type: EventTypes.USER_MESSAGES_INPUT,
+    options.signal?.throwIfAborted();
+    const state = await this.client.api.agentRuntime.getAgentThreadRuntimeState(this.scope);
+    if (!state.activeExecution) return { disposition: 'no_active_execution', activeExecution: null };
+    return this.run({
+      type: 'USER_MESSAGES_INPUT',
       threadExecutionId: state.activeExecution.threadExecutionId,
       delivery: 'Steer',
       messages: [{ role: 'user', contents: [{ $type: 'text', text }] }],
-    }, this.scope), { signal: options.signal });
+    });
   }
 
   async interrupt(options: InterruptOptions = {}): Promise<InputSubmissionResult> {
     this.throwIfDisposed();
-    const state = await this.client.getThreadState(
-      this.scope.agentId,
-      this.scope.sessionId,
-      this.scope.threadId,
-    );
-    if (!state?.activeExecution) {
-      return { disposition: 'no_active_execution', activeExecution: null };
-    }
-
-    const result = await this.client.cancelThreadExecution(
-      this.scope.agentId,
-      this.scope.sessionId,
-      this.scope.threadId,
-      state.activeExecution.threadExecutionId,
-      { signal: options.signal },
-    );
+    options.signal?.throwIfAborted();
+    const state = await this.client.api.agentRuntime.getAgentThreadRuntimeState(this.scope);
+    if (!state.activeExecution) return { disposition: 'no_active_execution', activeExecution: null };
+    const result = await this.client.api.executions.cancelThreadExecution({
+      ...this.scope,
+      threadExecutionId: state.activeExecution.threadExecutionId,
+    });
     return {
       disposition: result.cancellationApplied ? 'accepted' : 'no_active_execution',
       threadExecutionId: result.threadExecutionId,
@@ -294,11 +265,11 @@ class ThreadControllerImpl implements ThreadController {
     if (!pending) return missingRequest(requestId);
 
     return this.respond({
-      type: EventTypes.CLARIFICATION_RESPONSE,
+      type: 'QUESTION_RESPONSE',
       requestId,
       sourceName: pending.request.sourceName,
-      question: pending.request.question,
-      answer,
+      outcome: 'Answered',
+      answers: [{ questionId: pending.request.questionId, selectedOptionIds: [], customText: answer }],
     });
   }
 
@@ -340,15 +311,6 @@ class ThreadControllerImpl implements ThreadController {
         sequenceNumber: event.threadSequenceNumber,
       };
     }
-  }
-
-  private async recoverFromRebase(generation: number): Promise<void> {
-    this._connected = false;
-    await this.client.stop();
-    const snapshot = await loadThreadSnapshot({ client: this.client, ...this.scope });
-    this.projection.rehydrate(snapshot);
-    this.appliedCursor = { generation, sequenceNumber: 0 };
-    await this.connect();
   }
 
   private projectOptimisticUserMessage(
@@ -396,33 +358,16 @@ class ThreadControllerImpl implements ThreadController {
     }
   }
 
-  private detachListeners(): void {
-    this.eventSubscription?.dispose();
-    this.errorSubscription?.dispose();
-    this.eventSubscription = null;
-    this.errorSubscription = null;
-  }
+
 }
 
 function missingRequest(requestId: string): RespondResult {
   return {
-    status: 'notFound',
+    status: 1,
     requestId,
     message: 'The request is not pending in this thread projection.',
     accepted: false,
   };
-}
-
-function stampInputScope(input: AgentRunInputEvent, scope: ThreadController['scope']): AgentRunInputEvent {
-  return withThreadScope(input, scope) as AgentRunInputEvent;
-}
-
-function stampResponseScope(input: AgentResponseInput, scope: ThreadController['scope']): AgentResponseInput {
-  return {
-    ...input,
-    sessionId: input.sessionId ?? scope.sessionId,
-    threadId: input.threadId ?? scope.threadId,
-  } as AgentResponseInput;
 }
 
 function normalizeClientToolOutcome(
@@ -430,7 +375,13 @@ function normalizeClientToolOutcome(
   outcome: ClientToolOutcomeInput,
 ): ClientToolInvokeOutcome {
   if (typeof outcome === 'string' || Array.isArray(outcome)) {
-    return completeClientTool(requestId, outcome as string | ToolResultContent[]);
+    return typeof outcome === 'string'
+      ? {
+          requestId,
+          ...clientToolText(outcome),
+          augmentation: undefined as ClientToolInvokeOutcome['augmentation'],
+        }
+      : { requestId, outcome: 'Completed', content: outcome };
   }
 
   if (outcome.requestId !== requestId) {

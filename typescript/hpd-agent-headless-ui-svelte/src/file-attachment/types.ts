@@ -1,7 +1,8 @@
 import type { Snippet } from 'svelte';
 import type { Attachment } from 'svelte/attachments';
 import type { SvelteHTMLElements } from 'svelte/elements';
-import type { AIContent, ContentReference } from '@hpd-research/hpd-agent-client';
+import type { AgentClient, ContentDto } from '@hpd-research/hpd-agent-client';
+import type { AIContent } from '@hpd-research/hpd-agent-headless-ui';
 import type { FileAttachmentState } from './file-attachment-state.svelte.js';
 
 type DivProps = Omit<SvelteHTMLElements['div'], 'children'>;
@@ -14,7 +15,7 @@ export interface PendingFileAttachment {
   id: string;
   file: File;
   status: FileAttachmentStatus;
-  content?: ContentReference;
+  content?: ContentDto;
   error?: string;
 }
 
@@ -24,10 +25,10 @@ export interface FileAttachmentUploadDetails {
   file: File;
 }
 
-export type FileAttachmentUpload = (details: FileAttachmentUploadDetails) => Promise<ContentReference>;
+export type FileAttachmentUpload = (details: FileAttachmentUploadDetails) => Promise<ContentDto>;
 
 export interface FileAttachmentClient {
-  uploadContent(sessionId: string, threadId: string, file: File | Blob, name?: string): Promise<ContentReference>;
+  sessions: AgentClient['sessions'];
 }
 
 export interface FileAttachmentStateOptions {

@@ -14,7 +14,6 @@ describe('createThreadProjection', () => {
       childSessionId: 'session-1',
       childThreadId: 'child-1',
       roleName: 'Reviewer',
-      taskName: 'Review architecture',
       mode: 'Synchronous',
       timestamp: '2026-01-01T00:00:00.000Z',
     });
@@ -32,7 +31,6 @@ describe('createThreadProjection', () => {
       childSessionId: 'session-1',
       childThreadId: 'child-1',
       roleName: 'Reviewer',
-      taskName: 'Review architecture',
       mode: 'Synchronous',
       status: 'completed',
       summary: 'Looks good',
@@ -818,7 +816,7 @@ describe('createThreadProjection', () => {
     });
 
     projection.project({
-      type: EventTypes.PERMISSION_RESOLVED,
+      type: 'PERMISSION_RESPONSE',
       permissionId: 'p1',
       agentId: 'agent', domain: 'ToolExecution', decisionKind: 'Allow', decisionSource: 'UserDecision',
     });

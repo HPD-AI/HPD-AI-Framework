@@ -1,4 +1,4 @@
-import type { Session } from '@hpd-research/hpd-agent-client';
+import type { SessionDto } from '@hpd-research/hpd-agent-client';
 import type {
   SessionLabelSelector,
   SessionListItem,
@@ -8,7 +8,7 @@ import type {
 } from './types.js';
 
 export function createSessionListItems(options: {
-  sessions: Session[];
+  sessions: SessionDto[];
   selectedSessionId: string | null;
   getLabel?: SessionLabelSelector;
   getSubtitle?: SessionSubtitleSelector;
@@ -19,11 +19,11 @@ export function createSessionListItems(options: {
     label: getSessionLabel(session, options.getLabel),
     subtitle: getSessionSubtitle(session, options.getSubtitle),
     selected: session.id === options.selectedSessionId,
-    metadata: session.metadata ?? {},
+    metadata: sessionMetadata(session),
   }));
 }
 
-export function getSessionLabel(session: Session, selector?: SessionLabelSelector): string {
+export function getSessionLabel(session: SessionDto, selector?: SessionLabelSelector): string {
   const selected = selector?.(session);
   if (selected && selected.trim().length > 0) return selected;
 
@@ -36,7 +36,7 @@ export function getSessionLabel(session: Session, selector?: SessionLabelSelecto
 }
 
 export function getSessionSubtitle(
-  session: Session,
+  session: SessionDto,
   selector?: SessionSubtitleSelector,
 ): string | null {
   const selected = selector?.(session);
@@ -47,20 +47,27 @@ export function getSessionSubtitle(
     ?? session.id;
 }
 
-export function readSessionMetadataString(session: Session, key: string): string | null {
-  const value = session.metadata?.[key];
+export function readSessionMetadataString(session: SessionDto, key: string): string | null {
+  const value = sessionMetadata(session)[key];
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }
 
 export function sortSessions(
-  sessions: Session[],
+  sessions: SessionDto[],
   field: SessionSortField = 'lastActivity',
   direction: SessionSortDirection = 'desc',
-): Session[] {
+): SessionDto[] {
   const multiplier = direction === 'asc' ? 1 : -1;
   return [...sessions].sort((a, b) => {
     const left = Date.parse(a[field] ?? '') || 0;
     const right = Date.parse(b[field] ?? '') || 0;
     return (left - right) * multiplier;
   });
+}
+
+function sessionMetadata(session: SessionDto): Record<string, unknown> {
+  const metadata = session.metadata;
+  return typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata)
+    ? { ...metadata }
+    : {};
 }

@@ -70,85 +70,64 @@ function makeBridge(clientOverrides: Partial<MockClient> = {}) {
 // ---------------------------------------------------------------------------
 
 type MockClient = {
-  createSession: ReturnType<typeof vi.fn>;
-  createThread:  ReturnType<typeof vi.fn>;
-  listThreads:  ReturnType<typeof vi.fn>;
+  listThreads: ReturnType<typeof vi.fn>;
   getThread: ReturnType<typeof vi.fn>;
-  stream?:       ReturnType<typeof vi.fn>;
-  run:           ReturnType<typeof vi.fn>;
-  respond:       ReturnType<typeof vi.fn>;
-  on:            ReturnType<typeof vi.fn>;
-  onAny:         ReturnType<typeof vi.fn>;
-  onError:       ReturnType<typeof vi.fn>;
+  stream?: ReturnType<typeof vi.fn>;
 };
 
-function makeMockClient(overrides: Partial<MockClient> = {}): MockClient {
-  const handlers = new Map<string, Function[]>();
-  const anyHandlers: Function[] = [];
-  const errorHandlers: Function[] = [];
-  const on = overrides.on ?? vi.fn((type: string, handler: Function) => {
-    handlers.set(type, [...(handlers.get(type) ?? []), handler]);
-    return { dispose: vi.fn() };
-  });
-  const onAny = overrides.onAny ?? vi.fn((handler: Function) => {
-    anyHandlers.push(handler);
-    return { dispose: vi.fn() };
-  });
-  const onError = overrides.onError ?? vi.fn((handler: Function) => {
-    errorHandlers.push(handler);
-    return { dispose: vi.fn() };
-  });
-  const emit = async (event: any) => {
-    for (const handler of anyHandlers) await handler(event);
-    for (const handler of handlers.get(event.type) ?? []) await handler(event);
+function makeMockClient(overrides: Partial<MockClient> = {}) {
+  let options: any;
+  let rejectObservation!: (error: unknown) => void;
+  const listThreads = overrides.listThreads ?? vi.fn(async () => [{ id: 'hpd-thread-1' }]);
+  const getThread = overrides.getThread ?? vi.fn(async () => ({ messages: [] }));
+  const emit = async (event: any, cursor?: { generation: number; sequence: number }) => {
+    const delivery = { event, cursor };
+    await options.handlers?.[event.type]?.(delivery);
+    await options.onEvent?.(delivery);
   };
-  const fail = async (error: unknown) => {
-    for (const handler of errorHandlers) await handler(error);
-  };
-  const run = overrides.run ?? vi.fn().mockImplementation(async (input: any, options?: any) => {
-    if (input.type !== 'USER_MESSAGES_INPUT') return;
-    const content = input.messages?.[0]?.contents?.[0];
-    const text = content?.$type === 'text' ? content.text : '';
-    if (overrides.stream) {
-      return overrides.stream(
-        input.sessionId,
-        input.threadId,
-        [{ role: 'user', content: text }],
-        {
+  const complete = () => emit({ type: 'THREAD_EXECUTION_FINISHED', threadExecutionId: 'e', outcome: 'succeeded' });
+  const thread = {
+    id: 'hpd-thread-1',
+    state: async () => ({ observedCursor: {
+      generation: 1, sequenceNumber: (await getThread()).messages.length * 2,
+    } }),
+    observe: vi.fn(async (observeOptions: any) => {
+      options = observeOptions;
+      const done = new Promise<void>((resolve, reject) => {
+        rejectObservation = reject;
+        options.signal.addEventListener('abort', () => resolve(), { once: true });
+      });
+      void done.catch(() => {});
+      if (!options.handlers) {
+        let sequence = 0;
+        for (const message of (await getThread()).messages) {
+          await emit({ type: 'TEXT_MESSAGE_START', messageId: message.id, role: message.role },
+            { generation: 1, sequence: ++sequence });
+          await emit({ type: 'TEXT_DELTA', messageId: message.id, text: message.contents[0].text },
+            { generation: 1, sequence: ++sequence });
+        }
+      }
+      return { done, close: vi.fn(async () => {}) };
+    }),
+    send: vi.fn(async (text: string, { runConfig }: any) => {
+      if (overrides.stream) {
+        void Promise.resolve(overrides.stream('hpd-sess-1', 'hpd-thread-1', [{ role: 'user', content: text }], {
           onEvent: emit,
-          onPermissionRequest: (event: any) => emit(event),
-          onClientToolInvoke: (event: any) => emit(event),
-          onClarificationRequest: async (event: any) => {
-            await emit(event);
-            return new Promise(() => {});
-          },
-          onContinuationRequest: (event: any) => emit(event),
-          onComplete: () => emit({ type: 'MESSAGE_TURN_FINISHED', version: '1.0' }),
-          onError: fail,
-        },
-        { signal: options?.signal, runConfig: input.runConfig },
-      );
-    }
-    await emit({ type: 'MESSAGE_TURN_FINISHED', version: '1.0' });
-  });
-
-  return {
-    createSession:    overrides.createSession    ?? vi.fn().mockResolvedValue({ id: 'hpd-sess-1', createdAt: '', lastActivity: '', metadata: {} }),
-    createThread:     overrides.createThread     ?? vi.fn().mockResolvedValue({ id: 'hpd-thread-1', sessionId: 'hpd-sess-1' }),
-    listThreads:     overrides.listThreads     ?? vi.fn().mockResolvedValue([{ id: 'hpd-thread-1', sessionId: 'hpd-sess-1' }]),
-    getThread:        overrides.getThread        ?? vi.fn().mockResolvedValue({ messages: [] }),
-    stream:           overrides.stream,
-    run,
-    respond: overrides.respond ?? vi.fn(async (response: any) => ({
-      status: 'accepted',
-      requestId: response.requestId ?? response.permissionId ?? response.continuationId ?? '',
-      message: null,
-      accepted: true,
-    })),
-    on,
-    onAny,
-    onError,
+          onClarificationRequest: emit,
+          onComplete: complete,
+          onError: rejectObservation,
+        }, { signal: options.signal, runConfig })).catch(rejectObservation);
+      } else await complete();
+      return { status: 'queued', execution: { id: 'e', cancel: vi.fn(async () => {}) } };
+    }),
+    respond: vi.fn(async () => ({ accepted: true })),
   };
+  const session = { id: 'hpd-sess-1', threads: { list: listThreads, get: vi.fn(async () => thread) } };
+  const sessions = {
+    create: vi.fn(async () => ({ session, thread })),
+    get: vi.fn(async () => session),
+  };
+  return { sessions, thread, listThreads };
 }
 
 // ---------------------------------------------------------------------------
@@ -236,8 +215,7 @@ describe('createBridge — session/new', () => {
     const [msg] = await waitFor(1) as any[];
     expect(msg.id).toBe(2);
     expect(msg.result.sessionId).toBe('hpd-sess-1');
-    expect(client.createSession).toHaveBeenCalledOnce();
-    expect(client.createThread).toHaveBeenCalledWith('hpd-sess-1');
+    expect(client.sessions.create).toHaveBeenCalledWith({ agentId: 'test-agent' });
   });
 
   it('acpSessionId equals hpdSessionId in registry', async () => {
@@ -264,14 +242,14 @@ describe('createBridge — session/load', () => {
   });
 
   it('replays history as session/update notifications before responding', async () => {
-    const client = makeMockClient({
+    const client = {
       getThread: vi.fn().mockResolvedValue({
         messages: [
           { id: 'm1', role: 'user',      contents: [{ $type: 'text', text: 'hi' }],    timestamp: '' },
           { id: 'm2', role: 'assistant', contents: [{ $type: 'text', text: 'hello' }], timestamp: '' },
         ],
       }),
-    });
+    };
     const { send, waitFor } = makeBridge(client);
     send(sessionNewMsg(2));
     await waitFor(1);
@@ -293,7 +271,7 @@ describe('createBridge — session/load', () => {
     send(sessionLoadMsg(3, 'hpd-sess-1'));
 
     const msgs = await waitFor(1) as any[];
-    expect(client.listThreads).toHaveBeenCalledWith('hpd-sess-1');
+    expect(client.listThreads).toHaveBeenCalledOnce();
     expect(msgs[0].result).toBeNull();
   });
 
@@ -325,8 +303,8 @@ describe('createBridge — session/prompt', () => {
     send(promptMsg(4, 'hpd-sess-1'));
     await waitFor(2);
 
-    const runCall = client.run.mock.calls[0];
-    expect(runCall[0].runConfig.clientToolInput.resetClientState).toBe(true);
+    const runCall = client.thread.send.mock.calls[0];
+    expect(runCall[1].runConfig.tools.clientInput.resetClientState).toBe(true);
   });
 
   it('responds with end_turn when onComplete fires', async () => {
@@ -405,17 +383,16 @@ describe('createBridge — session/prompt', () => {
 
   it('clarification prompt does not start a new stream', async () => {
     // First prompt triggers clarification; second prompt should resolve it, not call stream again
-    let clarificationResolve!: (s: string) => void;
     const stream = vi.fn().mockImplementationOnce(
       (_sid: string, _bid: string, _msgs: unknown[], handlers: any) => {
         // Trigger a clarification — park a promise
         handlers.onClarificationRequest({
-          type: 'CLARIFICATION_REQUEST',
+          type: 'USER_QUESTION_REQUEST',
           requestId: 'clr-1',
-          question: 'Which?',
-          options: ['A', 'B'],
+          sourceName: 'questions',
+          questions: [{ id: 'q1', text: 'Which?', options: [{ id: 'a', label: 'A' }] }],
           version: '1.0',
-        }).then((ans: string) => { clarificationResolve = ans as any; });
+        });
         // Never calls onComplete — stream is still running
         return new Promise(() => {}); // unresolved
       },
@@ -454,8 +431,8 @@ describe('createBridge — session/prompt', () => {
     send(promptMsg(4, 'hpd-sess-1'));
     await waitFor(3);
 
-    const runCall = client.run.mock.calls[0];
-    const HARNESS = runCall[0].runConfig.clientToolInput.clientToolHarnesses;
+    const runCall = client.thread.send.mock.calls[0];
+    const HARNESS = runCall[1].runConfig.tools.clientInput.clientToolHarnesses;
     expect(HARNESS[0].tools.some((t: any) => t.name === 'editor_read_file')).toBe(true);
   });
 });

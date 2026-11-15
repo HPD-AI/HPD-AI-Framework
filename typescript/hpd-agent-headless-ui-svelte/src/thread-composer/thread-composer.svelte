@@ -2,7 +2,6 @@
 
 <script lang="ts">
   import type { Attachment } from 'svelte/attachments';
-  import { createTextContent } from '@hpd-research/hpd-agent-client';
   import type { ThreadStateSnapshot } from '../thread-state.js';
   import {
     applyThreadComposerAutosize,
@@ -94,7 +93,7 @@
     try {
       const submittedAttachments = dedupeAttachmentContents(readyContents);
       const contents = submittedValue.length > 0
-        ? [createTextContent(submittedValue), ...submittedAttachments]
+        ? [{ $type: 'text', text: submittedValue }, ...submittedAttachments]
         : submittedAttachments;
       const messageAdditionalProperties = createMessageAdditionalProperties(additionalProperties, quote);
       await thread.sendMessage({

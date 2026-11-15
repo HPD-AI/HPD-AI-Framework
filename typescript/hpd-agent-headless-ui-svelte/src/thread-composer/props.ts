@@ -7,7 +7,7 @@ import type {
   ThreadComposerSubmitMode,
 } from './types.js';
 import type { Attachment } from 'svelte/attachments';
-import type { AIContent } from '@hpd-research/hpd-agent-client';
+import type { AIContent } from '@hpd-research/hpd-agent-headless-ui';
 import type { PendingFileAttachment } from '../file-attachment/index.js';
 import type { TextSubmissionState } from '@hpd-research/hpd-agent-headless-ui';
 

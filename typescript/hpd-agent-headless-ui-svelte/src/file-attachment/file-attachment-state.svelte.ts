@@ -1,9 +1,9 @@
 import type { Attachment } from 'svelte/attachments';
 import {
-  contentReferenceToStoredContent,
-  type AIContent,
-  type ContentReference,
+  storedAttachment,
+  type ContentDto,
 } from '@hpd-research/hpd-agent-client';
+import type { AIContent } from '@hpd-research/hpd-agent-headless-ui';
 import {
   createFileAttachmentElementProps,
   createFileAttachmentSnapshot,
@@ -33,7 +33,9 @@ export class FileAttachmentState {
       if (!options.client) {
         throw new Error('FileAttachmentState requires client or upload.');
       }
-      return options.client.uploadContent(sessionId, threadId, file, file.name);
+      const session = await options.client.sessions.get(sessionId);
+      const thread = await session.threads.get(threadId);
+      return thread.upload(file, file.name);
     });
   }
 
@@ -67,9 +69,9 @@ export class FileAttachmentState {
 
   get readyContents(): AIContent[] {
     return this.items
-      .filter((item): item is PendingFileAttachment & { content: ContentReference } =>
+      .filter((item): item is PendingFileAttachment & { content: ContentDto } =>
         item.status === 'ready' && item.content !== undefined)
-      .map((item) => contentReferenceToStoredContent(item.content, this.sessionId));
+      .map((item) => ({ ...storedAttachment(item.content, this.sessionId, item.file.name) }));
   }
 
   add = async (files: FileList | File[]): Promise<void> => {

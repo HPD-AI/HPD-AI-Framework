@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ContentReference } from '@hpd-research/hpd-agent-client';
+  import type { ContentDto } from '@hpd-research/hpd-agent-client';
   import type { ThreadProjectionSnapshot } from '@hpd-research/hpd-agent-headless-ui';
   import {
     FileAttachment,
@@ -117,13 +117,13 @@
     };
   }
 
-  function createContentReference(file: File): ContentReference {
+  function createContentReference(file: File): ContentDto {
     return {
       contentId: `story-${file.name.replace(/[^a-z0-9.-]/gi, '-')}`,
       version: 'v1',
       contentType: file.type || 'application/octet-stream',
-      name: file.name,
       sizeBytes: file.size,
+      createdAt: new Date().toISOString(),
     };
   }
 

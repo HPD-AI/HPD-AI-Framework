@@ -11,7 +11,7 @@ import type {
 } from './types.js';
 
 type MessageContent = Message['contents'][number];
-type ReasoningContent = Extract<MessageContent, { $type: 'reasoning' }>;
+type ReasoningContent = MessageContent & { $type: 'reasoning'; text: string };
 
 export function createMessageElementProps(
   message: Message,

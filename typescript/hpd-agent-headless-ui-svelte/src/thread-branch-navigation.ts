@@ -8,7 +8,7 @@ import {
   type ThreadBranchNavigator,
   type ThreadBranchNavigatorOptions,
 } from '@hpd-research/hpd-agent-headless-ui';
-import type { Thread, ThreadForkGroup, ThreadGraph, ThreadRuntimeChild } from '@hpd-research/hpd-agent-client';
+import type { ThreadDto as Thread, ThreadForkGroupDto as ThreadForkGroup, ThreadGraphDto as ThreadGraph, ThreadRuntimeChildDto as ThreadRuntimeChild } from '@hpd-research/hpd-agent-client';
 import type {
   ReadableStore,
   StoreSubscriber,

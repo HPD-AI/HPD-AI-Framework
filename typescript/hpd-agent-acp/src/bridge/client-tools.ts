@@ -1,16 +1,26 @@
-import type { ClientToolInvokeRequestEvent, ClientToolInvokeOutcome, ClientToolHarnessDefinition } from '@hpd-research/hpd-agent-client';
-import { completeClientToolWithText, failClientTool } from '@hpd-research/hpd-agent-client';
+import type {
+  HPDAgentClientToolsClientToolInvokeRequestEvent,
+  HPDAgentClientToolsClientToolInvokeOutcomeEvent,
+  InlineAgentRunConfigToolsClientInputClientToolHarnessesItem,
+} from '@hpd-research/hpd-agent-client';
+import { clientToolText } from '@hpd-research/hpd-agent-client';
+
+type ClientToolInvokeRequestEvent = Omit<HPDAgentClientToolsClientToolInvokeRequestEvent, 'arguments'> & { arguments: Record<string, unknown> };
+type ClientToolInvokeOutcome = Omit<HPDAgentClientToolsClientToolInvokeOutcomeEvent, 'type'>;
+
 import type { AcpSessionState, ClientToolResult } from './session.js';
 import type { AcpWriter } from '../acp/writer.js';
 import type { AcpClientCapabilities } from '../types/acp.js';
 
 /**
- * Builds the clientToolHarnesses array to pass into runConfig.clientToolInput,
+ * Builds the clientToolHarnesses array to pass into runConfig.tools.clientInput,
  * based on what the editor declared during ACP initialize.
  * This is what tells the agent which client-side tools it can call.
  */
-export function capsToToolHarnesses(caps: AcpClientCapabilities): ClientToolHarnessDefinition[] {
-  const tools: ClientToolHarnessDefinition['tools'] = [];
+export function capsToToolHarnesses(
+  caps: AcpClientCapabilities,
+): InlineAgentRunConfigToolsClientInputClientToolHarnessesItem[] {
+  const tools: InlineAgentRunConfigToolsClientInputClientToolHarnessesItem['tools'] = [];
 
   if (caps.fs?.readTextFile) {
     tools.push({
@@ -60,15 +70,19 @@ export function capsToToolHarnesses(caps: AcpClientCapabilities): ClientToolHarn
 
   if (tools.length === 0) return [];
 
-  return [{ name: 'editor', tools, startCollapsed: false }];
+  return [{ name: 'editor', description: 'Editor tools', tools, startCollapsed: false }];
 }
 
 function ok(requestId: string, text: string): ClientToolInvokeOutcome {
-  return completeClientToolWithText(requestId, text);
+  return {
+    requestId,
+    outcome: 'Completed',
+    content: clientToolText(text).content,
+  };
 }
 
 function err(requestId: string, message: string): ClientToolInvokeOutcome {
-  return failClientTool(requestId, message);
+  return { requestId, outcome: 'Failed', errorMessage: message };
 }
 
 /**
