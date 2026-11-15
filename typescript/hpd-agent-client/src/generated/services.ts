@@ -33,6 +33,7 @@ import type {
   ActionRetryExclusion,
   AgentClientsConfig,
   AgentConfig,
+  AgentConfigUpdate,
   AgentMcpConfig,
   AgentMessagesConfig,
   AgentMetadata,
@@ -3112,6 +3113,7 @@ import type {
   InlineSubAgentRunConfigToolsClientInputClientToolHarnessesItemToolsItemOperationContractActionsAdditionalPropertyOperationNotification,
   InlineSubAgentRunConfigToolsClientInputClientToolHarnessesItemToolsItemOperationContractActionsAdditionalPropertyPermission,
   InlineSubAgentRunConfigToolsClientInputContextItem,
+  InlineUpdateAgentRequestMetadata,
   InlineUpdateSessionRequestMetadata,
   InputMediaPolicy,
   JudgeCallRecord,
@@ -3410,7 +3412,7 @@ export class AgentsService {
   public async updateAgent(args: AgentsServiceUpdateAgentArgs, options: RequestOptions = {}): Promise<StoredAgentDto> {
     const path = `/agents/${encodeURIComponent(String(args.agentId))}`;
     const query = new URLSearchParams();
-    return this.transport.requestJson<StoredAgentDto>('PUT', path, query, args.input, false, options);
+    return this.transport.requestJson<StoredAgentDto>('PATCH', path, query, args.input, false, options);
   }
 
 }

@@ -230,7 +230,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         var json = SerializeJson(JsonObject(
             ("config", SerializeAgentConfig(request.Config))));
         using var response = await SendJsonEnvelopeAsync(
-                HttpMethod.Put,
+                HttpMethod.Patch,
                 $"agents/{Escape(agentId)}",
                 json,
                 cancellationToken)

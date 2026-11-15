@@ -40,11 +40,11 @@ internal static class AgentEndpoints
             .WithHostName(endpointName, "GetAgent")
             .WithSummary("Get an agent definition by ID");
 
-        // PUT /agents/{agentId} — update definition (evicts cached instance)
-        endpoints.MapPut("/agents/{agentId}", (string agentId, UpdateAgentRequest request, CancellationToken ct) =>
+        // PATCH /agents/{agentId} — patch definition fields and/or metadata
+        endpoints.MapPatch("/agents/{agentId}", (string agentId, UpdateAgentRequest request, CancellationToken ct) =>
                 UpdateAgent(RouteValue.Decode(agentId), request, agents, ct))
             .WithHostName(endpointName, "UpdateAgent")
-            .WithSummary("Update an agent definition and evict the cached instance");
+            .WithSummary("Patch an agent definition or metadata and evict the cached instance");
 
         // DELETE /agents/{agentId} — delete definition + evict cached instance
         endpoints.MapDelete("/agents/{agentId}", (string agentId, CancellationToken ct) =>

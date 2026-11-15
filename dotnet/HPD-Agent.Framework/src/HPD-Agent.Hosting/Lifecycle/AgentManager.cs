@@ -112,6 +112,7 @@ public abstract class AgentManager : IAsyncDisposable
         string agentId,
         AgentConfig config,
         Dictionary<string, object>? metadata = null,
+        bool replaceMetadata = false,
         CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
@@ -121,7 +122,7 @@ public abstract class AgentManager : IAsyncDisposable
             ?? throw new KeyNotFoundException($"Agent '{agentId}' not found.");
 
         existing.Config = config;
-        if (metadata is not null)
+        if (replaceMetadata)
             existing.Metadata = metadata;
         existing.UpdatedAt = DateTime.UtcNow;
 

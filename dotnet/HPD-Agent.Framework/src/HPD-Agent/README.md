@@ -160,6 +160,11 @@ The same pattern applies to model retry strategies, total-error detectors, and
 external PII detectors. Unknown names fail construction with the portable
 configuration path.
 
+Stored definitions use `PATCH /agents/{agentId}` with `config` and `metadata`
+as independently optional sections. Omitted fields remain unchanged. Supplied
+arrays replace the previous array, and an empty array clears it. Nullable
+sections use the typed `clear` list, while `clearMetadata` resets metadata.
+
 ## Middleware
 
 `IAgentMiddleware` adds cross-cutting behavior around agent turns, iterations, model

@@ -159,6 +159,14 @@ public sealed class HPDAgentOpenApiDocumentTests
         Assert.Contains("409", createAgent.Responses.Keys);
         var createAgentSchema = document.Components.Schemas["CreateAgentRequest"];
         Assert.Contains("agentId", createAgentSchema.Required);
+        var updateAgent = document.Paths["/agents/{agentId}"].Operations[HttpMethod.Patch];
+        Assert.Contains("200", updateAgent.Responses.Keys);
+        var updateAgentSchema = document.Components.Schemas["UpdateAgentRequest"];
+        Assert.Empty(updateAgentSchema.Required ?? new HashSet<string>());
+        Assert.True(document.Components.Schemas.ContainsKey("AgentConfigUpdate"));
+        Assert.IsType<OpenApiSchemaReference>(updateAgentSchema.Properties["config"]);
+        Assert.IsType<OpenApiSchemaReference>(
+            document.Components.Schemas["AgentConfigUpdate"].Properties["validation"]);
     }
 
     [Fact]

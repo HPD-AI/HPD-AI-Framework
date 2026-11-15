@@ -78,18 +78,40 @@ public sealed class AgentDefinitionService : IAgentDefinitionService
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ArgumentNullException.ThrowIfNull(request);
 
-        var errors = AgentConfigValidator.Validate(request.Config);
-        if (errors.Count > 0)
-            return AgentServiceResult<StoredAgentDto>.Validation("config", errors);
+        if (request.Config is null && request.Metadata is null && request.ClearMetadata is not true)
+        {
+            return AgentServiceResult<StoredAgentDto>.Validation(
+                "request",
+                ["At least one of 'config', 'metadata', or 'clearMetadata' must be supplied."]);
+        }
+        if (request.ClearMetadata is true && request.Metadata is not null)
+        {
+            return AgentServiceResult<StoredAgentDto>.Validation(
+                "metadata",
+                ["metadata and clearMetadata cannot be supplied together."]);
+        }
 
         var existing = await _agentManager.GetDefinitionAsync(agentId, cancellationToken);
         if (existing == null)
             return AgentServiceResult<StoredAgentDto>.NotFound;
 
+        var patchErrors = new List<string>();
+        var config = request.Config is null
+            ? AgentConfigSnapshot.Create(existing.Config)
+            : request.Config.ApplyTo(existing.Config, patchErrors);
+        var errors = patchErrors.Concat(AgentConfigValidator.Validate(config)).ToList();
+        if (errors.Count > 0)
+            return AgentServiceResult<StoredAgentDto>.Validation("config", errors);
+
+        var metadata = request.ClearMetadata is true
+            ? null
+            : request.Metadata ?? existing.Metadata;
+
         var stored = await _agentManager.UpdateDefinitionAsync(
             agentId,
-            request.Config,
-            request.Metadata,
+            config,
+            metadata,
+            replaceMetadata: true,
             cancellationToken);
         return AgentServiceResult<StoredAgentDto>.Success(ToDto(stored));
     }

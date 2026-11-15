@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace HPD.Agent.Hosting.Data;
 
 /// <summary>
@@ -28,7 +30,32 @@ public record CreateAgentRequest(
     AgentConfig Config,
     Dictionary<string, object>? Metadata = null);
 
-/// <summary>Request body for updating an existing agent definition.</summary>
-public record UpdateAgentRequest(
-    AgentConfig Config,
-    Dictionary<string, object>? Metadata = null);
+/// <summary>Patch request for an existing agent definition.</summary>
+/// <remarks>
+/// Omitted sections remain unchanged. Supplying <c>clearMetadata: true</c> clears
+/// metadata, while an empty object replaces metadata with an empty object.
+/// </remarks>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class UpdateAgentRequest
+{
+    [JsonConstructor]
+    public UpdateAgentRequest()
+    {
+    }
+
+    /// <summary>Creates a request that replaces every portable configuration field.</summary>
+    public UpdateAgentRequest(AgentConfigUpdate config)
+    {
+        Config = config ?? throw new ArgumentNullException(nameof(config));
+    }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public AgentConfigUpdate Config { get; init; } = null!;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, object> Metadata { get; init; } = null!;
+
+    /// <summary>Clears metadata in the reset form used by typed C# callers.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? ClearMetadata { get; init; }
+}

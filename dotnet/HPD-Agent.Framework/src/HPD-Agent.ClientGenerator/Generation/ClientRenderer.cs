@@ -221,11 +221,16 @@ internal sealed class ClientRenderer(
     private void RenderUpload(StringBuilder builder, HpdOperationIr operation)
     {
         var responseType = ReturnType(operation) ?? "JsonElement";
-        var pathExpression = PathExpression(operation, BuildParameters(operation));
+        var parameters = BuildParameters(operation);
+        var pathExpression = PathExpression(operation, parameters);
         builder.Append("    public async Task<").Append(responseType).AppendLine("> UploadContentAsync(")
-            .AppendLine("        string sid,")
-            .AppendLine("        string bid,")
-            .AppendLine("        Stream file,")
+            .AppendLine();
+        foreach (var parameter in parameters.Where(static item => item.Location == "path"))
+        {
+            builder.Append("        ").Append(parameter.Type).Append(' ')
+                .Append(parameter.Name).AppendLine(",");
+        }
+        builder.AppendLine("        Stream file,")
             .AppendLine("        string fileName,")
             .AppendLine("        string contentType = \"application/octet-stream\",")
             .AppendLine("        CancellationToken cancellationToken = default)")

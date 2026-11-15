@@ -1,0 +1,40 @@
+name: Agent SDK Cross-Language
+
+on:
+  pull_request:
+    paths:
+      - 'dotnet/HPD-Agent.Framework/eng/check-agent-sdk-parity.sh'
+      - 'dotnet/HPD-Agent.Framework/src/HPD-Agent.Hosting/**'
+      - 'dotnet/HPD-Agent.Framework/src/HPD-Agent.AspNetCore.OpenApi/**'
+      - 'dotnet/HPD-Agent.Framework/src/HPD-Agent.ClientGenerator/**'
+      - 'dotnet/HPD-Agent.Framework/src/HPD-Agent.GoGenerator/**'
+      - 'dotnet/HPD-Agent.Framework/src/HPD-Agent.PythonGenerator/**'
+      - 'dotnet/HPD-Agent.Framework/src/HPD-Agent.SDK.Contract/**'
+      - 'dotnet/HPD-Agent.Framework/src/HPD-Agent.SDK.Generator/**'
+      - 'dotnet/HPD-Agent.Framework/src/HPD-Agent.TypeScriptGenerator/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'dotnet/HPD-Agent.Framework/src/HPD-Agent.Hosting/**'
+      - 'dotnet/HPD-Agent.Framework/src/HPD-Agent.AspNetCore.OpenApi/**'
+      - 'dotnet/HPD-Agent.Framework/src/HPD-Agent.SDK.Contract/**'
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            10.0.x
+            11.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+      - name: Check generated SDK parity
+        run: bash dotnet/HPD-Agent.Framework/eng/check-agent-sdk-parity.sh

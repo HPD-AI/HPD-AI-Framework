@@ -5,7 +5,7 @@
   "PropertyCount": 5417,
   "FieldCount": 1169,
   "EventCount": 1,
-  "Fingerprint": "a836cd3f38157fe9c07efdebe21b65907fce938f7afc761557631fe9dc221158",
+  "Fingerprint": "350f405e51e92666e10e77a8b71c1895530f076f463165296e7dd531e1c88267",
   "Types": [
     {
       "FullName": "AIDescriptionAttribute",
@@ -1434,8 +1434,8 @@
         "System.String[]System.Boolean AllowUserQuestions { get; set; }",
         "System.String[]System.Boolean CoalesceDeltas { get; set; }",
         "System.String[]System.Boolean IncludeReasoningInModelHistory { get; set; }",
-        "System.String[]System.Collections.Generic.IList\u003CHPD.Agent.Providers.AgentProviderBackendProfile\u003E ProviderProfiles { get; init; }",
-        "System.String[]System.Collections.Generic.IList\u003CHPD.Agent.Providers.AgentProviderFamilyDefault\u003E ProviderDefaults { get; init; }",
+        "System.String[]System.Collections.Generic.IList\u003CHPD.Agent.Providers.AgentProviderBackendProfile\u003E ProviderProfiles { get; set; }",
+        "System.String[]System.Collections.Generic.IList\u003CHPD.Agent.Providers.AgentProviderFamilyDefault\u003E ProviderDefaults { get; set; }",
         "System.String[]System.Collections.Generic.List\u003CHPD.Agent.MiddlewareReference\u003E Middlewares { get; set; }",
         "System.String[]System.Collections.Generic.List\u003CHPD.Agent.ToolHarnessReference\u003E ToolHarnesses { get; set; }",
         "System.String[]System.Int32 ContinuationExtensionAmount { get; set; }",

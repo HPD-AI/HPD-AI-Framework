@@ -58,7 +58,7 @@ public class AgentConfig
     public IList<AgentProviderBackendProfile> ProviderProfiles
     {
         get => _providerProfiles;
-        init => _providerProfiles = value ?? [];
+        set => _providerProfiles = value ?? [];
     }
 
     private IList<AgentProviderFamilyDefault> _providerDefaults = [];
@@ -66,7 +66,7 @@ public class AgentConfig
     public IList<AgentProviderFamilyDefault> ProviderDefaults
     {
         get => _providerDefaults;
-        init => _providerDefaults = value ?? [];
+        set => _providerDefaults = value ?? [];
     }
 
     public void SetClientConfig(HPD.Agent.Providers.ProviderClientFamily family, ProviderClientConfig? config)

@@ -311,6 +311,43 @@ export interface AgentConfig {
   coalesceDeltas?: boolean | null;
 }
 
+export interface AgentConfigUpdate {
+  name?: string | null;
+  systemInstructions?: string | null;
+  maxAgenticIterations?: number | null;
+  maxSubAgentDepth?: number | null;
+  defaultSubAgentForkOptions?: SubAgentForkOptions | null;
+  continuationExtensionAmount?: number | null;
+  shutdown?: AgentShutdownOptions | null;
+  operationRetention?: AgentOperationRetentionPolicy | null;
+  clients?: AgentClientsConfig | null;
+  providerProfiles?: Array<AgentProviderBackendProfile> | null;
+  providerDefaults?: Array<AgentProviderFamilyDefault> | null;
+  validation?: ValidationConfig | null;
+  errorHandling?: ErrorHandlingConfig | null;
+  resilience?: ResilienceConfig | null;
+  privacy?: PrivacyConfig | null;
+  compaction?: CompactionConfig | null;
+  goals?: GoalConfig | null;
+  enableParentCommunication?: boolean | null;
+  allowUserQuestions?: boolean | null;
+  agenticLoop?: AgenticLoopConfig | null;
+  messages?: AgentMessagesConfig | null;
+  toolSelection?: ToolSelectionConfig | null;
+  collapsing?: CollapsingConfig | null;
+  skills?: SkillRuntimeOptions | null;
+  toolOutputs?: ToolOutputConfig | null;
+  toolHarnesses?: Array<unknown> | null;
+  mcp?: AgentMcpConfig | null;
+  middlewares?: Array<unknown> | null;
+  observability?: ObservabilityConfig | null;
+  backgroundResponses?: BackgroundResponsesConfig | null;
+  audio?: AudioConfig | null;
+  includeReasoningInModelHistory?: boolean | null;
+  coalesceDeltas?: boolean | null;
+  clear?: Array<string> | null;
+}
+
 export interface AgentMcpConfig {
   servers?: Array<McpServerConfig> | null;
   manifests?: Array<McpManifestReference> | null;
@@ -23963,6 +24000,9 @@ export interface InlineSubAgentRunConfigToolsClientInputContextItem {
   valueText?: string | null;
 }
 
+export interface InlineUpdateAgentRequestMetadata {
+}
+
 export interface InlineUpdateSessionRequestMetadata {
 }
 
@@ -25874,8 +25914,9 @@ export interface TraceCapturePolicy {
 }
 
 export interface UpdateAgentRequest {
-  config: AgentConfig;
-  metadata?: unknown;
+  config?: AgentConfigUpdate | null;
+  metadata?: InlineUpdateAgentRequestMetadata | null;
+  clearMetadata?: boolean | null;
 }
 
 export interface UpdateSessionRequest {

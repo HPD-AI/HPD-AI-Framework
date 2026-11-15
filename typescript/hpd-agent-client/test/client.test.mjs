@@ -288,6 +288,46 @@ test('resource facades preserve agent, thread, content, execution, and evaluatio
   ]);
 });
 
+test('agent updates send the typed PATCH config and clearMetadata fields', async () => {
+  let request;
+  const client = new AgentClient({
+    baseUrl: 'https://example.test',
+    fetch: async (url, init) => {
+      request = { url, init };
+      return Response.json({
+        id: 'a',
+        name: 'Patched Agent',
+        config: {},
+        createdAt: 'now',
+        updatedAt: 'later',
+        metadata: null,
+      });
+    },
+  });
+
+  await client.agents.update('a', {
+    config: {
+      name: 'Patched Agent',
+      maxAgenticIterations: 20,
+      toolHarnesses: [],
+      clear: ['validation'],
+    },
+    clearMetadata: true,
+  });
+
+  assert.equal(request.url.pathname, '/agents/a');
+  assert.equal(request.init.method, 'PATCH');
+  assert.deepEqual(JSON.parse(request.init.body), {
+    config: {
+      name: 'Patched Agent',
+      maxAgenticIterations: 20,
+      toolHarnesses: [],
+      clear: ['validation'],
+    },
+    clearMetadata: true,
+  });
+});
+
 test('history projection preserves tool-call status, arguments, and result', () => {
   const projection = new ThreadHistoryProjection();
   projection.project({ type: 'TEXT_MESSAGE_START', messageId: 'a', role: 'assistant', source: 2 });

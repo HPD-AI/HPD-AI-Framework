@@ -222,6 +222,7 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(List<AgentSummaryDto>))]
 [JsonSerializable(typeof(StoredAgentDto))]
 [JsonSerializable(typeof(CreateAgentRequest))]
+[JsonSerializable(typeof(AgentConfigUpdate))]
 [JsonSerializable(typeof(UpdateAgentRequest))]
 // ReasoningOptions — used by AgentRunConfig when events are serialized through AgentEventJsonContext.
 [JsonSerializable(typeof(HPD.Agent.ReasoningOptions))]
