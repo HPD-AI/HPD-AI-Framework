@@ -113,11 +113,16 @@ public sealed record AgentSandboxRunConfig
 }
 
 /// <summary>
-/// Per-invocation options for agent runs.
-/// Enables runtime customization without mutating agent configuration.
-/// FFI-serializable (JSON primitives only for serializable properties).
+/// The single C# options surface for one agent invocation.
 /// </summary>
 /// <remarks>
+/// <para>
+/// Portable properties form the serialized run document used by HTTP, generated
+/// clients, durable subagents, and inference fingerprints. Runtime-only
+/// properties carry executable host values for this invocation and are excluded
+/// from that document. Internal snapshots capture those runtime values with
+/// their applicable ownership and lifetime rules.
+/// </para>
 /// <para>
 /// <b>Design Philosophy:</b>
 /// AgentRunConfig provides per-invocation customization that doesn't require rebuilding the agent.
