@@ -343,6 +343,57 @@ Known request kinds receive typed actions such as `approve`, `deny`, `clarify`,
 and `answerClientToolRequest`. Custom request kinds use the generic `respond`
 method.
 
+## Application Events
+
+Pass `ThreadEventExtension` reducers when the application owns custom events.
+The adapter exposes their current state as `snapshot.extensions`; it does not
+guess where custom events belong in the transcript.
+
+See [Thread Event Extensions DX](../../hpd-agent-headless-ui/docs/EXTENSIONS_DX.md)
+for runtime-extension envelopes, concrete backend events, coding-harness
+correlation, replay rules, and complete reducer guidance.
+
+```svelte
+<script lang="ts">
+  import {
+    ThreadConversation,
+    createThreadState,
+    type ThreadEventExtension,
+  } from '@hpd-research/hpd-agent-headless-ui-svelte';
+
+  const analysis = {
+    key: 'acme:analysis-progress@1',
+    initialState: { percent: 0 },
+    matches: (event) => event.type === 'RUNTIME_AGENT_DURABLE_EVENT',
+    reduce: (state, event) => {
+      const value = event as Record<string, unknown>;
+      if (value.extensionNamespace !== 'acme'
+        || value.schemaName !== 'analysis-progress') return state;
+      return { percent: (value.payload as { percent: number }).percent };
+    },
+  } satisfies ThreadEventExtension<{ percent: number }>;
+
+  const thread = createThreadState({
+    client,
+    agentId,
+    sessionId,
+    threadId,
+    extensions: [analysis],
+  });
+</script>
+
+<ThreadConversation {thread}>
+  {#snippet header({ snapshot })}
+    {@const progress = snapshot.extensions['acme:analysis-progress@1'] as { percent: number }}
+    <progress value={progress.percent} max="100" />
+  {/snippet}
+</ThreadConversation>
+```
+
+Unknown concrete event types also reach registered reducers when their
+`matches` function accepts them. The same reducer runs for live delivery,
+durable replay, and replacement-generation replay.
+
 ## Errors
 
 Use `ThreadError` with the same `thread`:

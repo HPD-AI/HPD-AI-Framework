@@ -6,7 +6,9 @@ This package is plain TypeScript. Framework adapters such as Svelte or React
 wrap these primitives instead of living in the core.
 
 See [PROPOSAL.md](./PROPOSAL.md) for the architecture and
-[docs/USER_DX.md](./docs/USER_DX.md) for API usage guidance.
+[docs/USER_DX.md](./docs/USER_DX.md) for API usage guidance. See
+[Extensions DX](./docs/EXTENSIONS_DX.md) for application and
+runtime-extension event projection.
 
 ## First Slice
 
@@ -21,6 +23,8 @@ The implementation is thread-native and timeline-first:
   child-thread navigation metadata without owning live state.
 - `eventBelongsToScope()` guards projection so live events cannot drift into the
   wrong thread.
+- `extensions` let an application reduce runtime-extension and application-owned
+  events into typed state without regenerating the SDK.
 
 ## Usage
 
@@ -62,6 +66,42 @@ await thread.sendMessage({ contents: [{ $type: 'text', text: 'Hello' }] });
 unsubscribe();
 await thread.dispose();
 ```
+
+## Application Events
+
+Application-specific events remain application-owned. Register a reducer when
+the thread projection is created; it receives known runtime-extension envelopes
+and unknown event types through the same replay/live path.
+
+```ts
+const analysis = {
+  key: 'acme:analysis-progress@1',
+  initialState: { percent: 0 },
+  matches: (event) => event.type === 'RUNTIME_AGENT_DURABLE_EVENT'
+    || event.type === 'RUNTIME_AGENT_LIVE_EVENT',
+  reduce: (state, event) => {
+    const value = event as Record<string, unknown>;
+    if (value.extensionNamespace !== 'acme'
+      || value.schemaName !== 'analysis-progress') return state;
+    const payload = value.payload as { percent: number };
+    return { percent: payload.percent };
+  },
+} satisfies ThreadEventExtension<{ percent: number }>;
+
+const thread = createThreadController({
+  client,
+  agentId: 'agent-1',
+  sessionId: 'session-1',
+  threadId: 'thread-1',
+  extensions: [analysis],
+});
+
+const state = thread.projection.getSnapshot().extensions;
+```
+
+Extensions are reset with the projection and run again during durable replay,
+including after a hard journal rebase. `LIVE_EVENT` payloads are transient;
+`DURABLE_EVENT` payloads reconstruct extension state after reconnect.
 
 Rehydration and projection stay separate on purpose. Rehydration loads the
 durable baseline, including answerable pending requests; projection applies live

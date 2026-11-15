@@ -34,6 +34,7 @@ export {
   getThreadBranchChoiceControlsForTimeline,
   getThreadTimeline,
   getThreadErrors,
+  getThreadExtensionState,
   getThreadWorkGroups,
   getThreadDisplayName,
   getThreadKindLabel,

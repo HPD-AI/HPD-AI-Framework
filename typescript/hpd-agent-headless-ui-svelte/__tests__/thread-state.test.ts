@@ -7,7 +7,11 @@ import {
   type EventSubscription,
   type Thread,
 } from '@hpd-research/hpd-agent-client';
-import { createThreadState, type ThreadStateSnapshot } from '../src/index.js';
+import {
+  createThreadState,
+  type ThreadEventExtension,
+  type ThreadStateSnapshot,
+} from '../src/index.js';
 
 function subscription(dispose: () => void = () => {}): EventSubscription {
   return { dispose: vi.fn(dispose) };
@@ -212,6 +216,46 @@ describe('createThreadState', () => {
     expect(snapshot.projection.timeline.some((item) => item.type === 'runtime-request')).toBe(true);
     expect(snapshot.timeline.some((item) => item.type === 'runtime-request')).toBe(false);
     expect(snapshot.pendingRuntimeRequests).toHaveLength(1);
+
+    await state.dispose();
+  });
+
+  it('exposes application event extension state', async () => {
+    const client = fakeClient();
+    const extension: ThreadEventExtension<{ percent: number }> = {
+      key: 'acme:analysis-progress@1',
+      initialState: { percent: 0 },
+      matches: event => event.type === 'RUNTIME_AGENT_LIVE_EVENT',
+      reduce: (current, event) => {
+        const payload = (event as Record<string, unknown>).payload as { percent?: unknown } | undefined;
+        return {
+          percent: typeof payload?.percent === 'number' ? payload.percent : current.percent,
+        };
+      },
+    };
+    const state = createThreadState({
+      client,
+      agentId: 'agent',
+      sessionId: 's1',
+      threadId: 'main',
+      extensions: [extension],
+    });
+
+    await state.start();
+    await client.emit({
+      type: 'RUNTIME_AGENT_LIVE_EVENT',
+      extensionNamespace: 'acme',
+      schemaName: 'analysis-progress',
+      schemaVersion: 1,
+      schemaDigest: 'digest',
+      payload: { percent: 65 },
+      sessionId: 's1',
+      threadId: 'main',
+    } as AgentEvent);
+
+    expect(state.getSnapshot().extensions).toEqual({
+      'acme:analysis-progress@1': { percent: 65 },
+    });
 
     await state.dispose();
   });

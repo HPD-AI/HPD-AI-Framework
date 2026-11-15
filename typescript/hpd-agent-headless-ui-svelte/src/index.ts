@@ -8,6 +8,13 @@ export {
   type StoreUnsubscriber,
 } from './thread-state.js';
 
+export type {
+  ThreadEventExtension,
+  ThreadExtensionEventContext,
+  ThreadExtensionState,
+  ThreadProjectionOptions,
+} from '@hpd-research/hpd-agent-headless-ui';
+
 export {
   createSessionListState,
   type SessionListState,
@@ -461,6 +468,7 @@ export type {
   ThreadWorkGroupPartSnippetProps,
   ThreadWorkGroupProps,
   ThreadWorkGroupSnippetProps,
+  ThreadWorkGroupToolSnippetProps,
   ThreadWorkPartElementProps,
   ThreadWorkPartsElementProps,
   ThreadWorkPartsProps,

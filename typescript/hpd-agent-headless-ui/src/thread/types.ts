@@ -1,5 +1,5 @@
 import type {
-  AgentClient, AgentRunConfig, ForkThreadRequest, HpdAgentEvent, HpdAgentInputEvent, HpdAgentResponseInput,
+  AgentClient, AgentRunConfig, EventRoute, ForkThreadRequest, HpdAgentEvent, HpdAgentInputEvent, HpdAgentResponseInput,
   HPDAgentClientToolsClientToolInvokeOutcomeEvent, HPDAgentClientToolsClientToolInvokeRequestEvent,
   HPDAgentPermissionRequestEvent, HPDAgentToolCallResultEvent,
   ThreadDto, ThreadForkGroupDto, ThreadForkGroupMemberDto, ThreadGraphDto, ThreadRuntimeChildDto,
@@ -391,6 +391,7 @@ export interface ThreadProjectionSnapshot {
   transcriptMessages: Message[];
   activeTools: ToolCall[];
   pendingRuntimeRequests: RuntimeRequest[];
+  extensions: ThreadExtensionState;
   contextUsage: ThreadContextUsage | null;
   threadExecution: ThreadExecutionView | null;
   subAgentInvocations: SubAgentInvocation[];
@@ -405,13 +406,36 @@ export interface ThreadProjectionSnapshot {
 export type ThreadProjectionListener = (snapshot: ThreadProjectionSnapshot) => void;
 export type Unsubscribe = () => void;
 
+export type ThreadExtensionState = Readonly<Record<string, unknown>>;
+
+export interface ThreadExtensionEventContext {
+  phase: 'live' | 'replay' | 'rehydrate';
+  route?: EventRoute;
+  cursor?: Readonly<ThreadJournalCursor>;
+}
+
+export interface ThreadEventExtension<TState = unknown> {
+  readonly key: string;
+  readonly initialState: TState;
+  matches(event: AgentEvent): boolean;
+  reduce(
+    state: TState,
+    event: AgentEvent,
+    context: ThreadExtensionEventContext,
+  ): TState;
+}
+
 export interface ThreadProjection {
   getSnapshot(): ThreadProjectionSnapshot;
   subscribe(listener: ThreadProjectionListener): Unsubscribe;
   rehydrate(snapshot: ThreadSnapshot): void;
-  project(event: AgentEvent): void;
+  project(event: AgentEvent, context?: ThreadExtensionEventContext): void;
   clearError(): void;
   reset(): void;
+}
+
+export interface ThreadProjectionOptions {
+  extensions?: readonly ThreadEventExtension[];
 }
 
 export interface RehydrateOptions {
@@ -441,6 +465,7 @@ export interface InterruptOptions {
 export interface ThreadControllerOptions extends ThreadScope {
   client: AgentClient;
   projection?: ThreadProjection;
+  extensions?: readonly ThreadEventExtension[];
   autoConnectOnSend?: boolean;
   allowScopeLessEvents?: boolean;
 }

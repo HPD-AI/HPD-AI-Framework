@@ -15,6 +15,7 @@ import type {
   ClientToolRuntimeRequest,
   ClarificationRuntimeRequest,
   InterruptOptions,
+  ThreadExtensionEventContext,
   PermissionRuntimeRequest,
   AnswerClientToolRequestOptions,
   RehydrateOptions,
@@ -47,7 +48,10 @@ class ThreadControllerImpl implements ThreadController {
       sessionId: options.sessionId,
       threadId: options.threadId,
     };
-    this.projection = options.projection ?? createThreadProjection();
+    if (options.projection && options.extensions?.length) {
+      throw new Error('Configure extensions on the supplied projection instead of passing both projection and extensions.');
+    }
+    this.projection = options.projection ?? createThreadProjection({ extensions: options.extensions });
     this.autoConnectOnSend = options.autoConnectOnSend ?? true;
     this.allowScopeLessEvents = options.allowScopeLessEvents ?? false;
   }
@@ -107,7 +111,22 @@ class ThreadControllerImpl implements ThreadController {
         agentId,
         after: { generation: this.appliedCursor.generation, sequence: this.appliedCursor.sequenceNumber },
         signal: options.signal,
-        onEvent: ({ event }) => this.handleEvent(event),
+        onEvent: ({ event, phase, route, cursor }) =>
+          this.handleEvent(event, {
+            phase,
+            route,
+            cursor: cursor
+              ? { generation: cursor.generation, sequenceNumber: cursor.sequence }
+              : undefined,
+          }),
+        onUnknownEvent: ({ event, phase, route, cursor }) =>
+          this.handleEvent(event as AgentEvent, {
+            phase,
+            route,
+            cursor: cursor
+              ? { generation: cursor.generation, sequenceNumber: cursor.sequence }
+              : undefined,
+          }),
         onRebase: async ({ generation }) => {
           const snapshot = await loadThreadSnapshot({ client: this.client, ...this.scope });
           this.projection.rehydrate(snapshot);
@@ -300,11 +319,11 @@ class ThreadControllerImpl implements ThreadController {
     });
   }
 
-  private handleEvent(event: AgentEvent): void {
+  private handleEvent(event: AgentEvent, context: ThreadExtensionEventContext): void {
     if (!eventBelongsToScope(event, this.scope, { allowScopeLess: this.allowScopeLessEvents })) {
       return;
     }
-    this.projection.project(event);
+    this.projection.project(event, context);
     if (event.threadSequenceNumber && event.threadSequenceNumber > this.appliedCursor.sequenceNumber) {
       this.appliedCursor = {
         generation: this.appliedCursor.generation,

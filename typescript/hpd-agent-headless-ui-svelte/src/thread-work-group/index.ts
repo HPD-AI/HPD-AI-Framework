@@ -12,6 +12,7 @@ export type {
   ThreadWorkGroupPartSnippetProps,
   ThreadWorkGroupProps,
   ThreadWorkGroupSnippetProps,
+  ThreadWorkGroupToolSnippetProps,
   ThreadWorkPartElementProps,
   ThreadWorkPartsElementProps,
   ThreadWorkPartsProps,

@@ -194,6 +194,13 @@ export function getPendingRuntimeRequests(snapshot: ThreadProjectionSnapshot): R
   return snapshot.pendingRuntimeRequests.map((request) => cloneRuntimeRequest(request));
 }
 
+export function getThreadExtensionState<T = unknown>(
+  snapshot: ThreadProjectionSnapshot,
+  key: string,
+): T | undefined {
+  return snapshot.extensions[key] as T | undefined;
+}
+
 export function getThreadContextUsage(snapshot: ThreadProjectionSnapshot): ThreadContextUsage | null {
   if (!snapshot.contextUsage) return null;
   return {

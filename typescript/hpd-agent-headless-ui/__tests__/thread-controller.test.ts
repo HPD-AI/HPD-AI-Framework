@@ -1,10 +1,19 @@
 import { installResources } from './sdk-client-fixture.js';
 import { describe, expect, it, vi } from 'vitest';
 import { EventTypes, type AgentClient, type EventSubscription } from '@hpd-research/hpd-agent-client';
-import { createThreadController } from '../src/index.js';
+import { createThreadController, type ThreadEventExtension } from '../src/index.js';
 
 type TestAgentClient = AgentClient & {
   __emit: (event: never) => Promise<void>;
+  __emitUnknown: (delivery: {
+    event: Record<string, unknown>;
+    route: {
+      origin: { sessionId: string; threadId: string };
+      path: Array<{ sessionId: string; threadId: string }>;
+    };
+    phase: 'replay' | 'live';
+    cursor?: { generation: number; sequence: number };
+  }) => Promise<void>;
 };
 
 function subscription(dispose: () => void = () => {}): EventSubscription {
@@ -13,6 +22,7 @@ function subscription(dispose: () => void = () => {}): EventSubscription {
 
 function fakeClient(): TestAgentClient {
   const handlers: Array<(event: never) => void | Promise<void>> = [];
+  const unknownHandlers: Array<(delivery: never) => void | Promise<void>> = [];
   const client = {
     connected: false,
     start: vi.fn(async () => {
@@ -36,6 +46,13 @@ function fakeClient(): TestAgentClient {
         if (index >= 0) handlers.splice(index, 1);
       });
     }),
+    onUnknown: vi.fn((handler: (delivery: never) => void | Promise<void>) => {
+      unknownHandlers.push(handler);
+      return subscription(() => {
+        const index = unknownHandlers.indexOf(handler);
+        if (index >= 0) unknownHandlers.splice(index, 1);
+      });
+    }),
     onError: vi.fn(() => subscription()),
     getThread: vi.fn(async () => null),
     getThreadState: vi.fn(async () => ({
@@ -46,6 +63,9 @@ function fakeClient(): TestAgentClient {
     getThreadExecutions: vi.fn(async () => []),
     __emit: async (event: never) => {
       for (const handler of handlers) await handler(event);
+    },
+    __emitUnknown: async (delivery: never) => {
+      for (const handler of unknownHandlers) await handler(delivery);
     },
   };
   return installResources(client) as unknown as TestAgentClient;
@@ -458,5 +478,46 @@ describe('createThreadController', () => {
 
     expect(client.stop).toHaveBeenCalledOnce();
     expect(controller.projection.getSnapshot().transcriptMessages).toEqual([]);
+  });
+
+  it('projects unknown application events through thread extensions', async () => {
+    const client = fakeClient();
+    const extension: ThreadEventExtension<{ latest: string | null; count: number }> = {
+      key: 'analysis',
+      initialState: { latest: null, count: 0 },
+      matches: event => event.type === 'ANALYSIS_COMPLETED',
+      reduce: (state, event, context) => ({
+        latest: typeof event.datasetId === 'string' ? event.datasetId : state.latest,
+        count: state.count + (context.phase === 'live' ? 1 : 0),
+      }),
+    };
+    const controller = createThreadController({
+      client,
+      agentId: 'agent',
+      sessionId: 's1',
+      threadId: 'main',
+      extensions: [extension],
+    });
+
+    await controller.connect();
+    await client.__emitUnknown({
+      event: {
+        type: 'ANALYSIS_COMPLETED',
+        datasetId: 'dataset-42',
+        sessionId: 's1',
+        threadId: 'main',
+      },
+      route: {
+        origin: { sessionId: 's1', threadId: 'main' },
+        path: [{ sessionId: 's1', threadId: 'main' }],
+      },
+      phase: 'live',
+      cursor: { generation: 1, sequence: 7 },
+    });
+
+    expect(controller.projection.getSnapshot().extensions.analysis).toEqual({
+      latest: 'dataset-42',
+      count: 1,
+    });
   });
 });

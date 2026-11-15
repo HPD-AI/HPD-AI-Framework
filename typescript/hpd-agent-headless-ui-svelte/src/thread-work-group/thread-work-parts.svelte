@@ -15,6 +15,7 @@
     work,
     children,
     showFinalDraft = false,
+    toolPart,
     workPart,
     ...restProps
   }: ThreadWorkPartsProps = $props();
@@ -32,6 +33,8 @@
       {@const partProps = createThreadWorkPartElementProps(part)}
       {#if workPart}
         {@render workPart({ part, index, props: partProps, work })}
+      {:else if part.type === 'tool' && toolPart}
+        {@render toolPart({ part, index, props: partProps, work })}
       {:else if part.type === 'reasoning'}
         <Reasoning
           text={part.text}

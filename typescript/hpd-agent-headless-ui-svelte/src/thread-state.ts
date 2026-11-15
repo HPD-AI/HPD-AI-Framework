@@ -15,6 +15,7 @@ import {
   type ThreadContextUsage,
   type ThreadController,
   type ThreadControllerOptions,
+  type ThreadExtensionState,
   type ThreadProjectionSnapshot,
   type ThreadTimelineItem,
   type ThreadTimelineOptions,
@@ -41,6 +42,7 @@ export interface ThreadStateSnapshot {
   activity: ThreadActivity;
   activeTools: ToolCall[];
   pendingRuntimeRequests: RuntimeRequest[];
+  extensions: ThreadExtensionState;
   contextUsage: ThreadContextUsage | null;
   textSubmissionState: TextSubmissionState;
   canSubmitText: boolean;
@@ -133,6 +135,7 @@ function createThreadStateSnapshot(
     activity: projection.activity,
     activeTools: getActiveToolCalls(projection),
     pendingRuntimeRequests: getPendingRuntimeRequests(projection),
+    extensions: projection.extensions,
     contextUsage: getThreadContextUsage(projection),
     textSubmissionState: getTextSubmissionState(projection),
     canSubmitText: canSubmitText(projection),

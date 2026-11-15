@@ -12,8 +12,12 @@ import type {
   RuntimeRequestBase,
   ThreadActivity,
   ThreadContextUsage,
+  ThreadEventExtension,
+  ThreadExtensionEventContext,
+  ThreadExtensionState,
   ThreadProjection,
   ThreadProjectionListener,
+  ThreadProjectionOptions,
   ThreadProjectionSnapshot,
   ThreadExecutionView,
   SubAgentInvocation,
@@ -49,14 +53,29 @@ interface MessagePolicy {
 
 const missingEventTimestamp = new Date(0);
 
-export function createThreadProjection(): ThreadProjection {
-  return new ThreadProjectionImpl();
+export function createThreadProjection(options: ThreadProjectionOptions = {}): ThreadProjection {
+  return new ThreadProjectionImpl(options);
 }
 
 class ThreadProjectionImpl implements ThreadProjection {
   private snapshot: ThreadProjectionSnapshot = createInitialSnapshot();
+  private readonly extensions = new Map<string, ThreadEventExtension>();
   private listeners = new Set<ThreadProjectionListener>();
   private muted = false;
+  private emitRevision = 0;
+
+  constructor(options: ThreadProjectionOptions) {
+    for (const extension of options.extensions ?? []) {
+      if (!extension.key.trim()) {
+        throw new Error('Thread event extensions require a non-empty key.');
+      }
+      if (this.extensions.has(extension.key)) {
+        throw new Error(`Duplicate thread event extension '${extension.key}'.`);
+      }
+      this.extensions.set(extension.key, extension);
+    }
+    this.snapshot = createInitialSnapshot(this.extensionState());
+  }
 
   getSnapshot(): ThreadProjectionSnapshot {
     return cloneSnapshot(this.snapshot);
@@ -73,7 +92,7 @@ class ThreadProjectionImpl implements ThreadProjection {
   rehydrate(snapshot: ThreadSnapshot): void {
     const threadExecution = selectThreadExecution(snapshot.activeExecution, snapshot.executions);
     this.snapshot = {
-      ...createInitialSnapshot(),
+      ...createInitialSnapshot(this.extensionState()),
       thread: snapshot.thread ?? this.snapshot.thread,
       threadExecution,
       currentExecutionId: threadExecution?.status === 'active' ? threadExecution.threadExecutionId : null,
@@ -84,13 +103,13 @@ class ThreadProjectionImpl implements ThreadProjection {
     this.muted = true;
     try {
       for (const event of snapshot.events) {
-        this.project(event);
+        this.project(event, { phase: 'rehydrate' });
       }
       for (const pending of snapshot.pendingRequests ?? []) {
         this.project({
           ...pending.request,
           timestamp: pending.request.timestamp ?? pending.createdAt,
-        });
+        }, { phase: 'rehydrate' });
       }
     } finally {
       this.muted = false;
@@ -114,7 +133,9 @@ class ThreadProjectionImpl implements ThreadProjection {
     this.emit();
   }
 
-  project(event: AgentEvent): void {
+  project(event: AgentEvent, context: ThreadExtensionEventContext = { phase: 'live' }): void {
+    const emitRevision = this.emitRevision;
+    const extensionChanged = this.applyExtensions(event, context);
     const known = event as KnownAgentEvent;
 
     switch (known.type) {
@@ -349,6 +370,9 @@ class ThreadProjectionImpl implements ThreadProjection {
         }
         break;
     }
+    if (extensionChanged && this.emitRevision === emitRevision) {
+      this.emit();
+    }
   }
 
   clearError(): void {
@@ -360,8 +384,36 @@ class ThreadProjectionImpl implements ThreadProjection {
   }
 
   reset(): void {
-    this.snapshot = createInitialSnapshot();
+    this.snapshot = createInitialSnapshot(this.extensionState());
     this.emit();
+  }
+
+  private extensionState(): ThreadExtensionState {
+    return Object.fromEntries(
+      [...this.extensions.values()].map(extension => [
+        extension.key,
+        cloneExtensionValue(extension.initialState),
+      ]),
+    );
+  }
+
+  private applyExtensions(event: AgentEvent, context: ThreadExtensionEventContext): boolean {
+    let extensions = this.snapshot.extensions;
+    let changed = false;
+    for (const extension of this.extensions.values()) {
+      if (!extension.matches(event)) continue;
+      const next = extension.reduce(
+        extensions[extension.key],
+        event,
+        context,
+      );
+      extensions = { ...extensions, [extension.key]: next };
+      changed = true;
+    }
+    if (changed) {
+      this.snapshot = refreshSnapshot({ ...this.snapshot, extensions });
+    }
+    return changed;
   }
 
   private startWorkGroup(context: ProjectionContext, agentName?: string, startedAt?: string): void {
@@ -991,6 +1043,7 @@ class ThreadProjectionImpl implements ThreadProjection {
 
   private emit(): void {
     if (this.muted) return;
+    this.emitRevision += 1;
     const snapshot = this.getSnapshot();
     for (const listener of this.listeners) {
       listener(snapshot);
@@ -998,7 +1051,9 @@ class ThreadProjectionImpl implements ThreadProjection {
   }
 }
 
-function createInitialSnapshot(): ThreadProjectionSnapshot {
+function createInitialSnapshot(
+  extensions: ThreadExtensionState = {},
+): ThreadProjectionSnapshot {
   return refreshSnapshot({
     thread: null,
     timeline: [],
@@ -1006,6 +1061,7 @@ function createInitialSnapshot(): ThreadProjectionSnapshot {
     transcriptMessages: [],
     activeTools: [],
     pendingRuntimeRequests: [],
+    extensions: cloneExtensionState(extensions),
     contextUsage: null,
     threadExecution: null,
     subAgentInvocations: [],
@@ -1070,11 +1126,26 @@ function cloneSnapshot(snapshot: ThreadProjectionSnapshot): ThreadProjectionSnap
     transcriptMessages: snapshot.transcriptMessages.map(cloneMessage),
     activeTools: snapshot.activeTools.map(cloneToolCall),
     pendingRuntimeRequests: snapshot.pendingRuntimeRequests.map(cloneRuntimeRequest),
+    extensions: cloneExtensionState(snapshot.extensions),
     subAgentInvocations: snapshot.subAgentInvocations.map((invocation) => ({ ...invocation })),
     contextUsage: cloneContextUsage(snapshot.contextUsage),
     activity: { ...snapshot.activity },
   };
   return refreshSnapshot(cloned);
+}
+
+function cloneExtensionState(
+  extensions: ThreadExtensionState,
+): ThreadExtensionState {
+  return Object.fromEntries(
+    Object.entries(extensions).map(([key, value]) => [key, cloneExtensionValue(value)]),
+  );
+}
+
+function cloneExtensionValue<T>(value: T): T {
+  if (value === undefined) return value;
+  if (typeof structuredClone === 'function') return structuredClone(value);
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function cloneTimelineItem(item: ThreadTimelineItem): ThreadTimelineItem {

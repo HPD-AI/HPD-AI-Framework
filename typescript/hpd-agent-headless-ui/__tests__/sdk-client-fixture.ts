@@ -1,13 +1,22 @@
 // Adapts the test spies to the current SDK resource shape.
 export function installResources<T extends Record<string, any>>(spies: T) {
   const thread = (sessionId: string, threadId: string) => ({
-    observe: async ({ agentId, after, signal, onEvent }: any) => {
+    observe: async ({ agentId, after, signal, onEvent, onUnknownEvent }: any) => {
       const subscription = spies.onAny?.((event: unknown) => onEvent({ event }));
+      const unknownSubscription = spies.onUnknown?.((delivery: unknown) => onUnknownEvent?.(delivery));
       await spies.start?.({ agentId, sessionId, threadId,
         after: { generation: after.generation, sequenceNumber: after.sequence }, signal });
       let close!: () => void;
       const done = new Promise<void>(resolve => { close = resolve; });
-      return { done, close: async () => { subscription?.dispose(); await spies.stop?.(); close(); } };
+      return {
+        done,
+        close: async () => {
+          subscription?.dispose();
+          unknownSubscription?.dispose();
+          await spies.stop?.();
+          close();
+        },
+      };
     },
   });
   return Object.assign(spies, {

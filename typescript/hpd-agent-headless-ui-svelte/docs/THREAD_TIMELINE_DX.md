@@ -150,6 +150,47 @@ The ownership boundary is:
 Use this when a specific tool or tool harness needs a richer renderer while the
 timeline and work group boundaries stay unchanged.
 
+When the default `ToolCall` should remain intact and application-owned detail
+should appear after it, use `toolPart` on `ThreadWorkGroup` or
+`ThreadWorkParts`. Unlike the general `workPart` replacement snippet,
+`toolPart` is called only for tool parts and receives a narrowed tool part.
+
+```svelte
+<ThreadWorkGroup {work}>
+  {#snippet toolPart({ part, props })}
+    <ToolCall tool={part.tool} {...props} />
+    <CodingToolDetails
+      toolCallId={part.tool.callId}
+      state={snapshot.extensions['hpd:coding']}
+    />
+  {/snippet}
+</ThreadWorkGroup>
+```
+
+This is the preferred seam for coding-harness presentation: the normal tool
+call remains the lifecycle identity, while durable diffs and live command output
+are added from application extension state.
+
+When an application-owned presentation fully replaces the generic tool row,
+make the ownership check explicit and retain a fallback:
+
+```svelte
+<ThreadWorkGroup {work}>
+  {#snippet toolPart({ part, props })}
+    {#if ownsTool(part.tool)}
+      <CodingToolDetails toolCallId={part.tool.callId} state={coding} />
+    {:else}
+      <ToolCall tool={part.tool} {...props} />
+    {/if}
+  {/snippet}
+</ThreadWorkGroup>
+```
+
+Ownership should match the tool harness and tool identity, not only a display
+name. If the specialized projection is unavailable, fall back to `ToolCall`.
+This prevents duplicate command, diff, or clarification rows without hiding
+unowned tools.
+
 ## Boundary
 
 `ThreadTimeline` does not:

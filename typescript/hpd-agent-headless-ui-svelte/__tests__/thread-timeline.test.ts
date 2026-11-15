@@ -12,6 +12,7 @@ import ThreadWorkGroup from '../src/thread-work-group/thread-work-group.svelte';
 import ThreadWorkParts from '../src/thread-work-group/thread-work-parts.svelte';
 import ThreadTimelineCustomHarness from './fixtures/thread-timeline-custom-harness.svelte';
 import ThreadWorkGroupCustomHarness from './fixtures/thread-work-group-custom-harness.svelte';
+import ThreadWorkGroupToolPartHarness from './fixtures/thread-workgroup-toolpart-harness.svelte';
 
 const mounted: Array<Record<string, unknown>> = [];
 
@@ -86,6 +87,20 @@ describe('ThreadWorkGroup', () => {
 
     expect(document.querySelectorAll('[data-testid="custom-part"]')).toHaveLength(2);
     expect(document.querySelector('[data-testid="custom-part"]')?.getAttribute('data-part-type')).toBe('reasoning');
+  });
+
+  it('lets callers replace only tool parts while keeping default work rendering', () => {
+    mounted.push(mount(ThreadWorkGroupToolPartHarness, {
+      target: document.body,
+      props: {
+        work: createWorkGroup(),
+      },
+    }));
+
+    expect(document.querySelector('[data-testid="custom-tool-part"]')?.textContent).toContain('read_file');
+    expect(document.querySelector('[data-testid="custom-tool-part"]')?.getAttribute('data-tool-id')).toBe('tool-call-1');
+    expect(document.querySelector('[data-work-part-type="reasoning"]')?.textContent).toContain('Checking context');
+    expect(document.querySelector('[data-hpd-tool-call]')).toBeNull();
   });
 
   it('renders completed collapsed work while keeping tool history inspectable', () => {

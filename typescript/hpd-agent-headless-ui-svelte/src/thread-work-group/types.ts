@@ -4,6 +4,7 @@ import type {
   ThreadWorkGroup,
   ThreadWorkPart,
   ThreadWorkStatus,
+  ThreadWorkToolPart,
 } from '@hpd-research/hpd-agent-headless-ui';
 
 type DetailsProps = Omit<SvelteHTMLElements['details'], 'children'>;
@@ -49,6 +50,11 @@ export interface ThreadWorkGroupPartSnippetProps {
   work: ThreadWorkGroup;
 }
 
+export interface ThreadWorkGroupToolSnippetProps
+  extends Omit<ThreadWorkGroupPartSnippetProps, 'part'> {
+  part: ThreadWorkToolPart;
+}
+
 export interface ThreadWorkGroupChildProps extends ThreadWorkGroupSnippetProps {
   props: ThreadWorkGroupElementProps;
 }
@@ -57,6 +63,7 @@ export interface ThreadWorkGroupProps extends DetailsProps {
   child?: Snippet<[ThreadWorkGroupChildProps]>;
   children?: Snippet<[ThreadWorkGroupSnippetProps]>;
   showFinalDraft?: boolean;
+  toolPart?: Snippet<[ThreadWorkGroupToolSnippetProps]>;
   workPart?: Snippet<[ThreadWorkGroupPartSnippetProps]>;
   work: ThreadWorkGroup;
 }
@@ -64,6 +71,7 @@ export interface ThreadWorkGroupProps extends DetailsProps {
 export interface ThreadWorkPartsProps extends DivProps {
   children?: Snippet<[ThreadWorkGroupSnippetProps]>;
   showFinalDraft?: boolean;
+  toolPart?: Snippet<[ThreadWorkGroupToolSnippetProps]>;
   workPart?: Snippet<[ThreadWorkGroupPartSnippetProps]>;
   work: ThreadWorkGroup;
 }

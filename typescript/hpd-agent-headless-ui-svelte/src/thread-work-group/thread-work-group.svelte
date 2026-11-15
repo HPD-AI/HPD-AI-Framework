@@ -13,6 +13,7 @@
     child,
     children,
     showFinalDraft = false,
+    toolPart,
     workPart,
     ...restProps
   }: ThreadWorkGroupProps = $props();
@@ -37,7 +38,7 @@
         <div data-hpd-thread-work-error>{work.error}</div>
       {/if}
 
-      <ThreadWorkParts {work} {showFinalDraft} {workPart} />
+      <ThreadWorkParts {work} {showFinalDraft} {toolPart} {workPart} />
     {/if}
   </details>
 {/if}
