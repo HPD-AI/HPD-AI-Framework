@@ -1,11 +1,11 @@
 {
-  "TypeCount": 73,
-  "MethodCount": 346,
-  "ConstructorCount": 46,
-  "PropertyCount": 255,
-  "FieldCount": 39,
+  "TypeCount": 79,
+  "MethodCount": 367,
+  "ConstructorCount": 51,
+  "PropertyCount": 284,
+  "FieldCount": 78,
   "EventCount": 2,
-  "Fingerprint": "6470a7d21ac83bd6ce907784972504ba2e23590b96351339ef2e6d27cc966c8a",
+  "Fingerprint": "0484cced63ca4aa508547a78eaf0a9aefdb132b621ab1cfbe69a228a6226cc1c",
   "Types": [
     {
       "FullName": "HPD.Agent.MultiAgent.AspNetCore.EndpointMapping.MultiAgentRunAcceptedResult",
@@ -342,18 +342,18 @@
         "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions WithInputKey(System.String[]System.String key)",
         "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions WithInputTemplate(System.String[]System.String template)",
         "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions WithOutputKey(System.String[]System.String key)",
-        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions WithRetry(System.String[]HPD.Graph.Abstractions.Graph.RetryPolicy policy)",
-        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions WithRetry(System.String[]System.Int32 maxAttempts,System.String[]HPD.Graph.Abstractions.Graph.BackoffStrategy strategy = Exponential)",
-        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions WithRetryTransient(System.String[]System.Int32 maxAttempts,System.String[]HPD.Graph.Abstractions.Graph.BackoffStrategy strategy = Exponential)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions WithRetry(System.String[]HPD.MultiAgent.RetryPolicy policy)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions WithRetry(System.String[]System.Int32 maxAttempts,System.String[]HPD.MultiAgent.Config.BackoffStrategy strategy = Exponential)",
+        "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions WithRetryTransient(System.String[]System.Int32 maxAttempts,System.String[]HPD.MultiAgent.Config.BackoffStrategy strategy = Exponential)",
         "System.String[]System.String[]HPD.MultiAgent.AgentNodeOptions WithTimeout(System.String[]System.TimeSpan timeout)"
       ],
       "Properties": [
         "System.String[]HPD.Agent.AgentClientInheritance ClientInheritance { get; set; }",
         "System.String[]HPD.Agent.AgentRunConfig RunConfig { get; set; }",
-        "System.String[]HPD.Graph.Abstractions.Graph.RetryPolicy? RetryPolicy { get; set; }",
         "System.String[]HPD.MultiAgent.AgentOutputMode OutputMode { get; set; }",
         "System.String[]HPD.MultiAgent.Config.ApprovalConfig? Approval { get; set; }",
         "System.String[]HPD.MultiAgent.Config.ErrorMode ErrorMode { get; set; }",
+        "System.String[]HPD.MultiAgent.RetryPolicy? RetryPolicy { get; set; }",
         "System.String[]HPD.MultiAgent.StructuredOutputMode StructuredOutputMode { get; set; }",
         "System.String[]System.Boolean RecoveryOnly { get; set; }",
         "System.String[]System.Collections.Generic.Dictionary\u003CSystem.String,System.String\u003E? HandoffTargets { get; set; }",
@@ -418,16 +418,14 @@
       ],
       "Constructors": [],
       "Methods": [
-        "System.String[]System.String[]System.Collections.Generic.IAsyncEnumerable\u003CHPD.Events.Event\u003E ExecuteStreamingAsync(System.String[]System.String input,System.String[]HPD.Events.IEventCoordinator? parentCoordinator,System.String[]HPD.Agent.AgentMetadata? parentAgentMetadata,System.String[]System.Threading.CancellationToken cancellationToken = null)",
-        "System.String[]System.String[]System.Collections.Generic.IAsyncEnumerable\u003CHPD.Events.Event\u003E ExecuteStreamingAsync(System.String[]System.String input,System.String[]HPD.Events.IEventCoordinator? parentCoordinator,System.String[]System.Threading.CancellationToken cancellationToken = null)",
-        "System.String[]System.String[]System.Collections.Generic.IAsyncEnumerable\u003CHPD.Events.Event\u003E ExecuteStreamingAsync(System.String[]System.String input,System.String[]HPD.MultiAgent.WorkflowEventCoordinator coordinator,System.String[]System.Threading.CancellationToken cancellationToken = null)",
-        "System.String[]System.String[]System.Collections.Generic.IAsyncEnumerable\u003CHPD.Events.Event\u003E ExecuteStreamingAsync(System.String[]System.String input,System.String[]System.Threading.CancellationToken cancellationToken = null)",
-        "System.String[]System.String[]System.IDisposable Subscribe\u003CTEvent\u003E where TEvent : HPD.Events.Event(System.String[]System.Action\u003CTEvent\u003E handler)",
-        "System.String[]System.String[]System.IDisposable Subscribe\u003CTEvent\u003E where TEvent : HPD.Events.Event(System.String[]System.Func\u003CTEvent,System.Threading.Tasks.Task\u003E handler)",
-        "System.String[]System.String[]System.IDisposable Subscribe\u003CTEvent\u003E where TEvent : HPD.Events.Event(System.String[]System.Func\u003CTEvent,System.Threading.Tasks.ValueTask\u003E handler)",
-        "System.String[]System.String[]System.IDisposable SubscribeAny(System.String[]System.Action\u003CHPD.Events.Event\u003E handler)",
-        "System.String[]System.String[]System.IDisposable SubscribeAny(System.String[]System.Func\u003CHPD.Events.Event,System.Threading.Tasks.Task\u003E handler)",
-        "System.String[]System.String[]System.IDisposable SubscribeAny(System.String[]System.Func\u003CHPD.Events.Event,System.Threading.Tasks.ValueTask\u003E handler)",
+        "System.String[]System.String[]System.Collections.Generic.IAsyncEnumerable\u003CHPD.Agent.AgentEvent\u003E ExecuteStreamingAsync(System.String[]System.String input,System.String[]HPD.MultiAgent.WorkflowEventCoordinator coordinator,System.String[]System.Threading.CancellationToken cancellationToken = null)",
+        "System.String[]System.String[]System.Collections.Generic.IAsyncEnumerable\u003CHPD.Agent.AgentEvent\u003E ExecuteStreamingAsync(System.String[]System.String input,System.String[]System.Threading.CancellationToken cancellationToken = null)",
+        "System.String[]System.String[]System.IDisposable Subscribe\u003CTEvent\u003E where TEvent : HPD.Agent.AgentEvent(System.String[]System.Action\u003CTEvent\u003E handler)",
+        "System.String[]System.String[]System.IDisposable Subscribe\u003CTEvent\u003E where TEvent : HPD.Agent.AgentEvent(System.String[]System.Func\u003CTEvent,System.Threading.Tasks.Task\u003E handler)",
+        "System.String[]System.String[]System.IDisposable Subscribe\u003CTEvent\u003E where TEvent : HPD.Agent.AgentEvent(System.String[]System.Func\u003CTEvent,System.Threading.Tasks.ValueTask\u003E handler)",
+        "System.String[]System.String[]System.IDisposable SubscribeAny(System.String[]System.Action\u003CHPD.Agent.AgentEvent\u003E handler)",
+        "System.String[]System.String[]System.IDisposable SubscribeAny(System.String[]System.Func\u003CHPD.Agent.AgentEvent,System.Threading.Tasks.Task\u003E handler)",
+        "System.String[]System.String[]System.IDisposable SubscribeAny(System.String[]System.Func\u003CHPD.Agent.AgentEvent,System.Threading.Tasks.ValueTask\u003E handler)",
         "System.String[]System.String[]System.String ExportConfig(System.String[]HPD.Serialization.HpdConfigFormat format)",
         "System.String[]System.String[]System.String ExportConfigJson()",
         "System.String[]System.String[]System.String ExportConfigYaml()",
@@ -435,25 +433,10 @@
         "System.String[]System.String[]System.Threading.Tasks.Task\u003CHPD.MultiAgent.WorkflowResult\u003E RunAsync(System.String[]System.String input,System.String[]System.Threading.CancellationToken cancellationToken = null)"
       ],
       "Properties": [
-        "System.String[]HPD.Graph.Abstractions.Graph.Graph Graph { get; }",
+        "System.String[]HPD.MultiAgent.Observability.MetricsObserver? Metrics { get; }",
         "System.String[]HPD.MultiAgent.WorkflowEventCoordinator Events { get; }",
         "System.String[]System.String WorkflowName { get; }"
       ],
-      "Fields": [],
-      "Events": []
-    },
-    {
-      "FullName": "HPD.MultiAgent.ApprovalWorkflowExtensions",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [],
-      "Constructors": [],
-      "Methods": [
-        "System.String[]System.String[]static HPD.Events.RespondResult Approve(System.String[]HPD.Events.IEventCoordinator coordinator,System.String[]System.String requestId,System.String[]System.String? reason = null,System.String[]System.Object? resumeData = null)",
-        "System.String[]System.String[]static HPD.Events.RespondResult Deny(System.String[]HPD.Events.IEventCoordinator coordinator,System.String[]System.String requestId,System.String[]System.String reason = \u0022Denied by user\u0022)",
-        "System.String[]System.String[]static HPD.Graph.Abstractions.Events.NodeApprovalResponseEvent CreateApprovalResponse(System.String[]System.String requestId,System.String[]System.Boolean approved,System.String[]System.String? reason = null,System.String[]System.Object? resumeData = null)"
-      ],
-      "Properties": [],
       "Fields": [],
       "Events": []
     },
@@ -567,6 +550,28 @@
       "Events": []
     },
     {
+      "FullName": "HPD.MultiAgent.Config.BackoffStrategy",
+      "Attributes": [],
+      "BaseType": "System.Enum",
+      "Interfaces": [
+        "System.IComparable",
+        "System.IConvertible",
+        "System.IFormattable",
+        "System.ISpanFormattable"
+      ],
+      "Constructors": [],
+      "Methods": [],
+      "Properties": [],
+      "Fields": [
+        "System.String[]System.Int32 value__",
+        "System.String[]const HPD.MultiAgent.Config.BackoffStrategy Constant = 0",
+        "System.String[]const HPD.MultiAgent.Config.BackoffStrategy Exponential = 1",
+        "System.String[]const HPD.MultiAgent.Config.BackoffStrategy JitteredExponential = 3",
+        "System.String[]const HPD.MultiAgent.Config.BackoffStrategy Linear = 2"
+      ],
+      "Events": []
+    },
+    {
       "FullName": "HPD.MultiAgent.Config.ConditionConfig",
       "Attributes": [],
       "BaseType": "System.Object",
@@ -584,13 +589,55 @@
         "System.String[]System.String[]override System.String ToString()"
       ],
       "Properties": [
-        "System.String[]HPD.Graph.Abstractions.Graph.ConditionType Type { get; init; }",
+        "System.String[]HPD.MultiAgent.Config.ConditionType Type { get; init; }",
         "System.String[]System.Collections.Generic.List\u003CHPD.MultiAgent.Config.ConditionConfig\u003E? Conditions { get; init; }",
         "System.String[]System.Nullable\u003CSystem.Text.Json.JsonElement\u003E? Value { get; init; }",
         "System.String[]System.String? Field { get; init; }",
         "System.String[]System.String? RegexOptions { get; init; }"
       ],
       "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Config.ConditionType",
+      "Attributes": [],
+      "BaseType": "System.Enum",
+      "Interfaces": [
+        "System.IComparable",
+        "System.IConvertible",
+        "System.IFormattable",
+        "System.ISpanFormattable"
+      ],
+      "Constructors": [],
+      "Methods": [],
+      "Properties": [],
+      "Fields": [
+        "System.String[]System.Int32 value__",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType Always = 0",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType And = 14",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType Default = 10",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType FieldContains = 9",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType FieldContainsAll = 23",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType FieldContainsAny = 22",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType FieldEndsWith = 18",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType FieldEquals = 1",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType FieldExists = 7",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType FieldGreaterThan = 3",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType FieldGreaterThanOrEqual = 4",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType FieldIsEmpty = 20",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType FieldIsNotEmpty = 21",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType FieldLessThan = 5",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType FieldLessThanOrEqual = 6",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType FieldMatchesRegex = 19",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType FieldNotEquals = 2",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType FieldNotExists = 8",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType FieldStartsWith = 17",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType Not = 16",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType Or = 15",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType UpstreamAllDone = 12",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType UpstreamAllDoneOneSuccess = 13",
+        "System.String[]const HPD.MultiAgent.Config.ConditionType UpstreamOneSuccess = 11"
+      ],
       "Events": []
     },
     {
@@ -738,7 +785,7 @@
         "System.String[]System.String[]override System.String ToString()"
       ],
       "Properties": [
-        "System.String[]HPD.Graph.Abstractions.Graph.BackoffStrategy Strategy { get; init; }",
+        "System.String[]HPD.MultiAgent.Config.BackoffStrategy Strategy { get; init; }",
         "System.String[]System.Boolean OnlyTransient { get; init; }",
         "System.String[]System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? RetryableExceptionTypeNames { get; init; }",
         "System.String[]System.Int32 MaxAttempts { get; init; }",
@@ -953,20 +1000,6 @@
       "Events": []
     },
     {
-      "FullName": "HPD.MultiAgent.MultiAgentGraphBuilderExtensions",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [],
-      "Constructors": [],
-      "Methods": [
-        "System.String[]System.String[]static HPD.Graph.Core.Builders.GraphBuilder AddMultiAgent(System.String[]HPD.Graph.Core.Builders.GraphBuilder builder,System.String[]System.String nodeId,System.String[]HPD.MultiAgent.AgentWorkflowInstance workflow,System.String[]System.Action\u003CHPD.Graph.Core.Builders.NodeBuilder\u003E? configure = null)",
-        "System.String[]System.String[]static HPD.Graph.Core.Builders.GraphBuilder AddMultiAgent(System.String[]HPD.Graph.Core.Builders.GraphBuilder builder,System.String[]System.String nodeId,System.String[]HPD.MultiAgent.Config.MultiAgentWorkflowConfig config,System.String[]System.Action\u003CHPD.Graph.Core.Builders.NodeBuilder\u003E? configure = null)"
-      ],
-      "Properties": [],
-      "Fields": [],
-      "Events": []
-    },
-    {
       "FullName": "HPD.MultiAgent.MultiAgentGraphSerializationExtensions",
       "Attributes": [],
       "BaseType": "System.Object",
@@ -989,7 +1022,7 @@
       ],
       "Methods": [
         "System.String[]System.String[]HPD.MultiAgent.Observability.WorkflowMetrics? GetActiveWorkflow(System.String[]System.String executionId)",
-        "System.String[]System.String[]System.Threading.Tasks.ValueTask HandleAsync(System.String[]HPD.Events.Event evt)",
+        "System.String[]System.String[]System.Threading.Tasks.ValueTask HandleAsync(System.String[]HPD.Agent.AgentEvent evt)",
         "System.String[]System.String[]System.Void Clear()"
       ],
       "Properties": [
@@ -1098,7 +1131,7 @@
         "System.String[].ctor(System.String[]System.Diagnostics.ActivitySource activitySource)"
       ],
       "Methods": [
-        "System.String[]System.String[]System.Threading.Tasks.ValueTask HandleAsync(System.String[]HPD.Events.Event evt)",
+        "System.String[]System.String[]System.Threading.Tasks.ValueTask HandleAsync(System.String[]HPD.Agent.AgentEvent evt)",
         "System.String[]System.String[]System.Void Dispose()"
       ],
       "Properties": [
@@ -1174,30 +1207,58 @@
       "Events": []
     },
     {
+      "FullName": "HPD.MultiAgent.RetryPolicy",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.MultiAgent.RetryPolicy\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.RetryPolicy \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.RetryPolicy? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]HPD.MultiAgent.Config.BackoffStrategy Strategy { get; init; }",
+        "System.String[]System.Boolean OnlyTransient { get; init; }",
+        "System.String[]System.Collections.Generic.IReadOnlyList\u003CSystem.Type\u003E? RetryableExceptions { get; init; }",
+        "System.String[]System.Int32 MaxAttempts { get; init; }",
+        "System.String[]System.Nullable\u003CSystem.TimeSpan\u003E? MaxDelay { get; init; }",
+        "System.String[]System.TimeSpan InitialDelay { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
       "FullName": "HPD.MultiAgent.Routing.Condition",
       "Attributes": [],
       "BaseType": "System.Object",
       "Interfaces": [],
       "Constructors": [],
       "Methods": [
-        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition Always()",
-        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition And(System.String[]params HPD.Graph.Abstractions.Graph.EdgeCondition[] conditions)",
-        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition Contains(System.String[]System.String field,System.String[]System.Object value)",
-        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition ContainsAll(System.String[]System.String field,System.String[]params System.Object[] values)",
-        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition ContainsAny(System.String[]System.String field,System.String[]params System.Object[] values)",
-        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition EndsWith(System.String[]System.String field,System.String[]System.String suffix)",
-        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition Equals(System.String[]System.String field,System.String[]System.Object value)",
-        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition Exists(System.String[]System.String field)",
-        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition GreaterThan(System.String[]System.String field,System.String[]System.Object value)",
-        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition IsEmpty(System.String[]System.String field)",
-        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition IsNotEmpty(System.String[]System.String field)",
-        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition LessThan(System.String[]System.String field,System.String[]System.Object value)",
-        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition MatchesRegex(System.String[]System.String field,System.String[]System.String pattern,System.String[]System.Text.RegularExpressions.RegexOptions options = None)",
-        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition Not(System.String[]HPD.Graph.Abstractions.Graph.EdgeCondition condition)",
-        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition NotEquals(System.String[]System.String field,System.String[]System.Object value)",
-        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition NotExists(System.String[]System.String field)",
-        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition Or(System.String[]params HPD.Graph.Abstractions.Graph.EdgeCondition[] conditions)",
-        "System.String[]System.String[]static HPD.Graph.Abstractions.Graph.EdgeCondition StartsWith(System.String[]System.String field,System.String[]System.String prefix)"
+        "System.String[]System.String[]static HPD.MultiAgent.Routing.WorkflowCondition Always()",
+        "System.String[]System.String[]static HPD.MultiAgent.Routing.WorkflowCondition And(System.String[]params HPD.MultiAgent.Routing.WorkflowCondition[] conditions)",
+        "System.String[]System.String[]static HPD.MultiAgent.Routing.WorkflowCondition Contains(System.String[]System.String field,System.String[]System.Object value)",
+        "System.String[]System.String[]static HPD.MultiAgent.Routing.WorkflowCondition ContainsAll(System.String[]System.String field,System.String[]params System.Object[] values)",
+        "System.String[]System.String[]static HPD.MultiAgent.Routing.WorkflowCondition ContainsAny(System.String[]System.String field,System.String[]params System.Object[] values)",
+        "System.String[]System.String[]static HPD.MultiAgent.Routing.WorkflowCondition EndsWith(System.String[]System.String field,System.String[]System.String suffix)",
+        "System.String[]System.String[]static HPD.MultiAgent.Routing.WorkflowCondition Equals(System.String[]System.String field,System.String[]System.Object value)",
+        "System.String[]System.String[]static HPD.MultiAgent.Routing.WorkflowCondition Exists(System.String[]System.String field)",
+        "System.String[]System.String[]static HPD.MultiAgent.Routing.WorkflowCondition GreaterThan(System.String[]System.String field,System.String[]System.Object value)",
+        "System.String[]System.String[]static HPD.MultiAgent.Routing.WorkflowCondition IsEmpty(System.String[]System.String field)",
+        "System.String[]System.String[]static HPD.MultiAgent.Routing.WorkflowCondition IsNotEmpty(System.String[]System.String field)",
+        "System.String[]System.String[]static HPD.MultiAgent.Routing.WorkflowCondition LessThan(System.String[]System.String field,System.String[]System.Object value)",
+        "System.String[]System.String[]static HPD.MultiAgent.Routing.WorkflowCondition MatchesRegex(System.String[]System.String field,System.String[]System.String pattern,System.String[]System.Text.RegularExpressions.RegexOptions options = None)",
+        "System.String[]System.String[]static HPD.MultiAgent.Routing.WorkflowCondition Not(System.String[]HPD.MultiAgent.Routing.WorkflowCondition condition)",
+        "System.String[]System.String[]static HPD.MultiAgent.Routing.WorkflowCondition NotEquals(System.String[]System.String field,System.String[]System.Object value)",
+        "System.String[]System.String[]static HPD.MultiAgent.Routing.WorkflowCondition NotExists(System.String[]System.String field)",
+        "System.String[]System.String[]static HPD.MultiAgent.Routing.WorkflowCondition Or(System.String[]params HPD.MultiAgent.Routing.WorkflowCondition[] conditions)",
+        "System.String[]System.String[]static HPD.MultiAgent.Routing.WorkflowCondition StartsWith(System.String[]System.String field,System.String[]System.String prefix)"
       ],
       "Properties": [],
       "Fields": [],
@@ -1240,7 +1301,7 @@
       "Methods": [
         "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeBuilder From(System.String[]params System.String[] sourceNodes)",
         "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder AsDefault()",
-        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder When(System.String[]HPD.Graph.Abstractions.Graph.EdgeCondition condition)",
+        "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder When(System.String[]HPD.MultiAgent.Routing.WorkflowCondition condition)",
         "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder When(System.String[]System.Func\u003CHPD.MultiAgent.Routing.EdgeConditionContext,System.Boolean\u003E predicate)",
         "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder WhenContains(System.String[]System.String field,System.String[]System.Object value)",
         "System.String[]System.String[]HPD.MultiAgent.Routing.EdgeTargetBuilder WhenContainsAll(System.String[]System.String field,System.String[]params System.Object[] values)",
@@ -1294,6 +1355,33 @@
         "System.String[]System.String[]System.Threading.Tasks.Task\u003CHPD.MultiAgent.AgentWorkflowInstance\u003E BuildAsync(System.String[]System.Threading.CancellationToken cancellationToken = null)"
       ],
       "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.Routing.WorkflowCondition",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.MultiAgent.Routing.WorkflowCondition\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.Routing.WorkflowCondition \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.Routing.WorkflowCondition? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]HPD.MultiAgent.Config.ConditionType Type { get; init; }",
+        "System.String[]System.Collections.Generic.IReadOnlyList\u003CHPD.MultiAgent.Routing.WorkflowCondition\u003E? Conditions { get; init; }",
+        "System.String[]System.Object? Value { get; init; }",
+        "System.String[]System.String? Field { get; init; }",
+        "System.String[]System.String? RegexOptions { get; init; }"
+      ],
       "Fields": [],
       "Events": []
     },
@@ -1439,6 +1527,129 @@
         "System.String[]System.String AgentId { get; init; }",
         "System.String[]System.String WorkflowName { get; init; }",
         "System.String[]System.String? AgentName { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.WorkflowApprovalRequestedEvent",
+      "Attributes": [
+        "[EventTypeAttribute(\u0022WORKFLOW_APPROVAL_REQUESTED\u0022)]"
+      ],
+      "BaseType": "HPD.Agent.AgentEvent",
+      "Interfaces": [
+        "HPD.Events.IEvent",
+        "System.IEquatable\u003CHPD.Agent.AgentEvent\u003E",
+        "System.IEquatable\u003CHPD.Events.Event\u003E",
+        "System.IEquatable\u003CHPD.MultiAgent.WorkflowApprovalRequestedEvent\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.WorkflowApprovalRequestedEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]HPD.Agent.AgentEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()",
+        "System.String[]System.String[]virtual HPD.MultiAgent.WorkflowApprovalRequestedEvent \u003CClone\u003E$()"
+      ],
+      "Properties": [
+        "System.String[]HPD.Events.EventKind Kind { get; init; }",
+        "System.String[]System.Collections.Generic.IReadOnlyDictionary\u003CSystem.String,System.Object\u003E? Details { get; init; }",
+        "System.String[]System.String AgentId { get; init; }",
+        "System.String[]System.String Message { get; init; }",
+        "System.String[]System.String RequestId { get; init; }",
+        "System.String[]System.String SourceName { get; init; }",
+        "System.String[]System.String WorkflowName { get; init; }",
+        "System.String[]System.String? Description { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.WorkflowApprovalResult",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.MultiAgent.WorkflowApprovalResult\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor(System.String[]HPD.MultiAgent.WorkflowApprovalStatus Status,System.String[]System.String RequestId,System.String[]System.String? Message = null)"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.MultiAgent.WorkflowApprovalResult \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.WorkflowApprovalResult? other)",
+        "System.String[]System.String[]System.Void Deconstruct(System.String[]out HPD.MultiAgent.WorkflowApprovalStatus Status,System.String[]out System.String RequestId,System.String[]out System.String? Message)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]HPD.MultiAgent.WorkflowApprovalStatus Status { get; init; }",
+        "System.String[]System.Boolean Accepted { get; }",
+        "System.String[]System.String RequestId { get; init; }",
+        "System.String[]System.String? Message { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.WorkflowApprovalStatus",
+      "Attributes": [],
+      "BaseType": "System.Enum",
+      "Interfaces": [
+        "System.IComparable",
+        "System.IConvertible",
+        "System.IFormattable",
+        "System.ISpanFormattable"
+      ],
+      "Constructors": [],
+      "Methods": [],
+      "Properties": [],
+      "Fields": [
+        "System.String[]System.Int32 value__",
+        "System.String[]const HPD.MultiAgent.WorkflowApprovalStatus Accepted = 0",
+        "System.String[]const HPD.MultiAgent.WorkflowApprovalStatus AlreadyResolved = 2",
+        "System.String[]const HPD.MultiAgent.WorkflowApprovalStatus AmbiguousRequest = 7",
+        "System.String[]const HPD.MultiAgent.WorkflowApprovalStatus Cancelled = 4",
+        "System.String[]const HPD.MultiAgent.WorkflowApprovalStatus NotFound = 1",
+        "System.String[]const HPD.MultiAgent.WorkflowApprovalStatus ResponseTypeMismatch = 5",
+        "System.String[]const HPD.MultiAgent.WorkflowApprovalStatus TargetMismatch = 6",
+        "System.String[]const HPD.MultiAgent.WorkflowApprovalStatus TimedOut = 3"
+      ],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.MultiAgent.WorkflowApprovalTimedOutEvent",
+      "Attributes": [
+        "[EventTypeAttribute(\u0022WORKFLOW_APPROVAL_TIMED_OUT\u0022)]"
+      ],
+      "BaseType": "HPD.Agent.AgentEvent",
+      "Interfaces": [
+        "HPD.Events.IEvent",
+        "System.IEquatable\u003CHPD.Agent.AgentEvent\u003E",
+        "System.IEquatable\u003CHPD.Events.Event\u003E",
+        "System.IEquatable\u003CHPD.MultiAgent.WorkflowApprovalTimedOutEvent\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.MultiAgent.WorkflowApprovalTimedOutEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]HPD.Agent.AgentEvent? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()",
+        "System.String[]System.String[]virtual HPD.MultiAgent.WorkflowApprovalTimedOutEvent \u003CClone\u003E$()"
+      ],
+      "Properties": [
+        "System.String[]HPD.Events.EventKind Kind { get; init; }",
+        "System.String[]System.String AgentId { get; init; }",
+        "System.String[]System.String RequestId { get; init; }",
+        "System.String[]System.String SourceName { get; init; }",
+        "System.String[]System.String WorkflowName { get; init; }",
+        "System.String[]System.TimeSpan WaitedFor { get; init; }"
       ],
       "Fields": [],
       "Events": []
@@ -1593,11 +1804,11 @@
         "System.String[].ctor()"
       ],
       "Methods": [
-        "System.String[]System.String[]HPD.Events.RespondResult Approve(System.String[]System.String requestId,System.String[]System.String? reason = null,System.String[]System.Object? resumeData = null)",
-        "System.String[]System.String[]HPD.Events.RespondResult Deny(System.String[]System.String requestId,System.String[]System.String reason = \u0022Denied by user\u0022)",
-        "System.String[]System.String[]System.IDisposable Subscribe\u003CTEvent\u003E where TEvent : HPD.Events.Event(System.String[]System.Func\u003CTEvent,System.Threading.Tasks.ValueTask\u003E handler,System.String[]HPD.Events.EventSubscriptionOptions? options = null)",
-        "System.String[]System.String[]System.IDisposable SubscribeAny(System.String[]System.Func\u003CHPD.Events.Event,System.Threading.Tasks.ValueTask\u003E handler,System.String[]HPD.Events.EventSubscriptionOptions? options = null)",
-        "System.String[]System.String[]System.Threading.Tasks.ValueTask PublishAsync(System.String[]HPD.Events.Event evt,System.String[]System.Threading.CancellationToken cancellationToken = null)",
+        "System.String[]System.String[]HPD.MultiAgent.WorkflowApprovalResult Approve(System.String[]System.String requestId,System.String[]System.String? reason = null,System.String[]System.Object? resumeData = null)",
+        "System.String[]System.String[]HPD.MultiAgent.WorkflowApprovalResult Deny(System.String[]System.String requestId,System.String[]System.String reason = \u0022Denied by user\u0022)",
+        "System.String[]System.String[]System.IDisposable Subscribe\u003CTEvent\u003E where TEvent : HPD.Agent.AgentEvent(System.String[]System.Func\u003CTEvent,System.Threading.Tasks.ValueTask\u003E handler)",
+        "System.String[]System.String[]System.IDisposable SubscribeAny(System.String[]System.Func\u003CHPD.Agent.AgentEvent,System.Threading.Tasks.ValueTask\u003E handler)",
+        "System.String[]System.String[]System.Threading.Tasks.ValueTask PublishAsync(System.String[]HPD.Agent.AgentEvent evt,System.String[]System.Threading.CancellationToken cancellationToken = null)",
         "System.String[]System.String[]System.Void Dispose()"
       ],
       "Properties": [],

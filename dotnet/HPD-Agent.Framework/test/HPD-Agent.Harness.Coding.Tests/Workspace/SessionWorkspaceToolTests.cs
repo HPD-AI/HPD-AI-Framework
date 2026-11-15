@@ -253,13 +253,14 @@ public sealed class SessionWorkspaceToolTests
                 "test-session",
                 "test-thread"),
             CancellationToken.None,
-            config: new AgentConfig
+            config: new AgentConfig(),
+            runtimeOptions: new AgentRuntimeOptions
             {
                 EventComposition = AgentEventComposition.Create(
                 [
                     CoreAgentEventModule.Fragment,
                     HPD_Agent_Harness_CodingGeneratedAgentEventModule.Fragment,
-                ]),
+                ])
             });
         var before = agentContext.AsBeforeFunction(
             null,

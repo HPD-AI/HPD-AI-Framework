@@ -91,7 +91,7 @@ if (!operationJson.Contains("reviewer-1", StringComparison.Ordinal) ||
     !forkJson.Contains("fork-1", StringComparison.Ordinal))
     return 5;
 
-var retryConfig = new ErrorHandlingConfig
+var retryConfig = new RetryPolicySection
 {
     ModelRetries = new() { MaxRetries = 2 },
     FunctionRetries = new()
@@ -104,17 +104,17 @@ var retryConfig = new ErrorHandlingConfig
 var retryJson = HpdAgentConfigSerializer.Serialize(new AgentConfig
 {
     Name = "AOT Retry",
-    ErrorHandling = retryConfig
+    Resilience = new ResilienceConfig { Retry = retryConfig }
 });
 var restored = HpdAgentConfigSerializer.Deserialize(retryJson);
-if (restored?.ErrorHandling?.ModelRetries.MaxRetries != 2 ||
-    restored.ErrorHandling.FunctionRetries.MaxRetries != 1 ||
-    restored.ErrorHandling.FunctionRetries.Exclude.Harnesses.Single() != "OtherHarness")
+if (restored?.Resilience?.Retry?.ModelRetries.MaxRetries != 2 ||
+    restored.Resilience.Retry.FunctionRetries.MaxRetries != 1 ||
+    restored.Resilience.Retry.FunctionRetries.Exclude.Harnesses.Single() != "OtherHarness")
 {
     return 9;
 }
 
-var retryMiddleware = new RetryMiddleware(restored.ErrorHandling);
+var retryMiddleware = new RetryMiddleware(restored.Resilience.Retry);
 var retryAttempts = 0;
 var retryResult = await retryMiddleware.WrapFunctionCallAsync(
     RetryRequest(function),

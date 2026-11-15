@@ -33,7 +33,9 @@ public static class AgentConfigValidator
         // Basic configuration validation
         ValidateName(config, errors);
         ValidateMaxAgenticIterations(config, errors);
-        ValidateErrorHandling(config, errors);
+        ValidateResilience(config, errors);
+        ValidatePrivacy(config, errors);
+        ValidateObservability(config, errors);
         ValidateCompaction(config, errors);
         if (config.Goals is { } goals) errors.AddRange(goals.Validate());
         ValidateOperations(config, errors);
@@ -126,14 +128,69 @@ public static class AgentConfigValidator
         }
     }
 
-    private static void ValidateErrorHandling(AgentConfig config, List<string> errors)
+    private static void ValidateResilience(AgentConfig config, List<string> errors)
     {
-        if (config.ErrorHandling is not { } errorHandling)
+        if (config.Resilience is not { } resilience)
             return;
+        if (resilience.Retry is { } retry)
+        {
+            ValidateRetryPolicy(retry.ModelRetries, "resilience.retry.modelRetries", errors);
+            ValidateRetryPolicy(retry.FunctionRetries, "resilience.retry.functionRetries", errors);
+            ValidateRetryExclusions(retry.FunctionRetries.Exclude,
+                "resilience.retry.functionRetries.exclude", errors);
+        }
+        if (resilience.CircuitBreaker is { } circuitBreaker &&
+            circuitBreaker.MaxConsecutiveCalls is < 1 or > 100)
+            errors.Add("resilience.circuitBreaker.maxConsecutiveCalls must be between 1 and 100.");
+        if (resilience.ConsecutiveErrors is { } consecutive &&
+            consecutive.MaxConsecutiveErrors is < 1 or > 100)
+            errors.Add("resilience.consecutiveErrors.maxConsecutiveErrors must be between 1 and 100.");
+        if (resilience.TotalErrors is { } total &&
+            total.MaxTotalErrors is < 1 or > 1000)
+            errors.Add("resilience.totalErrors.maxTotalErrors must be between 1 and 1000.");
+        if (resilience.FunctionTimeout is { } timeout && timeout <= TimeSpan.Zero)
+            errors.Add("resilience.functionTimeout must be positive.");
+    }
 
-        ValidateRetryPolicy(errorHandling.ModelRetries, "errorHandling.modelRetries", errors);
-        ValidateRetryPolicy(errorHandling.FunctionRetries, "errorHandling.functionRetries", errors);
-        ValidateRetryExclusions(errorHandling.FunctionRetries.Exclude, errors);
+    private static void ValidatePrivacy(AgentConfig config, List<string> errors)
+    {
+        if (config.Privacy?.PII is not { } pii)
+            return;
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        for (var index = 0; index < pii.CustomDetectors.Count; index++)
+        {
+            var detector = pii.CustomDetectors[index];
+            var path = $"privacy.pii.customDetectors[{index}]";
+            if (string.IsNullOrWhiteSpace(detector.Name))
+                errors.Add($"{path}.name must not be empty.");
+            else if (!names.Add(detector.Name))
+                errors.Add($"{path}.name duplicates detector '{detector.Name}'.");
+            if (string.IsNullOrWhiteSpace(detector.Pattern))
+            {
+                errors.Add($"{path}.pattern must not be empty.");
+                continue;
+            }
+            try
+            {
+                _ = new System.Text.RegularExpressions.Regex(detector.Pattern);
+            }
+            catch (ArgumentException)
+            {
+                errors.Add($"{path}.pattern is not a valid regular expression.");
+            }
+        }
+    }
+
+    private static void ValidateObservability(AgentConfig config, List<string> errors)
+    {
+        if (config.Observability?.Logging is not { } logging)
+            return;
+        if (logging.MaxStringLength < 0)
+            errors.Add("observability.logging.maxStringLength must not be negative.");
+        if (logging.MaxLoggedMessages < 0)
+            errors.Add("observability.logging.maxLoggedMessages must not be negative.");
+        if (logging.MessagePreviewLength < 0)
+            errors.Add("observability.logging.messagePreviewLength must not be negative.");
     }
 
     private static void ValidateRetryPolicy(
@@ -159,25 +216,26 @@ public static class AgentConfigValidator
 
     private static void ValidateRetryExclusions(
         RetryExclusionConfig exclusions,
+        string path,
         List<string> errors)
     {
-        ValidateExactSelectors(exclusions.Harnesses, "errorHandling.functionRetries.exclude.harnesses", errors);
-        ValidateExactSelectors(exclusions.Functions, "errorHandling.functionRetries.exclude.functions", errors);
+        ValidateExactSelectors(exclusions.Harnesses, path + ".harnesses", errors);
+        ValidateExactSelectors(exclusions.Functions, path + ".functions", errors);
 
         var actions = new HashSet<(string Function, string Action)>();
         for (var index = 0; index < exclusions.Actions.Count; index++)
         {
             var selector = exclusions.Actions[index];
-            var path = $"errorHandling.functionRetries.exclude.actions[{index}]";
+            var actionPath = $"{path}.actions[{index}]";
             if (string.IsNullOrWhiteSpace(selector.Function))
-                errors.Add($"{path}.function must not be empty.");
+                errors.Add($"{actionPath}.function must not be empty.");
             if (string.IsNullOrWhiteSpace(selector.Action))
-                errors.Add($"{path}.action must not be empty.");
+                errors.Add($"{actionPath}.action must not be empty.");
             if (!string.IsNullOrWhiteSpace(selector.Function) &&
                 !string.IsNullOrWhiteSpace(selector.Action) &&
                 !actions.Add((selector.Function, selector.Action)))
             {
-                errors.Add($"{path} duplicates function '{selector.Function}' action '{selector.Action}'.");
+                errors.Add($"{actionPath} duplicates function '{selector.Function}' action '{selector.Action}'.");
             }
         }
     }

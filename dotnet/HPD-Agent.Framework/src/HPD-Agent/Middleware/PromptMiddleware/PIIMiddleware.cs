@@ -403,8 +403,20 @@ public class PIIMiddleware : IAgentMiddleware
     // STRATEGY IMPLEMENTATIONS
     //     
 
-    private static string GetReplacement(PIIMatch match)
+    private string GetReplacement(PIIMatch match)
     {
+        if (match.Strategy != PIIStrategy.Block)
+        {
+            var customReplacement = CustomDetectors
+                .FirstOrDefault(detector => string.Equals(
+                    detector.Name,
+                    match.PIIType,
+                    StringComparison.Ordinal))
+                ?.Replacement;
+            if (customReplacement is not null)
+                return customReplacement;
+        }
+
         return match.Strategy switch
         {
             PIIStrategy.Block => throw new InvalidOperationException("Block should be handled before replacement"),

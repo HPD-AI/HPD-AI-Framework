@@ -370,6 +370,28 @@ public class PIIMiddlewareTests
         Assert.DoesNotContain("EMP-123456", processed);
     }
 
+    [Fact]
+    public async Task CustomDetector_UsesConfiguredReplacement()
+    {
+        var middleware = new PIIMiddleware();
+        middleware.AddCustomDetector(
+            name: "EmployeeId",
+            pattern: @"EMP-\d{6}",
+            strategy: PIIStrategy.Redact,
+            replacement: "[employee-id]");
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.User, "Employee EMP-123456 needs access")
+        };
+        var context = CreateContext(messages);
+
+        await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
+
+        var processed = context.ThreadHistory.Single().Text!;
+        Assert.Contains("[employee-id]", processed);
+        Assert.DoesNotContain("EMP-123456", processed);
+    }
+
     //      
     // CONFIGURATION TESTS
     //      

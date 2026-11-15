@@ -1,11 +1,11 @@
 {
-  "TypeCount": 1556,
-  "MethodCount": 6054,
-  "ConstructorCount": 1011,
-  "PropertyCount": 5364,
+  "TypeCount": 1564,
+  "MethodCount": 6064,
+  "ConstructorCount": 1019,
+  "PropertyCount": 5413,
   "FieldCount": 1169,
   "EventCount": 1,
-  "Fingerprint": "ff1c0f34e69c4ecc8a3f2cbe62c153035b62e4e52f04bfc454e9c96237dac09e",
+  "Fingerprint": "10aaa67d0fac048b8203c494e15fe27ae9a79fcdc978db15cd8658f0cdfb047a",
   "Types": [
     {
       "FullName": "AIDescriptionAttribute",
@@ -1005,7 +1005,7 @@
         "System.String[]System.String[]static HPD.Agent.AgentBuilder WithCircuitBreaker(System.String[]HPD.Agent.AgentBuilder builder,System.String[]System.Int32 maxConsecutiveCalls = 3)",
         "System.String[]System.String[]static HPD.Agent.AgentBuilder WithErrorFormatting(System.String[]HPD.Agent.AgentBuilder builder)",
         "System.String[]System.String[]static HPD.Agent.AgentBuilder WithErrorFormatting(System.String[]HPD.Agent.AgentBuilder builder,System.String[]System.Boolean includeDetailedErrors)",
-        "System.String[]System.String[]static HPD.Agent.AgentBuilder WithErrorHandling(System.String[]HPD.Agent.AgentBuilder builder,System.String[]System.Action\u003CHPD.Agent.CircuitBreakerMiddleware\u003E configureCircuitBreaker,System.String[]System.Action\u003CHPD.Agent.ErrorTrackingMiddleware\u003E? configureErrorTracking = null,System.String[]System.Action\u003CHPD.Agent.TotalErrorThresholdMiddleware\u003E? configureTotalThreshold = null,System.String[]System.Action\u003CHPD.Agent.ErrorHandlingConfig\u003E? configureRetry = null,System.String[]System.Nullable\u003CSystem.TimeSpan\u003E? configureFunctionTimeout = null,System.String[]System.Nullable\u003CSystem.Boolean\u003E? includeDetailedErrorsInChat = null)",
+        "System.String[]System.String[]static HPD.Agent.AgentBuilder WithErrorHandling(System.String[]HPD.Agent.AgentBuilder builder,System.String[]System.Action\u003CHPD.Agent.CircuitBreakerMiddleware\u003E configureCircuitBreaker,System.String[]System.Action\u003CHPD.Agent.ErrorTrackingMiddleware\u003E? configureErrorTracking = null,System.String[]System.Action\u003CHPD.Agent.TotalErrorThresholdMiddleware\u003E? configureTotalThreshold = null,System.String[]System.Action\u003CHPD.Agent.RetryPolicySection\u003E? configureRetry = null,System.String[]System.Nullable\u003CSystem.TimeSpan\u003E? configureFunctionTimeout = null,System.String[]System.Nullable\u003CSystem.Boolean\u003E? includeDetailedErrorsInChat = null)",
         "System.String[]System.String[]static HPD.Agent.AgentBuilder WithErrorHandling(System.String[]HPD.Agent.AgentBuilder builder,System.String[]System.Int32 maxConsecutiveCalls = 5,System.String[]System.Int32 maxConsecutiveErrors = 3,System.String[]System.Int32 maxTotalErrors = 10)",
         "System.String[]System.String[]static HPD.Agent.AgentBuilder WithErrorTracking(System.String[]HPD.Agent.AgentBuilder builder,System.String[]System.Action\u003CHPD.Agent.ErrorTrackingMiddleware\u003E configure)",
         "System.String[]System.String[]static HPD.Agent.AgentBuilder WithErrorTracking(System.String[]HPD.Agent.AgentBuilder builder,System.String[]System.Int32 maxConsecutiveErrors = 3)",
@@ -1017,7 +1017,7 @@
         "System.String[]System.String[]static HPD.Agent.AgentBuilder WithPIIProtection(System.String[]HPD.Agent.AgentBuilder builder)",
         "System.String[]System.String[]static HPD.Agent.AgentBuilder WithPIIProtection(System.String[]HPD.Agent.AgentBuilder builder,System.String[]System.Action\u003CHPD.Agent.PIIMiddleware\u003E configure)",
         "System.String[]System.String[]static HPD.Agent.AgentBuilder WithRetry(System.String[]HPD.Agent.AgentBuilder builder)",
-        "System.String[]System.String[]static HPD.Agent.AgentBuilder WithRetry(System.String[]HPD.Agent.AgentBuilder builder,System.String[]System.Action\u003CHPD.Agent.ErrorHandlingConfig\u003E configure)",
+        "System.String[]System.String[]static HPD.Agent.AgentBuilder WithRetry(System.String[]HPD.Agent.AgentBuilder builder,System.String[]System.Action\u003CHPD.Agent.RetryPolicySection\u003E configure)",
         "System.String[]System.String[]static HPD.Agent.AgentBuilder WithTotalErrorThreshold(System.String[]HPD.Agent.AgentBuilder builder,System.String[]System.Action\u003CHPD.Agent.TotalErrorThresholdMiddleware\u003E configure)",
         "System.String[]System.String[]static HPD.Agent.AgentBuilder WithTotalErrorThreshold(System.String[]HPD.Agent.AgentBuilder builder,System.String[]System.Int32 maxTotalErrors = 10)",
         "System.String[]System.String[]static HPD.Agent.AgentBuilder WithoutHarnessCollapsing(System.String[]HPD.Agent.AgentBuilder builder)"
@@ -1291,27 +1291,6 @@
       "Events": []
     },
     {
-      "FullName": "HPD.Agent.AgentClientMiddlewareConfig",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [],
-      "Constructors": [
-        "System.String[].ctor()"
-      ],
-      "Methods": [],
-      "Properties": [
-        "System.String[]System.Collections.Generic.List\u003CSystem.Func\u003CMicrosoft.Extensions.AI.IChatClient,System.IServiceProvider,Microsoft.Extensions.AI.IChatClient\u003E\u003E? Chat { get; set; }",
-        "System.String[]System.Collections.Generic.List\u003CSystem.Func\u003CMicrosoft.Extensions.AI.IEmbeddingGenerator,System.IServiceProvider,Microsoft.Extensions.AI.IEmbeddingGenerator\u003E\u003E? Embeddings { get; set; }",
-        "System.String[]System.Collections.Generic.List\u003CSystem.Func\u003CMicrosoft.Extensions.AI.IHostedFileClient,System.IServiceProvider,Microsoft.Extensions.AI.IHostedFileClient\u003E\u003E? HostedFiles { get; set; }",
-        "System.String[]System.Collections.Generic.List\u003CSystem.Func\u003CMicrosoft.Extensions.AI.IImageGenerator,System.IServiceProvider,Microsoft.Extensions.AI.IImageGenerator\u003E\u003E? ImageGeneration { get; set; }",
-        "System.String[]System.Collections.Generic.List\u003CSystem.Func\u003CMicrosoft.Extensions.AI.IRealtimeClient,System.IServiceProvider,Microsoft.Extensions.AI.IRealtimeClient\u003E\u003E? Realtime { get; set; }",
-        "System.String[]System.Collections.Generic.List\u003CSystem.Func\u003CMicrosoft.Extensions.AI.ISpeechToTextClient,System.IServiceProvider,Microsoft.Extensions.AI.ISpeechToTextClient\u003E\u003E? SpeechToText { get; set; }",
-        "System.String[]System.Collections.Generic.List\u003CSystem.Func\u003CMicrosoft.Extensions.AI.ITextToSpeechClient,System.IServiceProvider,Microsoft.Extensions.AI.ITextToSpeechClient\u003E\u003E? TextToSpeech { get; set; }"
-      ],
-      "Fields": [],
-      "Events": []
-    },
-    {
       "FullName": "HPD.Agent.AgentClientSet",
       "Attributes": [],
       "BaseType": "System.Object",
@@ -1428,12 +1407,10 @@
         "System.String[]System.String[]static System.Threading.Tasks.Task\u003CHPD.Agent.Agent\u003E BuildFromFileAsync(System.String[]System.String filePath,System.String[]System.Threading.CancellationToken cancellationToken = null)"
       ],
       "Properties": [
-        "System.String[]HPD.Agent.AgentClientMiddlewareConfig? ClientMiddleware { get; set; }",
         "System.String[]HPD.Agent.AgentClientsConfig Clients { get; set; }",
         "System.String[]HPD.Agent.AgentMessagesConfig Messages { get; set; }",
         "System.String[]HPD.Agent.AgentOperationRetentionPolicy OperationRetention { get; set; }",
         "System.String[]HPD.Agent.AgentShutdownOptions Shutdown { get; set; }",
-        "System.String[]HPD.Agent.AgentStoreOptions? AgentStoreOptions { get; set; }",
         "System.String[]HPD.Agent.AgenticLoopConfig? AgenticLoop { get; set; }",
         "System.String[]HPD.Agent.AudioConfig? Audio { get; set; }",
         "System.String[]HPD.Agent.BackgroundResponsesConfig? BackgroundResponses { get; set; }",
@@ -1441,24 +1418,20 @@
         "System.String[]HPD.Agent.CompactionConfig? Compaction { get; set; }",
         "System.String[]HPD.Agent.ErrorHandlingConfig? ErrorHandling { get; set; }",
         "System.String[]HPD.Agent.Goals.GoalConfig? Goals { get; set; }",
-        "System.String[]HPD.Agent.IAgentStore? AgentStore { get; set; }",
-        "System.String[]HPD.Agent.ISessionStore? SessionStore { get; set; }",
         "System.String[]HPD.Agent.MCP.AgentMcpConfig? Mcp { get; set; }",
         "System.String[]HPD.Agent.ObservabilityConfig? Observability { get; set; }",
-        "System.String[]HPD.Agent.Serialization.AgentEventComposition? EventComposition { get; set; }",
-        "System.String[]HPD.Agent.SessionStoreOptions? SessionStoreOptions { get; set; }",
+        "System.String[]HPD.Agent.PrivacyConfig? Privacy { get; set; }",
+        "System.String[]HPD.Agent.ResilienceConfig? Resilience { get; set; }",
         "System.String[]HPD.Agent.SubAgentForkOptions DefaultSubAgentForkOptions { get; set; }",
         "System.String[]HPD.Agent.ToolOutputConfig ToolOutputs { get; set; }",
         "System.String[]HPD.Agent.ToolSelectionConfig? ToolSelection { get; set; }",
         "System.String[]HPD.Agent.ValidationConfig? Validation { get; set; }",
         "System.String[]SkillRuntimeOptions Skills { get; set; }",
-        "System.String[]System.Action\u003CMicrosoft.Extensions.AI.ChatOptions\u003E? ConfigureOptions { get; set; }",
         "System.String[]System.Boolean AllowUserQuestions { get; set; }",
         "System.String[]System.Boolean CoalesceDeltas { get; set; }",
         "System.String[]System.Boolean IncludeReasoningInModelHistory { get; set; }",
         "System.String[]System.Collections.Generic.IList\u003CHPD.Agent.Providers.AgentProviderBackendProfile\u003E ProviderProfiles { get; init; }",
         "System.String[]System.Collections.Generic.IList\u003CHPD.Agent.Providers.AgentProviderFamilyDefault\u003E ProviderDefaults { get; init; }",
-        "System.String[]System.Collections.Generic.IList\u003CMicrosoft.Extensions.AI.AITool\u003E? ServerConfiguredTools { get; set; }",
         "System.String[]System.Collections.Generic.List\u003CHPD.Agent.MiddlewareReference\u003E Middlewares { get; set; }",
         "System.String[]System.Collections.Generic.List\u003CHPD.Agent.ToolHarnessReference\u003E ToolHarnesses { get; set; }",
         "System.String[]System.Int32 ContinuationExtensionAmount { get; set; }",
@@ -1466,9 +1439,7 @@
         "System.String[]System.Int32 MaxSubAgentDepth { get; set; }",
         "System.String[]System.Nullable\u003CSystem.Boolean\u003E? EnableParentCommunication { get; set; }",
         "System.String[]System.String Name { get; set; }",
-        "System.String[]System.String SystemInstructions { get; set; }",
-        "System.String[]System.String? AgentId { get; set; }",
-        "System.String[]System.String? SourceDirectory { get; set; }"
+        "System.String[]System.String SystemInstructions { get; set; }"
       ],
       "Fields": [],
       "Events": []
@@ -9614,6 +9585,22 @@
       "Events": []
     },
     {
+      "FullName": "HPD.Agent.CircuitBreakerPolicy",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [],
+      "Properties": [
+        "System.String[]System.Int32 MaxConsecutiveCalls { get; set; }",
+        "System.String[]System.String TerminationMessageTemplate { get; set; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
       "FullName": "HPD.Agent.CircuitBreakerTriggeredEvent",
       "Attributes": [
         "[EventTypeAttribute(\u0022CIRCUIT_BREAKER_TRIGGERED\u0022)]"
@@ -12261,6 +12248,22 @@
       "Events": []
     },
     {
+      "FullName": "HPD.Agent.ConsecutiveErrorPolicy",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [],
+      "Properties": [
+        "System.String[]System.Int32 MaxConsecutiveErrors { get; set; }",
+        "System.String[]System.String TerminationMessageTemplate { get; set; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
       "FullName": "HPD.Agent.ContainerExpandedEvent",
       "Attributes": [
         "[EventTypeAttribute(\u0022CONTAINER_EXPANDED\u0022)]"
@@ -13555,6 +13558,24 @@
       "Events": []
     },
     {
+      "FullName": "HPD.Agent.DeclarativePIIDetector",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [],
+      "Properties": [
+        "System.String[]HPD.Agent.PIIStrategy Strategy { get; set; }",
+        "System.String[]System.String Name { get; set; }",
+        "System.String[]System.String Pattern { get; set; }",
+        "System.String[]System.String? Replacement { get; set; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
       "FullName": "HPD.Agent.DeltaSendingActivatedEvent",
       "Attributes": [
         "[EventTypeAttribute(\u0022DELTA_SENDING_ACTIVATED\u0022)]"
@@ -13896,12 +13917,9 @@
       ],
       "Methods": [],
       "Properties": [
-        "System.String[]HPD.Agent.FunctionRetryConfig FunctionRetries { get; set; }",
-        "System.String[]HPD.Agent.ModelRetryConfig ModelRetries { get; set; }",
         "System.String[]System.Boolean IncludeDetailedErrorsInChat { get; set; }",
         "System.String[]System.Boolean IncludeProviderDetails { get; set; }",
-        "System.String[]System.Boolean NormalizeErrors { get; set; }",
-        "System.String[]System.Nullable\u003CSystem.TimeSpan\u003E? SingleFunctionTimeout { get; set; }"
+        "System.String[]System.Boolean NormalizeErrors { get; set; }"
       ],
       "Fields": [],
       "Events": []
@@ -18237,9 +18255,13 @@
         "System.String[]HPD.Agent.AgentInputCancellation? Cancellation { get; }",
         "System.String[]HPD.Agent.AgentInputEvent Input { get; }",
         "System.String[]HPD.Agent.AgentTurnResult Result { get; }",
+        "System.String[]HPD.Agent.IAgentStore? AgentStore { get; }",
+        "System.String[]HPD.Agent.ISessionStore? SessionStore { get; }",
+        "System.String[]HPD.Agent.Serialization.AgentEventComposition? EventComposition { get; }",
         "System.String[]System.Boolean Cancelled { get; }",
         "System.String[]System.Exception? Error { get; }",
         "System.String[]System.IServiceProvider? Services { get; }",
+        "System.String[]System.String AgentId { get; }",
         "System.String[]System.String AgentName { get; }",
         "System.String[]System.TimeSpan Duration { get; }"
       ],
@@ -18388,13 +18410,17 @@
         "System.String[]HPD.Agent.AgentConfig? Config { get; }",
         "System.String[]HPD.Agent.AgentInputEvent? SourceInput { get; }",
         "System.String[]HPD.Agent.AgentLoopState State { get; }",
+        "System.String[]HPD.Agent.IAgentStore? AgentStore { get; }",
         "System.String[]HPD.Agent.IContentStore? ContentStore { get; }",
+        "System.String[]HPD.Agent.ISessionStore? SessionStore { get; }",
         "System.String[]HPD.Agent.Middleware.IRuntimeCapabilityRegistry RuntimeCapabilities { get; }",
+        "System.String[]HPD.Agent.Serialization.AgentEventComposition? EventComposition { get; }",
         "System.String[]HPD.Agent.Session? Session { get; }",
         "System.String[]HPD.Agent.Thread? Thread { get; }",
         "System.String[]HPD.Events.IEventFlowRegistry EventFlows { get; }",
         "System.String[]System.IServiceProvider? Services { get; }",
         "System.String[]System.String AgentName { get; }",
+        "System.String[]System.String? AgentId { get; }",
         "System.String[]System.String? ConversationId { get; }",
         "System.String[]System.String? ThreadExecutionId { get; }",
         "System.String[]System.String? TraceId { get; }"
@@ -18798,8 +18824,11 @@
         "System.String[]HPD.Agent.AgentConfig Config { get; }",
         "System.String[]HPD.Agent.AgentRunConfig? RunConfig { get; }",
         "System.String[]HPD.Agent.IAgentEventPublisher? ThreadEvents { get; }",
+        "System.String[]HPD.Agent.IAgentStore? AgentStore { get; }",
         "System.String[]HPD.Agent.IContentStore? ContentStore { get; }",
+        "System.String[]HPD.Agent.ISessionStore? SessionStore { get; }",
         "System.String[]HPD.Agent.Middleware.IRuntimeCapabilityRegistry RuntimeCapabilities { get; }",
+        "System.String[]HPD.Agent.Serialization.AgentEventComposition? EventComposition { get; }",
         "System.String[]HPD.Events.IEventCoordinator EventCoordinator { get; }",
         "System.String[]HPD.Events.IEventFlowRegistry EventFlows { get; }",
         "System.String[]HPD.Events.Struct.IStructEventHub StructEvents { get; }",
@@ -18810,6 +18839,7 @@
         "System.String[]System.Nullable\u003CSystem.DateTimeOffset\u003E? StoppedAt { get; private set; }",
         "System.String[]System.String AgentName { get; }",
         "System.String[]System.String RuntimeId { get; }",
+        "System.String[]System.String? AgentId { get; }",
         "System.String[]System.Threading.CancellationToken RuntimeCancellationToken { get; }"
       ],
       "Fields": [],
@@ -19124,8 +19154,12 @@
       "Properties": [
         "System.String[]HPD.Agent.AgentConfig Config { get; }",
         "System.String[]HPD.Agent.AgentInputEvent Input { get; private set; }",
+        "System.String[]HPD.Agent.IAgentStore? AgentStore { get; }",
+        "System.String[]HPD.Agent.ISessionStore? SessionStore { get; }",
+        "System.String[]HPD.Agent.Serialization.AgentEventComposition? EventComposition { get; }",
         "System.String[]System.Boolean Cancelled { get; private set; }",
         "System.String[]System.IServiceProvider? Services { get; }",
+        "System.String[]System.String AgentId { get; }",
         "System.String[]System.String AgentName { get; }",
         "System.String[]System.String? CancelReason { get; private set; }"
       ],
@@ -19539,13 +19573,16 @@
         "HPD.Agent.Middleware.IAgentMiddleware"
       ],
       "Constructors": [
-        "System.String[].ctor(System.String[]HPD.Agent.ErrorHandlingConfig config,System.String[]HPD.Agent.ErrorHandling.IProviderErrorHandler? providerErrorHandler = null)"
+        "System.String[].ctor(System.String[]HPD.Agent.RetryPolicySection config,System.String[]HPD.Agent.ErrorHandling.IProviderErrorHandler? providerErrorHandler = null)"
       ],
       "Methods": [
         "System.String[]System.String[]System.Collections.Generic.IAsyncEnumerable\u003CHPD.Agent.Middleware.AgentModelUpdate\u003E? WrapModelTurnStreamingAsync(System.String[]HPD.Agent.Middleware.AgentModelTurnRequest request,System.String[]System.Func\u003CHPD.Agent.Middleware.AgentModelTurnRequest,System.Collections.Generic.IAsyncEnumerable\u003CHPD.Agent.Middleware.AgentModelUpdate\u003E\u003E handler,System.String[]System.Threading.CancellationToken cancellationToken)",
         "System.String[]System.String[]System.Threading.Tasks.Task\u003CSystem.Object\u003E WrapFunctionCallAsync(System.String[]HPD.Agent.Middleware.FunctionRequest request,System.String[]System.Func\u003CHPD.Agent.Middleware.FunctionRequest,System.Threading.Tasks.Task\u003CSystem.Object\u003E\u003E handler,System.String[]System.Threading.CancellationToken cancellationToken)"
       ],
-      "Properties": [],
+      "Properties": [
+        "System.String[]System.Func\u003CSystem.Exception,System.Int32,System.Threading.CancellationToken,System.Threading.Tasks.Task\u003CSystem.Nullable\u003CSystem.TimeSpan\u003E\u003E\u003E? FunctionCustomRetryStrategy { get; set; }",
+        "System.String[]System.Func\u003CSystem.Exception,System.Int32,System.Threading.CancellationToken,System.Threading.Tasks.Task\u003CSystem.Nullable\u003CSystem.TimeSpan\u003E\u003E\u003E? ModelCustomRetryStrategy { get; set; }"
+      ],
       "Fields": [],
       "Events": []
     },
@@ -19722,8 +19759,11 @@
       "Properties": [
         "System.String[]HPD.Agent.AgentClientSet? ClientSet { get; }",
         "System.String[]HPD.Agent.AgentConfig? Config { get; }",
+        "System.String[]HPD.Agent.IAgentStore? AgentStore { get; }",
         "System.String[]HPD.Agent.IContentStore? ContentStore { get; }",
+        "System.String[]HPD.Agent.ISessionStore? SessionStore { get; }",
         "System.String[]HPD.Agent.Middleware.IRuntimeCapabilityRegistry RuntimeCapabilities { get; }",
+        "System.String[]HPD.Agent.Serialization.AgentEventComposition? EventComposition { get; }",
         "System.String[]HPD.Agent.Session? Session { get; }",
         "System.String[]HPD.Agent.SubAgentRunConfig? SubAgentRunConfig { get; }",
         "System.String[]HPD.Agent.Thread? Thread { get; }",
@@ -19731,6 +19771,7 @@
         "System.String[]System.IServiceProvider? Services { get; }",
         "System.String[]System.String AgentName { get; }",
         "System.String[]System.String MessageTurnId { get; }",
+        "System.String[]System.String? AgentId { get; }",
         "System.String[]System.String? ConversationId { get; }",
         "System.String[]System.String? SessionId { get; }",
         "System.String[]System.String? ThreadExecutionId { get; }",
@@ -20271,8 +20312,11 @@
         "System.String[]HPD.Agent.AgentConfig Config { get; }",
         "System.String[]HPD.Agent.AgentRunConfig? RunConfig { get; }",
         "System.String[]HPD.Agent.IAgentEventPublisher? ThreadEvents { get; }",
+        "System.String[]HPD.Agent.IAgentStore? AgentStore { get; }",
         "System.String[]HPD.Agent.IContentStore? ContentStore { get; }",
+        "System.String[]HPD.Agent.ISessionStore? SessionStore { get; }",
         "System.String[]HPD.Agent.Middleware.IRuntimeCapabilityRegistry RuntimeCapabilities { get; }",
+        "System.String[]HPD.Agent.Serialization.AgentEventComposition? EventComposition { get; }",
         "System.String[]HPD.Events.IEventCoordinator EventCoordinator { get; }",
         "System.String[]HPD.Events.IEventFlowRegistry EventFlows { get; }",
         "System.String[]HPD.Events.Struct.IStructEventHub StructEvents { get; }",
@@ -20281,6 +20325,7 @@
         "System.String[]System.IServiceProvider? Services { get; }",
         "System.String[]System.String AgentName { get; }",
         "System.String[]System.String RuntimeId { get; }",
+        "System.String[]System.String? AgentId { get; }",
         "System.String[]System.Threading.CancellationToken RuntimeCancellationToken { get; }"
       ],
       "Fields": [],
@@ -21057,8 +21102,10 @@
       ],
       "Methods": [],
       "Properties": [
+        "System.String[]HPD.Agent.Middleware.LoggingMiddlewareOptions? Logging { get; set; }",
         "System.String[]System.Boolean EmitObservabilityEvents { get; set; }",
         "System.String[]System.Boolean EnableSampling { get; set; }",
+        "System.String[]System.Boolean EnableSensitiveLogging { get; set; }",
         "System.String[]System.Double ReasoningDeltaSamplingRate { get; set; }",
         "System.String[]System.Double TextDeltaSamplingRate { get; set; }",
         "System.String[]System.Int32 MaxConcurrentObservers { get; set; }",
@@ -21242,6 +21289,29 @@
         "System.String[]System.Boolean ApplyToToolResults { get; set; }",
         "System.String[]System.Collections.Generic.List\u003CHPD.Agent.CustomPIIDetector\u003E CustomDetectors { get; }",
         "System.String[]System.Func\u003CSystem.String,System.Threading.CancellationToken,System.Threading.Tasks.Task\u003CSystem.Collections.Generic.IEnumerable\u003CHPD.Agent.PIIMatch\u003E\u003E\u003E? ExternalDetector { get; set; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.PIIProtectionPolicy",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [],
+      "Properties": [
+        "System.String[]HPD.Agent.PIIStrategy CreditCardStrategy { get; set; }",
+        "System.String[]HPD.Agent.PIIStrategy EmailStrategy { get; set; }",
+        "System.String[]HPD.Agent.PIIStrategy IPAddressStrategy { get; set; }",
+        "System.String[]HPD.Agent.PIIStrategy PhoneStrategy { get; set; }",
+        "System.String[]HPD.Agent.PIIStrategy SSNStrategy { get; set; }",
+        "System.String[]System.Boolean ApplyToInput { get; set; }",
+        "System.String[]System.Boolean ApplyToOutput { get; set; }",
+        "System.String[]System.Boolean ApplyToToolResults { get; set; }",
+        "System.String[]System.Collections.Generic.List\u003CHPD.Agent.DeclarativePIIDetector\u003E CustomDetectors { get; set; }"
       ],
       "Fields": [],
       "Events": []
@@ -23021,6 +23091,21 @@
       ],
       "Properties": [
         "System.String[]System.Int64 Tokens { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.PrivacyConfig",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [],
+      "Properties": [
+        "System.String[]HPD.Agent.PIIProtectionPolicy? PII { get; set; }"
       ],
       "Fields": [],
       "Events": []
@@ -28463,6 +28548,25 @@
       "Events": []
     },
     {
+      "FullName": "HPD.Agent.ResilienceConfig",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [],
+      "Properties": [
+        "System.String[]HPD.Agent.CircuitBreakerPolicy? CircuitBreaker { get; set; }",
+        "System.String[]HPD.Agent.ConsecutiveErrorPolicy? ConsecutiveErrors { get; set; }",
+        "System.String[]HPD.Agent.RetryPolicySection? Retry { get; set; }",
+        "System.String[]HPD.Agent.TotalErrorPolicy? TotalErrors { get; set; }",
+        "System.String[]System.Nullable\u003CSystem.TimeSpan\u003E? FunctionTimeout { get; set; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
       "FullName": "HPD.Agent.ResolvedFunctionInvocation",
       "Attributes": [],
       "BaseType": "System.Object",
@@ -28521,10 +28625,25 @@
         "System.String[]System.Boolean UseProviderRetryDelays { get; set; }",
         "System.String[]System.Collections.Generic.Dictionary\u003CHPD.Agent.ErrorHandling.ErrorCategory,System.Int32\u003E? MaxRetriesByCategory { get; set; }",
         "System.String[]System.Double BackoffMultiplier { get; set; }",
-        "System.String[]System.Func\u003CSystem.Exception,System.Int32,System.Threading.CancellationToken,System.Threading.Tasks.Task\u003CSystem.Nullable\u003CSystem.TimeSpan\u003E\u003E\u003E? CustomRetryStrategy { get; set; }",
         "System.String[]System.Int32 MaxRetries { get; set; }",
         "System.String[]System.TimeSpan MaxRetryDelay { get; set; }",
         "System.String[]System.TimeSpan RetryDelay { get; set; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.RetryPolicySection",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [],
+      "Properties": [
+        "System.String[]HPD.Agent.FunctionRetryConfig FunctionRetries { get; set; }",
+        "System.String[]HPD.Agent.ModelRetryConfig ModelRetries { get; set; }"
       ],
       "Fields": [],
       "Events": []
@@ -30987,6 +31106,8 @@
         "System.String[]System.String[]static HPD.Agent.AgentConfig? ReadFile(System.String[]System.String path,System.String[]HPD.Agent.Providers.ProviderComposition providerComposition)",
         "System.String[]System.String[]static HPD.Agent.AgentRunConfig? DeserializeRunConfig(System.String[]System.String text,System.String[]HPD.Agent.Providers.ProviderComposition providerComposition,System.String[]HPD.Serialization.HpdConfigFormat format = Json)",
         "System.String[]System.String[]static HPD.Agent.AgentRunConfig? DeserializeRunConfig(System.String[]System.String text,System.String[]HPD.Serialization.HpdConfigFormat format = Json)",
+        "System.String[]System.String[]static HPD.Agent.Serialization.LoadedAgentConfig? ReadFileWithSource(System.String[]System.String path)",
+        "System.String[]System.String[]static HPD.Agent.Serialization.LoadedAgentConfig? ReadFileWithSource(System.String[]System.String path,System.String[]HPD.Agent.Providers.ProviderComposition providerComposition)",
         "System.String[]System.String[]static HPD.Agent.SubAgentRunConfig? DeserializeSubAgentRunConfig(System.String[]System.String text,System.String[]HPD.Agent.Providers.ProviderComposition providerComposition,System.String[]HPD.Serialization.HpdConfigFormat format = Json)",
         "System.String[]System.String[]static HPD.Agent.SubAgentRunConfig? DeserializeSubAgentRunConfig(System.String[]System.String text,System.String[]HPD.Serialization.HpdConfigFormat format = Json)",
         "System.String[]System.String[]static System.String Serialize(System.String[]HPD.Agent.AgentConfig config,System.String[]HPD.Agent.Providers.ProviderComposition providerComposition,System.String[]HPD.Serialization.HpdConfigFormat format = Json)",
@@ -30998,6 +31119,8 @@
         "System.String[]System.String[]static System.Threading.Tasks.ValueTask WriteFileAsync(System.String[]System.String path,System.String[]HPD.Agent.AgentConfig config,System.String[]System.Threading.CancellationToken cancellationToken = null)",
         "System.String[]System.String[]static System.Threading.Tasks.ValueTask\u003CHPD.Agent.AgentConfig\u003E ReadFileAsync(System.String[]System.String path,System.String[]HPD.Agent.Providers.ProviderComposition providerComposition,System.String[]System.Threading.CancellationToken cancellationToken = null)",
         "System.String[]System.String[]static System.Threading.Tasks.ValueTask\u003CHPD.Agent.AgentConfig\u003E ReadFileAsync(System.String[]System.String path,System.String[]System.Threading.CancellationToken cancellationToken = null)",
+        "System.String[]System.String[]static System.Threading.Tasks.ValueTask\u003CHPD.Agent.Serialization.LoadedAgentConfig\u003E ReadFileWithSourceAsync(System.String[]System.String path,System.String[]HPD.Agent.Providers.ProviderComposition providerComposition,System.String[]System.Threading.CancellationToken cancellationToken = null)",
+        "System.String[]System.String[]static System.Threading.Tasks.ValueTask\u003CHPD.Agent.Serialization.LoadedAgentConfig\u003E ReadFileWithSourceAsync(System.String[]System.String path,System.String[]System.Threading.CancellationToken cancellationToken = null)",
         "System.String[]System.String[]static System.Void WriteFile(System.String[]System.String path,System.String[]HPD.Agent.AgentConfig config)"
       ],
       "Properties": [],
@@ -31072,6 +31195,31 @@
       "Properties": [
         "System.String[]System.String Discriminator { get; }",
         "System.String[]System.Type EventType { get; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.Serialization.LoadedAgentConfig",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.Agent.Serialization.LoadedAgentConfig\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor(System.String[]HPD.Agent.AgentConfig Config,System.String[]System.String SourceDirectory)"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.Agent.Serialization.LoadedAgentConfig \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.Serialization.LoadedAgentConfig? other)",
+        "System.String[]System.String[]System.Void Deconstruct(System.String[]out HPD.Agent.AgentConfig Config,System.String[]out System.String SourceDirectory)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]HPD.Agent.AgentConfig Config { get; init; }",
+        "System.String[]System.String SourceDirectory { get; init; }"
       ],
       "Fields": [],
       "Events": []
@@ -32035,8 +32183,7 @@
         "System.String[]System.Collections.Generic.Dictionary\u003CSystem.String,System.Object\u003E? Metadata { get; set; }",
         "System.String[]System.DateTime CreatedAt { get; init; }",
         "System.String[]System.DateTime UpdatedAt { get; set; }",
-        "System.String[]System.String Id { get; init; }",
-        "System.String[]System.String Name { get; set; }"
+        "System.String[]System.String Id { get; init; }"
       ],
       "Fields": [],
       "Events": []
@@ -36291,10 +36438,10 @@
         "System.IEquatable\u003CHPD.Agent.ToolHarnessFactory\u003E"
       ],
       "Constructors": [
-        "System.String[].ctor(System.String[]System.String Name,System.String[]System.Type ToolHarnessType,System.String[]System.Func\u003CSystem.Object,HPD.Agent.IToolMetadata,HPD.Agent.HPDToolSerializationOptions,System.Collections.Generic.List\u003CMicrosoft.Extensions.AI.AIFunction\u003E\u003E CreateFunctions,System.String[]System.Func\u003CSystem.String[]\u003E GetReferencedToolHarnesses,System.String[]System.Func\u003CSystem.Collections.Generic.Dictionary\u003CSystem.String,System.String[]\u003E\u003E GetReferencedFunctions,System.String[]System.String StableIdentity,System.String[]System.Boolean HasDescription = false,System.String[]System.String? Description = null,System.String[]System.String? FunctionResult = null,System.String[]System.String? SystemPrompt = null,System.String[]System.Type? MetadataType = null,System.String[]System.Func\u003CSystem.Text.Json.JsonElement,HPD.Agent.IToolMetadata\u003E? DeserializeMetadata = null,System.String[]System.String[]? FunctionNames = null,System.String[]System.Boolean HasMcpServers = false,System.String[]System.Action\u003CSystem.Object,HPD.Agent.IToolMetadata,System.Func\u003CSystem.String,System.Boolean\u003E,System.Action\u003CHPD.Agent.McpServerSource\u003E\u003E? CollectMcpServers = null,System.String[]System.Action\u003CSystem.Object,HPD.Agent.IToolMetadata,System.Func\u003CSystem.String,System.Boolean\u003E,System.Action\u003CSystem.String,System.Object,System.String\u003E\u003E? CollectOpenApiSources = null,System.String[]System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.ToolHarnessAgentResourceDescriptor\u003E? AgentResources = null,System.String[]System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.ToolHarnessMiddlewareDescriptor\u003E? Middleware = null,System.String[]HPD.Agent.Serialization.AgentEventModuleFragment? EventModule = null,System.String[]System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.Serialization.AgentEventModuleFragment\u003E? RequiredEventModules = null,System.String[]System.Func\u003CSystem.Object,HPD.Agent.IToolMetadata,System.Collections.Generic.IReadOnlySet\u003CSystem.String\u003E,System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.SubAgentActionDescriptor\u003E\u003E? CreateSubAgentActions = null,System.String[]System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? SubAgentDeclarationNames = null,System.String[]System.Func\u003CSystem.Object,HPD.Agent.IToolMetadata,System.Collections.Generic.IReadOnlySet\u003CSystem.String\u003E,System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.GeneratedSkillDefinition\u003E\u003E? CreateSkills = null,System.String[]System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? SkillDeclarationNames = null,System.String[]System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? SourceNames = null,System.String[]System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? InheritedHarnessIdentities = null,System.String[]System.String? CollapsibleFunctionDeclarations = null,System.String[]System.Func\u003CHPD.Agent.ToolHarnessConstructionContext,System.Object\u003E? Activate = null,System.String[]System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.ToolHarnessDependency\u003E? DependencyDefaults = null,System.String[]HPD.Agent.HarnessConfigurationContract? Configuration = null)"
+        "System.String[].ctor(System.String[]System.String Name,System.String[]System.Type ToolHarnessType,System.String[]System.Func\u003CSystem.Object,HPD.Agent.IToolMetadata,HPD.Agent.HPDToolSerializationOptions,System.Collections.Generic.List\u003CMicrosoft.Extensions.AI.AIFunction\u003E\u003E CreateFunctions,System.String[]System.Func\u003CSystem.String[]\u003E GetReferencedToolHarnesses,System.String[]System.Func\u003CSystem.Collections.Generic.Dictionary\u003CSystem.String,System.String[]\u003E\u003E GetReferencedFunctions,System.String[]System.String StableIdentity,System.String[]System.Boolean HasDescription = false,System.String[]System.String? Description = null,System.String[]System.String? FunctionResult = null,System.String[]System.String? SystemPrompt = null,System.String[]System.Type? MetadataType = null,System.String[]System.Func\u003CSystem.Text.Json.JsonElement,HPD.Agent.IToolMetadata\u003E? DeserializeMetadata = null,System.String[]System.String[]? FunctionNames = null,System.String[]System.Boolean HasMcpServers = false,System.String[]System.Action\u003CSystem.Object,HPD.Agent.IToolMetadata,System.Func\u003CSystem.String,System.Boolean\u003E,System.Action\u003CHPD.Agent.McpServerSource\u003E\u003E? CollectMcpServers = null,System.String[]System.Action\u003CSystem.Object,HPD.Agent.IToolMetadata,System.Func\u003CSystem.String,System.Boolean\u003E,System.Action\u003CSystem.String,System.Object,System.String\u003E\u003E? CollectOpenApiSources = null,System.String[]System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.ToolHarnessAgentResourceDescriptor\u003E? AgentResources = null,System.String[]System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.ToolHarnessMiddlewareDescriptor\u003E? Middleware = null,System.String[]HPD.Agent.Serialization.AgentEventModuleFragment? EventModule = null,System.String[]System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.Serialization.AgentEventModuleFragment\u003E? RequiredEventModules = null,System.String[]System.Func\u003CSystem.Object,HPD.Agent.IToolMetadata,System.Collections.Generic.IReadOnlySet\u003CSystem.String\u003E,System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.SubAgentActionDescriptor\u003E\u003E? CreateSubAgentActions = null,System.String[]System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? SubAgentDeclarationNames = null,System.String[]System.Func\u003CSystem.Object,HPD.Agent.IToolMetadata,System.Collections.Generic.IReadOnlySet\u003CSystem.String\u003E,System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.GeneratedSkillDefinition\u003E\u003E? CreateSkills = null,System.String[]System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? SkillDeclarationNames = null,System.String[]System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? SourceNames = null,System.String[]System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? InheritedHarnessIdentities = null,System.String[]System.String? CollapsibleFunctionDeclarations = null,System.String[]System.Func\u003CHPD.Agent.ToolHarnessConstructionContext,System.Object\u003E? Activate = null,System.String[]System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.ToolHarnessDependency\u003E? DependencyDefaults = null,System.String[]HPD.Agent.HarnessConfigurationContract? Configuration = null,System.String[]System.Func\u003CHPD.Agent.IToolMetadata,System.Text.Json.JsonElement\u003E? SerializeMetadata = null)"
       ],
       "Methods": [
-        "System.String[]System.String[]System.Void Deconstruct(System.String[]out System.String Name,System.String[]out System.Type ToolHarnessType,System.String[]out System.Func\u003CSystem.Object,HPD.Agent.IToolMetadata,HPD.Agent.HPDToolSerializationOptions,System.Collections.Generic.List\u003CMicrosoft.Extensions.AI.AIFunction\u003E\u003E CreateFunctions,System.String[]out System.Func\u003CSystem.String[]\u003E GetReferencedToolHarnesses,System.String[]out System.Func\u003CSystem.Collections.Generic.Dictionary\u003CSystem.String,System.String[]\u003E\u003E GetReferencedFunctions,System.String[]out System.String StableIdentity,System.String[]out System.Boolean HasDescription,System.String[]out System.String? Description,System.String[]out System.String? FunctionResult,System.String[]out System.String? SystemPrompt,System.String[]out System.Type? MetadataType,System.String[]out System.Func\u003CSystem.Text.Json.JsonElement,HPD.Agent.IToolMetadata\u003E? DeserializeMetadata,System.String[]out System.String[]? FunctionNames,System.String[]out System.Boolean HasMcpServers,System.String[]out System.Action\u003CSystem.Object,HPD.Agent.IToolMetadata,System.Func\u003CSystem.String,System.Boolean\u003E,System.Action\u003CHPD.Agent.McpServerSource\u003E\u003E? CollectMcpServers,System.String[]out System.Action\u003CSystem.Object,HPD.Agent.IToolMetadata,System.Func\u003CSystem.String,System.Boolean\u003E,System.Action\u003CSystem.String,System.Object,System.String\u003E\u003E? CollectOpenApiSources,System.String[]out System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.ToolHarnessAgentResourceDescriptor\u003E? AgentResources,System.String[]out System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.ToolHarnessMiddlewareDescriptor\u003E? Middleware,System.String[]out HPD.Agent.Serialization.AgentEventModuleFragment? EventModule,System.String[]out System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.Serialization.AgentEventModuleFragment\u003E? RequiredEventModules,System.String[]out System.Func\u003CSystem.Object,HPD.Agent.IToolMetadata,System.Collections.Generic.IReadOnlySet\u003CSystem.String\u003E,System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.SubAgentActionDescriptor\u003E\u003E? CreateSubAgentActions,System.String[]out System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? SubAgentDeclarationNames,System.String[]out System.Func\u003CSystem.Object,HPD.Agent.IToolMetadata,System.Collections.Generic.IReadOnlySet\u003CSystem.String\u003E,System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.GeneratedSkillDefinition\u003E\u003E? CreateSkills,System.String[]out System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? SkillDeclarationNames,System.String[]out System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? SourceNames,System.String[]out System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? InheritedHarnessIdentities,System.String[]out System.String? CollapsibleFunctionDeclarations,System.String[]out System.Func\u003CHPD.Agent.ToolHarnessConstructionContext,System.Object\u003E? Activate,System.String[]out System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.ToolHarnessDependency\u003E? DependencyDefaults,System.String[]out HPD.Agent.HarnessConfigurationContract? Configuration)",
+        "System.String[]System.String[]System.Void Deconstruct(System.String[]out System.String Name,System.String[]out System.Type ToolHarnessType,System.String[]out System.Func\u003CSystem.Object,HPD.Agent.IToolMetadata,HPD.Agent.HPDToolSerializationOptions,System.Collections.Generic.List\u003CMicrosoft.Extensions.AI.AIFunction\u003E\u003E CreateFunctions,System.String[]out System.Func\u003CSystem.String[]\u003E GetReferencedToolHarnesses,System.String[]out System.Func\u003CSystem.Collections.Generic.Dictionary\u003CSystem.String,System.String[]\u003E\u003E GetReferencedFunctions,System.String[]out System.String StableIdentity,System.String[]out System.Boolean HasDescription,System.String[]out System.String? Description,System.String[]out System.String? FunctionResult,System.String[]out System.String? SystemPrompt,System.String[]out System.Type? MetadataType,System.String[]out System.Func\u003CSystem.Text.Json.JsonElement,HPD.Agent.IToolMetadata\u003E? DeserializeMetadata,System.String[]out System.String[]? FunctionNames,System.String[]out System.Boolean HasMcpServers,System.String[]out System.Action\u003CSystem.Object,HPD.Agent.IToolMetadata,System.Func\u003CSystem.String,System.Boolean\u003E,System.Action\u003CHPD.Agent.McpServerSource\u003E\u003E? CollectMcpServers,System.String[]out System.Action\u003CSystem.Object,HPD.Agent.IToolMetadata,System.Func\u003CSystem.String,System.Boolean\u003E,System.Action\u003CSystem.String,System.Object,System.String\u003E\u003E? CollectOpenApiSources,System.String[]out System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.ToolHarnessAgentResourceDescriptor\u003E? AgentResources,System.String[]out System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.ToolHarnessMiddlewareDescriptor\u003E? Middleware,System.String[]out HPD.Agent.Serialization.AgentEventModuleFragment? EventModule,System.String[]out System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.Serialization.AgentEventModuleFragment\u003E? RequiredEventModules,System.String[]out System.Func\u003CSystem.Object,HPD.Agent.IToolMetadata,System.Collections.Generic.IReadOnlySet\u003CSystem.String\u003E,System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.SubAgentActionDescriptor\u003E\u003E? CreateSubAgentActions,System.String[]out System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? SubAgentDeclarationNames,System.String[]out System.Func\u003CSystem.Object,HPD.Agent.IToolMetadata,System.Collections.Generic.IReadOnlySet\u003CSystem.String\u003E,System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.GeneratedSkillDefinition\u003E\u003E? CreateSkills,System.String[]out System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? SkillDeclarationNames,System.String[]out System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? SourceNames,System.String[]out System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? InheritedHarnessIdentities,System.String[]out System.String? CollapsibleFunctionDeclarations,System.String[]out System.Func\u003CHPD.Agent.ToolHarnessConstructionContext,System.Object\u003E? Activate,System.String[]out System.Collections.Generic.IReadOnlyList\u003CHPD.Agent.ToolHarnessDependency\u003E? DependencyDefaults,System.String[]out HPD.Agent.HarnessConfigurationContract? Configuration,System.String[]out System.Func\u003CHPD.Agent.IToolMetadata,System.Text.Json.JsonElement\u003E? SerializeMetadata)",
         "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
         "System.String[]System.String[]override System.Int32 GetHashCode()",
         "System.String[]System.String[]override System.String ToString()",
@@ -36317,6 +36464,7 @@
         "System.String[]System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? SkillDeclarationNames { get; init; }",
         "System.String[]System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? SourceNames { get; init; }",
         "System.String[]System.Collections.Generic.IReadOnlyList\u003CSystem.String\u003E? SubAgentDeclarationNames { get; init; }",
+        "System.String[]System.Func\u003CHPD.Agent.IToolMetadata,System.Text.Json.JsonElement\u003E? SerializeMetadata { get; init; }",
         "System.String[]System.Func\u003CHPD.Agent.ToolHarnessConstructionContext,System.Object\u003E? Activate { get; init; }",
         "System.String[]System.Func\u003CSystem.Collections.Generic.Dictionary\u003CSystem.String,System.String[]\u003E\u003E GetReferencedFunctions { get; init; }",
         "System.String[]System.Func\u003CSystem.Object,HPD.Agent.IToolMetadata,HPD.Agent.HPDToolSerializationOptions,System.Collections.Generic.List\u003CMicrosoft.Extensions.AI.AIFunction\u003E\u003E CreateFunctions { get; init; }",
@@ -36767,6 +36915,22 @@
       "Properties": [
         "System.String[]System.String ToolMode { get; set; }",
         "System.String[]System.String? RequiredFunctionName { get; set; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.TotalErrorPolicy",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [],
+      "Properties": [
+        "System.String[]System.Int32 MaxTotalErrors { get; set; }",
+        "System.String[]System.String TerminationMessageTemplate { get; set; }"
       ],
       "Fields": [],
       "Events": []
@@ -37733,6 +37897,7 @@
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.BackgroundResponsesRunConfig\u003E BackgroundResponsesRunConfig { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.BoundedSubAgentClientPropagation\u003E BoundedSubAgentClientPropagation { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ChatClientConfig\u003E ChatClientConfig { get; }",
+        "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.CircuitBreakerPolicy\u003E CircuitBreakerPolicy { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ClientFamilyInheritanceMode\u003E ClientFamilyInheritanceMode { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ClientTools.AgentClientInput\u003E AgentClientInput { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ClientTools.BinaryContent\u003E BinaryContent { get; }",
@@ -37805,6 +37970,7 @@
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.CompactionStrategy\u003E CompactionStrategy { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.CompactionStrategyDescriptor\u003E CompactionStrategyDescriptor { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.CompactionTrigger\u003E CompactionTrigger { get; }",
+        "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ConsecutiveErrorPolicy\u003E ConsecutiveErrorPolicy { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ContainerRecoveryHistoryMode\u003E ContainerRecoveryHistoryMode { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ContentAddress\u003E ContentAddress { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ContentDisposition\u003E ContentDisposition { get; }",
@@ -37821,6 +37987,7 @@
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ContentStatResult\u003E ContentStatResult { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ContentToolReadResult\u003E ContentToolReadResult { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ContextPercentageCompactionTrigger\u003E ContextPercentageCompactionTrigger { get; }",
+        "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.DeclarativePIIDetector\u003E DeclarativePIIDetector { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.DirectSubAgentClientPropagation\u003E DirectSubAgentClientPropagation { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.DisableThreadForkCompaction\u003E DisableThreadForkCompaction { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.DocumentContent\u003E DocumentContent { get; }",
@@ -37855,6 +38022,7 @@
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.MessageTurnStartedEvent\u003E MessageTurnStartedEvent { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.MessageTurnUsageSummary\u003E MessageTurnUsageSummary { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.Middleware.FunctionInvocationSnapshot\u003E FunctionInvocationSnapshot { get; }",
+        "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.Middleware.LoggingMiddlewareOptions\u003E LoggingMiddlewareOptions { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.Middleware.StoredContentReferenceContent\u003E StoredContentReferenceContent { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.Middleware.ToolInvocationInfo\u003E ToolInvocationInfo { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.Middleware.UploadStrategy\u003E UploadStrategy { get; }",
@@ -37862,6 +38030,8 @@
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ModelRetryConfig\u003E ModelRetryConfig { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.NoSubAgentClientPropagation\u003E NoSubAgentClientPropagation { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ObservabilityConfig\u003E ObservabilityConfig { get; }",
+        "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.PIIProtectionPolicy\u003E PIIProtectionPolicy { get; }",
+        "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.PIIStrategy\u003E PIIStrategy { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.PermissionDecisionKey\u003E PermissionDecisionKey { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.PermissionDecisionRecord\u003E PermissionDecisionRecord { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.PermissionDeclarationSource\u003E PermissionDeclarationSource { get; }",
@@ -37877,6 +38047,7 @@
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.PreviousHistoryLimit\u003E PreviousHistoryLimit { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.PreviousItemCountLimit\u003E PreviousItemCountLimit { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.PreviousTokenBudgetLimit\u003E PreviousTokenBudgetLimit { get; }",
+        "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.PrivacyConfig\u003E PrivacyConfig { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ProviderClientConfig\u003E ProviderClientConfig { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ProviderOperationKind\u003E ProviderOperationKind { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ProviderOperationOutcome\u003E ProviderOperationOutcome { get; }",
@@ -37913,7 +38084,9 @@
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ReasoningOutput\u003E ReasoningOutput { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.RemainingSubAgentClientPropagation\u003E RemainingSubAgentClientPropagation { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.RemovalCompaction\u003E RemovalCompaction { get; }",
+        "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ResilienceConfig\u003E ResilienceConfig { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.RetryExclusionConfig\u003E RetryExclusionConfig { get; }",
+        "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.RetryPolicySection\u003E RetryPolicySection { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.Security.AgentSandboxConfiguration\u003E AgentSandboxConfiguration { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.Security.AgentSandboxPathAccess\u003E AgentSandboxPathAccess { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.Security.AgentSandboxPathGrant\u003E AgentSandboxPathGrant { get; }",
@@ -37962,6 +38135,7 @@
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ToolResultError\u003E ToolResultError { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ToolResultPayload\u003E ToolResultPayload { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ToolSelectionConfig\u003E ToolSelectionConfig { get; }",
+        "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.TotalErrorPolicy\u003E TotalErrorPolicy { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.TurnCountCompactionTrigger\u003E TurnCountCompactionTrigger { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.UnboundedRemainingSubAgentClientPropagation\u003E UnboundedRemainingSubAgentClientPropagation { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.UnboundedSubAgentClientPropagation\u003E UnboundedSubAgentClientPropagation { get; }",
@@ -38069,6 +38243,7 @@
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CSystem.Collections.Generic.List\u003CHPD.Agent.AgentOperationReceipt\u003E\u003E ListAgentOperationReceipt { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CSystem.Collections.Generic.List\u003CHPD.Agent.ClientTools.ClientAppProviderReference\u003E\u003E ListClientAppProviderReference { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CSystem.Collections.Generic.List\u003CHPD.Agent.ClientTools.IToolResultContent\u003E\u003E ListIToolResultContent { get; }",
+        "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CSystem.Collections.Generic.List\u003CHPD.Agent.DeclarativePIIDetector\u003E\u003E ListDeclarativePIIDetector { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CSystem.Collections.Generic.List\u003CHPD.Agent.HarnessRunOverride\u003E\u003E ListHarnessRunOverride { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CSystem.Collections.Generic.List\u003CHPD.Agent.MCP.McpManifestReference\u003E\u003E ListMcpManifestReference { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CSystem.Collections.Generic.List\u003CHPD.Agent.MCP.McpServerConfig\u003E\u003E ListMcpServerConfig { get; }",

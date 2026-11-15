@@ -6,6 +6,12 @@ namespace HPD.Agent;
 /// </summary>
 public class ObservabilityConfig
 {
+    /// <summary>Gets or sets optional agent lifecycle logging policy.</summary>
+    public Middleware.LoggingMiddlewareOptions? Logging { get; set; }
+
+    /// <summary>Gets or sets whether the host logging observer includes sensitive event data.</summary>
+    public bool EnableSensitiveLogging { get; set; }
+
     /// <summary>
     /// Sampling rate for text delta events (0.0 to 1.0).
     /// Example: 0.1 = sample 10% of deltas.

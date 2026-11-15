@@ -10,11 +10,12 @@ namespace HPD.Agent.Tests.Middleware;
 public class ErrorHandlingConvenienceMethodTest
 {
     [Fact]
-    public void ErrorHandlingConfig_Default_DoesNotEnableFunctionTimeout()
+    public void ResilienceConfig_Default_DoesNotEnablePolicies()
     {
-        var config = new ErrorHandlingConfig();
+        var config = new ResilienceConfig();
 
-        Assert.Null(config.SingleFunctionTimeout);
+        Assert.Null(config.Retry);
+        Assert.Null(config.FunctionTimeout);
     }
 
     [Fact]
@@ -88,12 +89,15 @@ public class ErrorHandlingConvenienceMethodTest
         // Arrange
         var config = new AgentConfig
         {
-            ErrorHandling = new ErrorHandlingConfig
+            Resilience = new ResilienceConfig
             {
-                FunctionRetries = new()
+                Retry = new RetryPolicySection
                 {
-                    MaxRetries = 5,
-                    RetryDelay = TimeSpan.FromSeconds(2)
+                    FunctionRetries = new()
+                    {
+                        MaxRetries = 5,
+                        RetryDelay = TimeSpan.FromSeconds(2)
+                    }
                 }
             }
         };
@@ -105,6 +109,31 @@ public class ErrorHandlingConvenienceMethodTest
         // Assert
         Assert.Single(builder.Middlewares);
         Assert.IsType<HPD.Agent.Middleware.Function.RetryMiddleware>(builder.Middlewares[0]);
+    }
+
+    [Fact]
+    public void WithRetry_Configure_UpdatesExistingPortablePolicy()
+    {
+        var config = new AgentConfig
+        {
+            Resilience = new ResilienceConfig
+            {
+                Retry = new RetryPolicySection
+                {
+                    FunctionRetries = new()
+                    {
+                        MaxRetries = 5,
+                        RetryDelay = TimeSpan.FromSeconds(2)
+                    }
+                }
+            }
+        };
+
+        new AgentBuilder(config).WithRetry(retry =>
+            retry.FunctionRetries.MaxRetries = 3);
+
+        Assert.Equal(3, config.Resilience.Retry.FunctionRetries.MaxRetries);
+        Assert.Equal(TimeSpan.FromSeconds(2), config.Resilience.Retry.FunctionRetries.RetryDelay);
     }
 
     [Fact]
@@ -123,9 +152,9 @@ public class ErrorHandlingConvenienceMethodTest
         // Arrange
         var config = new AgentConfig
         {
-            ErrorHandling = new ErrorHandlingConfig
+            Resilience = new ResilienceConfig
             {
-                SingleFunctionTimeout = TimeSpan.FromMinutes(2)
+                FunctionTimeout = TimeSpan.FromMinutes(2)
             }
         };
 

@@ -23,7 +23,7 @@ public class RetryMiddlewareTests
     public async Task WrapFunctionCallAsync_SuccessOnFirstAttempt_NoRetry()
     {
         // Arrange
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             FunctionRetries = new() { MaxRetries = 3 }
         };
@@ -49,7 +49,7 @@ public class RetryMiddlewareTests
     public async Task WrapFunctionCallAsync_FailsThreeTimes_RetriesThreeTimes()
     {
         // Arrange
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             FunctionRetries = new()
             {
@@ -78,7 +78,7 @@ public class RetryMiddlewareTests
     public async Task WrapFunctionCallAsync_SucceedsOnSecondAttempt_OnlyRetriesOnce()
     {
         // Arrange
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             FunctionRetries = new()
             {
@@ -115,19 +115,19 @@ public class RetryMiddlewareTests
     {
         // Arrange
         var customDelayCalled = false;
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             FunctionRetries = new()
             {
-                MaxRetries = 3,
-                CustomRetryStrategy = async (ex, attempt, ct) =>
-                {
-                    customDelayCalled = true;
-                    return TimeSpan.FromMilliseconds(100); // Custom delay
-                }
+                MaxRetries = 3
             }
         };
         var middleware = new RetryMiddleware(config);
+        middleware.FunctionCustomRetryStrategy = async (ex, attempt, ct) =>
+        {
+            customDelayCalled = true;
+            return TimeSpan.FromMilliseconds(100);
+        };
         var request = CreateFunctionRequest();
 
         int attempts = 0;
@@ -154,18 +154,15 @@ public class RetryMiddlewareTests
     public async Task WrapFunctionCallAsync_CustomStrategyReturnsNull_DoesNotRetry()
     {
         // Arrange
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             FunctionRetries = new()
             {
-                MaxRetries = 3,
-                CustomRetryStrategy = async (ex, attempt, ct) =>
-                {
-                    return null; // Don't retry
-                }
+                MaxRetries = 3
             }
         };
         var middleware = new RetryMiddleware(config);
+        middleware.FunctionCustomRetryStrategy = (_, _, _) => Task.FromResult<TimeSpan?>(null);
         var request = CreateFunctionRequest();
 
         int attempts = 0;
@@ -199,7 +196,7 @@ public class RetryMiddlewareTests
             }
         };
 
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             FunctionRetries = new()
             {
@@ -243,7 +240,7 @@ public class RetryMiddlewareTests
             ShouldRetry = false
         };
 
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             FunctionRetries = new() { MaxRetries = 3 }
         };
@@ -276,7 +273,7 @@ public class RetryMiddlewareTests
             }
         };
 
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             FunctionRetries = new()
             {
@@ -313,7 +310,7 @@ public class RetryMiddlewareTests
     public async Task WrapFunctionCallAsync_NoProvider_UsesExponentialBackoff()
     {
         // Arrange
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             FunctionRetries = new()
             {
@@ -358,7 +355,7 @@ public class RetryMiddlewareTests
     public async Task WrapFunctionCallAsync_MaxRetryDelay_CapsDelay()
     {
         // Arrange
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             FunctionRetries = new()
             {
@@ -423,7 +420,7 @@ public class RetryMiddlewareTests
     public async Task WrapFunctionCallAsync_MaxRetriesZero_NoRetry()
     {
         // Arrange
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             FunctionRetries = new() { MaxRetries = 0 } // No retries allowed
         };
@@ -448,7 +445,7 @@ public class RetryMiddlewareTests
     public async Task WrapFunctionCallAsync_CancellationToken_StopsRetry()
     {
         // Arrange
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             FunctionRetries = new()
             {
@@ -484,7 +481,7 @@ public class RetryMiddlewareTests
     public async Task WrapModelTurnStreamingAsync_SuccessOnFirstAttempt_NoRetry()
     {
         // Arrange
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             ModelRetries = new() { MaxRetries = 3 }
         };
@@ -524,7 +521,7 @@ public class RetryMiddlewareTests
     public async Task WrapModelTurnStreamingAsync_FailsOnce_RetriesSuccessfully()
     {
         // Arrange
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             ModelRetries = new()
             {
@@ -580,7 +577,7 @@ public class RetryMiddlewareTests
             ShouldRetry = false
         };
 
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             ModelRetries = new() { MaxRetries = 3 }
         };
@@ -621,7 +618,7 @@ public class RetryMiddlewareTests
             }
         };
 
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             ModelRetries = new()
             {
@@ -670,7 +667,7 @@ public class RetryMiddlewareTests
     public async Task WrapModelTurnStreamingAsync_FailsDuringStreaming_Retries()
     {
         // Arrange
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             ModelRetries = new()
             {
@@ -725,7 +722,7 @@ public class RetryMiddlewareTests
     public async Task WrapModelTurnStreamingAsync_ExhaustsRetries_ThrowsException()
     {
         // Arrange
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             ModelRetries = new()
             {
@@ -765,7 +762,7 @@ public class RetryMiddlewareTests
     [Fact]
     public async Task WrapFunctionCallAsync_ExternalFunction_DoesNotRetryByDefault()
     {
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             FunctionRetries = new() { MaxRetries = 3, RetryDelay = TimeSpan.Zero }
         };
@@ -789,7 +786,7 @@ public class RetryMiddlewareTests
     [Fact]
     public async Task WrapFunctionCallAsync_IdempotentFunction_Retries()
     {
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             FunctionRetries = new() { MaxRetries = 1, RetryDelay = TimeSpan.Zero }
         };
@@ -817,7 +814,7 @@ public class RetryMiddlewareTests
     [Fact]
     public async Task WrapFunctionCallAsync_ActionReplayOverride_ControlsEligibility()
     {
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             FunctionRetries = new() { MaxRetries = 1, RetryDelay = TimeSpan.Zero }
         };
@@ -867,7 +864,7 @@ public class RetryMiddlewareTests
     [Fact]
     public async Task WrapFunctionCallAsync_ExactFunctionExclusion_DoesNotRetry()
     {
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             FunctionRetries = new()
             {
@@ -896,7 +893,7 @@ public class RetryMiddlewareTests
     [Fact]
     public async Task WrapFunctionCallAsync_ExactHarnessExclusion_DoesNotRetry()
     {
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             FunctionRetries = new()
             {
@@ -927,7 +924,7 @@ public class RetryMiddlewareTests
     [Fact]
     public async Task WrapFunctionCallAsync_ExactActionExclusion_DoesNotRetry()
     {
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             FunctionRetries = new()
             {
@@ -974,7 +971,7 @@ public class RetryMiddlewareTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_FunctionExclusion_DoesNotDisableModelRetry()
     {
-        var config = new ErrorHandlingConfig
+        var config = new RetryPolicySection
         {
             ModelRetries = new() { MaxRetries = 1, RetryDelay = TimeSpan.Zero },
             FunctionRetries = new()

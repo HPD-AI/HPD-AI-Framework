@@ -34,9 +34,8 @@ using HPD.Agent;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Middleware.Function;
 
-var errorHandling = new ErrorHandlingConfig
+var retry = new RetryPolicySection
 {
-    IncludeDetailedErrorsInChat = false,
     ModelRetries = new()
     {
         MaxRetries = 2
@@ -45,15 +44,17 @@ var errorHandling = new ErrorHandlingConfig
     {
         MaxRetries = 2,
         RetryDelay = TimeSpan.FromSeconds(1)
-    },
-    SingleFunctionTimeout = TimeSpan.FromSeconds(10)
+    }
+};
+var errorHandling = new ErrorHandlingConfig
+{
+    IncludeDetailedErrorsInChat = false
 };
 
 await using var agent = await new AgentBuilder(new AgentConfig())
     .WithChatClient(chatClient)
-    .WithMiddleware(new RetryMiddleware(errorHandling))
-    .WithMiddleware(new FunctionTimeoutMiddleware(
-        errorHandling.SingleFunctionTimeout.Value))
+    .WithMiddleware(new RetryMiddleware(retry))
+    .WithMiddleware(new FunctionTimeoutMiddleware(TimeSpan.FromSeconds(10)))
     .WithMiddleware(new ErrorFormattingMiddleware(errorHandling))
     .BuildAsync();
 ```
@@ -67,7 +68,6 @@ var agent = await new AgentBuilder(new AgentConfig())
     {
         config.ModelRetries.MaxRetries = 2;
         config.FunctionRetries.MaxRetries = 2;
-        config.IncludeDetailedErrorsInChat = false;
     })
     .WithFunctionTimeout(TimeSpan.FromSeconds(10))
     .WithErrorFormatting()
@@ -76,6 +76,20 @@ var agent = await new AgentBuilder(new AgentConfig())
 
 Retry registration is explicit. A positive retry budget does not install retry
 middleware and does not make a function replay-safe.
+
+The fluent methods materialize portable sections instead of leaving settings in
+builder state:
+
+- `WithRetry(...)` writes `AgentConfig.Resilience.Retry`.
+- `WithCircuitBreaker(...)`, `WithErrorTracking(...)`, and
+  `WithTotalErrorThreshold(...)` write loop policies under `Resilience`.
+- `WithFunctionTimeout(...)` writes `Resilience.FunctionTimeout`.
+- `WithPIIProtection(...)` writes `AgentConfig.Privacy.PII`.
+- `WithLogging(...)` writes `AgentConfig.Observability.Logging`.
+
+Loading that configuration installs the corresponding middleware without
+repeating the fluent calls. Custom executable retry strategies, custom total-error
+detectors, and external PII detectors remain host-owned middleware state.
 
 ## Function retry
 
@@ -92,7 +106,7 @@ Non-idempotent tools remain `Never` unless explicitly declared otherwise. Exact
 function, harness, and function/action exclusions always win:
 
 ```csharp
-config.ErrorHandling.FunctionRetries.Exclude = new()
+config.Resilience!.Retry!.FunctionRetries.Exclude = new()
 {
     Harnesses = ["ComputerHarness"],
     Functions = ["SendPayment"],
@@ -112,9 +126,20 @@ emit `FunctionRetryEvent`; model retries emit `ModelCallRetryEvent`. A model ret
 follow partially streamed text, so streaming UIs should clear or mark the failed
 partial response before rendering the retry.
 
+Custom executable strategies are assigned on the middleware instance:
+
+```csharp
+var middleware = new RetryMiddleware(
+    new RetryPolicySection { FunctionRetries = new() { MaxRetries = 3 } })
+{
+    FunctionCustomRetryStrategy = async (error, attempt, cancellationToken) =>
+        await policy.GetRetryDelayAsync(error, attempt, cancellationToken)
+};
+```
+
 ## Function timeout
 
-`SingleFunctionTimeout` defaults to `null`, which disables function timeouts.
+`Resilience.FunctionTimeout` defaults to `null`, which disables function timeouts.
 `FunctionTimeoutMiddleware` wraps only function execution. It does not impose a
 conversation deadline or cancel model streaming.
 

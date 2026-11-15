@@ -10,15 +10,18 @@ public sealed class RetryConfigurationValidationTests
         var config = new AgentConfig
         {
             Name = "Retry Validation",
-            ErrorHandling = new ErrorHandlingConfig
+            Resilience = new ResilienceConfig
             {
-                ModelRetries = new() { MaxRetries = 11 },
-                FunctionRetries = new()
+                Retry = new RetryPolicySection
                 {
-                    RetryDelay = TimeSpan.FromMilliseconds(-1),
-                    Exclude = new()
+                    ModelRetries = new() { MaxRetries = 11 },
+                    FunctionRetries = new()
                     {
-                        Functions = ["", "Duplicate", "Duplicate"]
+                        RetryDelay = TimeSpan.FromMilliseconds(-1),
+                        Exclude = new()
+                        {
+                            Functions = ["", "Duplicate", "Duplicate"]
+                        }
                     }
                 }
             }
@@ -27,11 +30,11 @@ public sealed class RetryConfigurationValidationTests
         var errors = AgentConfigValidator.Validate(config);
 
         Assert.Contains(errors, error =>
-            error.Contains("errorHandling.modelRetries.MaxRetries", StringComparison.Ordinal));
+            error.Contains("resilience.retry.modelRetries.MaxRetries", StringComparison.Ordinal));
         Assert.Contains(errors, error =>
-            error.Contains("errorHandling.functionRetries.RetryDelay", StringComparison.Ordinal));
+            error.Contains("resilience.retry.functionRetries.RetryDelay", StringComparison.Ordinal));
         Assert.Contains(errors, error =>
-            error.Contains("errorHandling.functionRetries.exclude.functions", StringComparison.Ordinal) &&
+            error.Contains("resilience.retry.functionRetries.exclude.functions", StringComparison.Ordinal) &&
             error.Contains("Duplicate", StringComparison.Ordinal));
     }
 
@@ -41,26 +44,29 @@ public sealed class RetryConfigurationValidationTests
         var config = new AgentConfig
         {
             Name = "Retry Validation",
-            ErrorHandling = new ErrorHandlingConfig
+            Resilience = new ResilienceConfig
             {
-                FunctionRetries = new()
+                Retry = new RetryPolicySection
                 {
-                    Exclude = new()
+                    FunctionRetries = new()
                     {
-                        Actions =
-                        [
-                            new ActionRetryExclusion(),
-                            new ActionRetryExclusion
-                            {
-                                Function = "Files",
-                                Action = "delete"
-                            },
-                            new ActionRetryExclusion
-                            {
-                                Function = "Files",
-                                Action = "delete"
-                            }
-                        ]
+                        Exclude = new()
+                        {
+                            Actions =
+                            [
+                                new ActionRetryExclusion(),
+                                new ActionRetryExclusion
+                                {
+                                    Function = "Files",
+                                    Action = "delete"
+                                },
+                                new ActionRetryExclusion
+                                {
+                                    Function = "Files",
+                                    Action = "delete"
+                                }
+                            ]
+                        }
                     }
                 }
             }

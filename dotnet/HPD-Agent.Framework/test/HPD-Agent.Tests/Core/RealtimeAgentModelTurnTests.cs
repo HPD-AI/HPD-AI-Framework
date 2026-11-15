@@ -645,14 +645,13 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                 [ToolCallDone("resp-flaky", "call-flaky", "Flaky", new Dictionary<string, object?>())],
                 [TextDelta("resp-final", "Recovered with 42."), TextDone("resp-final")]
             ]);
-        var retryConfig = new ErrorHandlingConfig
+        var retryConfig = new RetryPolicySection
         {
             FunctionRetries = new()
             {
                 MaxRetries = 1,
                 RetryDelay = TimeSpan.Zero
-            },
-            NormalizeErrors = true
+            }
         };
         var agent = TestAgentFactory.CreateWithMiddlewares(
             middlewares: [new RetryMiddleware(retryConfig)],

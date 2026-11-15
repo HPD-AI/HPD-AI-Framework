@@ -289,6 +289,8 @@ export interface AgentConfig {
   providerDefaults?: Array<AgentProviderFamilyDefault> | null;
   validation?: null | ValidationConfig | null;
   errorHandling?: null | ErrorHandlingConfig | null;
+  resilience?: null | ResilienceConfig | null;
+  privacy?: null | PrivacyConfig | null;
   compaction?: null | CompactionConfig | null;
   goals?: null | GoalConfig | null;
   enableParentCommunication?: boolean | null;
@@ -490,6 +492,11 @@ export interface ChatTurnDetails {
   usage?: null | UsageDetails | null;
   cacheKey?: string | null;
   cacheHit?: boolean | null;
+}
+
+export interface CircuitBreakerPolicy {
+  maxConsecutiveCalls?: number | null;
+  terminationMessageTemplate?: string | null;
 }
 
 export interface ClientAppProviderDescriptor {
@@ -720,6 +727,11 @@ export interface CompactionTriggerTurnCountCompactionTrigger {
   turns: number;
 }
 
+export interface ConsecutiveErrorPolicy {
+  maxConsecutiveErrors?: number | null;
+  terminationMessageTemplate?: string | null;
+}
+
 export interface ContentDto {
   contentId: string;
   version: string;
@@ -775,6 +787,13 @@ export interface DatasetVersionRecord {
   metadata: unknown;
 }
 
+export interface DeclarativePIIDetector {
+  name?: string | null;
+  pattern?: string | null;
+  strategy?: number | null;
+  replacement?: string | null;
+}
+
 export interface EmbeddingsClientConfig {
   dimensions?: number | null;
   provider?: null | ProviderReference | null;
@@ -794,9 +813,6 @@ export interface ErrorHandlingConfig {
   normalizeErrors?: boolean | null;
   includeProviderDetails?: boolean | null;
   includeDetailedErrorsInChat?: boolean | null;
-  modelRetries?: ModelRetryConfig | null;
-  functionRetries?: FunctionRetryConfig | null;
-  singleFunctionTimeout?: string | null;
 }
 
 export interface EvaluationContext {
@@ -25087,6 +25103,22 @@ export interface JudgeCallRecord {
   errorMessage: string | null;
 }
 
+export interface LoggingMiddlewareOptions {
+  logMessageTurn?: boolean | null;
+  logIteration?: boolean | null;
+  logFunction?: boolean | null;
+  includeTiming?: boolean | null;
+  includeArguments?: boolean | null;
+  includeResults?: boolean | null;
+  includeInstructions?: boolean | null;
+  maxStringLength?: number | null;
+  maxLoggedMessages?: number | null;
+  messagePreviewLength?: number | null;
+  logCompactionDetails?: boolean | null;
+  logToolHarnessExpansion?: boolean | null;
+  logPrefix?: string | null;
+}
+
 export interface McpManifestReference {
   path?: string | null;
   sourceName?: string | null;
@@ -25164,6 +25196,8 @@ export interface ModelRetryConfig {
 }
 
 export interface ObservabilityConfig {
+  logging?: null | LoggingMiddlewareOptions | null;
+  enableSensitiveLogging?: boolean | null;
   textDeltaSamplingRate?: number | null;
   reasoningDeltaSamplingRate?: number | null;
   enableSampling?: boolean | null;
@@ -25171,6 +25205,18 @@ export interface ObservabilityConfig {
   maxConcurrentObservers?: number | null;
   maxConsecutiveFailures?: number | null;
   successesToResetCircuitBreaker?: number | null;
+}
+
+export interface PIIProtectionPolicy {
+  emailStrategy?: number | null;
+  creditCardStrategy?: number | null;
+  ssnStrategy?: number | null;
+  phoneStrategy?: number | null;
+  ipAddressStrategy?: number | null;
+  applyToInput?: boolean | null;
+  applyToOutput?: boolean | null;
+  applyToToolResults?: boolean | null;
+  customDetectors?: Array<DeclarativePIIDetector> | null;
 }
 
 export interface PreviousHistoryLimit {
@@ -25184,6 +25230,10 @@ export interface PreviousHistoryLimitPreviousItemCountLimit {
 export interface PreviousHistoryLimitPreviousTokenBudgetLimit {
   $type?: string | null;
   tokens: number;
+}
+
+export interface PrivacyConfig {
+  pii?: null | PIIProtectionPolicy | null;
 }
 
 export interface PrivacyPolicy {
@@ -25297,10 +25347,23 @@ export interface RegisterStringDatasetRequest {
   cases?: Array<StringEvalCaseDto> | null;
 }
 
+export interface ResilienceConfig {
+  retry?: null | RetryPolicySection | null;
+  circuitBreaker?: null | CircuitBreakerPolicy | null;
+  consecutiveErrors?: null | ConsecutiveErrorPolicy | null;
+  totalErrors?: null | TotalErrorPolicy | null;
+  functionTimeout?: string | null;
+}
+
 export interface RetryExclusionConfig {
   harnesses?: Array<string> | null;
   functions?: Array<string> | null;
   actions?: Array<ActionRetryExclusion> | null;
+}
+
+export interface RetryPolicySection {
+  modelRetries?: ModelRetryConfig | null;
+  functionRetries?: FunctionRetryConfig | null;
 }
 
 export interface RiskAutonomyDataPoint {
@@ -25792,6 +25855,11 @@ export interface ToolUsageSummary {
   totalCalls: number;
   permissionDeniedCount: number;
   permissionDeniedRate: number;
+}
+
+export interface TotalErrorPolicy {
+  maxTotalErrors?: number | null;
+  terminationMessageTemplate?: string | null;
 }
 
 export interface TraceCapturePolicy {

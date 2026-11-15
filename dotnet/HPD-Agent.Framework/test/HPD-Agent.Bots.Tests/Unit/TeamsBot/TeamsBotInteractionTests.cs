@@ -162,9 +162,15 @@ public class TeamsBotInteractionTests
             },
             ErrorHandling = new ErrorHandlingConfig
             {
-                ModelRetries = new() { MaxRetries = 0 },
-                FunctionRetries = new() { MaxRetries = 0 },
                 NormalizeErrors = true,
+            },
+            Resilience = new ResilienceConfig
+            {
+                Retry = new RetryPolicySection
+                {
+                    ModelRetries = new() { MaxRetries = 0 },
+                    FunctionRetries = new() { MaxRetries = 0 },
+                }
             },
         })
         .WithEventComposition(HPD.Agent.Serialization.CoreAgentEventComposition.Instance)

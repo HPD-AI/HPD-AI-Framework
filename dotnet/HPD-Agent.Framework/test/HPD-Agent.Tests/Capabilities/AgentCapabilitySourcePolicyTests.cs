@@ -80,7 +80,7 @@ public sealed class AgentCapabilitySourcePolicyTests
             source,
             CapabilitySourceInitialLoadPolicy.Required,
             CapabilitySourceRefreshFailurePolicy.RejectCandidate,
-            errorHandling: new ErrorHandlingConfig
+            retry: new RetryPolicySection
             {
                 FunctionRetries = new()
                 {
@@ -107,7 +107,7 @@ public sealed class AgentCapabilitySourcePolicyTests
         CapabilitySourceInitialLoadPolicy initial,
         CapabilitySourceRefreshFailurePolicy refresh,
         TimeSpan? timeout = null,
-        ErrorHandlingConfig? errorHandling = null)
+        RetryPolicySection? retry = null)
     {
         var registration = new AgentCapabilitySourceRegistration(
             new SingleSourceFactory(source), initial, refresh)
@@ -117,7 +117,7 @@ public sealed class AgentCapabilitySourcePolicyTests
         return new AgentBuilder(new AgentConfig
             {
                 Name = "source-policy-test",
-                ErrorHandling = errorHandling
+                Resilience = retry is null ? null : new ResilienceConfig { Retry = retry }
             })
             .WithChatClient(new FakeChatClient())
             .AddCapabilitySource(registration)

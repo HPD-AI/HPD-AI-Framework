@@ -120,6 +120,12 @@ public class AgentConfig
     /// </summary>
     public ErrorHandlingConfig? ErrorHandling { get; set; }
 
+    /// <summary>Retry, loop-protection, and function-timeout policies.</summary>
+    public ResilienceConfig? Resilience { get; set; }
+
+    /// <summary>Deterministic privacy handling for model and tool boundaries.</summary>
+    public PrivacyConfig? Privacy { get; set; }
+
     /// <summary>
     /// Configuration for conversation compaction to manage context window size.
     /// </summary>
@@ -537,18 +543,6 @@ public class ErrorHandlingConfig
     /// </remarks>
     public bool IncludeDetailedErrorsInChat { get; set; } = true;
 
-    /// <summary>Gets or sets retry behavior for model calls.</summary>
-    public ModelRetryConfig ModelRetries { get; set; } = new();
-
-    /// <summary>Gets or sets retry behavior for function calls.</summary>
-    public FunctionRetryConfig FunctionRetries { get; set; } = new();
-
-    /// <summary>
-    /// Optional timeout for a single function execution.
-    /// The default is <c>null</c>, which allows functions to run until the caller cancels them.
-    /// Set an explicit value to enable function timeout middleware.
-    /// </summary>
-    public TimeSpan? SingleFunctionTimeout { get; set; }
 }
 
 /// <summary>Configures retry attempts and backoff for one execution scope.</summary>
@@ -585,13 +579,6 @@ public class RetryPolicyConfig
     /// Example: { ErrorCategory.RateLimitRetryable: 5, ErrorCategory.ServerError: 3 }
     /// </summary>
     public Dictionary<HPD.Agent.ErrorHandling.ErrorCategory, int>? MaxRetriesByCategory { get; set; }
-    /// <summary>
-    /// Custom retry strategy that overrides default behavior.
-    /// Parameters: (exception, attemptNumber, cancellationToken)
-    /// Returns: TimeSpan for retry delay, or null to stop retrying.
-    /// </summary>
-    [System.Text.Json.Serialization.JsonIgnore]
-    public Func<Exception, int, CancellationToken, Task<TimeSpan?>>? CustomRetryStrategy { get; set; }
 }
 
 /// <summary>Configures retry behavior for model calls.</summary>

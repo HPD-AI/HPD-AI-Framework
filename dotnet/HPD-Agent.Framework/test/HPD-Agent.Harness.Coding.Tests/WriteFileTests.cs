@@ -455,7 +455,11 @@ public sealed class WriteFileTests : IDisposable
             new Session("test-session"),
             new Thread("test-session", "test-agent"),
             CancellationToken.None,
-            config: new AgentConfig { EventComposition = CodingEventTestCodec.Composition });
+            config: new AgentConfig(),
+            runtimeOptions: new AgentRuntimeOptions
+            {
+                EventComposition = CodingEventTestCodec.Composition
+            });
         context.RuntimeCapabilities.Set(
             TestRuntimeWorkspace.FromRunConfig(
                 CreateWorkspaceRunConfig()));

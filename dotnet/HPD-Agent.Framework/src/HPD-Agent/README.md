@@ -106,6 +106,36 @@ alter an active run.
 Read [Invocation context ownership](Agent/ContextOwnership.md) before sharing
 host objects through run context.
 
+Durable safety and observability policies use nullable sections:
+
+```csharp
+definition.Resilience = new ResilienceConfig
+{
+    Retry = new RetryPolicySection
+    {
+        FunctionRetries = new() { MaxRetries = 3 }
+    },
+    CircuitBreaker = new() { MaxConsecutiveCalls = 4 },
+    FunctionTimeout = TimeSpan.FromSeconds(30)
+};
+
+definition.Privacy = new PrivacyConfig
+{
+    PII = new PIIProtectionPolicy()
+};
+
+definition.Observability = new ObservabilityConfig
+{
+    Logging = LoggingMiddlewareOptions.Minimal
+};
+```
+
+`WithRetry`, `WithCircuitBreaker`, `WithErrorTracking`,
+`WithTotalErrorThreshold`, `WithFunctionTimeout`, `WithPIIProtection`, and
+`WithLogging` write these sections while also installing their middleware.
+Loading the persisted `AgentConfig` installs equivalent middleware without
+repeating the fluent calls.
+
 ## Middleware
 
 `IAgentMiddleware` adds cross-cutting behavior around agent turns, iterations, model

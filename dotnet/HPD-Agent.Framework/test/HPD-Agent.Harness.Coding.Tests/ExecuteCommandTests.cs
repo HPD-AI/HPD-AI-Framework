@@ -356,7 +356,8 @@ public sealed class ExecuteCommandTests : IDisposable
             thread,
             CancellationToken.None,
             services: EmptyServiceProvider.Instance,
-            config: CreateTestAgentConfig());
+            config: CreateTestAgentConfig(),
+            runtimeOptions: CreateTestRuntimeOptions());
         var runConfig = CreateWorkspaceRunConfig();
         RegisterProcessExecution(
             agentContext.RuntimeCapabilities,
@@ -1135,7 +1136,8 @@ public sealed class ExecuteCommandTests : IDisposable
             CancellationToken.None,
             threadEvents: threadEvents,
             services: EmptyServiceProvider.Instance,
-            config: CreateTestAgentConfig());
+            config: CreateTestAgentConfig(),
+            runtimeOptions: CreateTestRuntimeOptions());
         RegisterProcessExecution(
             agentContext.RuntimeCapabilities,
             runner,
@@ -1503,6 +1505,7 @@ public sealed class ExecuteCommandTests : IDisposable
             thread,
             CancellationToken.None,
             config: CreateTestAgentConfig(),
+            runtimeOptions: CreateTestRuntimeOptions(),
             contentStore: contentStore);
         runConfig ??= CreateWorkspaceRunConfig();
         if (runner is not null)
@@ -1562,7 +1565,8 @@ public sealed class ExecuteCommandTests : IDisposable
             CancellationToken.None,
             threadEvents: threadEvents,
             services: EmptyServiceProvider.Instance,
-            config: CreateTestAgentConfig());
+            config: CreateTestAgentConfig(),
+            runtimeOptions: CreateTestRuntimeOptions());
         RegisterProcessExecution(
             agentContext.RuntimeCapabilities,
             runner,
@@ -1686,7 +1690,9 @@ public sealed class ExecuteCommandTests : IDisposable
         };
     }
 
-    private static AgentConfig CreateTestAgentConfig()
+    private static AgentConfig CreateTestAgentConfig() => new();
+
+    private static AgentRuntimeOptions CreateTestRuntimeOptions()
         => new()
         {
             EventComposition = AgentEventComposition.Create(

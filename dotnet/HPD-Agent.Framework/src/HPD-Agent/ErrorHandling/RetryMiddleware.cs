@@ -38,17 +38,23 @@ namespace HPD.Agent.Middleware.Function;
 /// </remarks>
 public class RetryMiddleware : IAgentMiddleware
 {
-    private readonly ErrorHandlingConfig _config;
+    private readonly RetryPolicySection _config;
     private IProviderErrorHandler _providerHandler;
 
     internal IProviderErrorHandler ProviderErrorHandler => _providerHandler;
+
+    /// <summary>Gets or sets a host-owned custom strategy for function retries.</summary>
+    public Func<Exception, int, CancellationToken, Task<TimeSpan?>>? FunctionCustomRetryStrategy { get; set; }
+
+    /// <summary>Gets or sets a host-owned custom strategy for model retries.</summary>
+    public Func<Exception, int, CancellationToken, Task<TimeSpan?>>? ModelCustomRetryStrategy { get; set; }
 
     /// <summary>
     /// Creates retry middleware for model and function calls with the specified configuration and error handler.
     /// </summary>
     /// <param name="config">Error handling configuration</param>
     /// <param name="providerErrorHandler">Provider-specific error handler for intelligent retry logic</param>
-    public RetryMiddleware(ErrorHandlingConfig config, IProviderErrorHandler? providerErrorHandler = null)
+    public RetryMiddleware(RetryPolicySection config, IProviderErrorHandler? providerErrorHandler = null)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _providerHandler = providerErrorHandler ?? new GenericErrorHandler();
@@ -110,6 +116,7 @@ public class RetryMiddleware : IAgentMiddleware
                     attempt,
                     policy,
                     request.Function,
+                    FunctionCustomRetryStrategy,
                     cancellationToken);
 
                 if (!delay.HasValue || attempt >= maxRetries)
@@ -216,6 +223,7 @@ public class RetryMiddleware : IAgentMiddleware
                             attempt,
                             policy,
                             null,
+                            ModelCustomRetryStrategy,
                             cancellationToken);
 
                         if (!delay.HasValue || attempt >= maxRetries)
@@ -262,14 +270,15 @@ public class RetryMiddleware : IAgentMiddleware
         int attempt,
         RetryPolicyConfig policy,
         AIFunction? function,
+        Func<Exception, int, CancellationToken, Task<TimeSpan?>>? customStrategy,
         CancellationToken cancellationToken)
     {
         //     
         // PRIORITY 1: Custom Retry Strategy (user-provided)
         //     
-        if (policy.CustomRetryStrategy != null)
+        if (customStrategy != null)
         {
-            var customDelay = await policy.CustomRetryStrategy(ex, attempt, cancellationToken);
+            var customDelay = await customStrategy(ex, attempt, cancellationToken);
             // Custom strategy result is authoritative - don't fall through
             return customDelay;
         }

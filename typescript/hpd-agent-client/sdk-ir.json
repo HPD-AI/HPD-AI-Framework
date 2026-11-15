@@ -1,12 +1,12 @@
 {
   "irVersion": "1.0",
   "generatorVersion": "0.1.0",
-  "sourceOpenApiSha256": "sha256:466d47b9b9b7b2aa3c6532fe6dca53a41ba87a0fddc3debe3a6b3387e9c3b3c1",
+  "sourceOpenApiSha256": "sha256:7d07ba8b66ed74773a972350add6d90396764e6d0f0c7a8c38ab5a253f3b1136",
   "eventDigest": "feb077dbb5841d8d592baecff47b296e3538b52abf57c199b48e415a6eddb6ac",
   "inputDigest": "sha256:be4f985d04fabf388ad5fb7410ef875025d1c5cb0038dfb1a05ff0abe38a7cf3",
   "api": {
     "title": "HPD Agent API",
-    "apiVersion": "0.9.5\u002B2edcf4f902e186a79d23740243eacd2f1f510dbe",
+    "apiVersion": "0.9.5\u002B81537e5056d3917c20fe13a58a48d0acafc7a4f3",
     "openApiVersion": "3.1.2"
   },
   "types": [
@@ -2393,6 +2393,48 @@
             }
           },
           {
+            "name": "resilience",
+            "required": false,
+            "type": {
+              "kind": "union",
+              "nullable": true,
+              "composition": "oneOf",
+              "branches": [
+                {
+                  "kind": "primitive",
+                  "primitive": "null",
+                  "nullable": false
+                },
+                {
+                  "kind": "reference",
+                  "nullable": false,
+                  "reference": "#/components/schemas/ResilienceConfig"
+                }
+              ]
+            }
+          },
+          {
+            "name": "privacy",
+            "required": false,
+            "type": {
+              "kind": "union",
+              "nullable": true,
+              "composition": "oneOf",
+              "branches": [
+                {
+                  "kind": "primitive",
+                  "primitive": "null",
+                  "nullable": false
+                },
+                {
+                  "kind": "reference",
+                  "nullable": false,
+                  "reference": "#/components/schemas/PrivacyConfig"
+                }
+              ]
+            }
+          },
+          {
             "name": "compaction",
             "required": false,
             "type": {
@@ -4277,6 +4319,38 @@
           "latency",
           "model",
           "modelProvider"
+        ],
+        "objectModel": true
+      }
+    },
+    {
+      "componentId": "CircuitBreakerPolicy",
+      "schema": {
+        "kind": "object",
+        "nullable": true,
+        "properties": [
+          {
+            "name": "maxConsecutiveCalls",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "integer",
+              "format": "int32",
+              "nullable": true,
+              "annotations": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$"
+              }
+            }
+          },
+          {
+            "name": "terminationMessageTemplate",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": true
+            }
+          }
         ],
         "objectModel": true
       }
@@ -6291,6 +6365,38 @@
       }
     },
     {
+      "componentId": "ConsecutiveErrorPolicy",
+      "schema": {
+        "kind": "object",
+        "nullable": true,
+        "properties": [
+          {
+            "name": "maxConsecutiveErrors",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "integer",
+              "format": "int32",
+              "nullable": true,
+              "annotations": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$"
+              }
+            }
+          },
+          {
+            "name": "terminationMessageTemplate",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "objectModel": true
+      }
+    },
+    {
       "componentId": "ContainerRecoveryHistoryMode",
       "schema": {
         "kind": "primitive",
@@ -6743,6 +6849,52 @@
       }
     },
     {
+      "componentId": "DeclarativePIIDetector",
+      "schema": {
+        "kind": "object",
+        "nullable": false,
+        "properties": [
+          {
+            "name": "name",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "pattern",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "strategy",
+            "required": false,
+            "type": {
+              "kind": "reference",
+              "nullable": true,
+              "reference": "#/components/schemas/PIIStrategy"
+            }
+          },
+          {
+            "name": "replacement",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "objectModel": true
+      }
+    },
+    {
       "componentId": "EmbeddingsClientConfig",
       "schema": {
         "kind": "object",
@@ -6912,36 +7064,6 @@
               "kind": "primitive",
               "primitive": "boolean",
               "nullable": true
-            }
-          },
-          {
-            "name": "modelRetries",
-            "required": false,
-            "type": {
-              "kind": "reference",
-              "nullable": true,
-              "reference": "#/components/schemas/ModelRetryConfig"
-            }
-          },
-          {
-            "name": "functionRetries",
-            "required": false,
-            "type": {
-              "kind": "reference",
-              "nullable": true,
-              "reference": "#/components/schemas/FunctionRetryConfig"
-            }
-          },
-          {
-            "name": "singleFunctionTimeout",
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "primitive": "string",
-              "nullable": true,
-              "annotations": {
-                "pattern": "^-?(\\d\u002B\\.)?\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,7})?$"
-              }
             }
           }
         ],
@@ -210938,6 +211060,145 @@
       }
     },
     {
+      "componentId": "LoggingMiddlewareOptions",
+      "schema": {
+        "kind": "object",
+        "nullable": true,
+        "properties": [
+          {
+            "name": "logMessageTurn",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "boolean",
+              "nullable": true
+            }
+          },
+          {
+            "name": "logIteration",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "boolean",
+              "nullable": true
+            }
+          },
+          {
+            "name": "logFunction",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "boolean",
+              "nullable": true
+            }
+          },
+          {
+            "name": "includeTiming",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "boolean",
+              "nullable": true
+            }
+          },
+          {
+            "name": "includeArguments",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "boolean",
+              "nullable": true
+            }
+          },
+          {
+            "name": "includeResults",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "boolean",
+              "nullable": true
+            }
+          },
+          {
+            "name": "includeInstructions",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "boolean",
+              "nullable": true
+            }
+          },
+          {
+            "name": "maxStringLength",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "integer",
+              "format": "int32",
+              "nullable": true,
+              "annotations": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$"
+              }
+            }
+          },
+          {
+            "name": "maxLoggedMessages",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "integer",
+              "format": "int32",
+              "nullable": true,
+              "annotations": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$"
+              }
+            }
+          },
+          {
+            "name": "messagePreviewLength",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "integer",
+              "format": "int32",
+              "nullable": true,
+              "annotations": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$"
+              }
+            }
+          },
+          {
+            "name": "logCompactionDetails",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "boolean",
+              "nullable": true
+            }
+          },
+          {
+            "name": "logToolHarnessExpansion",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "boolean",
+              "nullable": true
+            }
+          },
+          {
+            "name": "logPrefix",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "objectModel": true
+      }
+    },
+    {
       "componentId": "McpManifestReference",
       "schema": {
         "kind": "object",
@@ -211640,6 +211901,36 @@
         "nullable": true,
         "properties": [
           {
+            "name": "logging",
+            "required": false,
+            "type": {
+              "kind": "union",
+              "nullable": true,
+              "composition": "oneOf",
+              "branches": [
+                {
+                  "kind": "primitive",
+                  "primitive": "null",
+                  "nullable": false
+                },
+                {
+                  "kind": "reference",
+                  "nullable": false,
+                  "reference": "#/components/schemas/LoggingMiddlewareOptions"
+                }
+              ]
+            }
+          },
+          {
+            "name": "enableSensitiveLogging",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "boolean",
+              "nullable": true
+            }
+          },
+          {
             "name": "textDeltaSamplingRate",
             "required": false,
             "type": {
@@ -211724,6 +212015,109 @@
           }
         ],
         "objectModel": true
+      }
+    },
+    {
+      "componentId": "PIIProtectionPolicy",
+      "schema": {
+        "kind": "object",
+        "nullable": true,
+        "properties": [
+          {
+            "name": "emailStrategy",
+            "required": false,
+            "type": {
+              "kind": "reference",
+              "nullable": true,
+              "reference": "#/components/schemas/PIIStrategy"
+            }
+          },
+          {
+            "name": "creditCardStrategy",
+            "required": false,
+            "type": {
+              "kind": "reference",
+              "nullable": true,
+              "reference": "#/components/schemas/PIIStrategy"
+            }
+          },
+          {
+            "name": "ssnStrategy",
+            "required": false,
+            "type": {
+              "kind": "reference",
+              "nullable": true,
+              "reference": "#/components/schemas/PIIStrategy"
+            }
+          },
+          {
+            "name": "phoneStrategy",
+            "required": false,
+            "type": {
+              "kind": "reference",
+              "nullable": true,
+              "reference": "#/components/schemas/PIIStrategy"
+            }
+          },
+          {
+            "name": "ipAddressStrategy",
+            "required": false,
+            "type": {
+              "kind": "reference",
+              "nullable": true,
+              "reference": "#/components/schemas/PIIStrategy"
+            }
+          },
+          {
+            "name": "applyToInput",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "boolean",
+              "nullable": true
+            }
+          },
+          {
+            "name": "applyToOutput",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "boolean",
+              "nullable": true
+            }
+          },
+          {
+            "name": "applyToToolResults",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "boolean",
+              "nullable": true
+            }
+          },
+          {
+            "name": "customDetectors",
+            "required": false,
+            "type": {
+              "kind": "array",
+              "nullable": true,
+              "itemType": {
+                "kind": "reference",
+                "nullable": false,
+                "reference": "#/components/schemas/DeclarativePIIDetector"
+              }
+            }
+          }
+        ],
+        "objectModel": true
+      }
+    },
+    {
+      "componentId": "PIIStrategy",
+      "schema": {
+        "kind": "primitive",
+        "primitive": "integer",
+        "nullable": false
       }
     },
     {
@@ -211834,6 +212228,37 @@
         ],
         "requiredProperties": [
           "tokens"
+        ],
+        "objectModel": true
+      }
+    },
+    {
+      "componentId": "PrivacyConfig",
+      "schema": {
+        "kind": "object",
+        "nullable": true,
+        "properties": [
+          {
+            "name": "pii",
+            "required": false,
+            "type": {
+              "kind": "union",
+              "nullable": true,
+              "composition": "oneOf",
+              "branches": [
+                {
+                  "kind": "primitive",
+                  "primitive": "null",
+                  "nullable": false
+                },
+                {
+                  "kind": "reference",
+                  "nullable": false,
+                  "reference": "#/components/schemas/PIIProtectionPolicy"
+                }
+              ]
+            }
+          }
         ],
         "objectModel": true
       }
@@ -212807,6 +213232,112 @@
       }
     },
     {
+      "componentId": "ResilienceConfig",
+      "schema": {
+        "kind": "object",
+        "nullable": true,
+        "properties": [
+          {
+            "name": "retry",
+            "required": false,
+            "type": {
+              "kind": "union",
+              "nullable": true,
+              "composition": "oneOf",
+              "branches": [
+                {
+                  "kind": "primitive",
+                  "primitive": "null",
+                  "nullable": false
+                },
+                {
+                  "kind": "reference",
+                  "nullable": false,
+                  "reference": "#/components/schemas/RetryPolicySection"
+                }
+              ]
+            }
+          },
+          {
+            "name": "circuitBreaker",
+            "required": false,
+            "type": {
+              "kind": "union",
+              "nullable": true,
+              "composition": "oneOf",
+              "branches": [
+                {
+                  "kind": "primitive",
+                  "primitive": "null",
+                  "nullable": false
+                },
+                {
+                  "kind": "reference",
+                  "nullable": false,
+                  "reference": "#/components/schemas/CircuitBreakerPolicy"
+                }
+              ]
+            }
+          },
+          {
+            "name": "consecutiveErrors",
+            "required": false,
+            "type": {
+              "kind": "union",
+              "nullable": true,
+              "composition": "oneOf",
+              "branches": [
+                {
+                  "kind": "primitive",
+                  "primitive": "null",
+                  "nullable": false
+                },
+                {
+                  "kind": "reference",
+                  "nullable": false,
+                  "reference": "#/components/schemas/ConsecutiveErrorPolicy"
+                }
+              ]
+            }
+          },
+          {
+            "name": "totalErrors",
+            "required": false,
+            "type": {
+              "kind": "union",
+              "nullable": true,
+              "composition": "oneOf",
+              "branches": [
+                {
+                  "kind": "primitive",
+                  "primitive": "null",
+                  "nullable": false
+                },
+                {
+                  "kind": "reference",
+                  "nullable": false,
+                  "reference": "#/components/schemas/TotalErrorPolicy"
+                }
+              ]
+            }
+          },
+          {
+            "name": "functionTimeout",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": true,
+              "annotations": {
+                "pattern": "^-?(\\d\u002B\\.)?\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,7})?$"
+              }
+            }
+          }
+        ],
+        "objectModel": true
+      }
+    },
+    {
       "componentId": "ResponseContinuationToken",
       "schema": {
         "kind": "any-json",
@@ -212856,6 +213387,34 @@
                 "nullable": false,
                 "reference": "#/components/schemas/ActionRetryExclusion"
               }
+            }
+          }
+        ],
+        "objectModel": true
+      }
+    },
+    {
+      "componentId": "RetryPolicySection",
+      "schema": {
+        "kind": "object",
+        "nullable": true,
+        "properties": [
+          {
+            "name": "modelRetries",
+            "required": false,
+            "type": {
+              "kind": "reference",
+              "nullable": true,
+              "reference": "#/components/schemas/ModelRetryConfig"
+            }
+          },
+          {
+            "name": "functionRetries",
+            "required": false,
+            "type": {
+              "kind": "reference",
+              "nullable": true,
+              "reference": "#/components/schemas/FunctionRetryConfig"
             }
           }
         ],
@@ -217297,6 +217856,38 @@
           "permissionDeniedCount",
           "permissionDeniedRate",
           "totalCalls"
+        ],
+        "objectModel": true
+      }
+    },
+    {
+      "componentId": "TotalErrorPolicy",
+      "schema": {
+        "kind": "object",
+        "nullable": true,
+        "properties": [
+          {
+            "name": "maxTotalErrors",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "integer",
+              "format": "int32",
+              "nullable": true,
+              "annotations": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$"
+              }
+            }
+          },
+          {
+            "name": "terminationMessageTemplate",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": true
+            }
+          }
         ],
         "objectModel": true
       }

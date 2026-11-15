@@ -98,14 +98,13 @@ public class AgentBuilder
     internal readonly HPD.Agent.Permissions.PermissionOverrideRegistry _permissionOverrides = new(); // Permission overrides
 
     // Logging configuration - stored here and applied LAST in RegisterAutoMiddleware
-    private LoggingMiddlewareOptions? _loggingOptions = null;
-
     // Function Collapse tracking for middleware Collapsing
     internal readonly Dictionary<string, string> _functionToToolHarnessMap = new(); // functionName -> toolTypeName
     internal readonly Dictionary<string, string> _functionToSkillMap = new(); // functionName -> skillName
 
     // Internal subscriptions for agent-level observability (developer-only, hidden from users)
     private readonly List<Func<HPD.Events.IEventCoordinator, IDisposable>> _eventSubscriptionFactories = new();
+    private bool _loggingLayersRegistered;
 
     internal readonly Dictionary<Type, object> _providerConfigs = new();
     internal IServiceProvider? _serviceProvider;
@@ -1730,14 +1729,24 @@ public class AgentBuilder
         bool enableSensitiveData = false,
         LoggingMiddlewareOptions? options = null)
     {
-        // 1. Register Microsoft's LoggingChatClient middleware (user-facing LLM observability)
-        // This provides LLM-level invocation logging (requests/responses)
-        this.UseChatClientMiddleware((client, services) =>
+        Config.Observability ??= new ObservabilityConfig();
+        Config.Observability.Logging = options ?? LoggingMiddlewareOptions.Default;
+        Config.Observability.EnableSensitiveLogging = enableSensitiveData;
+
+        return this;
+    }
+
+    private void RegisterLoggingLayers(bool enableSensitiveData)
+    {
+        if (_loggingLayersRegistered)
+            return;
+        _loggingLayersRegistered = true;
+
+        UseChatClientMiddleware((client, services) =>
         {
             var loggerFactory = services?.GetService<ILoggerFactory>();
             if (loggerFactory == null || loggerFactory == NullLoggerFactory.Instance)
             {
-                // Log warning but don't fail - logging is optional
                 _logger?.CreateLogger<AgentBuilder>().LogWarning(
                     "Logging is enabled but ILoggerFactory is not registered in service provider. LLM-level logging will be skipped.");
                 return client;
@@ -1745,33 +1754,27 @@ public class AgentBuilder
 
             var loggingClient = new LoggingChatClient(
                 client,
-                loggerFactory.CreateLogger(typeof(LoggingChatClient)));
-
-            // Configure JSON serialization options to match HPD settings
-            loggingClient.JsonSerializerOptions = AIJsonUtilities.DefaultOptions;
-
+                loggerFactory.CreateLogger(typeof(LoggingChatClient)))
+            {
+                JsonSerializerOptions = AIJsonUtilities.DefaultOptions
+            };
             return loggingClient;
         });
 
-        // 2. Internally create LoggingEventObserver for agent-level observability (developer-only)
-        // This tracks agent decisions, state, circuit breakers, etc.
-        if (_logger != null)
+        var loggerFactory = _logger ?? _serviceProvider?.GetService<ILoggerFactory>();
+        if (loggerFactory != null)
         {
             var loggingObserver = new LoggingEventObserver(
-                _logger.CreateLogger<LoggingEventObserver>(),
+                loggerFactory.CreateLogger<LoggingEventObserver>(),
                 enableSensitiveData);
             _eventSubscriptionFactories.Add(coordinator =>
-                coordinator.Subscribe<AgentEvent>(loggingObserver.HandleAsync, new HPD.Events.EventSubscriptionOptions
-                {
-                    OwnerScope = HPD.Events.EventOwnerScope.SameOwner
-                }));
+                coordinator.Subscribe<AgentEvent>(
+                    loggingObserver.HandleAsync,
+                    new HPD.Events.EventSubscriptionOptions
+                    {
+                        OwnerScope = HPD.Events.EventOwnerScope.SameOwner
+                    }));
         }
-
-        // 3. Store logging options - LoggingMiddleware will be added LAST in RegisterAutoMiddleware()
-        // This ensures logging happens AFTER all other middleware (so it shows the final state)
-        _loggingOptions = options ?? LoggingMiddlewareOptions.Default;
-
-        return this;
     }
 
     /// <summary>
@@ -2373,7 +2376,7 @@ public class AgentBuilder
 
     private void ValidateRetryExclusions(IReadOnlyList<AIFunction> functions)
     {
-        var exclusions = _config.ErrorHandling?.FunctionRetries.Exclude;
+        var exclusions = _config.Resilience?.Retry?.FunctionRetries.Exclude;
         if (exclusions is null)
             return;
 
@@ -2385,7 +2388,7 @@ public class AgentBuilder
             if (!functionNames.Contains(selector))
             {
                 throw new InvalidOperationException(
-                    $"errorHandling.functionRetries.exclude.functions contains unknown function '{selector}'.");
+                    $"resilience.retry.functionRetries.exclude.functions contains unknown function '{selector}'.");
             }
         }
 
@@ -2401,7 +2404,7 @@ public class AgentBuilder
             if (!harnessNames.Contains(selector))
             {
                 throw new InvalidOperationException(
-                    $"errorHandling.functionRetries.exclude.harnesses contains unknown harness '{selector}'.");
+                    $"resilience.retry.functionRetries.exclude.harnesses contains unknown harness '{selector}'.");
             }
         }
 
@@ -2417,18 +2420,18 @@ public class AgentBuilder
             if (candidates.Length == 0)
             {
                 throw new InvalidOperationException(
-                    $"errorHandling.functionRetries.exclude.actions[{index}] references unknown function '{selector.Function}'.");
+                    $"resilience.retry.functionRetries.exclude.actions[{index}] references unknown function '{selector.Function}'.");
             }
             if (candidates.Length > 1)
             {
                 throw new InvalidOperationException(
-                    $"errorHandling.functionRetries.exclude.actions[{index}] references ambiguous function '{selector.Function}'.");
+                    $"resilience.retry.functionRetries.exclude.actions[{index}] references ambiguous function '{selector.Function}'.");
             }
             if (candidates[0] is not HPDAIFunctionFactory.HPDAIFunction function ||
                 function.OperationContract?.Actions.ContainsKey(selector.Action) != true)
             {
                 throw new InvalidOperationException(
-                    $"errorHandling.functionRetries.exclude.actions[{index}] references unknown action '{selector.Function}.{selector.Action}'.");
+                    $"resilience.retry.functionRetries.exclude.actions[{index}] references unknown action '{selector.Function}.{selector.Action}'.");
             }
         }
     }
@@ -2746,6 +2749,77 @@ public class AgentBuilder
     /// </summary>
     private Goals.GoalMiddleware? _goalMiddleware;
 
+    private void RegisterConfiguredResilienceMiddleware()
+    {
+        var resilience = _config.Resilience;
+        if (resilience?.Retry is { } retry && !_middlewares.OfType<RetryMiddleware>().Any())
+        {
+            _middlewares.Add(new RetryMiddleware(retry));
+        }
+        if (resilience?.CircuitBreaker is { } circuitBreaker &&
+            !_middlewares.OfType<CircuitBreakerMiddleware>().Any())
+        {
+            _middlewares.Add(new CircuitBreakerMiddleware
+            {
+                MaxConsecutiveCalls = circuitBreaker.MaxConsecutiveCalls,
+                TerminationMessageTemplate = circuitBreaker.TerminationMessageTemplate
+            });
+        }
+        if (resilience?.ConsecutiveErrors is { } consecutive &&
+            !_middlewares.OfType<ErrorTrackingMiddleware>().Any())
+        {
+            _middlewares.Add(new ErrorTrackingMiddleware
+            {
+                MaxConsecutiveErrors = consecutive.MaxConsecutiveErrors,
+                TerminationMessageTemplate = consecutive.TerminationMessageTemplate
+            });
+        }
+        if (resilience?.TotalErrors is { } total &&
+            !_middlewares.OfType<TotalErrorThresholdMiddleware>().Any())
+        {
+            _middlewares.Add(new TotalErrorThresholdMiddleware
+            {
+                MaxTotalErrors = total.MaxTotalErrors,
+                TerminationMessageTemplate = total.TerminationMessageTemplate
+            });
+        }
+        if (resilience?.FunctionTimeout is { } timeout &&
+            !_middlewares.OfType<Middleware.Function.FunctionTimeoutMiddleware>().Any())
+        {
+            _middlewares.Add(new Middleware.Function.FunctionTimeoutMiddleware(timeout));
+        }
+
+        if (_config.Privacy?.PII is { } pii &&
+            !_middlewares.OfType<PIIMiddleware>().Any())
+        {
+            var middleware = new PIIMiddleware
+            {
+                EmailStrategy = pii.EmailStrategy,
+                CreditCardStrategy = pii.CreditCardStrategy,
+                SSNStrategy = pii.SSNStrategy,
+                PhoneStrategy = pii.PhoneStrategy,
+                IPAddressStrategy = pii.IPAddressStrategy,
+                ApplyToInput = pii.ApplyToInput,
+                ApplyToOutput = pii.ApplyToOutput,
+                ApplyToToolResults = pii.ApplyToToolResults
+            };
+            foreach (var detector in pii.CustomDetectors)
+            {
+                middleware.AddCustomDetector(
+                    detector.Name,
+                    detector.Pattern,
+                    detector.Strategy,
+                    detector.Replacement);
+            }
+            _middlewares.Insert(0, middleware);
+        }
+
+        if (_config.Observability?.Logging is not null)
+        {
+            RegisterLoggingLayers(_config.Observability.EnableSensitiveLogging);
+        }
+    }
+
     private void RegisterAutoMiddleware(AgentBuildDependencies buildData)
     {
         // Capture builder registrations in host-owned runtime state for the Collapsing manager.
@@ -2766,6 +2840,8 @@ public class AgentBuilder
         _middlewares.Add(new Middleware.Image.ImageMiddleware(
             new Middleware.Image.PassThroughImageStrategy()));
 
+        RegisterConfiguredResilienceMiddleware();
+
         //
         // AUTO-REGISTER FUNCTION-LEVEL MIDDLEWARE
         //
@@ -2778,16 +2854,15 @@ public class AgentBuilder
         foreach (var retryMiddleware in _middlewares.OfType<RetryMiddleware>())
             retryMiddleware.UseProviderErrorHandler(buildData.ErrorHandler);
 
-        // Register FunctionTimeoutMiddleware if timeout is configured
-        if (_config.ErrorHandling?.SingleFunctionTimeout != null)
-        {
-            _middlewares.Add(new Middleware.Function.FunctionTimeoutMiddleware(_config.ErrorHandling.SingleFunctionTimeout.Value));
-        }
-
         // Register ErrorFormattingMiddleware ALWAYS (security boundary)
         // This sanitizes error messages to prevent exposing sensitive information to LLM
         // Even if ErrorHandling config is null, use default (secure) settings
-        _middlewares.Add(new Middleware.Function.ErrorFormattingMiddleware(_config.ErrorHandling ?? new ErrorHandlingConfig(), buildData.ErrorHandler));
+        if (!_middlewares.OfType<Middleware.Function.ErrorFormattingMiddleware>().Any())
+        {
+            _middlewares.Add(new Middleware.Function.ErrorFormattingMiddleware(
+                _config.ErrorHandling ?? new ErrorHandlingConfig(),
+                buildData.ErrorHandler));
+        }
 
         ToolHarnessExecutionMiddleware? toolHarnessExecution = null;
         ToolHarnessCatalog? selectedHarnessCatalog = null;
@@ -2865,9 +2940,11 @@ public class AgentBuilder
 
         // Register LoggingMiddleware LAST (if enabled via WithLogging())
         // This ensures it logs the FINAL state after all other middleware have run
-        if (_loggingOptions != null)
+        if (_config.Observability?.Logging is { } loggingOptions)
         {
-            var loggingMiddleware = new LoggingMiddleware(_logger, _loggingOptions);
+            var loggingMiddleware = new LoggingMiddleware(
+                _logger ?? _serviceProvider?.GetService<ILoggerFactory>(),
+                loggingOptions);
             _middlewares.Add(loggingMiddleware);
         }
     }
@@ -4107,6 +4184,43 @@ public static class AgentBuilderMiddlewareExtensions
         return builder;
     }
 
+    private static CircuitBreakerPolicy CircuitBreakerPolicyFrom(CircuitBreakerMiddleware middleware) => new()
+    {
+        MaxConsecutiveCalls = middleware.MaxConsecutiveCalls,
+        TerminationMessageTemplate = middleware.TerminationMessageTemplate
+    };
+
+    private static ConsecutiveErrorPolicy ConsecutiveErrorPolicyFrom(ErrorTrackingMiddleware middleware) => new()
+    {
+        MaxConsecutiveErrors = middleware.MaxConsecutiveErrors,
+        TerminationMessageTemplate = middleware.TerminationMessageTemplate
+    };
+
+    private static TotalErrorPolicy TotalErrorPolicyFrom(TotalErrorThresholdMiddleware middleware) => new()
+    {
+        MaxTotalErrors = middleware.MaxTotalErrors,
+        TerminationMessageTemplate = middleware.TerminationMessageTemplate
+    };
+
+    private static PIIProtectionPolicy PIIProtectionPolicyFrom(PIIMiddleware middleware) => new()
+    {
+        EmailStrategy = middleware.EmailStrategy,
+        CreditCardStrategy = middleware.CreditCardStrategy,
+        SSNStrategy = middleware.SSNStrategy,
+        PhoneStrategy = middleware.PhoneStrategy,
+        IPAddressStrategy = middleware.IPAddressStrategy,
+        ApplyToInput = middleware.ApplyToInput,
+        ApplyToOutput = middleware.ApplyToOutput,
+        ApplyToToolResults = middleware.ApplyToToolResults,
+        CustomDetectors = middleware.CustomDetectors.Select(static detector => new DeclarativePIIDetector
+        {
+            Name = detector.Name,
+            Pattern = detector.Pattern.ToString(),
+            Strategy = detector.Strategy,
+            Replacement = detector.Replacement
+        }).ToList()
+    };
+
     /// <summary>
     /// Adds circuit breaker middleware to prevent infinite loops from repeated identical tool calls.
     /// </summary>
@@ -4131,6 +4245,8 @@ public static class AgentBuilderMiddlewareExtensions
         {
             MaxConsecutiveCalls = maxConsecutiveCalls
         };
+        builder.Config.Resilience ??= new ResilienceConfig();
+        builder.Config.Resilience.CircuitBreaker = CircuitBreakerPolicyFrom(middleware);
         return builder.WithMiddleware(middleware);
     }
 
@@ -4155,6 +4271,8 @@ public static class AgentBuilderMiddlewareExtensions
     {
         var middleware = new CircuitBreakerMiddleware();
         configure(middleware);
+        builder.Config.Resilience ??= new ResilienceConfig();
+        builder.Config.Resilience.CircuitBreaker = CircuitBreakerPolicyFrom(middleware);
         return builder.WithMiddleware(middleware);
     }
 
@@ -4178,6 +4296,8 @@ public static class AgentBuilderMiddlewareExtensions
         {
             MaxConsecutiveErrors = maxConsecutiveErrors
         };
+        builder.Config.Resilience ??= new ResilienceConfig();
+        builder.Config.Resilience.ConsecutiveErrors = ConsecutiveErrorPolicyFrom(middleware);
         return builder.WithMiddleware(middleware);
     }
 
@@ -4204,6 +4324,8 @@ public static class AgentBuilderMiddlewareExtensions
     {
         var middleware = new ErrorTrackingMiddleware();
         configure(middleware);
+        builder.Config.Resilience ??= new ResilienceConfig();
+        builder.Config.Resilience.ConsecutiveErrors = ConsecutiveErrorPolicyFrom(middleware);
         return builder.WithMiddleware(middleware);
     }
 
@@ -4236,6 +4358,8 @@ public static class AgentBuilderMiddlewareExtensions
         {
             MaxTotalErrors = maxTotalErrors
         };
+        builder.Config.Resilience ??= new ResilienceConfig();
+        builder.Config.Resilience.TotalErrors = TotalErrorPolicyFrom(middleware);
         return builder.WithMiddleware(middleware);
     }
 
@@ -4262,6 +4386,8 @@ public static class AgentBuilderMiddlewareExtensions
     {
         var middleware = new TotalErrorThresholdMiddleware();
         configure(middleware);
+        builder.Config.Resilience ??= new ResilienceConfig();
+        builder.Config.Resilience.TotalErrors = TotalErrorPolicyFrom(middleware);
         return builder.WithMiddleware(middleware);
     }
 
@@ -4271,7 +4397,7 @@ public static class AgentBuilderMiddlewareExtensions
 
     /// <summary>
     /// Adds provider-aware retry middleware for model and function calls.
-    /// Uses settings from AgentConfig.ErrorHandling for retry behavior.
+    /// Uses settings from <see cref="AgentConfig.Resilience"/> for retry behavior.
     /// </summary>
     /// <param name="builder">The agent builder</param>
     /// <returns>The builder for chaining</returns>
@@ -4293,7 +4419,7 @@ public static class AgentBuilderMiddlewareExtensions
     /// .WithPermissions()      // Innermost - check permissions before execution
     /// </code>
     /// <para>
-    /// The middleware uses settings from <c>AgentConfig.ErrorHandling</c>:
+    /// The middleware uses settings from <c>AgentConfig.Resilience.Retry</c>:
     /// - ModelRetries and FunctionRetries budgets and backoff
     /// - FunctionRetries exclusions by harness, function, or action
     /// - Per-scope provider delay, category, and custom-strategy settings
@@ -4303,28 +4429,33 @@ public static class AgentBuilderMiddlewareExtensions
     /// <code>
     /// var config = new AgentConfig
     /// {
-    ///     ErrorHandling = new ErrorHandlingConfig
+    ///     Resilience = new ResilienceConfig
     ///     {
-    ///         FunctionRetries = new()
+    ///         Retry = new RetryPolicySection
     ///         {
-    ///             MaxRetries = 5,
-    ///             RetryDelay = TimeSpan.FromSeconds(2)
+    ///             FunctionRetries = new()
+    ///             {
+    ///                 MaxRetries = 5,
+    ///                 RetryDelay = TimeSpan.FromSeconds(2)
+    ///             }
     ///         }
     ///     }
     /// };
     ///
     /// await using var agent = await new AgentBuilder(config)
-    ///     .WithRetry()  // Uses config.ErrorHandling settings
+    ///     .WithRetry()  // Uses config.Resilience.Retry settings
     ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithRetry(this AgentBuilder builder)
     {
         EnsureRetryMiddlewareNotRegistered(builder);
-        var config = builder.Config.ErrorHandling ?? new ErrorHandlingConfig();
+        builder.Config.Resilience ??= new ResilienceConfig();
+        builder.Config.Resilience.Retry ??= new RetryPolicySection();
+        var retry = builder.Config.Resilience.Retry;
         // This convenience overload uses GenericErrorHandler. Hosts that need provider-specific
         // classification construct RetryMiddleware with their provider error handler.
-        var middleware = new RetryMiddleware(config);
+        var middleware = new RetryMiddleware(retry);
         return builder.WithMiddleware(middleware);
     }
 
@@ -4332,7 +4463,7 @@ public static class AgentBuilderMiddlewareExtensions
     /// Adds provider-aware retry middleware for model and function calls with custom configuration.
     /// </summary>
     /// <param name="builder">The agent builder</param>
-    /// <param name="configure">Action to configure error handling settings</param>
+    /// <param name="configure">Action to configure model and function retry policy</param>
     /// <returns>The builder for chaining</returns>
     /// <example>
     /// <code>
@@ -4351,14 +4482,15 @@ public static class AgentBuilderMiddlewareExtensions
     ///     .BuildAsync();
     /// </code>
     /// </example>
-    public static AgentBuilder WithRetry(this AgentBuilder builder, Action<ErrorHandlingConfig> configure)
+    public static AgentBuilder WithRetry(this AgentBuilder builder, Action<RetryPolicySection> configure)
     {
         EnsureRetryMiddlewareNotRegistered(builder);
-        var config = new ErrorHandlingConfig();
-        configure(config);
+        builder.Config.Resilience ??= new ResilienceConfig();
+        builder.Config.Resilience.Retry ??= new RetryPolicySection();
+        configure(builder.Config.Resilience.Retry);
         // This convenience overload uses GenericErrorHandler. Hosts that need provider-specific
         // classification construct RetryMiddleware with their provider error handler.
-        var middleware = new RetryMiddleware(config);
+        var middleware = new RetryMiddleware(builder.Config.Resilience.Retry);
         return builder.WithMiddleware(middleware);
     }
 
@@ -4373,7 +4505,7 @@ public static class AgentBuilderMiddlewareExtensions
 
     /// <summary>
     /// Adds function timeout middleware to enforce execution time limits.
-    /// Uses <see cref="ErrorHandlingConfig.SingleFunctionTimeout"/> when configured; otherwise this
+    /// Uses <see cref="ResilienceConfig.FunctionTimeout"/> when configured; otherwise this
     /// explicit convenience method applies a 30-second timeout. Building an agent without calling
     /// this method does not enable function timeouts unless the configuration contains a value.
     /// </summary>
@@ -4401,21 +4533,23 @@ public static class AgentBuilderMiddlewareExtensions
     /// <code>
     /// var config = new AgentConfig
     /// {
-    ///     ErrorHandling = new ErrorHandlingConfig
+    ///     Resilience = new ResilienceConfig
     ///     {
-    ///         SingleFunctionTimeout = TimeSpan.FromMinutes(2)
+    ///         FunctionTimeout = TimeSpan.FromMinutes(2)
     ///     }
     /// };
     ///
     /// await using var agent = await new AgentBuilder(config)
-    ///     .WithFunctionTimeout()  // Uses config.ErrorHandling.SingleFunctionTimeout
+    ///     .WithFunctionTimeout()  // Uses config.Resilience.FunctionTimeout
     ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithFunctionTimeout(this AgentBuilder builder)
     {
-        var timeout = builder.Config.ErrorHandling?.SingleFunctionTimeout ?? TimeSpan.FromSeconds(30);
+        var timeout = builder.Config.Resilience?.FunctionTimeout ?? TimeSpan.FromSeconds(30);
         var middleware = new FunctionTimeoutMiddleware(timeout);
+        builder.Config.Resilience ??= new ResilienceConfig();
+        builder.Config.Resilience.FunctionTimeout = timeout;
         return builder.WithMiddleware(middleware);
     }
 
@@ -4435,6 +4569,8 @@ public static class AgentBuilderMiddlewareExtensions
     public static AgentBuilder WithFunctionTimeout(this AgentBuilder builder, TimeSpan timeout)
     {
         var middleware = new FunctionTimeoutMiddleware(timeout);
+        builder.Config.Resilience ??= new ResilienceConfig();
+        builder.Config.Resilience.FunctionTimeout = timeout;
         return builder.WithMiddleware(middleware);
     }
 
@@ -4492,7 +4628,7 @@ public static class AgentBuilderMiddlewareExtensions
     /// </example>
     public static AgentBuilder WithErrorFormatting(this AgentBuilder builder)
     {
-        var config = builder.Config.ErrorHandling ?? new ErrorHandlingConfig();
+        var config = builder.Config.ErrorHandling ??= new ErrorHandlingConfig();
         var middleware = new ErrorFormattingMiddleware(config);
         return builder.WithMiddleware(middleware);
     }
@@ -4524,6 +4660,8 @@ public static class AgentBuilderMiddlewareExtensions
     /// </example>
     public static AgentBuilder WithErrorFormatting(this AgentBuilder builder, bool includeDetailedErrors)
     {
+        var config = builder.Config.ErrorHandling ??= new ErrorHandlingConfig();
+        config.IncludeDetailedErrorsInChat = includeDetailedErrors;
         var middleware = new ErrorFormattingMiddleware
         {
             IncludeDetailedErrorsInChat = includeDetailedErrors
@@ -4557,7 +4695,8 @@ public static class AgentBuilderMiddlewareExtensions
     /// <item><b>ErrorFormattingMiddleware</b> - Innermost, sanitizes errors for LLM (security boundary)</item>
     /// </list>
     /// <para>
-    /// Function-level middleware uses settings from <c>AgentConfig.ErrorHandling</c> for retry/timeout/formatting configuration.
+    /// Function-level middleware uses <c>AgentConfig.Resilience</c> for retry and timeout
+    /// configuration and <c>AgentConfig.ErrorHandling</c> for formatting.
     /// </para>
     /// <para>
     /// <b>Security Note:</b> Detailed exception messages are included by default. Set
@@ -4594,7 +4733,7 @@ public static class AgentBuilderMiddlewareExtensions
         builder.WithTotalErrorThreshold(maxTotalErrors);
 
         // Function-level middleware (onion pattern: retry → timeout → formatting)
-        // These use AgentConfig.ErrorHandling for retry/timeout/formatting settings
+        // These materialize retry/timeout in Resilience and formatting in ErrorHandling.
         builder.WithRetry();
         builder.WithFunctionTimeout();
         builder.WithErrorFormatting();  // Innermost - sanitizes errors for LLM
@@ -4610,7 +4749,7 @@ public static class AgentBuilderMiddlewareExtensions
     /// <param name="configureCircuitBreaker">Action to configure circuit breaker middleware</param>
     /// <param name="configureErrorTracking">Optional action to configure error tracking middleware</param>
     /// <param name="configureTotalThreshold">Optional action to configure total error threshold middleware</param>
-    /// <param name="configureRetry">Optional action to configure function RetryMiddleware </param>
+    /// <param name="configureRetry">Optional action to configure the retry policy section.</param>
     /// <param name="configureFunctionTimeout">Optional timeout for function execution</param>
     /// <param name="includeDetailedErrorsInChat">Optional flag controlling detailed error messages in LLM chat. When omitted, the configured value is used; a new <see cref="ErrorHandlingConfig"/> defaults to <c>true</c>.</param>
     /// <returns>The builder for chaining</returns>
@@ -4655,7 +4794,7 @@ public static class AgentBuilderMiddlewareExtensions
         Action<CircuitBreakerMiddleware> configureCircuitBreaker,
         Action<ErrorTrackingMiddleware>? configureErrorTracking = null,
         Action<TotalErrorThresholdMiddleware>? configureTotalThreshold = null,
-        Action<ErrorHandlingConfig>? configureRetry = null,
+        Action<RetryPolicySection>? configureRetry = null,
         TimeSpan? configureFunctionTimeout = null,
         bool? includeDetailedErrorsInChat = null)
     {
@@ -4724,6 +4863,8 @@ public static class AgentBuilderMiddlewareExtensions
     public static AgentBuilder WithPIIProtection(this AgentBuilder builder)
     {
         var middleware = new PIIMiddleware();
+        builder.Config.Privacy ??= new PrivacyConfig();
+        builder.Config.Privacy.PII = PIIProtectionPolicyFrom(middleware);
         // PII must run before other middleware observes the message.
         return builder
             .WithMiddleware(middleware)
@@ -4765,6 +4906,8 @@ public static class AgentBuilderMiddlewareExtensions
     {
         var middleware = new PIIMiddleware();
         configure(middleware);
+        builder.Config.Privacy ??= new PrivacyConfig();
+        builder.Config.Privacy.PII = PIIProtectionPolicyFrom(middleware);
         // PII must run before other middleware observes the message.
         return builder
             .WithMiddleware(middleware)

@@ -162,34 +162,37 @@ public sealed class AgentConfigSerializationTests
     [Theory]
     [InlineData(HpdConfigFormat.Json)]
     [InlineData(HpdConfigFormat.Yaml)]
-    public void ErrorHandling_SplitRetryPolicies_RoundTrip(HpdConfigFormat format)
+    public void Resilience_RetryPolicies_RoundTrip(HpdConfigFormat format)
     {
         var config = new AgentConfig
         {
             Name = "Retry Agent",
-            ErrorHandling = new ErrorHandlingConfig
+            Resilience = new ResilienceConfig
             {
-                ModelRetries = new()
+                Retry = new RetryPolicySection
                 {
-                    MaxRetries = 4,
-                    RetryDelay = TimeSpan.FromMilliseconds(25)
-                },
-                FunctionRetries = new()
-                {
-                    MaxRetries = 2,
-                    RetryDelay = TimeSpan.FromMilliseconds(50),
-                    Exclude = new()
+                    ModelRetries = new()
                     {
-                        Harnesses = ["ComputerHarness"],
-                        Functions = ["SendPayment"],
-                        Actions =
-                        [
-                            new ActionRetryExclusion
-                            {
-                                Function = "Files",
-                                Action = "delete"
-                            }
-                        ]
+                        MaxRetries = 4,
+                        RetryDelay = TimeSpan.FromMilliseconds(25)
+                    },
+                    FunctionRetries = new()
+                    {
+                        MaxRetries = 2,
+                        RetryDelay = TimeSpan.FromMilliseconds(50),
+                        Exclude = new()
+                        {
+                            Harnesses = ["ComputerHarness"],
+                            Functions = ["SendPayment"],
+                            Actions =
+                            [
+                                new ActionRetryExclusion
+                                {
+                                    Function = "Files",
+                                    Action = "delete"
+                                }
+                            ]
+                        }
                     }
                 }
             }
@@ -199,14 +202,15 @@ public sealed class AgentConfigSerializationTests
         var restored = HpdAgentConfigSerializer.Deserialize(serialized, format);
 
         restored.Should().NotBeNull();
-        restored!.ErrorHandling.Should().NotBeNull();
-        restored.ErrorHandling!.ModelRetries.MaxRetries.Should().Be(4);
-        restored.ErrorHandling.FunctionRetries.MaxRetries.Should().Be(2);
-        restored.ErrorHandling.FunctionRetries.Exclude.Harnesses.Should()
+        restored!.Resilience.Should().NotBeNull();
+        restored.Resilience!.Retry.Should().NotBeNull();
+        restored.Resilience.Retry!.ModelRetries.MaxRetries.Should().Be(4);
+        restored.Resilience.Retry.FunctionRetries.MaxRetries.Should().Be(2);
+        restored.Resilience.Retry.FunctionRetries.Exclude.Harnesses.Should()
             .BeEquivalentTo("ComputerHarness");
-        restored.ErrorHandling.FunctionRetries.Exclude.Functions.Should()
+        restored.Resilience.Retry.FunctionRetries.Exclude.Functions.Should()
             .BeEquivalentTo("SendPayment");
-        restored.ErrorHandling.FunctionRetries.Exclude.Actions.Should().ContainSingle()
+        restored.Resilience.Retry.FunctionRetries.Exclude.Actions.Should().ContainSingle()
             .Which.Should().BeEquivalentTo(new ActionRetryExclusion
             {
                 Function = "Files",
