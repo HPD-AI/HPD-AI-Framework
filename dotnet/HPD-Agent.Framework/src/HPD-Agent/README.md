@@ -55,6 +55,57 @@ Provider and integration packages stay optional:
 - use `HPD-Agent.AspNetCore` for hosted sessions, committed SSE, and uploads;
 - use `HPD-Agent.AspNetCore.OpenApi` to publish the hosted API contract.
 
+## Configuration model
+
+Use `AgentConfig` for the portable agent definition and `AgentBuilder` for
+host-owned construction inputs:
+
+```csharp
+var definition = new AgentConfig
+{
+    Name = "Support Assistant",
+    SystemInstructions = "Resolve support requests accurately."
+};
+
+await using var agent = await new AgentBuilder(definition)
+    .WithChatClient(chatClient)
+    .WithFileSessionStore("./sessions")
+    .WithServiceProvider(services)
+    .BuildAsync();
+```
+
+`AgentConfig` can be serialized, stored, replayed, and shared with generated
+clients. Stores, concrete clients, service providers, callbacks, and event
+authority are supplied through `AgentBuilder`.
+
+Use `AgentRunConfig` for one invocation:
+
+```csharp
+var invocation = new AgentRunConfig
+{
+    SystemInstructions = new()
+    {
+        Append = "Keep the response concise."
+    },
+    RuntimeMiddleware = [new RequestAuditMiddleware()]
+};
+
+await agent.RunAsync(
+    "Where is order 1042?",
+    sessionId: "support-1042",
+    threadId: "main",
+    runConfig: invocation);
+```
+
+`AgentRunConfig` remains one C# options surface. Its portable members participate
+in JSON/YAML serialization and durable run policy. Runtime-only members contain
+executable host values and are excluded from that document. The full invocation
+is snapshotted before execution, so later changes to the original object do not
+alter an active run.
+
+Read [Invocation context ownership](Agent/ContextOwnership.md) before sharing
+host objects through run context.
+
 ## Middleware
 
 `IAgentMiddleware` adds cross-cutting behavior around agent turns, iterations, model

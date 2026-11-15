@@ -66,7 +66,7 @@ that created it.
 ## Register and configure
 
 ```csharp
-var agent = await new AgentBuilder(agentConfig)
+await using var agent = await new AgentBuilder(agentConfig)
     .WithToolHarness<SearchHarness>(options =>
         options.Configure(new SearchSettings
         {
