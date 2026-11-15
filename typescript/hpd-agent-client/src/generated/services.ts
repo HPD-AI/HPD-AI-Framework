@@ -50,7 +50,6 @@ import type {
   AudioTransportConfig,
   AutomaticCompactionPolicy,
   BackgroundResponsesConfig,
-  CachingConfig,
   ChatClientConfig,
   ChatDetails,
   ChatMessage,

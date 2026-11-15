@@ -1532,7 +1532,7 @@ public class AgentBuilder
     // ────────────────────────────────────────────────────────────────────────────
     // .WithTelemetry()  → Automatic: Microsoft middleware + HPD service
     // .WithLogging()    → Automatic: Microsoft middleware + HPD service
-    // .WithCaching()    → Automatic: Microsoft middleware only
+    // .WithDistributedCaching() → Automatic: Microsoft middleware only
     //
     // Result: Zero boilerplate, production-grade observability at both layers.
     //
@@ -1797,77 +1797,52 @@ public class AgentBuilder
     }
 
     /// <summary>
-    /// Enables distributed caching for LLM response caching.
-    /// Dramatically reduces latency and cost for repeated queries.
-    /// Automatically applies Microsoft's <c>DistributedCachingChatClient</c> middleware.
+    /// Adds Microsoft's <see cref="DistributedCachingChatClient"/> to the chat-client pipeline.
     /// </summary>
-    /// <param name="cacheExpiration">Cache TTL (default: 30 minutes)</param>
-    /// <param name="cacheStatefulConversations">Allow caching with ConversationId (default: false)</param>
-    /// <returns>The builder for chaining</returns>
+    /// <param name="storage">
+    /// Optional distributed cache. When omitted, an <see cref="IDistributedCache"/> is resolved from
+    /// the configured service provider.
+    /// </param>
+    /// <param name="configure">Optional callback for cache-client behavior such as response coalescing.</param>
+    /// <returns>The builder for chaining.</returns>
     /// <remarks>
     /// <para>
-    /// This method automatically registers Microsoft's <c>DistributedCachingChatClient</c> middleware
-    /// which caches LLM responses in <c>IDistributedCache</c> (Redis, Memory, SQL, etc.).
+    /// Cache expiration and storage policy belong to the registered <see cref="IDistributedCache"/>.
+    /// This wrapper caches model responses only. Agent execution, tool execution, events, and thread
+    /// journal writes continue to run normally on cache hits.
     /// </para>
-    /// <para><b>Requirements:</b> Call <c>WithServiceProvider()</c> with an <c>IDistributedCache</c> registered.</para>
-    /// <para><b>How It Works:</b></para>
-    /// <list type="number">
-    /// <item><description>Generates cache key from messages + options (uses JSON serialization)</description></item>
-    /// <item><description>Checks cache before making LLM call (cache hit = skip LLM entirely)</description></item>
-    /// <item><description>Stores LLM response in cache for future requests (coalesces streaming responses)</description></item>
-    /// <item><description>Respects <paramref name="cacheExpiration"/> TTL</description></item>
-    /// </list>
-    /// <para><b>Performance Impact:</b></para>
-    /// <list type="bullet">
-    /// <item><description>Cache hit: ~1-5ms (vs 500-5000ms LLM call)</description></item>
-    /// <item><description>Cost savings: 100% for cached responses (no LLM API call)</description></item>
-    /// <item><description>Best for: Repeated queries, testing, demo environments</description></item>
-    /// </list>
+    /// <para>
+    /// Stateful requests with <see cref="ChatOptions.ConversationId"/>, background responses, and
+    /// continuation tokens bypass response caching because their provider-side state is external
+    /// to the serialized request.
+    /// </para>
     /// </remarks>
-    /// <example>
-    /// <code>
-    /// // Setup in your DI container:
-    /// services.AddDistributedMemoryCache();  // Or Redis, SQL, etc.
-    ///
-    /// var agent = await new AgentBuilder()
-    ///     .WithServiceProvider(services)  // IDistributedCache required
-    ///     .WithCaching(
-    ///         cacheExpiration: TimeSpan.FromHours(1),
-    ///         cacheStatefulConversations: false)  // Don't cache with ConversationId
-    ///     .WithOpenAI(model: "gpt-4", apiKey: apiKey)
-    ///     .BuildAsync();
-    ///
-    /// // First call: Cache miss → LLM call → Store in cache
-    /// await agent.RunAsync("What is 2+2?");
-    ///
-    /// // Second call: Cache hit → Return from cache (no LLM call!)
-    /// await agent.RunAsync("What is 2+2?");
-    /// </code>
-    /// </example>
-    public AgentBuilder WithCaching(TimeSpan? cacheExpiration = null, bool cacheStatefulConversations = false)
+    public AgentBuilder WithDistributedCaching(
+        IDistributedCache? storage = null,
+        Action<DistributedCachingChatClient>? configure = null)
     {
-        _config.Caching = new CachingConfig
-        {
-            Enabled = true,
-            CacheExpiration = cacheExpiration ?? TimeSpan.FromMinutes(30),
-            CacheStatefulConversations = cacheStatefulConversations,
-            CoalesceStreamingUpdates = true
-        };
-
-        // Automatically register Microsoft's DistributedCachingChatClient middleware
-        // This provides LLM-level response caching
         this.UseChatClientMiddleware((client, services) =>
         {
-            var cache = services?.GetService<IDistributedCache>();
-            if (cache == null)
+            var cache = storage ?? services?.GetService<IDistributedCache>();
+            if (cache is null)
             {
-                // Log warning but don't fail - caching is optional
-                _logger?.CreateLogger<AgentBuilder>().LogWarning(
-                    "Caching is enabled but IDistributedCache is not registered in service provider. Caching will be skipped.");
-                return client;
+                throw new InvalidOperationException(
+                    "Distributed caching requires an IDistributedCache registered in the agent service provider " +
+                    "or supplied to WithDistributedCaching.");
             }
 
-            return new DistributedCachingChatClient(client, cache);
+            var cachingClient = new HpdDistributedCachingChatClient(client, cache);
+            var metadata = client.GetService(typeof(ChatClientMetadata)) as ChatClientMetadata;
+            var cacheKeyValues = new List<object>();
+            if (!string.IsNullOrWhiteSpace(metadata?.ProviderName))
+                cacheKeyValues.Add(metadata.ProviderName);
+            if (!string.IsNullOrWhiteSpace(metadata?.DefaultModelId))
+                cacheKeyValues.Add(metadata.DefaultModelId);
+            if (cacheKeyValues.Count > 0)
+                cachingClient.CacheKeyAdditionalValues = cacheKeyValues;
+
+            configure?.Invoke(cachingClient);
+            return cachingClient;
         });
 
         return this;

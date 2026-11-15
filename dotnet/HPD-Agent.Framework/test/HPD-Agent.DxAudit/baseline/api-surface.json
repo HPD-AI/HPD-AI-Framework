@@ -1,11 +1,11 @@
 {
-  "TypeCount": 1557,
-  "MethodCount": 6056,
-  "ConstructorCount": 1012,
-  "PropertyCount": 5371,
+  "TypeCount": 1556,
+  "MethodCount": 6054,
+  "ConstructorCount": 1011,
+  "PropertyCount": 5364,
   "FieldCount": 1169,
   "EventCount": 1,
-  "Fingerprint": "7bc7b74193d94388dfa3b9b5025c815dafe359c5800033b9bde10817cac902cd",
+  "Fingerprint": "ff1c0f34e69c4ecc8a3f2cbe62c153035b62e4e52f04bfc454e9c96237dac09e",
   "Types": [
     {
       "FullName": "AIDescriptionAttribute",
@@ -460,6 +460,7 @@
       "Methods": [
         "System.String[]System.String[]static System.ValueTuple\u003CMicrosoft.Extensions.AI.AIFunction,System.Collections.Generic.List\u003CMicrosoft.Extensions.AI.AIFunction\u003E\u003E WrapClientTools(System.String[]System.Collections.Generic.List\u003CMicrosoft.Extensions.AI.AIFunction\u003E tools,System.String[]System.Int32 maxFunctionNamesInDescription = 10,System.String[]System.String? FunctionResult = null,System.String[]System.String? SystemPrompt = null)",
         "System.String[]System.String[]static System.ValueTuple\u003CMicrosoft.Extensions.AI.AIFunction,System.Collections.Generic.List\u003CMicrosoft.Extensions.AI.AIFunction\u003E\u003E WrapMcpServerTools(System.String[]System.String serverName,System.String[]System.Collections.Generic.List\u003CMicrosoft.Extensions.AI.AIFunction\u003E tools,System.String[]System.Int32 maxFunctionNamesInDescription = 10,System.String[]System.String? FunctionResult = null,System.String[]System.String? SystemPrompt = null,System.String[]System.String? customDescription = null,System.String[]System.String? parentContainer = null)",
+        "System.String[]System.String[]static System.ValueTuple\u003CMicrosoft.Extensions.AI.AIFunction,System.Collections.Generic.List\u003CMicrosoft.Extensions.AI.AIFunction\u003E\u003E WrapMcpServerTools(System.String[]System.String serverName,System.String[]System.Collections.Generic.List\u003CMicrosoft.Extensions.AI.AIFunction\u003E tools,System.String[]System.Int32 maxFunctionNamesInDescription,System.String[]System.String? FunctionResult,System.String[]System.String? SystemPrompt,System.String[]System.String? customDescription,System.String[]System.String? parentContainer,System.String[]System.Nullable\u003CHPD.Agent.CapabilityId\u003E? parentCapabilityId)",
         "System.String[]System.String[]static System.ValueTuple\u003CMicrosoft.Extensions.AI.AIFunction,System.Collections.Generic.List\u003CMicrosoft.Extensions.AI.AIFunction\u003E\u003E WrapOpenApiTools(System.String[]System.String containerName,System.String[]System.Collections.Generic.List\u003CMicrosoft.Extensions.AI.AIFunction\u003E tools,System.String[]System.Int32 maxFunctionNamesInDescription = 10,System.String[]System.String? functionResult = null,System.String[]System.String? systemPrompt = null,System.String[]System.String? customDescription = null,System.String[]System.String? parentContainer = null)",
         "System.String[]System.String[]static System.ValueTuple\u003CMicrosoft.Extensions.AI.AIFunction,System.Collections.Generic.List\u003CMicrosoft.Extensions.AI.AIFunction\u003E\u003E WrapclientToolHarness(System.String[]System.String toolName,System.String[]System.String description,System.String[]System.Collections.Generic.List\u003CMicrosoft.Extensions.AI.AIFunction\u003E tools,System.String[]System.Int32 maxFunctionNamesInDescription = 10,System.String[]System.String? FunctionResult = null,System.String[]System.String? SystemPrompt = null)"
       ],
@@ -881,10 +882,10 @@
         "System.String[]System.String[]HPD.Agent.AgentBuilder UseTextToSpeechClientMiddleware(System.String[]System.Func\u003CMicrosoft.Extensions.AI.ITextToSpeechClient,System.IServiceProvider,Microsoft.Extensions.AI.ITextToSpeechClient\u003E middleware)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithBackgroundResponses(System.String[]System.Action\u003CHPD.Agent.BackgroundResponsesConfig\u003E configure)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithBackgroundResponses(System.String[]System.Boolean enabled = true)",
-        "System.String[]System.String[]HPD.Agent.AgentBuilder WithCaching(System.String[]System.Nullable\u003CSystem.TimeSpan\u003E? cacheExpiration = null,System.String[]System.Boolean cacheStatefulConversations = false)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithChatClient(System.String[]Microsoft.Extensions.AI.IChatClient client)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithContentStore(System.String[]HPD.Agent.IContentStore store)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithContinuationExtensionAmount(System.String[]System.Int32 extensionAmount)",
+        "System.String[]System.String[]HPD.Agent.AgentBuilder WithDistributedCaching(System.String[]Microsoft.Extensions.Caching.Distributed.IDistributedCache? storage = null,System.String[]System.Action\u003CMicrosoft.Extensions.AI.DistributedCachingChatClient\u003E? configure = null)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithEventApplicationIdentity(System.String[]System.String applicationAssemblyIdentity)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithEventComposition(System.String[]HPD.Agent.Serialization.AgentEventComposition composition)",
         "System.String[]System.String[]HPD.Agent.AgentBuilder WithEventDurability(System.String[]System.String discriminator,System.String[]HPD.Agent.Serialization.AgentEventDurability durability)",
@@ -1436,7 +1437,6 @@
         "System.String[]HPD.Agent.AgenticLoopConfig? AgenticLoop { get; set; }",
         "System.String[]HPD.Agent.AudioConfig? Audio { get; set; }",
         "System.String[]HPD.Agent.BackgroundResponsesConfig? BackgroundResponses { get; set; }",
-        "System.String[]HPD.Agent.CachingConfig? Caching { get; set; }",
         "System.String[]HPD.Agent.CollapsingConfig Collapsing { get; set; }",
         "System.String[]HPD.Agent.CompactionConfig? Compaction { get; set; }",
         "System.String[]HPD.Agent.ErrorHandlingConfig? ErrorHandling { get; set; }",
@@ -2243,13 +2243,10 @@
         "System.String[]System.String[]HPD.Agent.AgentLoopState AppendToTurnHistory(System.String[]Microsoft.Extensions.AI.ChatMessage message)",
         "System.String[]System.String[]HPD.Agent.AgentLoopState ClearResponseUpdates()",
         "System.String[]System.String[]HPD.Agent.AgentLoopState CompleteFunction(System.String[]System.String functionName)",
-        "System.String[]System.String[]HPD.Agent.AgentLoopState DisableHistoryTracking()",
-        "System.String[]System.String[]HPD.Agent.AgentLoopState EnableHistoryTracking(System.String[]System.Int32 messageCount,System.String[]System.String? responseId = null)",
         "System.String[]System.String[]HPD.Agent.AgentLoopState NextIteration()",
         "System.String[]System.String[]HPD.Agent.AgentLoopState Terminate(System.String[]System.String reason)",
         "System.String[]System.String[]HPD.Agent.AgentLoopState WithAccumulatedUsage(System.String[]Microsoft.Extensions.AI.UsageDetails? iterationUsage)",
         "System.String[]System.String[]HPD.Agent.AgentLoopState WithLastAssistantMessageId(System.String[]System.String messageId)",
-        "System.String[]System.String[]HPD.Agent.AgentLoopState WithLastProviderResponseId(System.String[]System.String responseId)",
         "System.String[]System.String[]HPD.Agent.AgentLoopState WithMessages(System.String[]System.Collections.Generic.IReadOnlyList\u003CMicrosoft.Extensions.AI.ChatMessage\u003E messages)",
         "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.AgentLoopState? other)",
         "System.String[]System.String[]System.String Serialize()",
@@ -2262,7 +2259,6 @@
       "Properties": [
         "System.String[]HPD.Agent.MiddlewareState MiddlewareState { get; init; }",
         "System.String[]Microsoft.Extensions.AI.UsageDetails? AccumulatedUsage { get; init; }",
-        "System.String[]System.Boolean InnerClientTracksHistory { get; init; }",
         "System.String[]System.Boolean IsTerminated { get; init; }",
         "System.String[]System.Collections.Generic.IReadOnlyList\u003CMicrosoft.Extensions.AI.ChatMessage\u003E CurrentMessages { get; init; }",
         "System.String[]System.Collections.Generic.IReadOnlyList\u003CMicrosoft.Extensions.AI.ChatMessage\u003E TurnHistory { get; init; }",
@@ -2271,13 +2267,11 @@
         "System.String[]System.Collections.Immutable.ImmutableList\u003CMicrosoft.Extensions.AI.UsageDetails\u003E IterationUsage { get; init; }",
         "System.String[]System.DateTime StartTime { get; init; }",
         "System.String[]System.Int32 Iteration { get; init; }",
-        "System.String[]System.Int32 MessagesSentToInnerClient { get; init; }",
         "System.String[]System.Int32 Version { get; init; }",
         "System.String[]System.String AgentName { get; init; }",
         "System.String[]System.String ConversationId { get; init; }",
         "System.String[]System.String RunId { get; init; }",
         "System.String[]System.String? LastAssistantMessageId { get; init; }",
-        "System.String[]System.String? LastProviderResponseId { get; init; }",
         "System.String[]System.String? TerminationReason { get; init; }"
       ],
       "Fields": [],
@@ -9332,24 +9326,6 @@
       "Events": []
     },
     {
-      "FullName": "HPD.Agent.CachingConfig",
-      "Attributes": [],
-      "BaseType": "System.Object",
-      "Interfaces": [],
-      "Constructors": [
-        "System.String[].ctor()"
-      ],
-      "Methods": [],
-      "Properties": [
-        "System.String[]System.Boolean CacheStatefulConversations { get; set; }",
-        "System.String[]System.Boolean CoalesceStreamingUpdates { get; set; }",
-        "System.String[]System.Boolean Enabled { get; set; }",
-        "System.String[]System.Nullable\u003CSystem.TimeSpan\u003E? CacheExpiration { get; set; }"
-      ],
-      "Fields": [],
-      "Events": []
-    },
-    {
       "FullName": "HPD.Agent.CapabilityDescriptor",
       "Attributes": [],
       "BaseType": "System.Object",
@@ -11572,7 +11548,7 @@
         "System.String[].ctor(System.String[]System.Collections.Generic.IEnumerable\u003CMicrosoft.Extensions.AI.AIFunction\u003E allFunctions,System.String[]System.Collections.Immutable.ImmutableHashSet\u003CSystem.String\u003E explicitlyRegisteredToolHarnesses,System.String[]System.Collections.Generic.HashSet\u003CSystem.String\u003E? neverCollapseToolHarnesses,System.String[]System.Collections.Generic.HashSet\u003CSystem.String\u003E? neverCollapseFunctions,System.String[]Microsoft.Extensions.Logging.ILogger\u003CHPD.Agent.Collapsing.ToolVisibilityManager\u003E? logger = null)"
       ],
       "Methods": [
-        "System.String[]System.String[]System.Collections.Generic.List\u003CMicrosoft.Extensions.AI.AIFunction\u003E GetToolsForAgentTurn(System.String[]System.Collections.Generic.List\u003CMicrosoft.Extensions.AI.AIFunction\u003E allTools,System.String[]System.Collections.Immutable.ImmutableHashSet\u003CSystem.String\u003E expandedContainers,System.String[]System.Int32 currentAgentDepth = 0,System.String[]System.Int32 maxSubAgentDepth = 4,System.String[]System.Collections.Generic.IReadOnlySet\u003CSystem.String\u003E? neverCollapseFunctions = null)"
+        "System.String[]System.String[]System.Collections.Generic.List\u003CMicrosoft.Extensions.AI.AIFunction\u003E GetToolsForAgentTurn(System.String[]System.Collections.Generic.List\u003CMicrosoft.Extensions.AI.AIFunction\u003E allTools,System.String[]System.Collections.Immutable.ImmutableHashSet\u003CSystem.String\u003E expandedContainers,System.String[]System.Collections.Generic.IReadOnlySet\u003CSystem.String\u003E? neverCollapseFunctions = null)"
       ],
       "Properties": [],
       "Fields": [],
@@ -16853,7 +16829,7 @@
       "Interfaces": [],
       "Constructors": [],
       "Methods": [
-        "System.String[]System.String[]abstract System.Collections.Generic.IAsyncEnumerable\u003CHPD.Events.Event\u003E ExecuteStreamingAsync(System.String[]System.String input,System.String[]HPD.Agent.Middleware.FunctionExecutionContext? parentContext,System.String[]System.Threading.CancellationToken cancellationToken = null)",
+        "System.String[]System.String[]abstract System.Collections.Generic.IAsyncEnumerable\u003CHPD.Agent.AgentEvent\u003E ExecuteStreamingAsync(System.String[]System.String input,System.String[]HPD.Agent.Middleware.FunctionExecutionContext? parentContext,System.String[]System.Threading.CancellationToken cancellationToken = null)",
         "System.String[]System.String[]abstract System.Threading.Tasks.Task\u003CSystem.String\u003E RunAsync(System.String[]System.String input,System.String[]HPD.Agent.Middleware.FunctionExecutionContext? parentContext,System.String[]System.Threading.CancellationToken cancellationToken = null)"
       ],
       "Properties": [],
@@ -17832,6 +17808,7 @@
         "System.String[]System.Int32 MaxPromptListResults { get; set; }",
         "System.String[]System.Int32 MaxResourceContentLength { get; set; }",
         "System.String[]System.Int32 MaxResourceListResults { get; set; }",
+        "System.String[]System.Nullable\u003CHPD.Agent.CapabilityId\u003E? ParentCapabilityId { get; internal set; }",
         "System.String[]System.String Name { get; set; }",
         "System.String[]System.String Transport { get; set; }",
         "System.String[]System.String? Command { get; set; }",
@@ -30035,6 +30012,7 @@
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.CapabilityId\u003E CapabilityId { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ChatClientConfig\u003E ChatClientConfig { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ClientFamilyInheritanceMode\u003E ClientFamilyInheritanceMode { get; }",
+        "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ClientTools.AgentClientInput\u003E AgentClientInput { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ClientTools.BinaryContent\u003E BinaryContent { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ClientTools.ClientSkillDefinition\u003E ClientSkillDefinition { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ClientTools.ClientSkillReference\u003E ClientSkillReference { get; }",
@@ -37754,7 +37732,6 @@
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.BackgroundResponsesConfig\u003E BackgroundResponsesConfig { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.BackgroundResponsesRunConfig\u003E BackgroundResponsesRunConfig { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.BoundedSubAgentClientPropagation\u003E BoundedSubAgentClientPropagation { get; }",
-        "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.CachingConfig\u003E CachingConfig { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ChatClientConfig\u003E ChatClientConfig { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ClientFamilyInheritanceMode\u003E ClientFamilyInheritanceMode { get; }",
         "System.String[]System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CHPD.Agent.ClientTools.AgentClientInput\u003E AgentClientInput { get; }",

@@ -482,7 +482,7 @@ public sealed class TypeScriptSdkGenerator
             "clean": "rm -rf dist",
             "build": "npm run clean && tsc",
             "check": "npm run build",
-            "test": "npm run build && node --test",
+            "test": "npm run build && node --test test/client.test.mjs",
             "type-test": "tsc -p test/tsconfig.json",
             "conformance": "node conformance.mjs",
             "prepublishOnly": "npm run build"

@@ -36,7 +36,6 @@ public static class AgentConfigValidator
         ValidateErrorHandling(config, errors);
         ValidateCompaction(config, errors);
         if (config.Goals is { } goals) errors.AddRange(goals.Validate());
-        ValidateCaching(config, errors);
         ValidateOperations(config, errors);
         if (config.ToolOutputs is null)
             errors.Add("ToolOutputs is required.");
@@ -252,25 +251,6 @@ public static class AgentConfigValidator
                 when percentage.TotalInputTokens <= 0 || percentage.Percentage is <= 0 or >= 1:
                 errors.Add("ContextPercentageCompactionTrigger requires positive total input tokens and a percentage between zero and one.");
                 break;
-        }
-    }
-
-    private static void ValidateCaching(AgentConfig config, List<string> errors)
-    {
-        if (config.Caching?.Enabled != true)
-            return;
-
-        if (config.Caching.CacheExpiration == null)
-        {
-            errors.Add("CachingConfig.CacheExpiration must be set when caching is enabled.");
-        }
-        else if (config.Caching.CacheExpiration <= TimeSpan.Zero)
-        {
-            errors.Add("CachingConfig.CacheExpiration must be greater than zero.");
-        }
-        else if (config.Caching.CacheExpiration >= TimeSpan.FromDays(7))
-        {
-            errors.Add("CachingConfig.CacheExpiration should not exceed 7 days (prevents stale cache).");
         }
     }
 

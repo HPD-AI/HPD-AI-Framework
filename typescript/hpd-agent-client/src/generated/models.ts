@@ -302,7 +302,6 @@ export interface AgentConfig {
   toolHarnesses?: Array<unknown> | null;
   mcp?: null | AgentMcpConfig | null;
   middlewares?: Array<unknown> | null;
-  caching?: null | CachingConfig | null;
   observability?: null | ObservabilityConfig | null;
   backgroundResponses?: null | BackgroundResponsesConfig | null;
   audio?: null | AudioConfig | null;
@@ -441,13 +440,6 @@ export interface BackgroundResponsesConfig {
   defaultTimeout?: string | null;
   autoPollToCompletion?: boolean | null;
   maxPollAttempts?: number | null;
-}
-
-export interface CachingConfig {
-  enabled?: boolean | null;
-  coalesceStreamingUpdates?: boolean | null;
-  cacheStatefulConversations?: boolean | null;
-  cacheExpiration?: string | null;
 }
 
 export interface ChatClientConfig {

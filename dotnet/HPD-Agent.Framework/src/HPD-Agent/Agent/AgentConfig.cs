@@ -264,13 +264,6 @@ public class AgentConfig
     internal ImmutableHashSet<string> explicitlyRegisteredToolHarnesses { get; set; } = ImmutableHashSet<string>.Empty;
 
     /// <summary>
-    /// Configuration for distributed caching of LLM responses.
-    /// Dramatically reduces latency and cost for repeated queries.
-    /// Requires IDistributedCache to be registered via AgentBuilder.WithServiceProvider().
-    /// </summary>
-    public CachingConfig? Caching { get; set; }
-
-    /// <summary>
     /// Configuration for event observer sampling and performance optimization.
     /// Controls circuit breaker thresholds and event sampling rates for high-volume events.
     /// </summary>
@@ -1288,56 +1281,6 @@ public class AgentMessagesConfig
     {
         return MaxConsecutiveErrors.Replace("{maxErrors}", maxErrors.ToString());
     }
-}
-
-/// <summary>
-/// Distributed caching configuration for LLM response caching.
-/// </summary>
-public class CachingConfig
-{
-    /// <summary>
-    /// Enable distributed caching.
-    /// Default: false (opt-in)
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Why opt-in?</b>
-    /// - Requires external IDistributedCache implementation (Redis, Memory, etc.)
-    /// - Changes runtime behavior (cache hits bypass LLM calls)
-    /// - Needs proper cache invalidation strategy
-    /// </para>
-    /// <para>
-    /// When enabled, identical requests will return cached responses,
-    /// dramatically reducing latency and cost for repeated queries.
-    /// </para>
-    /// </remarks>
-    public bool Enabled { get; set; } = false;
-
-    /// <summary>
-    /// Coalesce streaming responses for storage efficiency.
-    /// When true, stores final response (space-efficient).
-    /// When false, stores full streaming updates (high-fidelity replay).
-    /// Default: true
-    /// </summary>
-    public bool CoalesceStreamingUpdates { get; set; } = true;
-
-    /// <summary>
-    /// Allow caching when ConversationId is set (stateful conversations).
-    /// Default: false (prevents stale data in multi-turn conversations)
-    /// </summary>
-    /// <remarks>
-    /// Setting this to true can cause issues:
-    /// - Cached responses may not reflect conversation state changes
-    /// - Updates to conversation history won't invalidate cache
-    /// Only enable if you understand the implications.
-    /// </remarks>
-    public bool CacheStatefulConversations { get; set; } = false;
-
-    /// <summary>
-    /// Cache entry TTL (time-to-live).
-    /// Default: 30 minutes
-    /// </summary>
-    public TimeSpan? CacheExpiration { get; set; } = TimeSpan.FromMinutes(30);
 }
 
 /// <summary>

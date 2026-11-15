@@ -78,6 +78,14 @@ public class CharacterizationTests : AgentTestBase
 
         // LLM should have been called twice
         fakeLLM.CapturedRequests.Should().HaveCount(2, "LLM called once for initial request, once after tool result");
+        var secondRequest = fakeLLM.CapturedRequests[1];
+        secondRequest.Select(message => message.Role).Should().Equal(
+            ChatRole.User,
+            ChatRole.Assistant,
+            ChatRole.Tool);
+        secondRequest.Should().HaveCount(
+            3,
+            "each model iteration receives the complete model-visible history");
     }
 
     /// <summary>

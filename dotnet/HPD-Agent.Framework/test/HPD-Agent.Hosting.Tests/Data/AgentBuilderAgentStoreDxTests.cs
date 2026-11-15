@@ -233,7 +233,7 @@ public class AgentBuilderAgentStoreDxTests
                 .BuildAsync();
 
             loaded.Config!.Name.Should().Be("Json Stored Agent");
-            File.Exists(Path.Combine(path, agentId, "agent.json")).Should().BeTrue();
+            Directory.EnumerateFiles(path, "agent_*.json").Should().ContainSingle();
         }
         finally
         {

@@ -345,8 +345,6 @@ public class ThreadSafetyTests
             Iteration = 0,
             IsTerminated = false,
             CompletedFunctions = System.Collections.Immutable.ImmutableHashSet<string>.Empty,
-            InnerClientTracksHistory = false,
-            MessagesSentToInnerClient = 0,
             LastAssistantMessageId = null,
             ResponseUpdates = System.Collections.Immutable.ImmutableList<ChatResponseUpdate>.Empty,
             MiddlewareState = new MiddlewareState(),

@@ -3669,27 +3669,18 @@ public sealed partial class Agent : IAsyncDisposable
 
                     // Select the provider input for this iteration.
                     IEnumerable<ChatMessage> messagesToSend;
-                    int messageCountToSend;
 
-                    if (state.InnerClientTracksHistory && state.Iteration > 0)
-                    {
-                        // Server manages history - send only delta (new messages since last call)
-                        messagesToSend = state.CurrentMessages.Skip(state.MessagesSentToInnerClient);
-                        messageCountToSend = state.CurrentMessages.Count;  // Total count including previous
-                    }
-                    else if (state.Iteration == 0)
+                    if (state.Iteration == 0)
                     {
                         // The first iteration begins with the prepared thread history and new input.
                         // BeforeIteration middleware performs any final provider-input projection.
                         messagesToSend = effectiveMessages;
-                        messageCountToSend = effectiveMessages.Count();
                     }
                     else
                     {
                         // Subsequent iterations begin from current loop history. BeforeIteration
                         // middleware owns the final provider-bound projection.
                         messagesToSend = state.CurrentMessages;
-                        messageCountToSend = state.CurrentMessages.Count;
                     }
 
                     var modelVisibleMessages = messagesToSend as List<ChatMessage> ?? messagesToSend.ToList();
@@ -4541,20 +4532,6 @@ public sealed partial class Agent : IAsyncDisposable
                             errorScope.Source = ErrorSource.Iteration;
                         }
 
-                        // Capture ConversationId from the agent turn response and update session
-                        if (_agentTurn.LastResponseConversationId != null)
-                        {
-                            if (session != null)
-                            {
-                                //  Store provider conversation ID in metadata (ConversationId removed from Session)
-                                session.AddMetadata("ProviderConversationId", _agentTurn.LastResponseConversationId);
-                            }
-                        }
-                        else if (state.InnerClientTracksHistory)
-                        {
-                            // Service stopped returning ConversationId - disable tracking
-                            state = state.DisableHistoryTracking();
-                        }
                     } // End of else block (LLM call not skipped)
 
                     if (providerResponseOperation is not null && lastContinuationToken == null)
@@ -4620,15 +4597,6 @@ public sealed partial class Agent : IAsyncDisposable
 
                         // Add to shared message list - visible to all contexts immediately
                         sharedMessages.Add(assistantMessage);
-
-                        // Only enable history tracking for real server-managed conversations (conv_... prefix).
-                        // Responses API returns the response ID (resp_...) as ConversationId for one-shot calls —
-                        // those do NOT support the stateful delta pattern; always send full history for them.
-                        var lastConvId = _agentTurn.LastResponseConversationId;
-                        if (lastConvId != null && lastConvId.StartsWith("conv_", StringComparison.OrdinalIgnoreCase))
-                        {
-                            state = state.EnableHistoryTracking(messageCountToSend, lastConvId);
-                        }
 
                         // Commit the full observed assistant message. Model-history filtering happens
                         // only when projecting thread/shared messages into the model turn request.
@@ -4907,16 +4875,6 @@ public sealed partial class Agent : IAsyncDisposable
 
                         // Clear responseUpdates after constructing final response
                         responseUpdates.Clear();
-
-                        // Update history tracking if we have a real server-managed conversation ID (conv_...).
-                        // Responses API returns resp_... as ConversationId — that is a one-shot response ID,
-                        // not a server-side conversation; do not enable delta mode for those.
-                        var lastRespConvId = _agentTurn.LastResponseConversationId;
-                        if (lastRespConvId != null && lastRespConvId.StartsWith("conv_", StringComparison.OrdinalIgnoreCase))
-                        {
-                            // Track the history boundary associated with the provider request.
-                            state = state.EnableHistoryTracking(messageCountToSend, lastRespConvId);
-                        }
 
                         if (TryFinishActiveInput(activeInput))
                             state = state.Terminate("Completed successfully");
@@ -9871,30 +9829,6 @@ public sealed record AgentLoopState
     public required ImmutableHashSet<string> CompletedFunctions { get; init; }
 
     //
-    // HISTORY OPTIMIZATION STATE
-    //
-
-    /// <summary>
-    /// Whether the LLM service manages conversation history server-side.
-    /// When true, we only send delta messages (significant token savings).
-    /// Detected automatically when service returns a ConversationId.
-    /// </summary>
-    public required bool InnerClientTracksHistory { get; init; }
-
-    /// <summary>
-    /// Number of messages already sent to the server (for delta sending).
-    /// Used to calculate which messages to send when InnerClientTracksHistory is true.
-    /// </summary>
-    public required int MessagesSentToInnerClient { get; init; }
-
-    /// <summary>
-    /// The last response ID returned by the provider (e.g. Responses API "resp_..." ID).
-    /// Passed back as previous_response_id on delta iterations so the provider can link
-    /// the new input to its server-side history.
-    /// </summary>
-    public string? LastProviderResponseId { get; init; }
-
-    //
     // STREAMING STATE
     //
 
@@ -9974,8 +9908,6 @@ public sealed record AgentLoopState
         IsTerminated = false,
         TerminationReason = null,
         CompletedFunctions = ImmutableHashSet<string>.Empty,
-        InnerClientTracksHistory = false,
-        MessagesSentToInnerClient = 0,
         LastAssistantMessageId = null,
         ResponseUpdates = ImmutableList<ChatResponseUpdate>.Empty,
         Version = 1,
@@ -10009,8 +9941,6 @@ public sealed record AgentLoopState
         IsTerminated = false,
         TerminationReason = null,
         CompletedFunctions = ImmutableHashSet<string>.Empty,
-        InnerClientTracksHistory = false,
-        MessagesSentToInnerClient = 0,
         LastAssistantMessageId = null,
         ResponseUpdates = ImmutableList<ChatResponseUpdate>.Empty,
         Version = 1,
@@ -10066,36 +9996,6 @@ public sealed record AgentLoopState
     /// <returns>New state with updated function tracking</returns>
     public AgentLoopState CompleteFunction(string functionName) =>
         this with { CompletedFunctions = CompletedFunctions.Add(functionName) };
-
-    /// <summary>
-    /// Enables server-side history tracking after detecting ConversationId in response.
-    /// Significant token savings for multi-turn conversations.
-    /// </summary>
-    /// <param name="messageCount">Number of messages sent to server</param>
-    /// <param name="responseId">The provider response ID to pass as previous_response_id on the next call</param>
-    public AgentLoopState EnableHistoryTracking(int messageCount, string? responseId = null) =>
-        this with
-        {
-            InnerClientTracksHistory = true,
-            MessagesSentToInnerClient = messageCount,
-            LastProviderResponseId = responseId
-        };
-
-    /// <summary>
-    /// Updates the last provider response ID (for delta continuation after tool calls).
-    /// </summary>
-    public AgentLoopState WithLastProviderResponseId(string responseId) =>
-        this with { LastProviderResponseId = responseId };
-
-    /// <summary>
-    /// Disables server-side history tracking (fall back to sending full history).
-    /// </summary>
-    public AgentLoopState DisableHistoryTracking() =>
-        this with
-        {
-            InnerClientTracksHistory = false,
-            MessagesSentToInnerClient = 0
-        };
 
     /// <summary>
     /// Sets the last assistant message ID (for event correlation).
@@ -11218,12 +11118,6 @@ internal class AgentTurn
     private readonly IServiceProvider? _serviceProvider;
 
     /// <summary>
-    /// The ConversationId from the most recent response (if the service manages history server-side).
-    /// Null if the service doesn't track conversation history.
-    /// </summary>
-    public string? LastResponseConversationId { get; private set; }
-
-    /// <summary>
     /// Initializes a new instance of AgentTurn
     /// </summary>
     /// <param name="baseClient">The underlying chat client to use for LLM calls</param>
@@ -11244,7 +11138,6 @@ internal class AgentTurn
 
     /// <summary>
     /// Runs a single turn with the LLM and yields ChatResponseUpdates representing the response.
-    /// Captures ConversationId from the response for server-side history tracking optimization.
     /// </summary>
     /// <param name="messages">The conversation history to send to the LLM</param>
     /// <param name="options">Optional chat options</param>
@@ -11255,17 +11148,8 @@ internal class AgentTurn
         ChatOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        // Reset ConversationId at start of new turn
-        LastResponseConversationId = null;
-
         await foreach (var update in RunAsyncCore(messages, options, overrideClient: null, cancellationToken))
         {
-            // Capture ConversationId from first update that has one
-            if (LastResponseConversationId == null && update.ConversationId != null)
-            {
-                LastResponseConversationId = update.ConversationId;
-            }
-
             yield return update;
         }
     }
@@ -11284,17 +11168,8 @@ internal class AgentTurn
         IChatClient? overrideClient,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        // Reset ConversationId at start of new turn
-        LastResponseConversationId = null;
-
         await foreach (var update in RunAsyncCore(messages, options, overrideClient, cancellationToken))
         {
-            // Capture ConversationId from first update that has one
-            if (LastResponseConversationId == null && update.ConversationId != null)
-            {
-                LastResponseConversationId = update.ConversationId;
-            }
-
             yield return update;
         }
     }
