@@ -12,6 +12,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false"

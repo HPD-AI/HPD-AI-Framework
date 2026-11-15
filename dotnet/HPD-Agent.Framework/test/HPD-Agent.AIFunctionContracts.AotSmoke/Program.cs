@@ -2,6 +2,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent;
 using HPD.Agent.ErrorHandling;
+using HPD.Agent.Hosting.Data;
+using HPD.Agent.Hosting.Serialization;
 using HPD.Agent.Middleware;
 using HPD.Agent.Middleware.Function;
 using HPD.Agent.Serialization;
@@ -147,6 +149,31 @@ try
 catch (InvalidOperationException exception) when (
     exception.Message == "must not replay" && actionAttempts == 1)
 {
+}
+
+var updateDocument = JsonSerializer.Serialize(
+    new UpdateAgentRequest
+    {
+        Config = new AgentConfigUpdate
+        {
+            Name = "AOT Updated Agent",
+            MaxAgenticIterations = 20,
+            ToolHarnesses = [],
+            Clear = ["validation"]
+        },
+        ClearMetadata = true
+    },
+    HPDAgentApiJsonSerializerContext.Default.UpdateAgentRequest);
+var restoredUpdate = JsonSerializer.Deserialize(
+    updateDocument,
+    HPDAgentApiJsonSerializerContext.Default.UpdateAgentRequest);
+if (restoredUpdate?.Config?.Name != "AOT Updated Agent" ||
+    restoredUpdate.Config.MaxAgenticIterations != 20 ||
+    restoredUpdate.Config.ToolHarnesses.Count != 0 ||
+    restoredUpdate.Config.Clear.Single() != "validation" ||
+    restoredUpdate.ClearMetadata != true)
+{
+    return 12;
 }
 
 return result as string == "worker:2" && harness.InvocationCount == 1 ? 0 : 2;
