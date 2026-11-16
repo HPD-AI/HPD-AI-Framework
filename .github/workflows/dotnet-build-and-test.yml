@@ -18,6 +18,11 @@ on:
         required: false
         type: boolean
         default: false
+      verify_real_adapters:
+        description: 'Provision external debugger binaries and run opt-in real-adapter qualification tests.'
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       skip_tests:
@@ -32,6 +37,11 @@ on:
         default: false
       skip_windows_verification:
         description: 'Emergency release only: skip the Windows verification leg when it has already passed for the same source revision.'
+        required: false
+        type: boolean
+        default: false
+      verify_real_adapters:
+        description: 'Provision external debugger binaries and run opt-in real-adapter qualification tests.'
         required: false
         type: boolean
         default: false
@@ -119,7 +129,7 @@ jobs:
         dotnet/HPD-Environment.Framework/src/HPD-Environment.Virtualization/HPD-Environment.Virtualization.Apple/hpd-vz/packaging/sign-hpd-vz.sh
 
     - name: Provision required debugger adapters
-      if: matrix.collect-coverage
+      if: matrix.collect-coverage && inputs.verify_real_adapters
       shell: bash
       run: |
         DEBUGPY_ROOT="$RUNNER_TEMP/hpd-debugpy"

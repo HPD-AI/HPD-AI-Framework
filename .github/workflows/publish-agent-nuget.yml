@@ -54,6 +54,11 @@ on:
         required: false
         type: boolean
         default: false
+      verify_real_adapters:
+        description: 'Provision external debugger binaries and run opt-in real-adapter qualification tests.'
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       version:
@@ -104,6 +109,11 @@ on:
         default: false
       skip_windows_verification:
         description: 'Emergency release only: skip the Windows verification leg when it has already passed for the same source revision.'
+        required: false
+        type: boolean
+        default: false
+      verify_real_adapters:
+        description: 'Provision external debugger binaries and run opt-in real-adapter qualification tests.'
         required: false
         type: boolean
         default: false
@@ -159,6 +169,7 @@ jobs:
       skip_tests: ${{ inputs.skip_tests }}
       skip_macos_verification: ${{ inputs.skip_macos_verification }}
       skip_windows_verification: ${{ inputs.skip_windows_verification }}
+      verify_real_adapters: ${{ inputs.verify_real_adapters }}
 
   publish:
     runs-on: ubuntu-latest
