@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using HPD.Agent.ErrorHandling;
@@ -222,6 +223,11 @@ public class ErrorFormattingMiddleware : IAgentMiddleware
         // Format and re-throw error if one occurred
         if (capturedException != null)
         {
+            if (capturedException is OperationCanceledException &&
+                cancellationToken.IsCancellationRequested)
+            {
+                ExceptionDispatchInfo.Capture(capturedException).Throw();
+            }
             if (_includeDetailedErrors)
             {
                 throw new InvalidOperationException(

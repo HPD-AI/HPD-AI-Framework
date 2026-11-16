@@ -253,9 +253,9 @@ public sealed class OpenApiDocumentParser
             && (absolute.Scheme == Uri.UriSchemeHttp || absolute.Scheme == Uri.UriSchemeHttps))
             return serverUrl;
 
-        // Relative path — resolve against the spec's base URI
-        if (Uri.TryCreate(baseUri, serverUrl, out var resolved)
-            && (resolved.Scheme == Uri.UriSchemeHttp || resolved.Scheme == Uri.UriSchemeHttps))
+        // Relative path — resolve against the spec's base URI. A local spec
+        // therefore yields an absolute file URI rather than a bare path.
+        if (Uri.TryCreate(baseUri, serverUrl, out var resolved))
             return resolved.ToString();
 
         return serverUrl;
