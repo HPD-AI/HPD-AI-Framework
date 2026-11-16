@@ -211,6 +211,10 @@ internal sealed class LinuxProcessIsolationBackend : ISandboxBackend
         // 1. Read-only root filesystem
         builder.WithReadOnlyRoot();
 
+        // Mount the disposable temp filesystem before writable workspace binds,
+        // otherwise a workspace beneath /tmp would be shadowed.
+        builder.WithTmpfs("/tmp");
+
         // 2. Prepare writable paths (user-specified + defaults)
         var effectivePlan = plan ?? _plan;
 
@@ -220,10 +224,7 @@ internal sealed class LinuxProcessIsolationBackend : ISandboxBackend
             .Distinct()
             .ToArray();
 
-        // 3. Add tmpfs for temp directory
-        builder.WithTmpfs("/tmp");
-
-        // 4. Add mandatory deny paths (dangerous files)
+        // 3. Add mandatory deny paths (dangerous files)
         var dangerousPaths = effectivePlan.Filesystem.DangerousPaths.ProtectSensitiveDefaults is false
             ? []
             : await _pathScanner.GetDangerousPathCandidatesAsync(
