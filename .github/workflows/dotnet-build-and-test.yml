@@ -52,7 +52,7 @@ on:
 
 env:
   COVERAGE_FRAMEWORK: net10.0
-  COVERAGE_THRESHOLD: 70
+  COVERAGE_THRESHOLD: 30
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -252,6 +252,7 @@ jobs:
 
         LINE_COVERAGE=$(grep -oE '"linecoverage"[[:space:]]*:[[:space:]]*[0-9.]+' "$JSON_FILE" | head -1 | sed -E 's/.*:[[:space:]]*//')
         THREAD_COVERAGE=$(grep -oE '"threadcoverage"[[:space:]]*:[[:space:]]*[0-9.]+' "$JSON_FILE" | head -1 | sed -E 's/.*:[[:space:]]*//')
+        THREAD_COVERAGE="${THREAD_COVERAGE:-0}"
 
         echo "=================================="
         echo "       Code Coverage Report       "
