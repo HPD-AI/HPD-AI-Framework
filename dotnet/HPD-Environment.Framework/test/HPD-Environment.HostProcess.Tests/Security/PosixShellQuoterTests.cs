@@ -28,4 +28,15 @@ public sealed class PosixShellQuoterTests
 
         rendered.Should().Be("'node' 'script.js' 'safe; touch /tmp/pwned' 'quote'\\''s fine'");
     }
+
+    [Fact]
+    public void From_PreservesCommandWorkingDirectory()
+    {
+        var invocation = CommandInvocation.From(
+            "dotnet",
+            ["msbuild"],
+            "/workspace/project");
+
+        invocation.WorkingDirectory.Should().Be("/workspace/project");
+    }
 }

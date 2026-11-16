@@ -82,7 +82,11 @@ internal sealed class MacOSProcessIsolationBackend : ISandboxBackend
 
     public Task<PreparedSandboxCommand> WrapCommandAsync(CommandInvocation command, CancellationToken cancellationToken)
     {
-        return WrapShellCommandAsync(PosixShellQuoter.RenderCommand(command), cancellationToken);
+        return WrapShellCommandAsync(
+            PosixShellQuoter.RenderCommand(command),
+            plan: null,
+            command.WorkingDirectory,
+            cancellationToken);
     }
 
     public Task<PreparedSandboxCommand> WrapCommandAsync(
@@ -91,7 +95,11 @@ internal sealed class MacOSProcessIsolationBackend : ISandboxBackend
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(plan);
-        return WrapShellCommandAsync(PosixShellQuoter.RenderCommand(command), plan, cancellationToken);
+        return WrapShellCommandAsync(
+            PosixShellQuoter.RenderCommand(command),
+            plan,
+            command.WorkingDirectory,
+            cancellationToken);
     }
 
     public async Task<string> WrapCommandAsync(string command, CancellationToken cancellationToken)
@@ -104,11 +112,16 @@ internal sealed class MacOSProcessIsolationBackend : ISandboxBackend
     }
 
     private Task<PreparedSandboxCommand> WrapShellCommandAsync(string command, CancellationToken cancellationToken)
-        => WrapShellCommandAsync(command, plan: null, cancellationToken);
+        => WrapShellCommandAsync(
+            command,
+            plan: null,
+            workingDirectory: null,
+            cancellationToken);
 
     private Task<PreparedSandboxCommand> WrapShellCommandAsync(
         string command,
         SandboxIsolationPlan? plan,
+        string? workingDirectory,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -120,7 +133,7 @@ internal sealed class MacOSProcessIsolationBackend : ISandboxBackend
 
         var dangerousPaths = plan?.Filesystem.DangerousPaths.ProtectSensitiveDefaults is false
             ? []
-            : GetMandatoryDenyPatterns().ToList();
+            : GetMandatoryDenyPatterns(workingDirectory).ToList();
 
         var effectivePlan = plan ?? _plan;
 
@@ -256,9 +269,9 @@ internal sealed class MacOSProcessIsolationBackend : ISandboxBackend
     /// <summary>
     /// Gets mandatory deny patterns using globs (no filesystem scanning needed on macOS).
     /// </summary>
-    private IEnumerable<string> GetMandatoryDenyPatterns()
+    private IEnumerable<string> GetMandatoryDenyPatterns(string? workingDirectory)
     {
-        var cwd = System.Environment.CurrentDirectory;
+        var cwd = workingDirectory ?? System.Environment.CurrentDirectory;
         var patterns = new List<string>();
 
         // Dangerous files in CWD and subtree

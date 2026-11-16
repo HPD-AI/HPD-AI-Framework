@@ -89,7 +89,11 @@ internal sealed class LinuxProcessIsolationBackend : ISandboxBackend
 
     public Task<PreparedSandboxCommand> WrapCommandAsync(CommandInvocation command, CancellationToken cancellationToken)
     {
-        return WrapShellCommandAsync(PosixShellQuoter.RenderCommand(command), cancellationToken);
+        return WrapShellCommandAsync(
+            PosixShellQuoter.RenderCommand(command),
+            plan: null,
+            command.WorkingDirectory,
+            cancellationToken);
     }
 
     public Task<PreparedSandboxCommand> WrapCommandAsync(
@@ -98,7 +102,11 @@ internal sealed class LinuxProcessIsolationBackend : ISandboxBackend
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(plan);
-        return WrapShellCommandAsync(PosixShellQuoter.RenderCommand(command), plan, cancellationToken);
+        return WrapShellCommandAsync(
+            PosixShellQuoter.RenderCommand(command),
+            plan,
+            command.WorkingDirectory,
+            cancellationToken);
     }
 
     public async Task<string> WrapCommandAsync(string command, CancellationToken cancellationToken)
@@ -183,11 +191,16 @@ internal sealed class LinuxProcessIsolationBackend : ISandboxBackend
         (await GetDependencyCheckAsync(cancellationToken)).IsAvailable;
 
     private async Task<PreparedSandboxCommand> WrapShellCommandAsync(string command, CancellationToken cancellationToken)
-        => await WrapShellCommandAsync(command, plan: null, cancellationToken);
+        => await WrapShellCommandAsync(
+            command,
+            plan: null,
+            workingDirectory: null,
+            cancellationToken);
 
     private async Task<PreparedSandboxCommand> WrapShellCommandAsync(
         string command,
         SandboxIsolationPlan? plan,
+        string? workingDirectory,
         CancellationToken cancellationToken)
     {
         // Initialize socket bridge and seccomp helper if needed
@@ -214,7 +227,7 @@ internal sealed class LinuxProcessIsolationBackend : ISandboxBackend
         var dangerousPaths = effectivePlan.Filesystem.DangerousPaths.ProtectSensitiveDefaults is false
             ? []
             : await _pathScanner.GetDangerousPathCandidatesAsync(
-                System.Environment.CurrentDirectory,
+                workingDirectory ?? System.Environment.CurrentDirectory,
                 allowGitConfig: false,
                 cancellationToken);
 

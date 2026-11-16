@@ -105,7 +105,10 @@ internal sealed class HostProcessProcessProvider : IProcessProvider
             cancellationToken).ConfigureAwait(false);
 
         PreparedSandboxCommand command = await _sandboxApplicator.ApplyAsync(
-            CommandInvocation.From(spec.Command.FileName, spec.Command.Arguments),
+            CommandInvocation.From(
+                spec.Command.FileName,
+                spec.Command.Arguments,
+                spec.Command.WorkingDirectory),
             plan,
             cancellationToken).ConfigureAwait(false);
 
