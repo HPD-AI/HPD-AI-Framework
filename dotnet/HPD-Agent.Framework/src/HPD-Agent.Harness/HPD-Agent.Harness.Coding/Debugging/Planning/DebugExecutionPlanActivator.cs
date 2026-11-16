@@ -405,11 +405,12 @@ internal sealed class DebugExecutionPlanActivator(
                 {
                     throw;
                 }
-                catch
+                catch (Exception exception)
                 {
                     throw new DebugStartPlanningException(
                         "debug_host_start_failed",
-                        "The trusted debug host could not be started.");
+                        $"The trusted debug host could not be started " +
+                        $"({exception.GetType().Name}, HRESULT 0x{exception.HResult:X8}).");
                 }
             }
             owned = new DebugOwnedProcessResource(
