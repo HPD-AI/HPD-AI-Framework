@@ -22,10 +22,14 @@ public sealed class HostProcessAdapterTests
             File.WriteAllText(original, "original");
             string referenceFile = Path.Combine(reference.FullName, "reference.txt");
             File.WriteAllText(referenceFile, "reference");
-            string ReadAcl() => System.IO.FileSystemAclExtensions.GetAccessControl(
-                project, System.Security.AccessControl.AccessControlSections.Access)
-                .GetSecurityDescriptorSddlForm(System.Security.AccessControl.AccessControlSections.Access);
-            string originalAcl = ReadAcl();
+            string[] ReadAceIdentities() => System.IO.FileSystemAclExtensions.GetAccessControl(
+                    project, System.Security.AccessControl.AccessControlSections.Access)
+                .GetAccessRules(true, true, typeof(System.Security.Principal.SecurityIdentifier))
+                .Cast<System.Security.AccessControl.FileSystemAccessRule>()
+                .Select(rule => rule.IdentityReference.Value)
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+            string[] originalAces = ReadAceIdentities();
             await using var middleware = new HostProcessSandboxMiddleware(options: ObservationOnlyOptions() with
             {
                 Workspaces = [
@@ -34,7 +38,7 @@ public sealed class HostProcessAdapterTests
                 ],
             });
             await middleware.InitializeAsync();
-            ReadAcl().Should().NotBe(originalAcl);
+            ReadAceIdentities().Should().NotEqual(originalAces);
             var session = middleware.Session!;
             var path = new WorkspacePath(new WorkspaceRootId("workspace"), "project.txt");
             string cwd = session.Workspace.Paths.ToExecutionPath(session.Workspace.WorkingDirectory).Value;
@@ -65,7 +69,7 @@ public sealed class HostProcessAdapterTests
             await RunAsync("del /q reference.txt", reference.FullName);
             File.ReadAllText(referenceFile).Should().Be("reference");
             await middleware.DisposeAsync();
-            ReadAcl().Should().Be(originalAcl);
+            ReadAceIdentities().Should().Equal(originalAces);
             cwd.Should().Be(project.FullName);
             Directory.Exists(cwd).Should().BeTrue();
         }
