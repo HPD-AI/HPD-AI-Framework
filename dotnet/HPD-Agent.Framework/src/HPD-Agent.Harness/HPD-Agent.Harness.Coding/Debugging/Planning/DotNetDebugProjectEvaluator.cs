@@ -359,10 +359,17 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
         }
         if (result.CompletionKind is not (ProcessCompletionKind.Completed or ProcessCompletionKind.Exited) ||
             result.ExitCode is not 0)
+        {
+            var stderr = Encoding.UTF8.GetString(result.Output.Stderr.CapturedBytes.Span).Trim();
+            var firstLine = stderr.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+            var detail = string.IsNullOrWhiteSpace(firstLine)
+                ? string.Empty
+                : $" detail={firstLine[..Math.Min(firstLine.Length, 512)]}";
             throw new DebugStartPlanningException(
                 "debug_project_evaluation_failed",
                 $"The selected environment could not evaluate the .NET project " +
-                $"(exit code {result.ExitCode?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"}).");
+                $"(exit code {result.ExitCode?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"}){detail}.");
+        }
 
         var text = Encoding.UTF8.GetString(result.Output.Stdout.CapturedBytes.Span);
         var start = text.IndexOf('{');
