@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -350,17 +351,18 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
         {
             throw;
         }
-        catch (Exception)
+        catch (Exception exception)
         {
             throw new DebugStartPlanningException(
                 "debug_project_evaluation_failed",
-                "The selected environment could not evaluate the .NET project.");
+                $"The selected environment could not start .NET project evaluation ({exception.GetType().Name}).");
         }
         if (result.CompletionKind is not (ProcessCompletionKind.Completed or ProcessCompletionKind.Exited) ||
             result.ExitCode is not 0)
             throw new DebugStartPlanningException(
                 "debug_project_evaluation_failed",
-                "The selected environment could not evaluate the .NET project.");
+                $"The selected environment could not evaluate the .NET project " +
+                $"(exit code {result.ExitCode?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"}).");
 
         var text = Encoding.UTF8.GetString(result.Output.Stdout.CapturedBytes.Span);
         var start = text.IndexOf('{');
