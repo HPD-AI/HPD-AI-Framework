@@ -41,10 +41,9 @@ public class PerformanceBaselineTests : AgentTestBase
         stopwatch.Stop();
 
         // Assert - Performance baseline
-        // Simple text response should complete quickly (<500ms in most cases)
-        // This is a baseline - we're documenting current performance, not enforcing strict limits
-        stopwatch.ElapsedMilliseconds.Should().BeLessThan(1000,
-            "simple text conversation should complete within 1 second (baseline: typically <500ms)");
+        // This is a coarse regression guard that remains stable on shared CI runners.
+        stopwatch.ElapsedMilliseconds.Should().BeLessThan(3000,
+            "simple text conversation should complete within 3 seconds (baseline: typically <500ms)");
 
         // Verify the conversation actually completed
         events.Should().NotBeEmpty("events should have been emitted");
