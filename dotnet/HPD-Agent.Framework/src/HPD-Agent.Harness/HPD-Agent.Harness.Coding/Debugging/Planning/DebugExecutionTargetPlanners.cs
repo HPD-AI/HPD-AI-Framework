@@ -452,7 +452,7 @@ internal sealed class DotNetTestDebugExecutionTargetPlanner(
                     Role = ProcessRole.Task,
                     Command = new ProcessCommandSpec
                     {
-                        FileName = "dotnet",
+                        FileName = DotNetDebugExecutable.Resolve(),
                         Arguments = arguments,
                         WorkingDirectory = Path.GetDirectoryName(project),
                         Environment = new Dictionary<string, string?>

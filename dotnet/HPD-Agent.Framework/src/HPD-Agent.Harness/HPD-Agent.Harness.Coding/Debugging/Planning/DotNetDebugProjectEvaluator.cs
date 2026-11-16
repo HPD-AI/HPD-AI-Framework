@@ -310,7 +310,7 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
             Role = ProcessRole.Task,
             Command = new ProcessCommandSpec
             {
-                FileName = "dotnet",
+                FileName = DotNetDebugExecutable.Resolve(),
                 Arguments = arguments,
                 WorkingDirectory = Path.GetDirectoryName(request.CanonicalProjectPath),
                 Environment = new Dictionary<string, string?>

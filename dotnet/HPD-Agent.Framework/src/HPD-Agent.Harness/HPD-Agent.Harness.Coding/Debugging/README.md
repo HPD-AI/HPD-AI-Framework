@@ -155,6 +155,8 @@ the executable runner.
 MSBuild evaluation is a bounded, network-isolated foreground query. It selects an exact
 framework and `TargetPath`, classifies application/test/library shape, evaluates referenced
 project outputs, and checks both each referenced artifact and the copy the debuggee will load.
+Set `HPD_DOTNET` to an absolute `dotnet` executable path when the debug environment's
+sandbox path does not expose the required SDK; evaluation and hosted VSTest use the same path.
 Stale sources, projects, `Directory.Build.props`/`Directory.Build.targets`, referenced outputs,
 or copied source-generator assemblies produce `debug_build_required` instead of silently
 launching stale code.

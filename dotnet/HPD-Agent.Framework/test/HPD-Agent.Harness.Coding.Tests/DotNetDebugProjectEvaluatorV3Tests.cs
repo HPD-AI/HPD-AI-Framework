@@ -39,7 +39,7 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
         result.TargetPath.Should().Be(fixture.TargetPath);
         result.ArtifactIsCurrent.Should().BeTrue();
         provider.Specifications.Should().OnlyContain(spec =>
-            spec.Command.FileName == "dotnet" &&
+            spec.Command.FileName == DotNetDebugExecutable.Resolve() &&
             spec.Command.Arguments.Contains("msbuild") &&
             spec.Isolation.Network == NetworkEgressPolicy.Blocked);
     }
