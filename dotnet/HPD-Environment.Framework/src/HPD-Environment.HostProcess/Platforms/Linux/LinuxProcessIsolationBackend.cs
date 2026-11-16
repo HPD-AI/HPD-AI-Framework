@@ -225,9 +225,11 @@ internal sealed class LinuxProcessIsolationBackend : ISandboxBackend
             .ToArray();
 
         // 3. Add mandatory deny paths (dangerous files)
+        // Bubblewrap cannot create bind destinations beneath read-only paths,
+        // so protect only dangerous paths that already exist in this workspace.
         var dangerousPaths = effectivePlan.Filesystem.DangerousPaths.ProtectSensitiveDefaults is false
             ? []
-            : await _pathScanner.GetDangerousPathCandidatesAsync(
+            : await _pathScanner.GetDangerousPathsAsync(
                 workingDirectory ?? System.Environment.CurrentDirectory,
                 allowGitConfig: false,
                 cancellationToken);
