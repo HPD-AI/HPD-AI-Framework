@@ -176,7 +176,7 @@ public sealed class DebugProtocolClientTests
 
         releaseFirst.TrySetResult();
         (await completed.Task.WaitAsync(TimeSpan.FromSeconds(2))).Should().Equal("continued", "stopped");
-        client.Health.ProcessedEvents.Should().Be(2);
+        await WaitUntilAsync(() => client.Health.ProcessedEvents == 2);
     }
 
     [Fact]

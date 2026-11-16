@@ -66,10 +66,10 @@ public sealed class InMemoryDebugProtocolTransport : IDebugProtocolTransport
 
     public void Complete(DebugTransportExit? exit = null)
     {
+        _exit.TrySetResult(exit ?? new(ProcessCompletionKind.Completed));
         _incoming.Writer.TryComplete();
         _diagnostics.Writer.TryComplete();
         _written.Writer.TryComplete();
-        _exit.TrySetResult(exit ?? new(ProcessCompletionKind.Completed));
     }
 
     public IAsyncEnumerable<byte[]> ReadWrittenAsync(CancellationToken cancellationToken = default)
