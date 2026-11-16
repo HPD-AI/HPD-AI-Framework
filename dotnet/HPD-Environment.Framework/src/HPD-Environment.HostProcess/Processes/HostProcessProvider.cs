@@ -344,7 +344,9 @@ internal sealed class HostProcessInvocationHandle : IProcessInvocationHandle
             string executable = ResolveWindowsExecutable(_spec.Command.FileName, workspacePath, sharedPaths, environment);
             var arguments = _spec.Command.Arguments.ToArray();
             // Windows PowerShell can initialize its provider location at the drive root inside AppContainer.
-            if (Path.GetFileName(executable).Equals("powershell.exe", StringComparison.OrdinalIgnoreCase) &&
+            if (Path.GetFileName(executable) is var executableName &&
+                (executableName.Equals("powershell.exe", StringComparison.OrdinalIgnoreCase) ||
+                 executableName.Equals("pwsh.exe", StringComparison.OrdinalIgnoreCase)) &&
                 arguments.Length >= 2 && arguments[^2].Equals("-Command", StringComparison.OrdinalIgnoreCase))
             {
                 string literal = workspacePath.Replace("'", "''", StringComparison.Ordinal);
