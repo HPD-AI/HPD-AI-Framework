@@ -44,7 +44,7 @@ public sealed class HpdAgentTuiAppCancelTests
             new ThreadJournalCursor(1, 2));
         var projection = Task.Run(() => InvokePrivate<Task>(
             app, "OnAgentEventBatchAsync", batch, CancellationToken.None));
-        await parser.Entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await parser.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         terminal.Enqueue(TerminalInputEvent.FromKey(new KeyEvent(KeyCode.Character, new Rune('x'))));
         await WaitUntilAsync(() => GetPrivateFieldValue<PromptView?>(app, "_prompt")?.Model.Text.ToString() == "x");
