@@ -67,33 +67,41 @@ public static class HPDAgentOpenApiExtensions
         // document while preserving the requested keyed document identity.
         var providerIndex = services
             .Select(static (descriptor, index) => (descriptor, index))
-            .Where(static item =>
+            .Where(item =>
                 item.descriptor.ServiceType == typeof(IOpenApiDocumentProvider) &&
                 item.descriptor.IsKeyedService &&
-                (Equals(item.descriptor.ServiceKey, KeyedService.AnyKey) ||
-                 Equals(item.descriptor.ServiceKey, "*")) &&
-                item.descriptor.KeyedImplementationType is not null)
+                (Equals(item.descriptor.ServiceKey, documentName) ||
+                 Equals(item.descriptor.ServiceKey, KeyedService.AnyKey) ||
+                 Equals(item.descriptor.ServiceKey, "*")))
             .Select(static item => item.index)
             .LastOrDefault(-1);
         var provider = providerIndex >= 0
             ? services[providerIndex]
             : null;
-        if (provider?.KeyedImplementationType is not { } implementationType)
+        if (provider is null)
             return;
 
         services.RemoveAt(providerIndex);
         services.AddKeyedSingleton<IOpenApiDocumentProvider>(
-            KeyedService.AnyKey,
+            provider.ServiceKey,
             (serviceProvider, serviceKey) =>
             {
                 var resolvedDocumentName = serviceKey is string requested &&
                                            requested != "*"
                     ? requested
                     : documentName;
-                var inner = (IOpenApiDocumentProvider)ActivatorUtilities.CreateInstance(
-                    serviceProvider,
-                    implementationType,
-                    resolvedDocumentName);
+                var inner = provider.KeyedImplementationFactory is { } factory
+                    ? (IOpenApiDocumentProvider)factory(
+                        serviceProvider,
+                        Equals(provider.ServiceKey, KeyedService.AnyKey)
+                            ? resolvedDocumentName
+                            : provider.ServiceKey)
+                    : provider.KeyedImplementationInstance is IOpenApiDocumentProvider instance
+                        ? instance
+                        : (IOpenApiDocumentProvider)ActivatorUtilities.CreateInstance(
+                            serviceProvider,
+                            provider.KeyedImplementationType!,
+                            resolvedDocumentName);
                 return new HPDAgentOpenApiDocumentProvider(inner);
             });
     }

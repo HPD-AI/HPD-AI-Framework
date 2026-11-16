@@ -2,7 +2,30 @@
 
 All notable changes to the HPD AI Framework are documented in this file.
 
-## Unreleased
+## HPD-Agent 0.9.6 - 2026-11-15
+
+### Pre-1.0 release
+
+- HPD-Agent and its coordinated release-train packages now target `0.9.6`.
+  Public APIs, serialized events, persistence formats, hosted integration
+  surfaces, and generated SDK contracts remain pre-1.0.
+
+### Added
+
+- The session-first TypeScript client now covers stored agents, sessions,
+  threads, content, executions, subagents, evaluations, observations, history
+  projection, client tools, and generated client families.
+- Portable OpenAPI authoring schemas now expose reference-aware generated model
+  types for tool definitions, harnesses, middleware, clients, and provider
+  authentication.
+- The TypeScript SDK exposes a generated-model-backed `model(...)` helper and
+  typed client-tool harness definitions.
+- Headless thread controllers now support extensible projections, tool work
+  parts, timeline and revision APIs, branch navigation, and fork controls.
+- Portable agent definitions support partial updates, explicit section and
+  metadata clearing, and rejection of unknown configuration fields.
+- Tool-harness builder configuration and named executable policies now
+  materialize into durable agent policy and runtime configuration.
 
 ### Changed
 
@@ -14,6 +37,20 @@ All notable changes to the HPD AI Framework are documented in this file.
 - Source generators and the event precompiler now use Roslyn 5.12.
 - ASP.NET Core OpenAPI packages select the matching .NET 10 or .NET 11
   dependency and OpenAPI model surface per target framework.
+- `AgentRunConfig` is the single invocation surface for stored and direct agent
+  runs. Serialized agent definitions own durable configuration while execution
+  configuration applies to one run.
+- Public Agent and client-tool authoring types now derive from the generated SDK
+  contract and no longer maintain parallel portable model definitions.
+
+### Fixed
+
+- Provider history and distributed-chat caching now stay aligned when cached
+  responses are reused across turns.
+- Windows host-process isolation and multi-target framework build compatibility
+  received pre-release hardening.
+- The event precompiler is now visible in the solution restore graph, avoiding a
+  clean-build failure when its generated project assets have not been created.
 
 ## HPD-Agent 0.9.5 - 2026-11-09
 

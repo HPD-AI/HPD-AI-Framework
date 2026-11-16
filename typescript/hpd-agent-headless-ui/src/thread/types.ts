@@ -23,6 +23,13 @@ export type AgentMessagePersistence = 'ThreadHistory' | 'ModelContextOnly' | 'No
 export type AgentResponseInput = HpdAgentResponseInput;
 export type AgentRunInputEvent = HpdAgentInputEvent;
 export type AIContent = { $type: string; [key: string]: unknown };
+export type UserMessageContent = NonNullable<
+  NonNullable<
+    NonNullable<
+      Extract<HpdAgentInputEvent, { type: 'USER_MESSAGES_INPUT' }>['messages']
+    >[number]['contents']
+  >[number]
+>;
 export type ClientToolAugmentation = NonNullable<HPDAgentClientToolsClientToolInvokeOutcomeEvent['augmentation']>;
 export type ClientToolInvokeOutcome = Omit<HPDAgentClientToolsClientToolInvokeOutcomeEvent, 'type'>;
 export type ToolResultContent = Record<string, unknown>;

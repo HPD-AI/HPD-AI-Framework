@@ -156,7 +156,7 @@ class ThreadProjectionImpl implements ThreadProjection {
           ...known.replacement,
           messageId: known.replacement.messageId ?? known.messageId,
           role: typeof known.replacement.role === 'string' ? known.replacement.role : 'assistant',
-          contents: (known.replacement.contents ?? []).filter(isContent),
+          contents: readContents(known.replacement.contents),
           additionalProperties: readRecordProperty(known.replacement, 'additionalProperties'),
         });
         break;
@@ -1679,4 +1679,12 @@ function formatToolResultPayload(result: import('./types.js').ToolResultPayload)
 
 function isContent(value: unknown): value is AIContent {
   return typeof value === 'object' && value !== null && '$type' in value && typeof value.$type === 'string';
+}
+
+function readContents(values: readonly unknown[] | null | undefined): AIContent[] {
+  const contents: AIContent[] = [];
+  for (const value of values ?? []) {
+    if (isContent(value)) contents.push(value);
+  }
+  return contents;
 }

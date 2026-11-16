@@ -1,7 +1,7 @@
 import type {
+  ClientToolHarnessDefinition,
   HPDAgentClientToolsClientToolInvokeRequestEvent,
   HPDAgentClientToolsClientToolInvokeOutcomeEvent,
-  InlineAgentRunConfigToolsClientInputClientToolHarnessesItem,
 } from '@hpd-research/hpd-agent-client';
 import { clientToolText } from '@hpd-research/hpd-agent-client';
 
@@ -19,8 +19,8 @@ import type { AcpClientCapabilities } from '../types/acp.js';
  */
 export function capsToToolHarnesses(
   caps: AcpClientCapabilities,
-): InlineAgentRunConfigToolsClientInputClientToolHarnessesItem[] {
-  const tools: InlineAgentRunConfigToolsClientInputClientToolHarnessesItem['tools'] = [];
+): ClientToolHarnessDefinition[] {
+  const tools: ClientToolHarnessDefinition['tools'] = [];
 
   if (caps.fs?.readTextFile) {
     tools.push({

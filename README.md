@@ -117,8 +117,8 @@ Use HPD-TUI to build native AOT-friendly terminal interfaces that stay allocatio
 ## Versioning
 
 HPD-AI Framework contains independently released package families. The current
-HPD-Agent release train targets `0.9.5` for pre-1.0 stabilization and additional
+HPD-Agent release train targets `0.9.6` for pre-1.0 stabilization and additional
 compatibility testing. A 1.0.0 API and persistence compatibility commitment
 begins only when the 1.0 release notes state that it is final.
 
-See [HPD-Agent 0.9.5 release notes](RELEASE-NOTES-0.9.5.md).
+See [HPD-Agent 0.9.6 release notes](RELEASE-NOTES-0.9.6.md).

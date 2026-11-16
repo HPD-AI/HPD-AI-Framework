@@ -51,6 +51,12 @@
 
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier" AdditionalProperties="PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
+    <!-- The precompiler is invoked by a nested build task. This non-compiling
+         reference keeps it in the solution restore graph. -->
+    <ProjectReference Include="../HPD-Agent.EventPrecompiler/HPD-Agent.EventPrecompiler.csproj"
+                      ReferenceOutputAssembly="false"
+                      PrivateAssets="all"
+                      GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier" />
     <ProjectReference Include="../../../HPD-Environment.Framework/src/HPD-Environment.Contracts/HPD-Environment.Contracts.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
     <ProjectReference Include="../../../HPD-Environment.Framework/src/HPD-Environment.Runtime/HPD-Environment.Runtime.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
     <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />

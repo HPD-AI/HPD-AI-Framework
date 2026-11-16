@@ -2,6 +2,7 @@ import { clientToolText, EventTypes, type AgentClient, type ThreadObservation } 
 import type {
   AIContent, AgentEvent, AgentResponseInput, AgentRunInputEvent, ClientToolInvokeOutcome,
   InputSubmissionResult, RespondResult, ThreadJournalCursor,
+  UserMessageContent,
 } from './types.js';
 import { createThreadProjection } from './thread-projection.js';
 import { loadThreadSnapshot } from './load-thread-snapshot.js';
@@ -188,7 +189,7 @@ class ThreadControllerImpl implements ThreadController {
       threadId: this.scope.threadId,
       messages: [{
         role: 'user',
-        contents,
+        contents: contents as UserMessageContent[],
         additionalProperties: input.additionalProperties,
       }],
       runConfig: options.runConfig,

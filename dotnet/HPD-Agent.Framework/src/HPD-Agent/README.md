@@ -348,7 +348,7 @@ see [Native tool outputs and retrieval](Tools/TOOL_OUTPUTS.md).
 
 ## Compatibility
 
-HPD-Agent `0.9.5` is pre-1.0 stabilization. Public APIs, serialized events, and
+HPD-Agent `0.9.6` is pre-1.0 stabilization. Public APIs, serialized events, and
 persistence formats remain subject to breaking changes while further compatibility
 testing is completed. The 1.0 compatibility commitment begins with `1.0.0`. The
 current conversation model is session-owned threads with event-sourced thread history.
