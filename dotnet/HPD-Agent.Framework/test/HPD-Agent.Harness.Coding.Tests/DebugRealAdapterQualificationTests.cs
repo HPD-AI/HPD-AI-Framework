@@ -12,6 +12,8 @@ namespace HPD.Agent.ToolHarness.Coding.Tests;
 [Collection(DebugRealAdapterCollection.Name)]
 public sealed class DebugRealAdapterQualificationTests
 {
+    private const string ManagedTargetFramework = "net10.0";
+
     [RealAdapterFact("HPD_DEBUGPY_PYTHON")]
     [Trait("Category", "RealAdapter")]
     public async Task Debugpy_launch_stop_stack_continue_and_exit()
@@ -135,7 +137,7 @@ public sealed class DebugRealAdapterQualificationTests
         Directory.CreateDirectory(directory);
         var project = Path.Combine(directory, "Smoke.csproj");
         await File.WriteAllTextAsync(project,
-            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>");
+            $"<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>{ManagedTargetFramework}</TargetFramework></PropertyGroup></Project>");
         await File.WriteAllTextAsync(
             Path.Combine(directory, "Program.cs"),
             "var value = 42; System.Console.WriteLine(value);\n");
@@ -157,7 +159,7 @@ public sealed class DebugRealAdapterQualificationTests
             await QualifyLaunchAsync(
                 ProcessDebugProtocolTransport.Start(adapter, "--interpreter=vscode"),
                 NetcoredbgDescriptor(),
-                Path.Combine(directory, "bin", "Debug", "net8.0", "Smoke.dll"),
+                Path.Combine(directory, "bin", "Debug", ManagedTargetFramework, "Smoke.dll"),
                 directory);
         }
         finally
@@ -193,7 +195,7 @@ public sealed class DebugRealAdapterQualificationTests
                  {
                      "test", project,
                      "--configuration", buildConfiguration,
-                     "-f", "net8.0",
+                     "-f", ManagedTargetFramework,
                      "--no-build",
                      "--no-restore",
                      "--nologo",

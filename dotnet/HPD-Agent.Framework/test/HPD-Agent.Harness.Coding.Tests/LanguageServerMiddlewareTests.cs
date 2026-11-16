@@ -1166,7 +1166,7 @@ public sealed class LanguageServerMiddlewareTests
         var path = Path.Combine(root, "Program.cs");
         var uri = new Uri(path).AbsoluteUri;
         await File.WriteAllTextAsync(projectPath,
-            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>");
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
         await RestoreSmokeProjectAsync(projectPath);
         const string invalidText = "public static class Program { public static string Value => 42; }\n";
         const string correctedText = "public static class Program { public static string Value => \"fixed 😀\"; }\n";

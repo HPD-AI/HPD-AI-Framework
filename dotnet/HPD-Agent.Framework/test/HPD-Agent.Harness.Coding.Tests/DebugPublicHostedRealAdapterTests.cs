@@ -26,6 +26,8 @@ namespace HPD.Agent.ToolHarness.Coding.Tests;
 [Collection(DebugRealAdapterCollection.Name)]
 public sealed class DebugPublicHostedRealAdapterTests
 {
+    private const string FixtureTargetFramework = "net10.0";
+
     [RealAdapterFact("HPD_NETCOREDBG", "HPD_DOTNET")]
     [Trait("Category", "RealAdapter")]
     public async Task Public_launch_rejects_invalid_exception_filter_before_session_publication()
@@ -45,7 +47,7 @@ public sealed class DebugPublicHostedRealAdapterTests
                 new ApplicationProjectDebugTarget(
                     Path.GetDirectoryName(project)!,
                     ProjectPath: project,
-                    TargetFramework: "net8.0"),
+                    TargetFramework: FixtureTargetFramework),
                 AdapterId: "netcoredbg",
                 WorkspacePath: workspaceRoot,
                 InitialConfiguration: new DebugInitialConfigurationInput(
@@ -84,7 +86,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             Path.GetDirectoryName(project)!,
             "bin",
             "Debug",
-            "net8.0",
+            FixtureTargetFramework,
             "HPD-Agent.Harness.Coding.RealAdapterFixture.dll");
 
         var xml = await CodingHarnessTestFactory.Create().Debug(
@@ -119,7 +121,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             new ApplicationProjectDebugTarget(
                 Path.GetDirectoryName(project)!,
                 ProjectPath: project,
-                TargetFramework: "net8.0"),
+                TargetFramework: FixtureTargetFramework),
             AdapterId: "netcoredbg",
             WorkspacePath: workspaceRoot,
             StopOnEntry: false,
@@ -815,7 +817,7 @@ public sealed class DebugPublicHostedRealAdapterTests
                 project,
                 DebugTestFramework.DotNet,
                 Filter: filter,
-                TargetFramework: "net8.0"),
+                TargetFramework: FixtureTargetFramework),
             AdapterId: "netcoredbg",
             WorkspacePath: FixtureWorkspace(project),
             StopOnEntry: true,
@@ -956,7 +958,7 @@ public sealed class DebugPublicHostedRealAdapterTests
         start.ArgumentList.Add("build");
         start.ArgumentList.Add(project);
         start.ArgumentList.Add("--framework");
-        start.ArgumentList.Add("net8.0");
+        start.ArgumentList.Add(FixtureTargetFramework);
         start.ArgumentList.Add("--nologo");
         start.ArgumentList.Add("--verbosity");
         start.ArgumentList.Add("quiet");
