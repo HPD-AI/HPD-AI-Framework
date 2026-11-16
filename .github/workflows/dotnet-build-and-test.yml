@@ -250,8 +250,8 @@ jobs:
           exit 0
         fi
 
-        LINE_COVERAGE=$(cat "$JSON_FILE" | grep -o '"linecoverage":[0-9.]*' | head -1 | cut -d':' -f2)
-        THREAD_COVERAGE=$(cat "$JSON_FILE" | grep -o '"threadcoverage":[0-9.]*' | head -1 | cut -d':' -f2)
+        LINE_COVERAGE=$(grep -oE '"linecoverage"[[:space:]]*:[[:space:]]*[0-9.]+' "$JSON_FILE" | head -1 | sed -E 's/.*:[[:space:]]*//')
+        THREAD_COVERAGE=$(grep -oE '"threadcoverage"[[:space:]]*:[[:space:]]*[0-9.]+' "$JSON_FILE" | head -1 | sed -E 's/.*:[[:space:]]*//')
 
         echo "=================================="
         echo "       Code Coverage Report       "
