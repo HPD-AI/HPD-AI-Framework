@@ -211,7 +211,10 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
 
         provider.Specifications.Should().OnlyContain(spec =>
             spec.Command.Arguments.Contains("-p:Configuration=Release") &&
+            spec.Command.Environment["DOTNET_CLI_HOME"] == "/tmp/hpd-dotnet-cli-home" &&
             spec.Command.Environment["DOTNET_CLI_UI_LANGUAGE"] == "en-US" &&
+            spec.Command.Environment["DOTNET_NOLOGO"] == "1" &&
+            spec.Command.Environment["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] == "1" &&
             spec.Command.Environment["MSBUILDTERMINALLOGGER"] == "off" &&
             spec.Policy.Timeout == TimeSpan.FromSeconds(20));
     }

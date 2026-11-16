@@ -314,7 +314,10 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
                 WorkingDirectory = Path.GetDirectoryName(request.CanonicalProjectPath),
                 Environment = new Dictionary<string, string?>
                 {
+                    ["DOTNET_CLI_HOME"] = "/tmp/hpd-dotnet-cli-home",
                     ["DOTNET_CLI_UI_LANGUAGE"] = "en-US",
+                    ["DOTNET_NOLOGO"] = "1",
+                    ["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] = "1",
                     ["MSBUILDTERMINALLOGGER"] = "off"
                 }
             },
