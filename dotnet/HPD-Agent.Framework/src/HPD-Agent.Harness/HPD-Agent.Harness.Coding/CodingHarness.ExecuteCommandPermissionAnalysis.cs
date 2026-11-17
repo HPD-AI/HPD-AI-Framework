@@ -1,3 +1,4 @@
+using HPD.Agent.Sandbox;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -7,7 +8,6 @@ using HPD.Agent.Middleware;
 using HPD.Agent.Security;
 using HPD.Agent.Serialization;
 using HPD.Agent.ToolHarness.Coding;
-using HPD.Agent.ToolHarness.Coding.Security;
 using HPD.Environment.Contracts;
 using HPD.Events;
 using Microsoft.Extensions.AI;
@@ -18,9 +18,10 @@ internal static class ExecuteCommandPermissionAnalyzer
     {
         public static ExecuteCommandPermissionPlan Analyze(
             IReadOnlyDictionary<string, object?> arguments,
-            AgentRunConfig runConfig,
+            RuntimeWorkspaceBinding? runtimeWorkspace,
+            RuntimeProcessExecutionBinding? processExecution,
             ExecuteCommandOptions options,
-            ExecuteCommandShellScope? shellOverride = null)
+            EnvironmentContextConfig? environmentOptions = null)
         {
             var requestArguments = GetRequestArguments(arguments);
             var action = GetString(requestArguments, "action") switch
@@ -53,12 +54,14 @@ internal static class ExecuteCommandPermissionAnalyzer
                 tailLines,
                 delayMilliseconds,
                 environment,
-                runConfig,
-                options);
+                options,
+                runtimeWorkspace,
+                processExecution);
+            var shellEnvironment = EnvironmentContext.ForExecution(processExecution, environmentOptions);
+            var shell = GetShellScope(shellEnvironment);
 
             if (normalized.Error is { } error)
             {
-                var requestedSandbox = TryGetRequestedSandbox(runConfig);
                 return new UntrustedCommandPermissionPlan
                 {
                     AnalyzerVersion = ExecuteCommandPermissionAnalyzerVersions.Analyzer,
@@ -67,10 +70,10 @@ internal static class ExecuteCommandPermissionAnalyzer
                     Action = action,
                     Command = new RawCommandText(command ?? string.Empty),
                     NormalizedCommand = new NormalizedCommandText(command?.Trim() ?? string.Empty),
-                    Shell = shellOverride ?? GetShellScope(),
+                    Shell = shell,
                     WorkingDirectory = error.WorkingDirectory ?? string.Empty,
-                    Workspace = ExecuteCommandPermissionWorkspaceScope.From(runConfig, error.WorkingDirectory),
-                    RequestedSandbox = requestedSandbox,
+                    Workspace = ExecuteCommandPermissionWorkspaceScope.From(null, null),
+                    RequestedSandboxFingerprint = (processExecution?.Isolation ?? ProcessIsolationPolicy.Default).Fingerprint(),
                     FilesystemEffects = [],
                     NetworkEffects = [],
                     StartsInBackground = startsInBackground,
@@ -81,9 +84,9 @@ internal static class ExecuteCommandPermissionAnalyzer
             }
 
             var request = normalized.Request!;
-            var shell = shellOverride ?? GetShellScope();
-            var sandbox = CodingSandboxRuntime.Capture(runConfig);
-            var workspace = ExecuteCommandPermissionWorkspaceScope.From(runConfig, request.WorkingDirectory);
+            var sandbox = request.Isolation;
+            var sandboxFingerprint = sandbox.Fingerprint();
+            var workspace = ExecuteCommandPermissionWorkspaceScope.From(runtimeWorkspace, request.LogicalWorkingDirectory, processExecution?.EnvironmentId);
             if (request.Action != ExecuteCommandAction.Run)
             {
                 var nonRunFingerprint = Fingerprint(
@@ -91,7 +94,7 @@ internal static class ExecuteCommandPermissionAnalyzer
                     shell.Family.ToString(),
                     request.WorkingDirectory,
                     request.OperationId ?? string.Empty,
-                    sandbox.Canonicalize(request.WorkingDirectory));
+                    sandboxFingerprint);
                 return new ExecuteCommandPlanBase
                 {
                     AnalyzerVersion = ExecuteCommandPermissionAnalyzerVersions.Analyzer,
@@ -103,7 +106,7 @@ internal static class ExecuteCommandPermissionAnalyzer
                     Shell = shell,
                     WorkingDirectory = request.WorkingDirectory,
                     Workspace = workspace,
-                    RequestedSandbox = sandbox,
+                    RequestedSandboxFingerprint = sandboxFingerprint,
                     FilesystemEffects = [],
                     NetworkEffects = [],
                     StartsInBackground = false,
@@ -115,9 +118,9 @@ internal static class ExecuteCommandPermissionAnalyzer
             var risk = analysis.Risk;
             if (request.StartsInBackground)
                 risk |= ExecuteCommandPermissionRisk.BackgroundProcess;
-            if (!sandbox.IsEnforced)
+            if (sandbox.Mode != ProcessIsolationMode.Isolated)
                 risk |= ExecuteCommandPermissionRisk.Unsandboxed;
-            if (sandbox.Filesystem.Count > 0 ||
+            if (sandbox.Filesystem.Rules.Count > 0 ||
                 sandbox.Network.Mode != NetworkEgressMode.Blocked ||
                 sandbox.Interactive.AllowPty ||
                 sandbox.Interactive.AllowLocalBinding ||
@@ -126,7 +129,14 @@ internal static class ExecuteCommandPermissionAnalyzer
                 risk |= ExecuteCommandPermissionRisk.AdditionalSandboxPermissions;
             }
 
-            var filesystemEffects = ExecuteCommandPathAnalyzer.GetEffects(analysis, request.WorkingDirectory, workspace.RootPath, sandbox);
+            // Path parsing uses the current OS's syntax. Treat a different path
+            // dialect as review-only until the analyzer can interpret it.
+            bool compatiblePaths = shellEnvironment.IsWindows == OperatingSystem.IsWindows();
+            IReadOnlyList<ExecuteCommandFilesystemEffect> filesystemEffects = compatiblePaths
+                ? ExecuteCommandPathAnalyzer.GetEffects(analysis, request.WorkingDirectory, workspace.RootPath, sandbox)
+                : [];
+            if (!compatiblePaths)
+                risk |= ExecuteCommandPermissionRisk.UnknownOrUnparseable;
             var networkEffects = ExecuteCommandPathAnalyzer.GetNetworkEffects(analysis, sandbox);
             if (filesystemEffects.Any(effect => !effect.WithinWorkspace))
                 risk |= ExecuteCommandPermissionRisk.OutsideWorkspaceReference;
@@ -136,7 +146,7 @@ internal static class ExecuteCommandPermissionAnalyzer
                 shell.Family.ToString(),
                 request.WorkingDirectory,
                 request.Command,
-                sandbox.Canonicalize(request.WorkingDirectory),
+                sandboxFingerprint,
                 risk.ToString());
 
             var basePlan = new ExecuteCommandPlanBase
@@ -150,7 +160,7 @@ internal static class ExecuteCommandPermissionAnalyzer
                 Shell = shell,
                 WorkingDirectory = request.WorkingDirectory,
                 Workspace = workspace,
-                RequestedSandbox = sandbox,
+                RequestedSandboxFingerprint = sandboxFingerprint,
                 FilesystemEffects = filesystemEffects,
                 NetworkEffects = networkEffects,
                 StartsInBackground = request.StartsInBackground,
@@ -159,6 +169,8 @@ internal static class ExecuteCommandPermissionAnalyzer
                 ShellAnalyzerName = analysis.AnalyzerName,
                 ShellUnsupportedFeatureReason = analysis.UnsupportedFeatureReason
             };
+            if (!compatiblePaths)
+                return basePlan.ToReviewOnly(analysis.Segments);
 
             if (analysis.TrustLevel == ExecuteCommandAnalysisTrustLevel.Untrusted)
                 return basePlan.ToUntrusted("The command uses shell syntax HPD cannot safely model for remembered permission.");
@@ -170,7 +182,7 @@ internal static class ExecuteCommandPermissionAnalyzer
             {
                 var segmentRules = analysis.Segments
                     .Select(segment => CreateSegmentRule(
-                        segment, shell, sandbox, request.WorkingDirectory, workspace, risk))
+                        segment, shell, sandboxFingerprint, workspace, risk))
                     .ToArray();
 
                 if (segmentRules.All(static rule => rule is not null))
@@ -184,8 +196,7 @@ internal static class ExecuteCommandPermissionAnalyzer
                                 ExecuteCommandPermissionMatchKind.Exact,
                                 request.Command,
                                 shell,
-                                sandbox,
-                                request.WorkingDirectory,
+                                sandboxFingerprint,
                                 workspace,
                                 ExecuteCommandAnalysisTrustLevel.Segmented,
                                 risk),
@@ -207,8 +218,7 @@ internal static class ExecuteCommandPermissionAnalyzer
                         ExecuteCommandPermissionMatchKind.Exact,
                         request.Command,
                         shell,
-                        sandbox,
-                        request.WorkingDirectory,
+                        sandboxFingerprint,
                         workspace,
                         ExecuteCommandAnalysisTrustLevel.Simple,
                         risk),
@@ -223,8 +233,7 @@ internal static class ExecuteCommandPermissionAnalyzer
                         ExecuteCommandPermissionMatchKind.Prefix,
                         commandPlan.SafePrefix,
                         shell,
-                        sandbox,
-                        request.WorkingDirectory,
+                        sandboxFingerprint,
                         workspace,
                         ExecuteCommandAnalysisTrustLevel.Simple,
                         risk),
@@ -242,8 +251,7 @@ internal static class ExecuteCommandPermissionAnalyzer
         private static ExecuteCommandPermissionRule? CreateSegmentRule(
             ExecuteCommandSubcommandPlan segment,
             ExecuteCommandShellScope shell,
-            AgentSandboxRuntime sandbox,
-            string workingDirectory,
+            string sandboxFingerprint,
             ExecuteCommandPermissionWorkspaceScope workspace,
             ExecuteCommandPermissionRisk risk)
         {
@@ -255,8 +263,7 @@ internal static class ExecuteCommandPermissionAnalyzer
                     ExecuteCommandPermissionMatchKind.Prefix,
                     segment.SafePrefix,
                     shell,
-                    sandbox,
-                    workingDirectory,
+                    sandboxFingerprint,
                     workspace,
                     ExecuteCommandAnalysisTrustLevel.Simple,
                     risk);
@@ -269,8 +276,7 @@ internal static class ExecuteCommandPermissionAnalyzer
                     ExecuteCommandPermissionMatchKind.Exact,
                     segment.Text,
                     shell,
-                    sandbox,
-                    workingDirectory,
+                    sandboxFingerprint,
                     workspace,
                     ExecuteCommandAnalysisTrustLevel.Simple,
                     risk);
@@ -284,8 +290,7 @@ internal static class ExecuteCommandPermissionAnalyzer
             ExecuteCommandPermissionMatchKind matchKind,
             string pattern,
             ExecuteCommandShellScope shell,
-            AgentSandboxRuntime sandbox,
-            string workingDirectory,
+            string sandboxFingerprint,
             ExecuteCommandPermissionWorkspaceScope workspace,
             ExecuteCommandAnalysisTrustLevel trustLevel,
             ExecuteCommandPermissionRisk risk)
@@ -299,7 +304,7 @@ internal static class ExecuteCommandPermissionAnalyzer
                 MatchKind = matchKind,
                 Pattern = pattern,
                 Shell = shell,
-                RequestedSandboxFingerprint = sandbox.Canonicalize(workingDirectory),
+                RequestedSandboxFingerprint = sandboxFingerprint,
                 Workspace = workspace,
                 Risk = risk,
                 MinimumTrustLevel = trustLevel,
@@ -313,10 +318,9 @@ internal static class ExecuteCommandPermissionAnalyzer
             return new PermissionFingerprint(Convert.ToHexString(bytes).ToLowerInvariant());
         }
 
-        private static ExecuteCommandShellScope GetShellScope()
+        private static ExecuteCommandShellScope GetShellScope(EnvironmentContext env)
         {
-            var env = EnvironmentContext.CreateCurrent();
-            var shell = Path.GetFileName(env.ShellExecutable).ToLowerInvariant();
+            var shell = env.ShellExecutable.Split('/', '\\')[^1].ToLowerInvariant();
             var family = shell switch
             {
                 "bash" => ExecuteCommandShellFamily.Bash,
@@ -329,20 +333,9 @@ internal static class ExecuteCommandPermissionAnalyzer
             return new ExecuteCommandShellScope
             {
                 Executable = env.ShellExecutable,
-                Family = family
+                Family = family,
+                InvocationArgumentsFingerprint = Fingerprint(env.ShellCommandArgumentsPrefix.ToArray()).Value
             };
-        }
-
-        private static AgentSandboxRuntime TryGetRequestedSandbox(AgentRunConfig runConfig)
-        {
-            try
-            {
-                return CodingSandboxRuntime.Capture(runConfig);
-            }
-            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or JsonException)
-            {
-                return AgentSandboxRuntime.Capture(new AgentRunConfig());
-            }
         }
 
         private static string? GetString(IReadOnlyDictionary<string, object?> arguments, string key)
@@ -471,8 +464,14 @@ public sealed record ExecuteCommandPermissionRuleValidationResult(
 internal static class ExecuteCommandPermissionRuleValidator
 {
     public static ExecuteCommandPermissionRuleValidationResult ValidatePersistedRule(
-        ExecuteCommandPermissionRule rule)
+        ExecuteCommandPermissionRule rule,
+        ExecuteCommandPermissionPlan current,
+        RuntimeWorkspaceBinding? workspace,
+        RuntimeProcessExecutionBinding? process,
+        CodingHarnessConfig config)
     {
+        if (rule.Workspace != current.Workspace || string.IsNullOrEmpty(current.Workspace.ContentId))
+            return ExecuteCommandPermissionRuleValidationResult.Failure("workspace_scope_mismatch");
         if (string.IsNullOrWhiteSpace(rule.Id))
             return ExecuteCommandPermissionRuleValidationResult.Failure("missing_rule_id");
         if (string.IsNullOrWhiteSpace(rule.Pattern))
@@ -492,9 +491,17 @@ internal static class ExecuteCommandPermissionRuleValidator
         if (rule.MatchKind == ExecuteCommandPermissionMatchKind.Wildcard)
             return ExecuteCommandPermissionRuleValidationResult.Failure("allow_wildcard_not_persistable");
 
-        var plan = AnalyzeRulePattern(rule);
-        if (plan.Workspace.RootId != rule.Workspace.RootId)
-            return ExecuteCommandPermissionRuleValidationResult.Failure("workspace_scope_mismatch");
+        var plan = ExecuteCommandPermissionAnalyzer.Analyze(
+            new Dictionary<string, object?>
+            {
+                ["request"] = new Dictionary<string, object?>
+                {
+                    ["action"] = "run",
+                    ["command"] = rule.Pattern,
+                    ["workingDirectory"] = $"@{current.Workspace.RootId}/{current.Workspace.RelativeWorkingDirectory}"
+                }
+            },
+            workspace, process, config.Commands, config.Environment);
 
         return rule.MatchKind switch
         {
@@ -502,62 +509,6 @@ internal static class ExecuteCommandPermissionRuleValidator
             ExecuteCommandPermissionMatchKind.Prefix => ValidatePrefixAllow(rule, plan),
             _ => ExecuteCommandPermissionRuleValidationResult.Failure("unsupported_match_kind")
         };
-    }
-
-    public static ExecuteCommandPermissionRuleValidationResult ValidatePersistedRuleForCurrentWorkspace(
-        ExecuteCommandPermissionRule rule,
-        AgentRunConfig runConfig)
-    {
-        var workspaceValidation = ValidateWorkspaceScope(rule, runConfig);
-        return workspaceValidation.Valid ? ValidatePersistedRule(rule) : workspaceValidation;
-    }
-
-    private static ExecuteCommandPermissionRuleValidationResult ValidateWorkspaceScope(
-        ExecuteCommandPermissionRule rule,
-        AgentRunConfig runConfig)
-    {
-        var workspace = CodingWorkspace.From(runConfig);
-        var root = workspace.Roots.FirstOrDefault(candidate =>
-            string.Equals(candidate.Id, rule.Workspace.RootId, StringComparison.Ordinal));
-        if (root is null)
-            return ExecuteCommandPermissionRuleValidationResult.Failure("workspace_root_unavailable");
-
-        var currentRootPath = Path.GetFullPath(root.Path);
-        var ruleRootPath = Path.GetFullPath(rule.Workspace.RootPath);
-        if (!string.Equals(currentRootPath, ruleRootPath, StringComparison.Ordinal))
-            return ExecuteCommandPermissionRuleValidationResult.Failure("workspace_root_path_changed");
-
-        return ExecuteCommandPermissionRuleValidationResult.Success;
-    }
-
-    private static ExecuteCommandPermissionPlan AnalyzeRulePattern(ExecuteCommandPermissionRule rule)
-    {
-        var runConfig = new AgentRunConfig
-        {
-            Context = new AgentContextRunConfig
-            {
-                Properties = new Dictionary<string, object>
-                {
-                    [CodingWorkspace.ContextKey] = new CodingWorkspace(
-                        rule.Workspace.RootId,
-                        rule.Workspace.RootPath,
-                        [new CodingWorkspaceRoot(rule.Workspace.RootId, rule.Workspace.RootPath, CodingWorkspaceAccess.ReadWrite)]),
-                }
-            }
-        };
-
-        return ExecuteCommandPermissionAnalyzer.Analyze(
-            new Dictionary<string, object?>
-            {
-                ["request"] = new Dictionary<string, object?>
-                {
-                    ["action"] = "run",
-                    ["command"] = rule.Pattern
-                }
-            },
-            runConfig,
-            new ExecuteCommandOptions(),
-            rule.Shell);
     }
 
     private static ExecuteCommandPermissionRuleValidationResult ValidateExactAllow(
@@ -623,7 +574,7 @@ public abstract record ExecuteCommandPermissionPlan
     public required ExecuteCommandShellScope Shell { get; init; }
     public required string WorkingDirectory { get; init; }
     public required ExecuteCommandPermissionWorkspaceScope Workspace { get; init; }
-    public required AgentSandboxRuntime RequestedSandbox { get; init; }
+    public required string RequestedSandboxFingerprint { get; init; }
     public required IReadOnlyList<ExecuteCommandFilesystemEffect> FilesystemEffects { get; init; }
     public required IReadOnlyList<ExecuteCommandNetworkEffect> NetworkEffects { get; init; }
     public required bool StartsInBackground { get; init; }
@@ -682,7 +633,7 @@ internal sealed record ExecuteCommandPlanBase
     public required ExecuteCommandShellScope Shell { get; init; }
     public required string WorkingDirectory { get; init; }
     public required ExecuteCommandPermissionWorkspaceScope Workspace { get; init; }
-    public required AgentSandboxRuntime RequestedSandbox { get; init; }
+    public required string RequestedSandboxFingerprint { get; init; }
     public required IReadOnlyList<ExecuteCommandFilesystemEffect> FilesystemEffects { get; init; }
     public required IReadOnlyList<ExecuteCommandNetworkEffect> NetworkEffects { get; init; }
     public required bool StartsInBackground { get; init; }
@@ -706,7 +657,7 @@ internal sealed record ExecuteCommandPlanBase
             Shell = Shell,
             WorkingDirectory = WorkingDirectory,
             Workspace = Workspace,
-            RequestedSandbox = RequestedSandbox,
+            RequestedSandboxFingerprint = RequestedSandboxFingerprint,
             FilesystemEffects = FilesystemEffects,
             NetworkEffects = NetworkEffects,
             StartsInBackground = StartsInBackground,
@@ -734,7 +685,7 @@ internal sealed record ExecuteCommandPlanBase
             Shell = Shell,
             WorkingDirectory = WorkingDirectory,
             Workspace = Workspace,
-            RequestedSandbox = RequestedSandbox,
+            RequestedSandboxFingerprint = RequestedSandboxFingerprint,
             FilesystemEffects = FilesystemEffects,
             NetworkEffects = NetworkEffects,
             StartsInBackground = StartsInBackground,
@@ -758,7 +709,7 @@ internal sealed record ExecuteCommandPlanBase
             Shell = Shell,
             WorkingDirectory = WorkingDirectory,
             Workspace = Workspace,
-            RequestedSandbox = RequestedSandbox,
+            RequestedSandboxFingerprint = RequestedSandboxFingerprint,
             FilesystemEffects = FilesystemEffects,
             NetworkEffects = NetworkEffects,
             StartsInBackground = StartsInBackground,
@@ -781,7 +732,7 @@ internal sealed record ExecuteCommandPlanBase
             Shell = Shell,
             WorkingDirectory = WorkingDirectory,
             Workspace = Workspace,
-            RequestedSandbox = RequestedSandbox,
+            RequestedSandboxFingerprint = RequestedSandboxFingerprint,
             FilesystemEffects = FilesystemEffects,
             NetworkEffects = NetworkEffects,
             StartsInBackground = StartsInBackground,
@@ -805,7 +756,7 @@ internal sealed record ExecuteCommandPlanBase
             Shell = Shell,
             WorkingDirectory = WorkingDirectory,
             Workspace = Workspace,
-            RequestedSandbox = RequestedSandbox,
+            RequestedSandboxFingerprint = RequestedSandboxFingerprint,
             FilesystemEffects = FilesystemEffects,
             NetworkEffects = NetworkEffects,
             StartsInBackground = StartsInBackground,
@@ -924,6 +875,7 @@ public sealed record ExecuteCommandShellScope
     public required string Executable { get; init; }
     public required ExecuteCommandShellFamily Family { get; init; }
     public string? Version { get; init; }
+    public string? InvocationArgumentsFingerprint { get; init; }
 }
 
 public enum ExecuteCommandShellFamily
@@ -1069,17 +1021,25 @@ public sealed record ExecuteCommandPermissionWorkspaceScope
     public required string RootPath { get; init; }
     public string? RelativeWorkingDirectory { get; init; }
 
-    public static ExecuteCommandPermissionWorkspaceScope From(AgentRunConfig runConfig, string? workingDirectory)
+    public string? ContentId { get; init; }
+    public string? EnvironmentId { get; init; }
+
+    internal static ExecuteCommandPermissionWorkspaceScope From(
+        RuntimeWorkspaceBinding? workspace, WorkspacePath? workingDirectory, string? environmentId = null)
     {
-        var workspace = CodingWorkspace.From(runConfig);
-        var root = workspace.Roots.FirstOrDefault();
-        var rootPath = root?.Path ?? Directory.GetCurrentDirectory();
-        var relative = workingDirectory is null ? null : Path.GetRelativePath(rootPath, workingDirectory);
+        if (workspace is null || workingDirectory is not { } logical)
+        {
+            return new ExecuteCommandPermissionWorkspaceScope { RootId = string.Empty, RootPath = string.Empty };
+        }
+
+        var root = workspace.Roots.Single(candidate => candidate.Id == logical.RootId);
         return new ExecuteCommandPermissionWorkspaceScope
         {
-            RootId = root?.Id ?? "default",
-            RootPath = rootPath,
-            RelativeWorkingDirectory = relative
+            RootId = root.Id.Value,
+            RootPath = workspace.Paths.ToExecutionPath(new WorkspacePath(root.Id, string.Empty)).Value,
+            RelativeWorkingDirectory = logical.RelativePath,
+            ContentId = root.Content.Value,
+            EnvironmentId = environmentId
         };
     }
 }
@@ -1134,7 +1094,7 @@ public sealed record FeedbackChoice : ExecuteCommandPermissionChoice;
 
 internal static class ExecuteCommandPermissionAnalyzerVersions
 {
-    public const int RuleSchema = 2;
+    public const int RuleSchema = 3;
     public const int Analyzer = 2;
     public const int Normalization = 2;
     public const int SemanticPolicy = 2;
@@ -1308,11 +1268,11 @@ internal static class ExecuteCommandPermissionRuleMatcher
             return "analyzer_version_mismatch";
         if (rule.NormalizationVersion != ExecuteCommandPermissionAnalyzerVersions.Normalization)
             return "normalization_version_mismatch";
-        if (rule.Shell.Family != plan.Shell.Family)
+        if (rule.Shell != plan.Shell)
             return "shell_family_mismatch";
-        if (!string.Equals(rule.Workspace.RootId, plan.Workspace.RootId, StringComparison.Ordinal))
+        if (rule.Workspace != plan.Workspace)
             return "workspace_root_mismatch";
-        if (!string.Equals(rule.RequestedSandboxFingerprint, plan.RequestedSandbox.Canonicalize(plan.WorkingDirectory), StringComparison.Ordinal))
+        if (!string.Equals(rule.RequestedSandboxFingerprint, plan.RequestedSandboxFingerprint, StringComparison.Ordinal))
             return "sandbox_scope_mismatch";
         return null;
     }
@@ -3352,7 +3312,7 @@ internal static class ExecuteCommandPathAnalyzer
         ExecuteCommandShellAnalysis analysis,
         string workingDirectory,
         string workspaceRoot,
-        AgentSandboxRuntime sandbox)
+        ProcessIsolationPolicy sandbox)
     {
         var effects = new List<ExecuteCommandFilesystemEffect>();
         foreach (var segment in analysis.Segments)
@@ -3381,7 +3341,7 @@ internal static class ExecuteCommandPathAnalyzer
         ExecuteCommandSubcommandPlan segment,
         string workingDirectory,
         string workspaceRoot,
-        AgentSandboxRuntime sandbox)
+        ProcessIsolationPolicy sandbox)
     {
         if (segment.Argv.Count < 2)
             yield break;
@@ -3405,76 +3365,58 @@ internal static class ExecuteCommandPathAnalyzer
             : Path.GetFullPath(Path.Combine(workingDirectory, path));
 
     private static bool IsWithinWorkspace(string path, string workspaceRoot)
-        => CodingWorkspace.IsPathUnderDirectory(workspaceRoot, path);
+        => !string.IsNullOrEmpty(workspaceRoot) && ContainsPath(workspaceRoot, path);
+
+    private static bool ContainsPath(string root, string path)
+    {
+        if (!Path.IsPathFullyQualified(root))
+            return false;
+
+        string relative = Path.GetRelativePath(root, path);
+        return !Path.IsPathRooted(relative) && relative != ".." &&
+            !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal);
+    }
 
     private static bool IsCoveredBySandbox(
         string path,
         ExecuteCommandFilesystemOperation operation,
         string workspaceRoot,
         string workingDirectory,
-        AgentSandboxRuntime sandbox)
+        ProcessIsolationPolicy sandbox)
     {
-        if (!sandbox.IsEnforced)
+        if (sandbox.Mode != ProcessIsolationMode.Isolated)
             return true;
 
-        if (IsWithinWorkspace(path, workspaceRoot))
-            return true;
-
-        return sandbox.Filesystem.Any(grant =>
-        {
-            var grantPath = ResolvePath(grant.Path, workingDirectory);
-            var operationCovered = grant.Access switch
+        var read = operation == ExecuteCommandFilesystemOperation.Read;
+        var matches = sandbox.Filesystem.Rules.Where(rule =>
+            rule.PatternKind switch
             {
-                AgentSandboxPathAccess.Read => operation == ExecuteCommandFilesystemOperation.Read,
-                AgentSandboxPathAccess.Write => operation is ExecuteCommandFilesystemOperation.Create
-                    or ExecuteCommandFilesystemOperation.Write
-                    or ExecuteCommandFilesystemOperation.Delete,
+                PathPatternKind.Literal => string.Equals(rule.Path.Value, path, StringComparison.Ordinal),
+                PathPatternKind.LiteralOrSubpath => ContainsPath(rule.Path.Value, path),
                 _ => false
-            };
-            return operationCovered && CodingWorkspace.IsPathUnderDirectory(grantPath, path);
-        });
+            });
+        return !matches.Any(rule => rule.Kind == (read ? PathAccessRuleKind.DenyRead : PathAccessRuleKind.DenyWrite)) &&
+            matches.Any(rule => rule.Kind == (read ? PathAccessRuleKind.AllowRead : PathAccessRuleKind.AllowWrite));
     }
 
     public static IReadOnlyList<ExecuteCommandNetworkEffect> GetNetworkEffects(
         ExecuteCommandShellAnalysis analysis,
-        AgentSandboxRuntime sandbox)
+        ProcessIsolationPolicy sandbox)
         => analysis.Segments.Any(segment => Policy.HasNetworkEffect(segment.Argv))
             ? [new ExecuteCommandNetworkEffect
             {
                 Operation = ExecuteCommandNetworkOperation.LikelyEgress,
-                CoveredBySandbox = !sandbox.IsEnforced ||
+                CoveredBySandbox = sandbox.Mode != ProcessIsolationMode.Isolated ||
                     sandbox.Network.Mode != NetworkEgressMode.Blocked
             }]
             : [];
 }
 
-internal static class AgentSandboxRuntimeExtensions
+internal static class ExecuteCommandIsolationFingerprint
 {
-    public static string Canonicalize(this AgentSandboxRuntime policy, string workingDirectory)
+    public static string Fingerprint(this ProcessIsolationPolicy policy)
     {
-        var filesystem = policy.Filesystem
-            .Select(grant =>
-            {
-                var path = Path.IsPathFullyQualified(grant.Path)
-                    ? Path.GetFullPath(grant.Path)
-                    : Path.GetFullPath(Path.Combine(workingDirectory, grant.Path));
-                return $"{grant.Access}:{path}";
-            })
-            .Order(StringComparer.Ordinal);
-        var allowed = policy.Network.AllowedDomains
-            .Select(static rule => rule.Pattern)
-            .Order(StringComparer.Ordinal);
-        var denied = policy.Network.DeniedDomains
-            .Select(static rule => rule.Pattern)
-            .Order(StringComparer.Ordinal);
-        return string.Join("|", [
-            "v:1",
-            $"mode:{policy.Security.Sandbox}",
-            $"fs:{string.Join(",", filesystem)}",
-            $"net:{policy.Network.Mode}:{string.Join(",", allowed)}:{string.Join(",", denied)}",
-            $"pty:{policy.Interactive.AllowPty}",
-            $"bind:{policy.Interactive.AllowLocalBinding}",
-            $"mach:{string.Join(",", policy.Interactive.AllowedMachLookups.Order(StringComparer.Ordinal))}"
-        ]);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(policy, CodingToolHarnessJsonContext.Default.ProcessIsolationPolicy);
+        return Convert.ToHexString(SHA256.HashData(bytes));
     }
 }

@@ -194,7 +194,7 @@ public sealed class ValidatedPermissionInput
 }
 
 /// <summary>Provides immutable invocation facts and scoped services to a permission policy.</summary>
-public sealed class PermissionEvaluationContext
+public sealed class PermissionEvaluationContext : IHarnessConfigurationContext
 {
     /// <summary>Gets the model-facing function name.</summary>
     public required string FunctionName { get; init; }
@@ -208,6 +208,17 @@ public sealed class PermissionEvaluationContext
     public required ValidatedPermissionInput Input { get; init; }
     /// <summary>Gets the immutable run configuration.</summary>
     public required AgentRunConfig RunConfig { get; init; }
+    /// <summary>Gets the capabilities resolved for the current turn.</summary>
+    public Middleware.IRuntimeCapabilityRegistry? RuntimeCapabilities { get; init; }
+    /// <summary>Gets settings for the harness owning the function.</summary>
+    public HarnessConfigurationBinding? HarnessConfiguration { get; init; }
+
+    /// <summary>Gets the effective settings for the harness owning the function, when available.</summary>
+    public T? GetHarnessSettings<T>() where T : class =>
+        HarnessConfiguration is { } binding &&
+        binding.Execution.Values.TryGetValue(binding.Owner, out var value)
+            ? value as T
+            : null;
     /// <summary>Gets invocation-scoped services.</summary>
     public required IServiceProvider Services { get; init; }
 }

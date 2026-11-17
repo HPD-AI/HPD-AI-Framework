@@ -10,49 +10,27 @@ namespace HPD.Agent.ToolHarness.Coding.Tests;
 
 internal static class TestRuntimeWorkspace
 {
-    public static RuntimeWorkspaceBinding FromRunConfig(
-        AgentRunConfig runConfig)
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<
+        AgentWorkspaceReference, RuntimeWorkspaceBinding> Workspaces = new();
+
+    public static AgentRunConfig RunConfig(RuntimeWorkspaceBinding workspace)
     {
-        ArgumentNullException.ThrowIfNull(runConfig);
-        return CodingWorkspace.TryFrom(
-                runConfig,
-                out CodingWorkspace workspace,
-                out _)
-            ? FromAgentWorkspace(workspace)
-            : Create(Path.GetTempPath());
+        var reference = new AgentWorkspaceReference(Guid.NewGuid().ToString("N"));
+        Workspaces.Add(reference, workspace);
+        return new AgentRunConfig { Workspace = reference };
     }
 
-    public static RuntimeWorkspaceBinding FromAgentWorkspace(
-        CodingWorkspace workspace)
+    public static RuntimeWorkspaceBinding FromRunConfig(AgentRunConfig runConfig) =>
+        runConfig.Workspace is { } reference && Workspaces.TryGetValue(reference, out var workspace)
+            ? workspace
+            : Create(Directory.GetCurrentDirectory());
+
+    public static RuntimeWorkspaceBinding Create(params SandboxWorkspaceRequest[] requests)
     {
-        ArgumentNullException.ThrowIfNull(workspace);
-        WorkspaceRootBinding[] roots = workspace.Roots
-            .Select(root => new WorkspaceRootBinding
-            {
-                Id = new WorkspaceRootId(root.Id),
-                DisplayName = root.Label ?? root.Id,
-                Access = root.Access == CodingWorkspaceAccess.ReadWrite
-                    ? AccessMode.ReadWrite
-                    : AccessMode.ReadOnly,
-                DefaultExecutionPath =
-                    new WorkspacePath(
-                        new WorkspaceRootId(root.Id),
-                        string.Empty),
-                Content = new WorkspaceContentIdentity(
-                    $"test:{PhysicalPath(root.Path)}"),
-                PathSemantics = new WorkspacePathSemantics(
-                    CaseSensitive: OperatingSystem.IsLinux(),
-                    Symlinks: SymlinkEvaluationPolicy.DenySymlinks),
-            })
-            .ToArray();
-        WorkspaceRootBinding selected = roots.Single(root =>
-            root.Id.Value == workspace.DefaultRootId);
-        var mapper = new LocalWorkspacePathMapper(
-            roots.ToDictionary(
-                root => root.Id,
-                    root => PhysicalPath(
-                        workspace.Roots.Single(candidate =>
-                            candidate.Id == root.Id.Value).Path)));
+        var roots = requests.Select(request => request.Root).ToArray();
+        var selected = roots[0];
+        var mapper = new LocalWorkspacePathMapper(requests.ToDictionary(
+            request => request.Root.Id, request => PhysicalPath(request.ExecutionPath.Value)));
         return new RuntimeWorkspaceBinding
         {
             Files = new LocalWorkspaceFileStore(roots, mapper),

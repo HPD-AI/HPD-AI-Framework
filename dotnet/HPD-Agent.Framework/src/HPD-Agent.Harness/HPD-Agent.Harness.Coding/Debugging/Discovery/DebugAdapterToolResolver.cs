@@ -211,7 +211,7 @@ public sealed class EnvironmentDebugAdapterToolResolver : IDebugAdapterToolResol
         TargetHandle<ExecutionUnit> target,
         DebugAdapterToolCandidate candidate,
         string workspaceRoot,
-        AgentSandboxRuntime processSandbox) => new()
+        ProcessIsolationPolicy processSandbox) => new()
     {
         Target = target,
         Command = new ProcessCommandSpec
@@ -226,7 +226,7 @@ public sealed class EnvironmentDebugAdapterToolResolver : IDebugAdapterToolResol
             StandardError = new ProcessOutputSpec { Capture = true, Stream = false, MaxCapturedBytes = MaxVersionBytes }
         },
         Policy = ProcessInvocationPolicy.Default with { Timeout = TimeSpan.FromSeconds(3), OutputDrainTimeout = TimeSpan.FromSeconds(1) },
-        Isolation = processSandbox.ToProcessIsolationPolicy(workspaceRoot),
+        Isolation = processSandbox,
         ObservationRetention = ObservationRetentionPolicy.ResultAndDiagnostics
     };
 

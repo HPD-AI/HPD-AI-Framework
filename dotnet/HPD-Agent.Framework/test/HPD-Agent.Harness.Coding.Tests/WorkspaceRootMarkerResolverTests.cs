@@ -17,8 +17,7 @@ public sealed class WorkspaceRootMarkerResolverTests
             var artifact = Path.Combine(artifactDirectory, "Sample.dll");
             await File.WriteAllTextAsync(project, "<Project />");
             await File.WriteAllBytesAsync(artifact, []);
-            var workspace = new CodingWorkspace(
-                "root", root, [new CodingWorkspaceRoot("root", root, CodingWorkspaceAccess.ReadWrite)]);
+            var workspace = TestRuntimeWorkspace.Create(root);
             var resolver = new WorkspaceRootMarkerResolver();
 
             var first = await resolver.ResolveAsync(
@@ -47,8 +46,7 @@ public sealed class WorkspaceRootMarkerResolverTests
         {
             Directory.CreateDirectory(Path.Combine(root, "nested"));
             await File.WriteAllTextAsync(Path.Combine(parent, "outside.csproj"), "<Project />");
-            var workspace = new CodingWorkspace(
-                "root", root, [new CodingWorkspaceRoot("root", root, CodingWorkspaceAccess.ReadWrite)]);
+            var workspace = TestRuntimeWorkspace.Create(root);
 
             var result = await new WorkspaceRootMarkerResolver().ResolveAsync(
                 workspace, Path.Combine(root, "nested"), ["*.csproj"]);

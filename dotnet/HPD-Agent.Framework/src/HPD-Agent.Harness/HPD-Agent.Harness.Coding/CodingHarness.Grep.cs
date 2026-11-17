@@ -4,7 +4,6 @@ using System.Text;
 using System.Xml;
 using HPD.Agent.Sandbox;
 using HPD.Agent.ToolHarness.Coding;
-using HPD.Agent.ToolHarness.Coding.Security;
 using HPD.Agent.Middleware;
 using HPD.Environment.Contracts;
 using Microsoft.Extensions.AI;
@@ -108,10 +107,6 @@ public partial class CodingToolHarness
                 multiline,
                 includeHidden,
                 respectIgnoreFiles).ConfigureAwait(false);
-        }
-        catch (AgentCapabilityDeniedException ex)
-        {
-            return FormatGrepError(path ?? string.Empty, ex.Message);
         }
         catch (InvalidOperationException ex)
         {

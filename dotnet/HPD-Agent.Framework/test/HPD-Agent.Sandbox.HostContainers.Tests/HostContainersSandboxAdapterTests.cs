@@ -171,11 +171,7 @@ public sealed class HostContainersSandboxAdapterTests
                         WorkloadStateRoot =
                             Path.Combine(root, "provider"),
                     }),
-                    new SandboxSessionRequest
-                    {
-                        Isolation = ContainerIsolation,
-                        Workspaces = [SandboxWorkspaceRequest.HostDirectory(workspace, executionPath: "/workspace")],
-                    });
+                    HostContainersSandbox.ForDirectory(workspace));
             await middleware.InitializeAsync();
             ISandboxSession session = middleware.Session!;
             session.EnforcementLocation.Should().Be(

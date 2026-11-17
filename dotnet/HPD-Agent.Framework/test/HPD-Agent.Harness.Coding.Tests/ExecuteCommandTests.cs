@@ -4,7 +4,6 @@ using System.Text.Json;
 using System.Xml.Linq;
 using HPD.Agent;
 using HPD.Agent.ToolHarness.Coding;
-using HPD.Agent.ToolHarness.Coding.Security;
 using HPD.Agent.Middleware;
 using HPD.Agent.Permissions;
 using HPD.Agent.Security;
@@ -123,35 +122,6 @@ public sealed class ExecuteCommandTests : IDisposable
 
         result.ToString().Should().Contain("kind=\"working_directory_not_found\"");
         result.ToString().Should().Contain(Path.Combine(_tempRoot, "missing"));
-    }
-
-    [Fact]
-    public void ExecuteCommand_InvalidWorkspaceShape_FailsSessionComposition()
-    {
-        var workspaceJson = $$"""
-        {
-          "defaultRootId": "default",
-          "roots": [
-            { "id": "default", "access": "readWrite", "path": "{{JsonEscape(_tempRoot)}}" }
-          ]
-        }
-        """;
-
-        using var document = JsonDocument.Parse(workspaceJson);
-        var runConfig = new AgentRunConfig
-        {
-            Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>()
-            {
-                [CodingWorkspace.ContextKey] = document.RootElement.Clone()
-            } }
-        };
-
-        Action action = () => CreateContext(
-            new FakeProcessProvider(),
-            runConfig: runConfig);
-
-        action.Should().Throw<CodingWorkspaceException>()
-            .WithMessage("*Workspace 'version' is required.*");
     }
 
     [Fact]
@@ -461,21 +431,18 @@ public sealed class ExecuteCommandTests : IDisposable
     [Fact]
     public void ExecuteCommandPermissionBoundary_SandboxModeChangesPermissionFingerprint()
     {
+        var runConfig = CreateWorkspaceRunConfig();
+        var registry = new RuntimeCapabilityRegistry();
+        RegisterProcessExecution(registry, new FakeProcessProvider(), runConfig);
+        var workspace = registry.GetRequired<HPD.Agent.Sandbox.RuntimeWorkspaceBinding>();
+        var process = registry.GetRequired<RuntimeProcessExecutionBinding>();
+        var shell = new EnvironmentContextConfig { ShellExecutableOverride = "/bin/zsh" };
         var sandboxed = ExecuteCommandPermissionAnalyzer.Analyze(
-            RunArguments("npm install"),
-            CreateWorkspaceRunConfig(),
-            new ExecuteCommandOptions(),
-            new ExecuteCommandShellScope { Executable = "zsh", Family = ExecuteCommandShellFamily.Zsh });
-        var unsandboxedConfig = CreateWorkspaceRunConfig();
-        unsandboxedConfig.Security = new AgentSecurityRunConfig
-        {
-            Sandbox = new AgentSandboxRunConfig { Mode = AgentSandboxPolicy.Disabled }
-        };
+            RunArguments("npm install"), workspace, process, new ExecuteCommandOptions(), shell);
         var unsandboxed = ExecuteCommandPermissionAnalyzer.Analyze(
-            RunArguments("npm install"),
-            unsandboxedConfig,
-            new ExecuteCommandOptions(),
-            new ExecuteCommandShellScope { Executable = "zsh", Family = ExecuteCommandShellFamily.Zsh });
+            RunArguments("npm install"), workspace,
+            process with { Isolation = ProcessIsolationPolicy.Default with { Mode = ProcessIsolationMode.Disabled } },
+            new ExecuteCommandOptions(), shell);
 
         sandboxed.Fingerprint.Should().NotBe(unsandboxed.Fingerprint);
         sandboxed.Risk.Should().NotHaveFlag(ExecuteCommandPermissionRisk.Unsandboxed);
@@ -499,7 +466,7 @@ public sealed class ExecuteCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task ExecuteCommand_WorkingDirectoryOutsideWorkspace_RunsWithSandboxDisabled()
+    public async Task ExecuteCommand_WorkingDirectoryOutsideWorkspace_IsRejectedWithSandboxDisabled()
     {
         var outside = Path.Combine(Path.GetTempPath(), $"hpd-outside-{Guid.NewGuid():N}");
         Directory.CreateDirectory(outside);
@@ -517,14 +484,13 @@ public sealed class ExecuteCommandTests : IDisposable
                 }
             };
 
-            _ = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
+            var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
                 context: CreateContext(runner, runConfig: runConfig),
                 command: "pwd",
                 workingDirectory: outside);
 
-            runner.StartCalls.Should().Be(1);
-            runner.LastSpec!.Command.WorkingDirectory.Should().Be(Path.GetFullPath(outside));
-            runner.LastSpec.Isolation.Mode.Should().Be(ProcessIsolationMode.Disabled);
+            result.ToString().Should().Contain("kind=\"working_directory_not_found\"");
+            runner.StartCalls.Should().Be(0);
         }
         finally
         {
@@ -603,7 +569,7 @@ public sealed class ExecuteCommandTests : IDisposable
         {
             Result = CreateResult(stdout: "hello\n", stderr: "warn\n", exitCode: 0)
         };
-        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(executeCommandOptions: new ExecuteCommandOptions
         {
             MaxInlineCommandOutputChars = 1024
         });
@@ -867,7 +833,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Completion = completion.Task
         };
         var registry = new TestOperationRegistry();
-        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(executeCommandOptions: new ExecuteCommandOptions
         {
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(100)
         });
@@ -916,7 +882,7 @@ public sealed class ExecuteCommandTests : IDisposable
         var completion = new TaskCompletionSource<ProcessInvocationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         var runner = new FakeProcessProvider { Completion = completion.Task };
         var registry = new TestOperationRegistry();
-        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(executeCommandOptions: new ExecuteCommandOptions
         {
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
         });
@@ -955,7 +921,7 @@ public sealed class ExecuteCommandTests : IDisposable
         };
         var registry = new TestOperationRegistry();
         var context = CreateContext(runner, operations: registry, sessionId: sessionId);
-        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(executeCommandOptions: new ExecuteCommandOptions
         {
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(100)
         });
@@ -1000,7 +966,7 @@ public sealed class ExecuteCommandTests : IDisposable
             result.Accepted.Should().BeTrue(result.Message);
             return ValueTask.CompletedTask;
         });
-        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(executeCommandOptions: new ExecuteCommandOptions
         {
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
         });
@@ -1032,7 +998,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Completion = completion.Task
         };
         var registry = new TestOperationRegistry();
-        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(executeCommandOptions: new ExecuteCommandOptions
         {
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
         });
@@ -1072,7 +1038,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Completion = completion.Task
         };
         var registry = new TestOperationRegistry(startTasks: false);
-        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(executeCommandOptions: new ExecuteCommandOptions
         {
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
         });
@@ -1207,7 +1173,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Completion = completion.Task
         };
         var registry = new TestOperationRegistry(startTasks: false);
-        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(executeCommandOptions: new ExecuteCommandOptions
         {
             MaxActiveBackgroundCommands = 1,
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
@@ -1239,7 +1205,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Completion = completion.Task
         };
         var registry = new TestOperationRegistry(startTasks: false);
-        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(executeCommandOptions: new ExecuteCommandOptions
         {
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
         });
@@ -1288,7 +1254,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Completion = completion.Task
         };
         var registry = new TestOperationRegistry();
-        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(executeCommandOptions: new ExecuteCommandOptions
         {
             AutoBackgroundAfter = TimeSpan.FromMilliseconds(1)
         });
@@ -1321,7 +1287,7 @@ public sealed class ExecuteCommandTests : IDisposable
         {
             Result = CreateResult(stdout: "one\ntwo\nthree\n", exitCode: 0)
         };
-        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(executeCommandOptions: new ExecuteCommandOptions
         {
             MaxOutputChunkEventsPerCommand = 1,
             MaxOutputChunkEventsPerSecond = 100,
@@ -1415,7 +1381,7 @@ public sealed class ExecuteCommandTests : IDisposable
             progress.Add(evt);
             return ValueTask.CompletedTask;
         });
-        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(executeCommandOptions: new ExecuteCommandOptions
         {
             AutoBackgroundAfter = TimeSpan.FromMilliseconds(5),
             ProgressAfter = TimeSpan.Zero
@@ -1449,11 +1415,13 @@ public sealed class ExecuteCommandTests : IDisposable
         ]);
     }
 
-    private static void RegisterProcessExecution(
+    internal static void RegisterProcessExecution(
         IRuntimeCapabilityRegistry capabilities,
         IProcessProvider provider,
         AgentRunConfig? runConfig = null)
     {
+        var workspace = TestRuntimeWorkspace.FromRunConfig(runConfig ?? CreateWorkspaceRunConfig());
+        capabilities.Set(workspace);
         capabilities.Set(new RuntimeProcessExecutionBinding
         {
             EnvironmentId = "test-local",
@@ -1467,11 +1435,9 @@ public sealed class ExecuteCommandTests : IDisposable
                 },
                 TargetHandleLifetime.LiveCapability,
                 TargetHandleAuthority.Control | TargetHandleAuthority.Observe),
-            Isolation = runConfig is null
-                ? ProcessIsolationPolicy.Default
-                : CodingSandboxRuntime.Capture(runConfig)
-                    .ToProcessIsolationPolicy(
-                        Directory.GetCurrentDirectory()),
+            WorkspaceContent = workspace.Content,
+            Isolation = AgentSandboxRuntime.Capture(runConfig ?? new AgentRunConfig())
+                .ToProcessIsolationPolicy(workspace.Paths.ToExecutionPath(workspace.WorkingDirectory).Value),
         });
     }
 
@@ -1669,25 +1635,12 @@ public sealed class ExecuteCommandTests : IDisposable
 
     private static AgentRunConfig CreateWorkspaceRunConfig(string? defaultRoot = null, string? docsRoot = null)
     {
-        var cwd = Path.GetFullPath(defaultRoot ?? Directory.GetCurrentDirectory());
-        var roots = new List<CodingWorkspaceRoot>
-        {
-            new("default", cwd, CodingWorkspaceAccess.ReadWrite)
-        };
-
-        if (docsRoot is not null)
-            roots.Add(new CodingWorkspaceRoot("docs", Path.GetFullPath(docsRoot), CodingWorkspaceAccess.ReadWrite, "Docs"));
-
-        return new AgentRunConfig
-        {
-            Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>()
-            {
-                [CodingWorkspace.ContextKey] = new CodingWorkspace(
-                    "default",
-                    cwd,
-                    roots)
-            } }
-        };
+        string cwd = defaultRoot ?? Directory.GetCurrentDirectory();
+        var primary = SandboxWorkspaceRequest.HostDirectory(cwd, rootId: "default");
+        var workspace = docsRoot is null
+            ? TestRuntimeWorkspace.Create(primary)
+            : TestRuntimeWorkspace.Create(primary, SandboxWorkspaceRequest.HostDirectory(docsRoot, rootId: "docs"));
+        return TestRuntimeWorkspace.RunConfig(workspace);
     }
 
     private static AgentConfig CreateTestAgentConfig() => new();
@@ -1810,7 +1763,7 @@ public sealed class ExecuteCommandTests : IDisposable
             TargetHandleLifetime.LiveCapability,
             TargetHandleAuthority.Control | TargetHandleAuthority.Observe);
 
-    private sealed class FakeProcessProvider : IProcessProvider
+    internal sealed class FakeProcessProvider : IProcessProvider
     {
         public ProviderId ProviderId { get; } = new("test.process-provider");
         public ProcessInvocationSpec? LastSpec { get; private set; }
@@ -1871,7 +1824,7 @@ public sealed class ExecuteCommandTests : IDisposable
         }
     }
 
-    private sealed class FakeProcessHandle : IProcessInvocationHandle
+    internal sealed class FakeProcessHandle : IProcessInvocationHandle
     {
         private readonly ProcessInvocationSpec _spec;
         private readonly Task<ProcessInvocationResult> _completion;

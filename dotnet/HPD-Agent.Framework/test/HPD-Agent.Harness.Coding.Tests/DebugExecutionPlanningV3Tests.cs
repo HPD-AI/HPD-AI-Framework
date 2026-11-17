@@ -270,17 +270,14 @@ public sealed class DebugExecutionPlanningV3Tests
                 extension == ".slnx"
                     ? "<Solution><Project Path=\"App.csproj\" /></Solution>"
                     : "Project(\"{00000000-0000-0000-0000-000000000000}\") = \"App\", \"App.csproj\", \"{00000000-0000-0000-0000-000000000001}\"");
-            var workspace = new CodingWorkspace(
-                "root",
-                root,
-                [new("root", root, CodingWorkspaceAccess.ReadWrite)]);
+            var workspace = TestRuntimeWorkspace.Create(root);
             var context = Context() with
             {
                 Target = new ApplicationProjectDebugTarget(root),
                 Operation = new LaunchDebugOperation(
                     new ApplicationProjectDebugTarget(root)),
                 RuntimeWorkspace =
-                    TestRuntimeWorkspace.FromAgentWorkspace(workspace),
+                    workspace,
                 CanonicalWorkspacePath = root,
                 CanonicalTargetPath = solution,
                 Evidence = new(
@@ -321,20 +318,16 @@ public sealed class DebugExecutionPlanningV3Tests
             File.WriteAllText(
                 solution,
                 "<Solution><Project Path=\"../project/App.csproj\" /></Solution>");
-            var workspace = new CodingWorkspace(
-                "solution",
-                solutionRoot,
-                [
-                    new("solution", solutionRoot, CodingWorkspaceAccess.ReadWrite),
-                    new("project", projectRoot, CodingWorkspaceAccess.ReadWrite)
-                ]);
+            var workspace = TestRuntimeWorkspace.Create(
+                SandboxWorkspaceRequest.HostDirectory(solutionRoot, rootId: "solution"),
+                SandboxWorkspaceRequest.HostDirectory(projectRoot, rootId: "project"));
             var context = Context() with
             {
                 Target = new ApplicationProjectDebugTarget(solution),
                 Operation = new LaunchDebugOperation(
                     new ApplicationProjectDebugTarget(solution)),
                 RuntimeWorkspace =
-                    TestRuntimeWorkspace.FromAgentWorkspace(workspace),
+                    workspace,
                 CanonicalWorkspacePath = solutionRoot,
                 CanonicalTargetPath = solution,
                 Evidence = new(
@@ -370,17 +363,14 @@ public sealed class DebugExecutionPlanningV3Tests
             var second = Path.Combine(root, "Two.csproj");
             File.WriteAllText(first, "<Project />");
             File.WriteAllText(second, "<Project />");
-            var workspace = new CodingWorkspace(
-                "root",
-                root,
-                [new("root", root, CodingWorkspaceAccess.ReadWrite)]);
+            var workspace = TestRuntimeWorkspace.Create(root);
             var context = Context() with
             {
                 Target = new ApplicationProjectDebugTarget(root),
                 Operation = new LaunchDebugOperation(
                     new ApplicationProjectDebugTarget(root)),
                 RuntimeWorkspace =
-                    TestRuntimeWorkspace.FromAgentWorkspace(workspace),
+                    workspace,
                 CanonicalWorkspacePath = root,
                 CanonicalTargetPath = root,
                 Evidence = new(
@@ -419,16 +409,13 @@ public sealed class DebugExecutionPlanningV3Tests
             var unrelated = Path.Combine(root, "Unrelated.csproj");
             File.WriteAllText(exact, "<Project />");
             File.WriteAllText(unrelated, "<Project />");
-            var workspace = new CodingWorkspace(
-                "root",
-                root,
-                [new("root", root, CodingWorkspaceAccess.ReadWrite)]);
+            var workspace = TestRuntimeWorkspace.Create(root);
             var context = Context() with
             {
                 Target = new TestDebugTarget(exact),
                 Operation = new LaunchDebugOperation(new TestDebugTarget(exact)),
                 RuntimeWorkspace =
-                    TestRuntimeWorkspace.FromAgentWorkspace(workspace),
+                    workspace,
                 CanonicalWorkspacePath = root,
                 CanonicalTargetPath = exact,
                 Evidence = new(
@@ -473,17 +460,14 @@ public sealed class DebugExecutionPlanningV3Tests
                         System.Environment.NewLine,
                         Enumerable.Range(0, 10_002).Select(index =>
                             $"Project(\"{{0}}\") = \"P{index}\", \"P{index}.csproj\", \"{{1}}\"")));
-            var workspace = new CodingWorkspace(
-                "root",
-                root,
-                [new("root", root, CodingWorkspaceAccess.ReadWrite)]);
+            var workspace = TestRuntimeWorkspace.Create(root);
             var context = Context() with
             {
                 Target = new ApplicationProjectDebugTarget(root),
                 Operation = new LaunchDebugOperation(
                     new ApplicationProjectDebugTarget(root)),
                 RuntimeWorkspace =
-                    TestRuntimeWorkspace.FromAgentWorkspace(workspace),
+                    workspace,
                 CanonicalWorkspacePath = root,
                 CanonicalTargetPath = solution,
                 Evidence = new(
@@ -1020,10 +1004,7 @@ public sealed class DebugExecutionPlanningV3Tests
                     TargetHandleLifetime.LiveCapability,
                     TargetHandleAuthority.Control | TargetHandleAuthority.Observe)
             };
-            var workspace = new CodingWorkspace(
-                "root",
-                Root,
-                [new("root", Root, CodingWorkspaceAccess.ReadWrite)]);
+            var workspace = TestRuntimeWorkspace.Create(Root);
             Context = new()
             {
                 Operation = new LaunchDebugOperation(target),
@@ -1035,14 +1016,13 @@ public sealed class DebugExecutionPlanningV3Tests
                     ThreadId = "thread",
                     SessionManager = Manager,
                     Workspace =
-                        TestRuntimeWorkspace.FromAgentWorkspace(
-                            workspace),
+                        workspace,
                     EventScope = new(null, "session", "thread"),
                     ProcessExecution = process,
                     State = new()
                 },
                 RuntimeWorkspace =
-                    TestRuntimeWorkspace.FromAgentWorkspace(workspace),
+                    workspace,
                 CanonicalWorkspacePath = Root,
                 CanonicalTargetPath = target is SourceFileDebugTarget source
                     ? Path.Combine(Root, source.Path)

@@ -7,7 +7,6 @@ using HPD.Agent;
 using HPD.Agent.Sandbox;
 using HPD.Agent.Middleware;
 using HPD.Agent.ToolHarness.Coding;
-using HPD.Agent.ToolHarness.Coding.Security;
 using HPD.Environment.Contracts;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
@@ -46,13 +45,6 @@ public partial class CodingToolHarness
                 path,
                 edits,
                 context).ConfigureAwait(false);
-        }
-        catch (AgentCapabilityDeniedException exception)
-        {
-            return FormatEditError(
-                EditFileErrorKind.InvalidArguments,
-                resolvedPath?.FullPath ?? path,
-                exception.Message);
         }
         catch (FileMutationException exception) when (exception.Kind == FileMutationErrorKind.StaleFile)
         {

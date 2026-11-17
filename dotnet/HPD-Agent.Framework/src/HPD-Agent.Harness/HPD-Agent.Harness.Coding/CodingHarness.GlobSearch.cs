@@ -6,7 +6,6 @@ using System.Xml;
 using HPD.Agent.Sandbox;
 using HPD.Agent.Middleware;
 using HPD.Agent.ToolHarness.Coding;
-using HPD.Agent.ToolHarness.Coding.Security;
 using HPD.Environment.Contracts;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
@@ -64,10 +63,6 @@ public partial class CodingToolHarness
                 kind,
                 sortBy,
                 sortDirection).ConfigureAwait(false);
-        }
-        catch (AgentCapabilityDeniedException ex)
-        {
-            return FormatGlobSearchError(path ?? string.Empty, ex.Message);
         }
         catch (UnauthorizedAccessException ex)
         {

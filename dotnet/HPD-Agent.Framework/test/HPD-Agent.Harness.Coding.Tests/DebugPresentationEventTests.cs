@@ -1,3 +1,4 @@
+using HPD.Environment.Contracts;
 using HPD.Agent.Serialization;
 using HPD.Agent.Security;
 using HPD.Agent.ToolHarness.Coding.Debugging;
@@ -61,19 +62,15 @@ public sealed class DebugPresentationEventTests : IDisposable
             var firstPath = Path.Combine(_root, "Shared.cs");
             await File.WriteAllTextAsync(firstPath, "first");
             await File.WriteAllTextAsync(Path.Combine(secondRoot, "Shared.cs"), "second");
-            var workspace = new CodingWorkspace(
-                "first",
-                _root,
-                [
-                    new CodingWorkspaceRoot("first", _root, CodingWorkspaceAccess.ReadWrite),
-                    new CodingWorkspaceRoot("second", secondRoot, CodingWorkspaceAccess.ReadWrite)
-                ]);
+            var workspace = TestRuntimeWorkspace.Create(
+                SandboxWorkspaceRequest.HostDirectory(_root, rootId: "first"),
+                SandboxWorkspaceRequest.HostDirectory(secondRoot, rootId: "second"));
             var provider = new DebugSourcePreviewProvider(
                 new DebugSourcePreviewOptions());
 
             var preview = await provider.CaptureAsync(
                 new DebugSourcePreviewRequest(
-                    TestRuntimeWorkspace.FromAgentWorkspace(workspace),
+                    workspace,
                     firstPath,
                     [1]),
                 CancellationToken.None);

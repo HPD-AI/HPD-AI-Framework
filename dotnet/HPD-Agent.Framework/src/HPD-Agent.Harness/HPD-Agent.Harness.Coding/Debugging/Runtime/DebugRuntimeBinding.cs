@@ -1,7 +1,6 @@
 using HPD.Agent.Middleware;
 using HPD.Agent.Security;
 using HPD.Agent.Sandbox;
-using HPD.Agent.ToolHarness.Coding.Security;
 using HPD.Environment.Contracts;
 
 namespace HPD.Agent.ToolHarness.Coding.Debugging;
@@ -192,7 +191,7 @@ public sealed record DebugRuntimeBinding
     public DebugEnvironmentCapabilities Capabilities { get; init; } =
         new();
     /// <summary>Gets the invocation-wide process sandbox policy selected by the host.</summary>
-    public AgentSandboxRuntime ProcessSandbox { get; init; } = AgentSandboxRuntime.Default;
+    public ProcessIsolationPolicy ProcessSandbox { get; init; } = ProcessIsolationPolicy.Default;
     public IEnvironmentRuntime? EnvironmentRuntime => ProcessExecution?.EnvironmentRuntime;
     public required DebugEventScope EventScope { get; init; }
     public required DebugRuntimeBindingState State { get; init; }
@@ -244,7 +243,7 @@ public sealed record DebugRuntimeBinding
                 processExecution,
                 workspace,
                 sandboxSession),
-            ProcessSandbox = CodingSandboxRuntime.Capture(context.RunConfig),
+            ProcessSandbox = processExecution?.Isolation ?? ProcessIsolationPolicy.Default,
             EventScope = new DebugEventScope(
                 context.TraceId,
                 sessionId,

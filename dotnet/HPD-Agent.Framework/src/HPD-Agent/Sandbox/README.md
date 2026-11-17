@@ -20,15 +20,14 @@ extension. For a fixed Host Process workspace:
 
 ```csharp
 using HPD.Agent.Sandbox;
-using HPD.Environment.Contracts;
 using HPD.Environment.HostProcess;
 
-builder.WithSandbox(new HostProcessProviderModule(), new SandboxSessionRequest
-{
-    Isolation = ProcessIsolationPolicy.Default,
-    Workspaces = [SandboxWorkspaceRequest.HostDirectory(workspacePath)],
-});
+builder.WithSandbox(
+    new HostProcessProviderModule(),
+    HostProcessSandbox.ForDirectory(workspacePath));
 ```
+
+The provider factory returns a request. Use `HPD.Environment.Contracts` for explicit requests with custom policies or multiple roots.
 
 For per-run selection, supply a host-owned `resolveWorkspace` callback to
 `WithSandbox`. The default request is optional when a resolver is configured. Set `AgentRunConfig.Workspace` to an `AgentWorkspaceReference`

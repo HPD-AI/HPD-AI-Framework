@@ -11,16 +11,7 @@ namespace HPD.Agent.ToolHarness.Coding.Tests;
 /// Supplies an explicit logical workspace for legacy direct tool tests whose
 /// call sites predate the required Agent execution context.
 /// </summary>
-internal sealed class TestCodingHarness(
-    IHarnessConfig<CodingHarnessConfig> config,
-    IFileMutationLockProvider? fileMutationLockProvider = null,
-    IEnumerable<IFileMutationTextSink>? fileMutationTextSinks = null,
-    IEnumerable<IFileMutationHistorySink>? fileMutationHistorySinks = null)
-    : CodingToolHarness(
-        config,
-        fileMutationLockProvider,
-        fileMutationTextSinks,
-        fileMutationHistorySinks)
+internal sealed class TestCodingHarness(IHarnessConfig<CodingHarnessConfig> config) : CodingToolHarness(config)
 {
     public new Task<string> ListDirectory(
         string path,
@@ -118,24 +109,8 @@ internal sealed class TestCodingHarness(
     private static FunctionExecutionContext CreateContext()
     {
         string cwd = Directory.GetCurrentDirectory();
-        var runConfig = new AgentRunConfig
-        {
-            Context = new AgentContextRunConfig
-            {
-                Properties = new Dictionary<string, object>
-                {
-                    [CodingWorkspace.ContextKey] = new CodingWorkspace(
-                        "default",
-                        cwd,
-                        [
-                            new CodingWorkspaceRoot(
-                                "default",
-                                cwd,
-                                CodingWorkspaceAccess.ReadWrite),
-                        ]),
-                },
-            },
-        };
+        var runConfig = TestRuntimeWorkspace.RunConfig(
+            TestRuntimeWorkspace.Create(cwd, rootId: "default"));
         AIFunction function = AIFunctionFactory.Create(
             () => "ok",
             new AIFunctionFactoryOptions

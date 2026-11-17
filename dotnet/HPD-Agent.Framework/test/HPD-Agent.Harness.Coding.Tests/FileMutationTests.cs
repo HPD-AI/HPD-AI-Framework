@@ -23,123 +23,12 @@ public sealed class FileMutationTests : IDisposable
     }
 
     [Fact]
-    public async Task ApplyTextMutationAsync_ResolvesRelativePathAndCreatesParents()
-    {
-        var toolharness = CodingHarnessTestFactory.Create();
-
-        var result = await toolharness.ApplyTextMutationAsync(CreateRequest("src/A.cs", "class A {}\n"));
-
-        result.Path.Should().Be(FullPath("src/A.cs"));
-        result.Created.Should().BeTrue();
-        result.Changed.Should().BeTrue();
-        File.ReadAllText(result.Path).Should().Be("class A {}\n");
-    }
-
-    [Fact]
-    public async Task ApplyTextMutationAsync_RejectsMissingPath()
-    {
-        var toolharness = CodingHarnessTestFactory.Create();
-
-        var act = () => toolharness.ApplyTextMutationAsync(CreateRequest(" ", "x"));
-
-        await act.Should().ThrowAsync<FileMutationException>()
-            .Where(exception => exception.Kind == FileMutationErrorKind.InvalidArguments);
-    }
-
-    [Fact]
-    public async Task ApplyTextMutationAsync_RejectsDirectoryPath()
-    {
-        Directory.CreateDirectory("src");
-        var toolharness = CodingHarnessTestFactory.Create();
-
-        var act = () => toolharness.ApplyTextMutationAsync(CreateRequest("src", "x", allowCreate: false));
-
-        await act.Should().ThrowAsync<FileMutationException>()
-            .Where(exception => exception.Kind == FileMutationErrorKind.PathIsDirectory);
-    }
-
-    [Fact]
-    public async Task ApplyTextMutationAsync_RejectsBlockedPathBeforeMutation()
-    {
-        var toolharness = CodingHarnessTestFactory.Create();
-
-        var blockedPath = OperatingSystem.IsWindows() ? "NUL" : "/dev/zero";
-        var act = () => toolharness.ApplyTextMutationAsync(CreateRequest(blockedPath, "x"));
-
-        await act.Should().ThrowAsync<FileMutationException>()
-            .Where(exception =>
-                exception.Kind == FileMutationErrorKind.BlockedDevicePath ||
-                (OperatingSystem.IsWindows() &&
-                 exception.Kind == FileMutationErrorKind.WindowsUncPath));
-    }
-
-    [Fact]
-    public async Task ApplyTextMutationAsync_RejectsNotebookPath()
-    {
-        var toolharness = CodingHarnessTestFactory.Create();
-
-        var act = () => toolharness.ApplyTextMutationAsync(CreateRequest("notebook.ipynb", "{}"));
-
-        await act.Should().ThrowAsync<FileMutationException>()
-            .Where(exception => exception.Kind == FileMutationErrorKind.NotebookFile);
-    }
-
-    [Fact]
-    public async Task ApplyTextMutationAsync_RejectsBinaryFiles()
-    {
-        await File.WriteAllBytesAsync("binary.bin", [0x01, 0x02, 0x00, 0x03]);
-        var toolharness = CodingHarnessTestFactory.Create();
-
-        var act = () => toolharness.ApplyTextMutationAsync(CreateRequest("binary.bin", "x", allowCreate: false));
-
-        await act.Should().ThrowAsync<FileMutationException>()
-            .Where(exception => exception.Kind == FileMutationErrorKind.BinaryFile);
-    }
-
-    [Fact]
-    public async Task ApplyTextMutationAsync_MissingNonCreatePathFailsWithoutHostInspection()
-    {
-        await File.WriteAllTextAsync("Program.cs", "class Program {}\n");
-        var toolharness = CodingHarnessTestFactory.Create();
-
-        var act = () => toolharness.ApplyTextMutationAsync(CreateRequest("Program.ts", "x", allowCreate: false));
-
-        var assertion = await act.Should().ThrowAsync<FileMutationException>();
-        assertion.Which.Kind.Should().Be(FileMutationErrorKind.FileNotFound);
-        assertion.Which.Message.Should().Be("File does not exist.");
-    }
-
-    [Fact]
-    public async Task ApplyTextMutationAsync_RequiresExistingParentWhenCreateParentsDisabled()
-    {
-        var toolharness = CodingHarnessTestFactory.Create();
-
-        var act = () => toolharness.ApplyTextMutationAsync(CreateRequest("missing/A.cs", "x", createParents: false));
-
-        await act.Should().ThrowAsync<FileMutationException>()
-            .Where(exception => exception.Kind == FileMutationErrorKind.FileNotFound);
-    }
-
-    [Fact]
-    public async Task ApplyTextMutationAsync_PreservesUtf16BomAndReportsPreciseByteLength()
-    {
-        await File.WriteAllTextAsync("utf16.txt", "before\n", Encoding.Unicode);
-        var toolharness = CodingHarnessTestFactory.Create();
-
-        var result = await toolharness.ApplyTextMutationAsync(CreateRequest("utf16.txt", "after\n", allowCreate: false));
-
-        var bytes = await File.ReadAllBytesAsync("utf16.txt");
-        bytes[..2].Should().Equal(0xFF, 0xFE);
-        result.ByteLength.Should().Be(bytes.Length);
-    }
-
-    [Fact]
-    public async Task ApplyTextMutationAsync_NormalizesToExistingCrlfWhenRequested()
+    public async Task ApplyWorkspaceTextMutationAsync_NormalizesToExistingCrlfWhenRequested()
     {
         await File.WriteAllTextAsync("crlf.txt", "one\r\ntwo\r\n", new UTF8Encoding(false));
         var toolharness = CodingHarnessTestFactory.Create();
 
-        await toolharness.ApplyTextMutationAsync(CreateRequest(
+        await ApplyAsync(toolharness, CreateRequest(
             "crlf.txt",
             "three\nfour\n",
             allowCreate: false,
@@ -149,89 +38,12 @@ public sealed class FileMutationTests : IDisposable
     }
 
     [Fact]
-    public async Task ApplyTextMutationAsync_AcquiresAndReleasesConfiguredLock()
-    {
-        var lockProvider = new RecordingLockProvider();
-        var toolharness = CodingHarnessTestFactory.Create(
-            fileMutationLockProvider: lockProvider);
-
-        await toolharness.ApplyTextMutationAsync(CreateRequest("A.cs", "class A {}\n"));
-
-        lockProvider.AcquiredPath.Should().Be(FullPath("A.cs"));
-        lockProvider.Disposed.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task ApplyTextMutationAsync_InvokesHistorySinkAndRecordsOptionalFailure()
-    {
-        await File.WriteAllTextAsync("A.cs", "before\n");
-        var failingHistory = new FailingHistorySink();
-        FileMutationEventBuildRequest? eventRequest = null;
-        var toolharness = CodingHarnessTestFactory.Create(
-            fileMutationHistorySinks: [failingHistory]);
-
-        await toolharness.ApplyTextMutationAsync(CreateRequest(
-            "A.cs",
-            "after\n",
-            allowCreate: false,
-            eventFactory: request =>
-            {
-                eventRequest = request;
-                return CreateWriteEvent(request);
-            }));
-
-        failingHistory.Calls.Should().Be(1);
-        eventRequest!.Notes.Should().Contain(note => note.Kind == "history_capture_failed");
-    }
-
-    [Fact]
-    public async Task ApplyTextMutationAsync_UsesHostSinkWhenClaimed()
-    {
-        var sink = new RecordingTextSink(claims: true);
-        var toolharness = CodingHarnessTestFactory.Create(
-            fileMutationTextSinks: [sink]);
-
-        var result = await toolharness.ApplyTextMutationAsync(CreateRequest("virtual.cs", "class V {}\n"));
-
-        sink.Calls.Should().Be(1);
-        sink.Request!.Path.Should().Be(FullPath("virtual.cs"));
-        File.Exists("virtual.cs").Should().BeFalse();
-        result.UpdatedText.Should().Be("class V {}\n");
-    }
-
-    [Fact]
-    public async Task ApplyTextMutationAsync_FallsBackToFilesystemWhenHostSinkDoesNotClaim()
-    {
-        var sink = new RecordingTextSink(claims: false);
-        var toolharness = CodingHarnessTestFactory.Create(
-            fileMutationTextSinks: [sink]);
-
-        await toolharness.ApplyTextMutationAsync(CreateRequest("A.cs", "class A {}\n"));
-
-        sink.Calls.Should().Be(1);
-        File.ReadAllText("A.cs").Should().Be("class A {}\n");
-    }
-
-    [Fact]
-    public async Task ApplyTextMutationAsync_ConvertsHostSinkFailureToMutationError()
-    {
-        var sink = new ThrowingTextSink();
-        var toolharness = CodingHarnessTestFactory.Create(
-            fileMutationTextSinks: [sink]);
-
-        var act = () => toolharness.ApplyTextMutationAsync(CreateRequest("A.cs", "class A {}\n"));
-
-        await act.Should().ThrowAsync<FileMutationException>()
-            .Where(exception => exception.Kind == FileMutationErrorKind.HostSinkFailed);
-    }
-
-    [Fact]
-    public async Task ApplyTextMutationAsync_AllowsToolStaleValidatorToReject()
+    public async Task ApplyWorkspaceTextMutationAsync_AllowsToolStaleValidatorToReject()
     {
         await File.WriteAllTextAsync("A.cs", "before\n");
         var toolharness = CodingHarnessTestFactory.Create();
 
-        var act = () => toolharness.ApplyTextMutationAsync(CreateRequest(
+        var act = () => ApplyAsync(toolharness, CreateRequest(
             "A.cs",
             "after\n",
             allowCreate: false,
@@ -242,13 +54,13 @@ public sealed class FileMutationTests : IDisposable
     }
 
     [Fact]
-    public async Task ApplyTextMutationAsync_OmitsOversizedTextEditPayloadInEvent()
+    public async Task ApplyWorkspaceTextMutationAsync_OmitsOversizedTextEditPayloadInEvent()
     {
         var bigText = new string('x', 100_001);
         FileMutationEventBuildRequest? eventRequest = null;
         var toolharness = CodingHarnessTestFactory.Create();
 
-        await toolharness.ApplyTextMutationAsync(CreateRequest(
+        await ApplyAsync(toolharness, CreateRequest(
             "A.cs",
             bigText,
             textEdits:
@@ -275,13 +87,13 @@ public sealed class FileMutationTests : IDisposable
     }
 
     [Fact]
-    public async Task ApplyTextMutationAsync_OmitsOversizedSnapshotTextInEvent()
+    public async Task ApplyWorkspaceTextMutationAsync_OmitsOversizedSnapshotTextInEvent()
     {
         var bigText = new string('x', 500_001);
         FileMutationEventBuildRequest? eventRequest = null;
         var toolharness = CodingHarnessTestFactory.Create();
 
-        await toolharness.ApplyTextMutationAsync(CreateRequest(
+        await ApplyAsync(toolharness, CreateRequest(
             "A.cs",
             bigText,
             eventFactory: request =>
@@ -296,13 +108,13 @@ public sealed class FileMutationTests : IDisposable
     }
 
     [Fact]
-    public async Task ApplyTextMutationAsync_NoOpDoesNotEmitMutationEvent()
+    public async Task ApplyWorkspaceTextMutationAsync_NoOpDoesNotEmitMutationEvent()
     {
         await File.WriteAllTextAsync("A.cs", "same\n");
         var eventFactoryCalled = false;
         var toolharness = CodingHarnessTestFactory.Create();
 
-        var result = await toolharness.ApplyTextMutationAsync(CreateRequest(
+        var result = await ApplyAsync(toolharness, CreateRequest(
             "A.cs",
             "same\n",
             allowCreate: false,
@@ -318,7 +130,7 @@ public sealed class FileMutationTests : IDisposable
     }
 
     [Fact]
-    public async Task ApplyTextMutationAsync_EmitsCompactHunkAroundChangedRegion()
+    public async Task ApplyWorkspaceTextMutationAsync_EmitsCompactHunkAroundChangedRegion()
     {
         var before = string.Join('\n', Enumerable.Range(1, 80).Select(line => $"line {line}")) + "\n";
         var after = before.Replace("line 50", "line 50 changed", StringComparison.Ordinal);
@@ -326,7 +138,7 @@ public sealed class FileMutationTests : IDisposable
         await File.WriteAllTextAsync("A.cs", before);
         var toolharness = CodingHarnessTestFactory.Create();
 
-        await toolharness.ApplyTextMutationAsync(CreateRequest(
+        await ApplyAsync(toolharness, CreateRequest(
             "A.cs",
             after,
             allowCreate: false,
@@ -343,6 +155,12 @@ public sealed class FileMutationTests : IDisposable
         hunk.Lines.Should().Contain("+line 50 changed");
         hunk.Lines.Should().NotContain(" line 1");
         hunk.Lines.Should().NotContain(" line 80");
+    }
+
+    private Task<FileMutationResult> ApplyAsync(CodingToolHarness harness, FileMutationRequest request)
+    {
+        var workspace = TestRuntimeWorkspace.Create(_tempRoot);
+        return harness.ApplyWorkspaceTextMutationAsync(workspace, CodingWorkspacePathAccess.Resolve(workspace, request.Path), request);
     }
 
     private static FileMutationRequest CreateRequest(
@@ -391,63 +209,4 @@ public sealed class FileMutationTests : IDisposable
             Mode = request.Created ? FileWriteMode.Create : FileWriteMode.Rewrite
         };
 
-    private sealed class RecordingLockProvider : IFileMutationLockProvider
-    {
-        public string? AcquiredPath { get; private set; }
-        public bool Disposed { get; private set; }
-
-        public ValueTask<IAsyncDisposable> AcquireAsync(string fullPath, CancellationToken cancellationToken)
-        {
-            AcquiredPath = fullPath;
-            return ValueTask.FromResult<IAsyncDisposable>(new Lease(this));
-        }
-
-        private sealed class Lease(RecordingLockProvider owner) : IAsyncDisposable
-        {
-            public ValueTask DisposeAsync()
-            {
-                owner.Disposed = true;
-                return ValueTask.CompletedTask;
-            }
-        }
-    }
-
-    private sealed class FailingHistorySink : IFileMutationHistorySink
-    {
-        public int Calls { get; private set; }
-
-        public ValueTask CaptureBeforeMutationAsync(FileMutationHistoryRequest request, CancellationToken cancellationToken)
-        {
-            Calls++;
-            throw new InvalidOperationException("history unavailable");
-        }
-    }
-
-    private sealed class RecordingTextSink(bool claims) : IFileMutationTextSink
-    {
-        public int Calls { get; private set; }
-        public FileMutationSinkRequest? Request { get; private set; }
-
-        public ValueTask<FileMutationSinkResult?> TryMutateTextAsync(FileMutationSinkRequest request, CancellationToken cancellationToken)
-        {
-            Calls++;
-            Request = request;
-            return ValueTask.FromResult(claims
-                ? new FileMutationSinkResult
-                {
-                    FinalText = request.AfterText,
-                    LastWriteTimeUtc = DateTimeOffset.UtcNow,
-                    ByteLength = Encoding.UTF8.GetByteCount(request.AfterText),
-                    ContentHash = null,
-                    WroteToDisk = false
-                }
-                : null);
-        }
-    }
-
-    private sealed class ThrowingTextSink : IFileMutationTextSink
-    {
-        public ValueTask<FileMutationSinkResult?> TryMutateTextAsync(FileMutationSinkRequest request, CancellationToken cancellationToken)
-            => throw new InvalidOperationException("sink failed");
-    }
 }

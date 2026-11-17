@@ -18,10 +18,12 @@ dotnet add package HPD-Agent.Harness.Coding.TUI
 ## Compose the coding agent
 
 ```csharp
+using HPD.Agent.Sandbox;
 using HPD.Agent.TUI;
 using HPD.Agent.TUI.Runtime;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.ToolHarness.Coding.TUI;
+using HPD.Environment.HostProcess;
 
 var scope = new AgentTuiRuntimeScope(agentId, sessionId, threadId);
 
@@ -29,6 +31,7 @@ var agent = await new AgentBuilder()
     .WithAgentId(agentId)
     .WithName("Coding agent")
     .WithProvider("openrouter", modelId)
+    .WithSandbox(new HostProcessProviderModule(), HostProcessSandbox.ForDirectory(workspacePath))
     .WithToolHarness<CodingToolHarness>()
     .WithPermissions()
     .BuildAsync();
@@ -39,8 +42,7 @@ await using var app = HpdAgentTuiApp.Create(
     new DirectAgentTuiExecutionTarget(scope),
     tui => tui
         .AddAgentTuiDefaults()
-        .AddCodingHarnessTui()
-        .SetRunConfigComposer(_ => CreateRunConfig(workspace)));
+        .AddCodingHarnessTui());
 
 await app.RunAsync();
 ```
@@ -49,9 +51,7 @@ await app.RunAsync();
 permission-governed. `AddAgentTuiDefaults()` supplies the permission dialog;
 `AddCodingHarnessTui()` supplies the coding presentation.
 
-The run configuration must expose an appropriate coding workspace to the harness.
-Use `CodingWorkspace.ContextKey` from `HPD.Agent.ToolHarness.Coding` and validate the
-workspace before starting the TUI.
+Configure `WithSandbox` with the app’s Environment provider and a default workspace or a workspace resolver. To select a registered workspace per input, set `AgentRunConfig.Workspace` to its `AgentWorkspaceReference`. The coding harness uses the workspace and process capabilities resolved by the sandbox.
 
 ## What the TUI presents
 

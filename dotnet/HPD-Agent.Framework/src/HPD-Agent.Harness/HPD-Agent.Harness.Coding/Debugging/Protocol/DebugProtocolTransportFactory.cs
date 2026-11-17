@@ -125,11 +125,10 @@ public sealed class DebugProtocolTransportFactory
         DebugAdapterStartPlan plan,
         bool localBinding)
     {
-        if (!plan.ProcessSandbox.IsEnforced)
-            return plan.ProcessSandbox.ToProcessIsolationPolicy(
-                plan.CanonicalWorkingDirectory);
+        if (plan.ProcessSandbox.Mode == ProcessIsolationMode.Disabled)
+            return plan.ProcessSandbox;
 
-        return new ProcessIsolationPolicy
+        return plan.ProcessSandbox with
         {
             Mode = ProcessIsolationMode.Isolated,
             Network = NetworkEgressPolicy.Blocked,

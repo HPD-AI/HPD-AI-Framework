@@ -5,7 +5,6 @@ using HPD.Agent.Middleware;
 using HPD.Agent.Security;
 using HPD.Agent.Sandbox;
 using HPD.Agent.ToolHarness.Coding;
-using HPD.Agent.ToolHarness.Coding.Security;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol;
 using HPD.Environment.Contracts;
 using HPDOS.ToolHarnesses.Middleware;

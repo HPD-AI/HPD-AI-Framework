@@ -12,12 +12,8 @@ using HPDOS.ToolHarnesses.Middleware;
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     WriteIndented = false)]
-[JsonSerializable(typeof(CodingWorkspace))]
-[JsonSerializable(typeof(CodingWorkspaceRoot))]
 [JsonSerializable(typeof(LanguageServerOptions))]
 [JsonSerializable(typeof(EnvironmentContextConfig))]
-[JsonSerializable(typeof(IReadOnlyList<CodingWorkspaceRoot>), TypeInfoPropertyName = "CodingWorkspaceRootReadOnlyList")]
-[JsonSerializable(typeof(List<CodingWorkspaceRoot>), TypeInfoPropertyName = "CodingWorkspaceRootList")]
 
 [JsonSerializable(typeof(ContentAddress))]
 [JsonSerializable(typeof(ExecuteCommandPermissionPlan))]
@@ -48,9 +44,6 @@ using HPDOS.ToolHarnesses.Middleware;
 [JsonSerializable(typeof(PathAccessRule))]
 [JsonSerializable(typeof(NetworkEgressPolicy))]
 [JsonSerializable(typeof(ProcessInteractivePolicy))]
-[JsonSerializable(typeof(AgentSandboxRuntime))]
-[JsonSerializable(typeof(AgentSandboxConfiguration))]
-[JsonSerializable(typeof(AgentSandboxPathGrant))]
 [JsonSerializable(typeof(ExecuteCommandFilesystemEffect))]
 [JsonSerializable(typeof(ExecuteCommandNetworkEffect))]
 [JsonSerializable(typeof(ExecuteCommandRedirectionPlan))]
@@ -65,7 +58,6 @@ using HPDOS.ToolHarnesses.Middleware;
 [JsonSerializable(typeof(ExecuteCommandUnsupportedShellFeature))]
 [JsonSerializable(typeof(ExecuteCommandPolicyReadiness))]
 [JsonSerializable(typeof(ExecuteCommandShellFamily))]
-[JsonSerializable(typeof(AgentSandboxPathAccess))]
 [JsonSerializable(typeof(ExecuteCommandFilesystemOperation))]
 [JsonSerializable(typeof(ExecuteCommandNetworkOperation))]
 [JsonSerializable(typeof(ExecuteCommandRedirectionKind))]

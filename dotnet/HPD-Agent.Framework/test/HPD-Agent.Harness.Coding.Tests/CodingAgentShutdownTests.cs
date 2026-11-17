@@ -1,6 +1,9 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using HPD.Agent.Middleware;
+using HPD.Agent.Sandbox;
+using HPD.Environment.Contracts;
+using HPD.Environment.HostProcess;
 using HPD.Agent.ToolHarness.Coding.Tests;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
@@ -30,12 +33,22 @@ public sealed class CodingAgentShutdownTests
             })
             .WithChatClient(client)
             .WithEventComposition(CodingEventTestCodec.Composition)
+            .WithSessionStore(new InMemorySessionStore(CodingEventTestCodec.Codec))
+            .WithSandbox(new HostProcessProviderModule(), new SandboxSessionRequest
+            {
+                Workspaces = [SandboxWorkspaceRequest.HostDirectory(Path.GetTempPath())],
+                Isolation = ProcessIsolationPolicy.Default with { Mode = ProcessIsolationMode.Disabled },
+            })
             .WithToolHarness<CodingToolHarness>()
             .WithPermissions();
         ReplaceWorkspaceResource(builder, workspaces);
         var agent = await builder.BuildAsync();
-        var run = agent.RunAsync("activate-coding");
-        await client.BlockedAfterExpansion.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var sessionId = await agent.CreateSessionAsync();
+        var run = agent.RunAsync("activate-coding", sessionId, runConfig: new AgentRunConfig
+        {
+            Security = new AgentSecurityRunConfig { Approval = AgentApprovalPolicy.AutoApprove },
+        });
+        await await Task.WhenAny(run, client.BlockedAfterExpansion.Task.WaitAsync(TimeSpan.FromSeconds(10)));
 
         var disposal = agent.DisposeAsync().AsTask();
         if (failExecutionCleanup)
@@ -129,8 +142,12 @@ public sealed class CodingAgentShutdownTests
             ChatOptions? options = null,
             CancellationToken cancellationToken = default)
         {
-            if (Interlocked.Increment(ref _stage) == 1)
-                return ToolCall(nameof(CodingToolHarness), "expand-coding");
+            switch (Interlocked.Increment(ref _stage))
+            {
+                case 1: return ToolCall(nameof(CodingToolHarness), "expand-coding");
+                case 2: return ToolCall(nameof(CodingToolHarness.ReadFile), "read-file",
+                    new Dictionary<string, object?> { ["path"] = "missing-for-shutdown-test.cs" });
+            }
             BlockedAfterExpansion.TrySetResult();
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new InvalidOperationException("unreachable");
@@ -169,9 +186,9 @@ public sealed class CodingAgentShutdownTests
             events.Enqueue("client-disposed");
         }
 
-        private static ChatResponse ToolCall(string name, string callId) => new(
+        private static ChatResponse ToolCall(string name, string callId, Dictionary<string, object?>? arguments = null) => new(
             [new ChatMessage(ChatRole.Assistant,
-                [(AIContent)new FunctionCallContent(callId, name, new Dictionary<string, object?>())])]);
+                [(AIContent)new FunctionCallContent(callId, name, arguments ?? [])])]);
     }
 
     private sealed class ProbeService : ILanguageServerService

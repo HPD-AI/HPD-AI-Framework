@@ -5,6 +5,20 @@ current host. It owns runtime-host and execution-unit identity, operating-system
 enforcement, network mediation, violation observation, process launch, and the
 initial host-path content-projection behavior.
 
+## Agent workspace
+
+```csharp
+using HPD.Agent.Sandbox;
+using HPD.Environment.HostProcess;
+
+builder.WithSandbox(
+    new HostProcessProviderModule(),
+    HostProcessSandbox.ForDirectory(workspacePath));
+```
+
+The factory exposes one live host directory. Pass `readOnly: true` for a
+workspace that file tools and sandboxed processes can read.
+
 ## Security posture
 
 - macOS uses Seatbelt through `sandbox-exec` when dependency checks pass.

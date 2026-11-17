@@ -1350,7 +1350,7 @@ public sealed class LanguageServerMiddlewareTests
         };
 
         await using var workspaceRegistry = new LanguageServerWorkspaceRegistry();
-        await using var middleware = new CodingLanguageServerMiddleware(workspaceRegistry, smokeRoot!, options);
+        await using var middleware = new CodingLanguageServerMiddleware(options, workspaceRegistry.Acquire(smokeRoot!, options));
         var context = CreateMutationAfterFunctionContext(
             CreateAgentContext(),
             new CodingFileMutationSnapshot

@@ -1,3 +1,4 @@
+using HPD.Environment.Contracts;
 using System.Xml.Linq;
 using FluentAssertions;
 using HPD.Agent;
@@ -300,32 +301,11 @@ public sealed class ReadFileTests : IDisposable
         string? defaultRoot = null,
         string? docsRoot = null)
     {
-        string cwd = Path.GetFullPath(
-            defaultRoot ?? Directory.GetCurrentDirectory());
-        var roots = new List<CodingWorkspaceRoot>
-        {
-            new("default", cwd, CodingWorkspaceAccess.ReadWrite),
-        };
-        if (docsRoot is not null)
-        {
-            roots.Add(new CodingWorkspaceRoot(
-                "docs",
-                Path.GetFullPath(docsRoot),
-                CodingWorkspaceAccess.ReadWrite,
-                "Docs"));
-        }
-        return new AgentRunConfig
-        {
-            Context = new AgentContextRunConfig
-            {
-                Properties = new Dictionary<string, object>
-                {
-                    [CodingWorkspace.ContextKey] = new CodingWorkspace(
-                        "default",
-                        cwd,
-                        roots),
-                },
-            },
-        };
+        string cwd = defaultRoot ?? Directory.GetCurrentDirectory();
+        var primary = SandboxWorkspaceRequest.HostDirectory(cwd, rootId: "default");
+        var workspace = docsRoot is null
+            ? TestRuntimeWorkspace.Create(primary)
+            : TestRuntimeWorkspace.Create(primary, SandboxWorkspaceRequest.HostDirectory(docsRoot, rootId: "docs"));
+        return TestRuntimeWorkspace.RunConfig(workspace);
     }
 }

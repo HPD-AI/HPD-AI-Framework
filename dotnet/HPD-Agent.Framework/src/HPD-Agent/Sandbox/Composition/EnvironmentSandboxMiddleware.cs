@@ -101,7 +101,11 @@ public sealed class EnvironmentSandboxMiddleware(
             }, cancellationToken);
             factory = EnvironmentSandboxBackendFactory.Compose(module, plan);
             session = await factory.CreateSessionAsync(
-                selected with { Workspaces = plan.Workspaces ?? selected.Workspaces },
+                selected with
+                {
+                    Workspaces = plan.Workspaces ?? selected.Workspaces,
+                    Isolation = plan.Isolation ?? selected.Isolation,
+                },
                 cancellationToken).ConfigureAwait(false);
             if (plan.InitializeWorkspace is { } initialize)
                 await initialize(session.Workspace.Files, cancellationToken).ConfigureAwait(false);

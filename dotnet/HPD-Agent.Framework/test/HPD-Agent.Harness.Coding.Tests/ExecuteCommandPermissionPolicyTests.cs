@@ -62,6 +62,9 @@ public sealed class ExecuteCommandPermissionPolicyTests
             approvedContext,
             record).Should().BeTrue();
 
+        var (otherWorkspaceInput, otherWorkspaceContext) = CreateInput("git status --short", Path.GetTempPath());
+        policy.MatchesStoredDecision(otherWorkspaceInput, otherWorkspaceContext, record).Should().BeFalse();
+
         var (differentInput, differentContext) = CreateInput("git reset --hard");
         policy.MatchesStoredDecision(
             differentInput,
@@ -98,7 +101,7 @@ public sealed class ExecuteCommandPermissionPolicyTests
     }
 
     private static (ValidatedPermissionInput Input, PermissionEvaluationContext Context) CreateInput(
-        string command)
+        string command, string? workspacePath = null)
     {
         var request = JsonSerializer.SerializeToElement(new
         {
@@ -124,6 +127,9 @@ public sealed class ExecuteCommandPermissionPolicyTests
             IngressProvenance = FunctionArgumentIngressProvenance.Canonicalized
         };
         var input = new ValidatedPermissionInput(arguments, invocation);
+        var registry = new RuntimeCapabilityRegistry();
+        var runConfig = TestRuntimeWorkspace.RunConfig(TestRuntimeWorkspace.Create(workspacePath ?? Directory.GetCurrentDirectory()));
+        ExecuteCommandTests.RegisterProcessExecution(registry, new ExecuteCommandTests.FakeProcessProvider(), runConfig);
         var context = new PermissionEvaluationContext
         {
             FunctionName = nameof(CodingToolHarness.ExecuteCommand),
@@ -131,28 +137,11 @@ public sealed class ExecuteCommandPermissionPolicyTests
             FunctionCallId = "call-1",
             Authority = "coding/execute-command/run",
             Input = input,
-            RunConfig = CreateRunConfig(),
+            RunConfig = runConfig,
+            RuntimeCapabilities = registry,
             Services = EmptyServiceProvider.Instance
         };
         return (input, context);
-    }
-
-    private static AgentRunConfig CreateRunConfig()
-    {
-        var root = Path.GetFullPath(Directory.GetCurrentDirectory());
-        return new AgentRunConfig
-        {
-            Context = new AgentContextRunConfig
-            {
-                Properties = new Dictionary<string, object>
-                {
-                    [CodingWorkspace.ContextKey] = new CodingWorkspace(
-                        "default",
-                        root,
-                        [new CodingWorkspaceRoot("default", root, CodingWorkspaceAccess.ReadWrite)])
-                }
-            }
-        };
     }
 
     private sealed class EmptyServiceProvider : IServiceProvider

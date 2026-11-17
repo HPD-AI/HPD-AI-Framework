@@ -95,6 +95,45 @@ public class CodingToolHarnessAgentBuilderTests
             .And.Contain("success=\"true\"");
     }
 
+    [Fact]
+    public async Task ExecuteCommand_UsesRegisteredWorkspaceThroughPermissionMiddleware()
+    {
+        using var chatClient = new RecordingTestChatClient(commandOnFirstTurn:
+            OperatingSystem.IsWindows() ? "type selection.txt" : "cat selection.txt");
+        var root = Directory.CreateTempSubdirectory("hpd-selected-command-");
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(root.FullName, "selection.txt"), "registered-workspace-content");
+            var reference = new AgentWorkspaceReference("selected");
+            var request = HostProcessSandbox.ForDirectory(root.FullName);
+            if (!OperatingSystem.IsMacOS())
+                request = request with { Isolation = ProcessIsolationPolicy.Default with { Mode = ProcessIsolationMode.Disabled } };
+            await using var agent = await new AgentBuilder(CreateTestConfig(), new TestProviderRegistry(chatClient))
+                .WithEventComposition(CodingEventTestCodec.Composition)
+                .WithChatClient(chatClient)
+                .WithSessionStore(new InMemorySessionStore(CodingEventTestCodec.Codec))
+                .WithSandbox(new HostProcessProviderModule(), resolveWorkspace: (workspace, _) =>
+                    workspace == reference ? ValueTask.FromResult(request) :
+                        throw new InvalidOperationException("Incorrect workspace reference."))
+                .WithToolHarness<CodingToolHarness>()
+                .WithPermissions()
+                .BuildAsync();
+
+            var sessionId = await agent.CreateSessionAsync();
+            await agent.RunAsync("Read the marker using the shell.", sessionId, runConfig: new AgentRunConfig
+            {
+                Workspace = reference,
+                Security = new AgentSecurityRunConfig { Approval = AgentApprovalPolicy.AutoApprove },
+            });
+
+            chatClient.CommandResult.Should().Contain("registered-workspace-content");
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     private static HPDCapabilityKind GetKind(AIFunction function) =>
         ((HPDCapabilityMetadata)function.AdditionalProperties[
             HPDCapabilityMetadata.AdditionalPropertiesKey]!).Kind;
@@ -423,18 +462,9 @@ public class CodingToolHarnessAgentBuilderTests
             thread,
             CancellationToken.None);
         var cwd = Directory.GetCurrentDirectory();
-        var runConfig = agent.CaptureRunConfig(new AgentRunConfig
-        {
-            Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>()
-            {
-                [CodingWorkspace.ContextKey] = new CodingWorkspace(
-                    "default",
-                    cwd,
-                    [new CodingWorkspaceRoot("default", cwd, CodingWorkspaceAccess.ReadWrite)])
-            } }
-        });
-        agentContext.RuntimeCapabilities.Set(
-            TestRuntimeWorkspace.FromRunConfig(runConfig));
+        var workspace = TestRuntimeWorkspace.Create(cwd);
+        var runConfig = agent.CaptureRunConfig(TestRuntimeWorkspace.RunConfig(workspace));
+        agentContext.RuntimeCapabilities.Set(workspace);
         var beforeContext = agentContext.AsBeforeFunction(
             function,
             "call-1",
@@ -560,7 +590,8 @@ public class CodingToolHarnessAgentBuilderTests
 
     private sealed class RecordingTestChatClient(
         bool expandContainerOnFirstRequest = false,
-        bool debugOnFirstTurn = false) : IChatClient
+        bool debugOnFirstTurn = false,
+        string? commandOnFirstTurn = null) : IChatClient
     {
         private int _requestCount;
 
@@ -568,6 +599,7 @@ public class CodingToolHarnessAgentBuilderTests
 
         public List<string[]> ToolNamesByRequest { get; } = [];
         public string? DebugResult { get; private set; }
+        public string? CommandResult { get; private set; }
 
         public Task<ChatResponse> GetResponseAsync(
             IEnumerable<ChatMessage> chatMessages,
@@ -582,6 +614,33 @@ public class CodingToolHarnessAgentBuilderTests
         {
             ToolNamesByRequest.Add(options?.Tools?.OfType<AIFunction>().Select(tool => tool.Name).ToArray() ?? []);
             await Task.Yield();
+
+            if (commandOnFirstTurn is not null)
+            {
+                var commandCall = _requestCount++ switch
+                {
+                    0 => new FunctionCallContent("expand-coding-harness", nameof(CodingToolHarness)),
+                    1 => new FunctionCallContent("run-command", nameof(CodingToolHarness.ExecuteCommand),
+                        new Dictionary<string, object?>
+                        {
+                            ["request"] = JsonSerializer.SerializeToElement(new { action = "run", command = commandOnFirstTurn }),
+                        }),
+                    _ => null
+                };
+                if (commandCall is not null)
+                {
+                    yield return new ChatResponseUpdate
+                    {
+                        Contents = [commandCall],
+                        FinishReason = ChatFinishReason.ToolCalls,
+                    };
+                    yield break;
+                }
+
+                CommandResult = chatMessages.SelectMany(message => message.Contents)
+                    .OfType<FunctionResultContent>()
+                    .LastOrDefault(result => result.CallId == "run-command")?.Result?.ToString();
+            }
 
             if (debugOnFirstTurn)
             {

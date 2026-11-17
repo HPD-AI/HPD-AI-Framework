@@ -13,7 +13,7 @@ public sealed class AppleVirtualizationSandboxDxTests
     {
         Agent agent = await new AgentBuilder()
             .WithSandbox(new AppleVirtualizationProviderModule(FakeAppleVirtualizationOptions()),
-                new SandboxSessionRequest { Isolation = ProcessIsolationPolicy.Default })
+                AppleVirtualizationSandbox.ForDirectoryWithGuestNetwork(Path.GetTempPath()))
             .BuildAsync();
 
         agent.Should().NotBeNull();

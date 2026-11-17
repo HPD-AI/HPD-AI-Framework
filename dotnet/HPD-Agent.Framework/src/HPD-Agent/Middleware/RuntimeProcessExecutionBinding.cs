@@ -8,8 +8,13 @@ namespace HPD.Agent.Middleware;
 /// </summary>
 public sealed record RuntimeProcessExecutionBinding
 {
+    /// <summary>Identifies the lifetime of this execution binding.</summary>
+    public Guid BindingId { get; } = Guid.NewGuid();
     public required string EnvironmentId { get; init; }
     public required long EnvironmentRevision { get; init; }
+    /// <summary>Platform of the selected execution environment.</summary>
+    public PlatformSpec? Platform { get; init; }
+    public SandboxEnforcementLocation? EnforcementLocation { get; init; }
     public required IProcessProvider ProcessProvider { get; init; }
     public IEnvironmentRuntime? EnvironmentRuntime { get; init; }
     public required TargetHandle<ExecutionUnit> ExecutionTarget { get; init; }

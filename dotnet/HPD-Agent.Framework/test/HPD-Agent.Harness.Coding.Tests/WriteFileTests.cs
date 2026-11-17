@@ -479,17 +479,8 @@ public sealed class WriteFileTests : IDisposable
 
     private static AgentRunConfig CreateWorkspaceRunConfig()
     {
-        var cwd = Directory.GetCurrentDirectory();
-        return new AgentRunConfig
-        {
-            Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>()
-            {
-                [CodingWorkspace.ContextKey] = new CodingWorkspace(
-                    "default",
-                    cwd,
-                    [new CodingWorkspaceRoot("default", cwd, CodingWorkspaceAccess.ReadWrite)])
-            } }
-        };
+        return TestRuntimeWorkspace.RunConfig(
+            TestRuntimeWorkspace.Create(Directory.GetCurrentDirectory(), rootId: "default"));
     }
 
     private static string FullPath(string relativePath)

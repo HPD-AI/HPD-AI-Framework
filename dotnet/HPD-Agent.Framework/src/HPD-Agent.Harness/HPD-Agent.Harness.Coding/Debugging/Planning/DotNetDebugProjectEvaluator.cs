@@ -50,7 +50,7 @@ internal sealed record DotNetDebugProjectEvaluationRequest
     public string? TargetFramework { get; init; }
     public required RuntimeProcessExecutionBinding ProcessExecution { get; init; }
     public required RuntimeWorkspaceBinding RuntimeWorkspace { get; init; }
-    public AgentSandboxRuntime ProcessSandbox { get; init; } = AgentSandboxRuntime.Default;
+    public ProcessIsolationPolicy ProcessSandbox { get; init; } = ProcessIsolationPolicy.Default;
 }
 
 /// <summary>Evaluated project shape and exact output identity.</summary>
@@ -72,7 +72,7 @@ internal sealed record DotNetDebugProjectEvaluation
     public required IReadOnlyList<DotNetPackageEvidence> Packages { get; init; }
     public required string EvaluationFingerprint { get; init; }
     public required bool ArtifactIsCurrent { get; init; }
-    public AgentSandboxRuntime EffectiveSandbox { get; init; } = AgentSandboxRuntime.Default;
+    public ProcessIsolationPolicy EffectiveSandbox { get; init; } = ProcessIsolationPolicy.Default;
 }
 
 /// <summary>Evaluates .NET projects through a fixed, bounded MSBuild query.</summary>
@@ -328,8 +328,7 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
                 Timeout = TimeSpan.FromSeconds(20),
                 StopProcessTree = true
             },
-            Isolation = request.ProcessSandbox.ToProcessIsolationPolicy(
-                Path.GetDirectoryName(request.CanonicalProjectPath)!),
+            Isolation = request.ProcessSandbox,
             Io = ProcessIoSpec.Default with
             {
                 StandardOutput = new ProcessOutputSpec

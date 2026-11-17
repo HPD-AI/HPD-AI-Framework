@@ -13,7 +13,6 @@ using HPD.Agent.Sandbox;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
 using HPD.Agent.Security;
-using HPD.Agent.ToolHarness.Coding.Security;
 using HPD.Environment.Contracts;
 using HPD.Events;
 using HPD.Events.Core;
@@ -148,13 +147,25 @@ public partial class CodingToolHarness
         if (normalized.Request.Action == ExecuteCommandAction.Stop)
             return await StopBackgroundCommandAsync(normalized.Request, context, cancellationToken).ConfigureAwait(false);
 
-        if (!context.RuntimeCapabilities.TryGet<RuntimeProcessExecutionBinding>(out _))
+        var workspace = context.RuntimeCapabilities.GetRequired<RuntimeWorkspaceBinding>();
+        WorkspaceFileInfo? directory;
+        try
+        {
+            directory = await workspace.Files.GetInfoAsync(
+                normalized.Request.LogicalWorkingDirectory!.Value, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             return FormatExecuteCommandError(new ExecuteCommandError(
-                ExecuteCommandErrorKind.MissingRunner,
-                normalized.Request.Command,
-                normalized.Request.WorkingDirectory,
-                "The runtime does not expose an authorized process execution binding."));
+                ExecuteCommandErrorKind.WorkingDirectoryNotFound, normalized.Request.Command,
+                normalized.Request.WorkingDirectory, exception.Message));
+        }
+        if (directory?.Kind != WorkspaceEntryKind.Directory)
+        {
+            return FormatExecuteCommandError(new ExecuteCommandError(
+                directory is null ? ExecuteCommandErrorKind.WorkingDirectoryNotFound : ExecuteCommandErrorKind.WorkingDirectoryIsFile,
+                normalized.Request.Command, normalized.Request.WorkingDirectory,
+                directory is null ? "Working directory does not exist." : "Working directory is a file."));
         }
 
         if (normalized.Request.StartsInBackground)
@@ -201,7 +212,7 @@ public partial class CodingToolHarness
                 $"Active background command limit exceeded for this session ({commandOptions.MaxActiveBackgroundCommands})."));
         }
 
-        var environmentContext = EnvironmentContext.CreateCurrent(_config.For(context).Environment);
+        var environmentContext = EnvironmentContext.ForExecution(GetProcessExecution(context), _config.For(context).Environment);
         var baseCommand = GetBaseCommand(request.Command);
         var category = DetectCommandCategory(baseCommand, request.Command);
         var processSpec = CreateProcessInvocationSpec(
@@ -372,7 +383,7 @@ public partial class CodingToolHarness
         bool allowSandboxCapabilityRetry = true)
     {
         var commandOptions = _config.For(context).Commands;
-        var environmentContext = EnvironmentContext.CreateCurrent(_config.For(context).Environment);
+        var environmentContext = EnvironmentContext.ForExecution(GetProcessExecution(context), _config.For(context).Environment);
         var baseCommand = GetBaseCommand(request.Command);
         var category = DetectCommandCategory(baseCommand, request.Command);
         var processSpec = CreateProcessInvocationSpec(
@@ -787,7 +798,6 @@ public partial class CodingToolHarness
             tailLines,
             delayMilliseconds,
             environment,
-            context.RunConfig,
             options,
             workspace,
             processExecution);
@@ -803,7 +813,6 @@ public partial class CodingToolHarness
         int tailLines,
         int delayMilliseconds,
         IReadOnlyDictionary<string, string>? environment,
-        AgentRunConfig runConfig,
         ExecuteCommandOptions options,
         RuntimeWorkspaceBinding? workspace = null,
         RuntimeProcessExecutionBinding? processExecution = null)
@@ -844,10 +853,22 @@ public partial class CodingToolHarness
         if (argumentError is not null)
             return InvalidArguments(command, workingDirectory, argumentError);
 
-        var cwd = ResolveExecuteCommandWorkingDirectory(
-            workingDirectory,
-            runConfig,
-            workspace);
+        if (action == ExecuteCommandAction.Run && processExecution is null)
+        {
+            return new ExecuteCommandNormalizationResult(null, new ExecuteCommandError(
+                ExecuteCommandErrorKind.MissingRunner, command, workingDirectory,
+                "The runtime does not expose an authorized process execution binding."));
+        }
+
+        if (action == ExecuteCommandAction.Run && processExecution?.WorkspaceContent is { } content &&
+            workspace?.Content != content)
+        {
+            return InvalidArguments(command, workingDirectory, "The process and workspace bindings refer to different content.");
+        }
+
+        var cwd = action == ExecuteCommandAction.Run
+            ? ResolveExecuteCommandWorkingDirectory(workingDirectory, workspace)
+            : new ExecuteCommandWorkingDirectoryResult(string.Empty, null);
         if (cwd.Error is { } cwdError)
         {
             return new ExecuteCommandNormalizationResult(null, cwdError with
@@ -855,26 +876,6 @@ public partial class CodingToolHarness
                 Command = command,
                 WorkingDirectory = cwd.WorkingDirectory
             });
-        }
-
-        ProcessIsolationPolicy isolation;
-        if (processExecution is not null)
-        {
-            isolation = processExecution.Isolation;
-        }
-        else
-        {
-            AgentSandboxRuntime sandbox;
-            try
-            {
-                sandbox = CodingSandboxRuntime.Capture(runConfig);
-            }
-            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or JsonException)
-            {
-                return InvalidArguments(command, cwd.WorkingDirectory, ex.Message);
-            }
-            isolation = sandbox.ToProcessIsolationPolicy(
-                cwd.WorkingDirectory!);
         }
 
         var effectiveEnvironment = BuildExecuteCommandEnvironment(environment, options);
@@ -891,7 +892,8 @@ public partial class CodingToolHarness
                 tailLines,
                 TimeSpan.FromMilliseconds(delayMilliseconds),
                 effectiveEnvironment,
-                isolation),
+                processExecution?.Isolation ?? ProcessIsolationPolicy.Default,
+                cwd.LogicalPath),
             null);
     }
 
@@ -941,38 +943,21 @@ public partial class CodingToolHarness
 
     private static ExecuteCommandWorkingDirectoryResult ResolveExecuteCommandWorkingDirectory(
         string? workingDirectory,
-        FunctionExecutionContext context)
-        => ResolveExecuteCommandWorkingDirectory(
-            workingDirectory,
-            context.RunConfig,
-            CodingWorkspacePathAccess.TryGet(context, out var workspace)
-                ? workspace
-                : null);
-
-    private static ExecuteCommandWorkingDirectoryResult ResolveExecuteCommandWorkingDirectory(
-        string? workingDirectory,
-        AgentRunConfig runConfig,
         RuntimeWorkspaceBinding? sessionWorkspace)
     {
         if (sessionWorkspace is not null)
         {
             try
             {
-                string modelPath = string.IsNullOrWhiteSpace(
-                    workingDirectory)
-                    ? CodingWorkspacePathAccess.Display(
-                        sessionWorkspace,
-                        sessionWorkspace.WorkingDirectory)
-                    : workingDirectory;
-                WorkspacePath logical =
-                    CodingWorkspacePathAccess.Resolve(
-                        sessionWorkspace,
-                        modelPath);
+                WorkspacePath logical = string.IsNullOrWhiteSpace(workingDirectory)
+                    ? sessionWorkspace.WorkingDirectory
+                    : CodingWorkspacePathAccess.Resolve(sessionWorkspace, workingDirectory);
                 return new ExecuteCommandWorkingDirectoryResult(
                     sessionWorkspace.Paths
                         .ToExecutionPath(logical)
                         .Value,
-                    null);
+                    null,
+                    logical);
             }
             catch (Exception exception)
                 when (exception is ArgumentException or
@@ -989,57 +974,12 @@ public partial class CodingToolHarness
             }
         }
 
-        string fullPath;
-        try
-        {
-            var workspace = CodingWorkspace.From(runConfig);
-            fullPath = string.IsNullOrWhiteSpace(workingDirectory)
-                ? workspace.DefaultRootPath
-                : workspace.CanonicalizeExplicitPath(workingDirectory);
-        }
-        catch (CodingWorkspaceException ex)
-        {
-            return new ExecuteCommandWorkingDirectoryResult(
-                workingDirectory,
-                new ExecuteCommandError(
-                    ToExecuteCommandWorkspaceErrorKind(ex.Kind),
-                    null,
-                    workingDirectory,
-                    ex.Message));
-        }
-
-        if (File.Exists(fullPath))
-        {
-            return new ExecuteCommandWorkingDirectoryResult(
-                fullPath,
-                new ExecuteCommandError(
-                    ExecuteCommandErrorKind.WorkingDirectoryIsFile,
-                    null,
-                    fullPath,
-                    "Working directory is a file."));
-        }
-
-        if (!Directory.Exists(fullPath))
-        {
-            return new ExecuteCommandWorkingDirectoryResult(
-                fullPath,
-                new ExecuteCommandError(
-                    ExecuteCommandErrorKind.WorkingDirectoryNotFound,
-                    null,
-                    fullPath,
-                    "Working directory does not exist."));
-        }
-
-        return new ExecuteCommandWorkingDirectoryResult(fullPath, null);
+        return new ExecuteCommandWorkingDirectoryResult(
+            workingDirectory,
+            new ExecuteCommandError(
+                ExecuteCommandErrorKind.InvalidWorkspace, null, workingDirectory,
+                "The runtime does not expose an authorized workspace binding."));
     }
-
-    private static ExecuteCommandErrorKind ToExecuteCommandWorkspaceErrorKind(CodingWorkspaceErrorKind kind)
-        => kind switch
-        {
-            CodingWorkspaceErrorKind.PathOutsideWorkspace or CodingWorkspaceErrorKind.UnknownRootId
-                => ExecuteCommandErrorKind.WorkingDirectoryNotFound,
-            _ => ExecuteCommandErrorKind.InvalidWorkspace
-        };
 
     private static IReadOnlyDictionary<string, string?> BuildExecuteCommandEnvironment(
         IReadOnlyDictionary<string, string>? environment,
@@ -2013,7 +1953,8 @@ internal sealed record ExecuteCommandRequest(
     int TailLines,
     TimeSpan Delay,
     IReadOnlyDictionary<string, string?> Environment,
-    ProcessIsolationPolicy Isolation);
+    ProcessIsolationPolicy Isolation,
+    WorkspacePath? LogicalWorkingDirectory);
 
 internal sealed record ExecuteCommandNormalizationResult(
     ExecuteCommandRequest? Request,
@@ -2021,7 +1962,8 @@ internal sealed record ExecuteCommandNormalizationResult(
 
 internal sealed record ExecuteCommandWorkingDirectoryResult(
     string? WorkingDirectory,
-    ExecuteCommandError? Error);
+    ExecuteCommandError? Error,
+    WorkspacePath? LogicalPath = null);
 
 /// <summary>Canonical typed result for every ExecuteCommand action.</summary>
 public sealed record ExecuteCommandResult

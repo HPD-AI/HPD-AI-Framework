@@ -5,8 +5,6 @@ using HPD.Agent.Serialization;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Sandbox;
 using HPD.Environment.HostProcess;
-using WorkspaceRequest = HPD.Environment.Contracts.SandboxWorkspaceRequest;
-using ProcessIsolationPolicy = HPD.Environment.Contracts.ProcessIsolationPolicy;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
@@ -22,11 +20,7 @@ if (options.ShowHelp)
 
 var agentBuilder = CreateAgentBuilder(options.ConfigPath)
     .WithAPIConfiguration(appsettingsPath ?? "appsettings.json", optional: true)
-    .WithSandbox(new HostProcessProviderModule(), new SandboxSessionRequest
-    {
-        Isolation = ProcessIsolationPolicy.Default,
-        Workspaces = [WorkspaceRequest.HostDirectory(Directory.GetCurrentDirectory())],
-    })
+    .WithSandbox(new HostProcessProviderModule(), HostProcessSandbox.ForDirectory(Directory.GetCurrentDirectory()))
     .WithPermissions()
     .WithToolHarness<CodingToolHarness>();
 

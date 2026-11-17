@@ -108,6 +108,8 @@ public sealed record SandboxProvisioningPlan(
     Func<ProviderCapabilityReport, ProviderCapabilityReport>? RefineCapabilities = null)
 {
     public IReadOnlyList<SandboxWorkspaceRequest>? Workspaces { get; init; }
+    /// <summary>Effective process policy when provisioning adds provider-specific workspace access.</summary>
+    public ProcessIsolationPolicy? Isolation { get; init; }
     public Func<ResourceRef<RuntimeHost>, ExecutionUnitSpec>? CreateUnit { get; init; }
     public ProviderActivationSpec? Activation { get; init; }
     public Func<IWorkspaceFileStore, CancellationToken, Task>? InitializeWorkspace { get; init; }

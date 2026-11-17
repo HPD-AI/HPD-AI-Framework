@@ -62,7 +62,7 @@ public sealed class DebugRuntimeBindingTests
 
         var binding = DebugRuntimeBinding.Capture(context, requireProcessExecution: true);
 
-        binding.ProcessSandbox.IsEnforced.Should().BeFalse();
+        binding.ProcessSandbox.Mode.Should().Be(ProcessIsolationMode.ProviderDefault);
     }
 
     [Fact]
@@ -75,35 +75,19 @@ public sealed class DebugRuntimeBindingTests
         var second = Path.Combine(container, "b");
         Directory.CreateDirectory(first);
         Directory.CreateDirectory(second);
-        var runConfig = new AgentRunConfig
-        {
-            Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>
-            {
-                [CodingWorkspace.ContextKey] = new CodingWorkspace(
-                    "a",
-                    first,
-                    [
-                        new CodingWorkspaceRoot("a", first, CodingWorkspaceAccess.ReadWrite),
-                        new CodingWorkspaceRoot("b", second, CodingWorkspaceAccess.ReadWrite)
-                    ])
-            } }
-        };
+        var workspace = TestRuntimeWorkspace.Create(
+            SandboxWorkspaceRequest.HostDirectory(first, rootId: "a"),
+            SandboxWorkspaceRequest.HostDirectory(second, rootId: "b"));
+        var isolation = ProcessIsolationPolicy.Default with { Mode = ProcessIsolationMode.Isolated };
         var context = CreateContext(
             new DebugSessionManager(new DebugTerminalRecordStore(
                 new DebugTerminalRecordStoreOptions())),
-            Execution(new ProbeProcessProvider()),
-            runConfig);
+            Execution(new ProbeProcessProvider()) with { Isolation = isolation },
+            TestRuntimeWorkspace.RunConfig(workspace));
 
         var binding = DebugRuntimeBinding.Capture(context, requireProcessExecution: true);
 
-        foreach (var root in new[] { first, second })
-        {
-            var canonical = AgentFilesystemPath.Canonicalize(root);
-            binding.ProcessSandbox.Filesystem.Should().Contain(grant =>
-                grant.Path == canonical && grant.Access == AgentSandboxPathAccess.Read);
-            binding.ProcessSandbox.Filesystem.Should().Contain(grant =>
-                grant.Path == canonical && grant.Access == AgentSandboxPathAccess.Write);
-        }
+        binding.ProcessSandbox.Should().BeSameAs(isolation);
     }
 
     [Fact]
@@ -270,13 +254,7 @@ public sealed class DebugRuntimeBindingTests
         var process = new ProbeProcessProvider();
         var resolution = Resolution(Execution(process), DebugAdapterTrustLevel.Trusted) with
         {
-            ProcessSandbox = new AgentSandboxRuntime
-            {
-                Security = new AgentSecurityRunConfig
-                {
-                    Sandbox = new AgentSandboxRunConfig { Mode = AgentSandboxPolicy.Disabled }
-                }
-            }
+            ProcessSandbox = ProcessIsolationPolicy.Default with { Mode = ProcessIsolationMode.Disabled }
         };
         using var document = JsonDocument.Parse("{}");
         var plan = await new StandardDebugAdapterFactory(
@@ -496,13 +474,7 @@ public sealed class DebugRuntimeBindingTests
         var agentContext = new AgentContext("AgentA", "conversation-1", state, coordinator, session, thread, CancellationToken.None);
         agentContext.RuntimeCapabilities.Set(manager);
         agentContext.RuntimeCapabilities.Set(new DebugRuntimeBindingState());
-        HPD.Agent.Sandbox.RuntimeWorkspaceBinding workspace =
-            CodingWorkspace.TryFrom(
-                runConfig,
-                out CodingWorkspace configured,
-                out _)
-                ? TestRuntimeWorkspace.FromAgentWorkspace(configured)
-                : TestRuntimeWorkspace.Create(Path.GetTempPath());
+        var workspace = TestRuntimeWorkspace.FromRunConfig(runConfig);
         agentContext.RuntimeCapabilities.Set(workspace);
         if (processExecution is not null)
             agentContext.RuntimeCapabilities.Set(processExecution);

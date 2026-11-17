@@ -27,7 +27,7 @@ public sealed record DebugAdapterResolutionContext
         = ImmutableDictionary<string, string?>.Empty;
     public IReadOnlyList<string>? ProbeArgumentsOverride { get; init; }
     public RuntimeProcessExecutionBinding? ProcessExecution { get; init; }
-    public AgentSandboxRuntime ProcessSandbox { get; init; } = AgentSandboxRuntime.Default;
+    public ProcessIsolationPolicy ProcessSandbox { get; init; } = ProcessIsolationPolicy.Default;
     public required DebugAdapterTrustDecision TrustDecision { get; init; }
 }
 
@@ -128,7 +128,7 @@ public sealed record DebugAdapterStartPlan
     public required DebugAdapterProvenance PackageProvenance { get; init; }
     public required DebugAdapterTrustDecision TrustDecision { get; init; }
     public RuntimeProcessExecutionBinding? ProcessExecution { get; init; }
-    public AgentSandboxRuntime ProcessSandbox { get; init; } = AgentSandboxRuntime.Default;
+    public ProcessIsolationPolicy ProcessSandbox { get; init; } = ProcessIsolationPolicy.Default;
     public TargetHandle<ExecutionUnit>? ExecutionTarget { get; init; }
     public required string CanonicalWorkingDirectory { get; init; }
     public required string AuthorizationScope { get; init; }

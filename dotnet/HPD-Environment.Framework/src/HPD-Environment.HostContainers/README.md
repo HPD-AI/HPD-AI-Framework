@@ -38,18 +38,21 @@ mounts during container creation. Commands and language servers use
 the verified local bind source through `IWorkspaceFileStore`.
 
 ```csharp
+using HPD.Agent.Sandbox;
+using HPD.Environment.HostContainers;
+
 var provider = new HostContainersProviderModule(new HostContainersProviderOptions
 {
     SandboxImage = "hpd/coding-toolchain@sha256:...",
     EngineSocketPath = "/var/run/docker.sock",
 });
 
-builder.WithSandbox(provider, new SandboxSessionRequest
-{
-    Isolation = containerIsolation,
-    Workspaces = [SandboxWorkspaceRequest.HostDirectory(workspacePath, executionPath: "/workspace")],
-});
+builder.WithSandbox(provider, HostContainersSandbox.ForDirectory(workspacePath));
 ```
+
+The factory blocks container network egress and uses the default mount path
+`/workspace`. Container processes can follow symlinks within the mounted view.
+Workspace file tools deny symlinks.
 
 Use a `ContentSelector` with `ProviderSource` for content already present in the
 image or an engine-owned volume. Set `CopyInOut` on a writable host-directory

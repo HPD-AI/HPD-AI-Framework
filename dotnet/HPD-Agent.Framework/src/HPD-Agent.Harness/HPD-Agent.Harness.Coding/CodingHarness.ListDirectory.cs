@@ -7,7 +7,6 @@ using HPD.Agent;
 using HPD.Agent.Sandbox;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
-using HPD.Agent.ToolHarness.Coding.Security;
 using HPD.Environment.Contracts;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
@@ -66,10 +65,6 @@ public partial class CodingToolHarness
                 sortBy,
                 sortDirection,
                 includeMetadata).ConfigureAwait(false);
-        }
-        catch (AgentCapabilityDeniedException ex)
-        {
-            return FormatListDirectoryError(path ?? string.Empty, ex.Message);
         }
         catch (UnauthorizedAccessException ex)
         {
@@ -285,13 +280,6 @@ public partial class CodingToolHarness
             return "SortDirection must be a valid SortDirection value.";
 
         return null;
-    }
-
-    private static ResolvedDirectoryPath ResolveDirectoryPath(string path, FunctionExecutionContext? context)
-    {
-        var trimmedPath = path.Trim();
-        var fullPath = CodingHarnessPathResolution.ResolvePath(trimmedPath, context);
-        return new ResolvedDirectoryPath(trimmedPath, fullPath);
     }
 
     private static bool IsBlockedDirectoryPath(string fullPath)
@@ -794,7 +782,6 @@ public sealed record DirectoryEntryInfo
     public bool IsSymlink { get; init; }
 }
 
-internal sealed record ResolvedDirectoryPath(string InputPath, string FullPath);
 
 internal sealed record ListDirectoryResult
 {

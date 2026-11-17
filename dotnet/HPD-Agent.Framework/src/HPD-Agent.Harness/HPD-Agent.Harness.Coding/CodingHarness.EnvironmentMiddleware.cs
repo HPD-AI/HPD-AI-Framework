@@ -1,3 +1,5 @@
+using HPD.Agent.Sandbox;
+using HPD.Environment.Contracts;
 using System.Runtime.InteropServices;
 using System.Collections.Immutable;
 using System.Security.Cryptography;
@@ -36,8 +38,9 @@ public sealed class EnvironmentContextMiddleware : IToolHarnessMiddleware
 
     public Task BeforeIterationAsync(BeforeIterationContext context, CancellationToken cancellationToken)
     {
-        var environmentContext = EnvironmentContext.CreateCurrent(_config);
-        CodingWorkspace.TryFrom(context.RunConfig, out var workspace, out _);
+        context.RuntimeCapabilities.TryGet<RuntimeWorkspaceBinding>(out var workspace);
+        context.RuntimeCapabilities.TryGet<RuntimeProcessExecutionBinding>(out var process);
+        var environmentContext = EnvironmentContext.ForExecution(process, _config);
         var environmentInstructions = environmentContext.SerializeToXml(workspace);
         var state = context.GetMiddlewareState<EnvironmentContextState>();
         if (state?.LastSerializedContext == environmentInstructions)
@@ -245,10 +248,44 @@ public sealed record EnvironmentContext
         };
     }
 
-    public string SerializeToXml(CodingWorkspace? workspace = null)
+    internal static EnvironmentContext ForExecution(
+        RuntimeProcessExecutionBinding? execution,
+        EnvironmentContextConfig? config = null)
+    {
+        if (execution?.Platform is not { } platform ||
+            execution.EnforcementLocation == SandboxEnforcementLocation.Host)
+            return CreateCurrent(config);
+
+        bool windows = string.Equals(platform.OperatingSystem, "windows", StringComparison.OrdinalIgnoreCase);
+        string executable = config?.ShellExecutableOverride ?? (windows ? "cmd.exe" : "/bin/sh");
+        string kind = config?.ShellKindOverride ??
+            (config?.ShellExecutableOverride is not null ? InferShellKind(executable, windows) : windows ? "cmd" : "posix");
+        string name = Path.GetFileNameWithoutExtension(executable.Split('/', '\\')[^1]);
+        return new EnvironmentContext
+        {
+            Cwd = string.Empty,
+            WorkspaceRoot = string.Empty,
+            TempDirectory = string.Empty,
+            IsGitRepository = false,
+            OperatingSystem = platform.OperatingSystem,
+            OsVersion = platform.Version ?? string.Empty,
+            IsWindows = windows,
+            DirectorySeparator = windows ? "\\" : "/",
+            AltDirectorySeparator = "/",
+            PathSeparator = windows ? ";" : ":",
+            Shell = name,
+            ShellKind = kind,
+            ShellExecutable = executable,
+            ShellCommandArgumentsPrefix = config?.ShellCommandArgumentsPrefixOverride?.ToArray()
+                ?? GetDefaultShellArgumentsPrefix(kind),
+            AvailableShells = [],
+        };
+    }
+
+    public string SerializeToXml(RuntimeWorkspaceBinding? workspace = null)
     {
         var builder = new StringBuilder();
-        var workspaceRoot = workspace?.DefaultRootPath ?? WorkspaceRoot;
+
 
         builder.AppendLine("  <environment_context>");
         builder.AppendLine($"    <shell>{EscapeXml(Shell)}</shell>");
@@ -271,23 +308,25 @@ public sealed record EnvironmentContext
         builder.AppendLine($"    <directory_separator>{EscapeXml(DirectorySeparator)}</directory_separator>");
         builder.AppendLine($"    <alt_directory_separator>{EscapeXml(AltDirectorySeparator)}</alt_directory_separator>");
         builder.AppendLine($"    <path_separator>{EscapeXml(PathSeparator)}</path_separator>");
-        builder.AppendLine($"    <is_git_repository>{IsGitRepository.ToString().ToLowerInvariant()}</is_git_repository>");
-        builder.AppendLine($"    <workspace_root>{EscapeXml(workspaceRoot)}</workspace_root>");
-        if (workspace is not null)
+        if (workspace is { Roots.Count: > 0 })
         {
+            var rootId = workspace.WorkingDirectory.RootId;
+            var workspaceRoot = new WorkspacePath(rootId, string.Empty);
+            var workingDirectory = CodingWorkspacePathAccess.Display(workspace, workspace.WorkingDirectory);
+            builder.AppendLine($"    <workspace_root>{EscapeXml(workspaceRoot.ToString())}</workspace_root>");
             builder.AppendLine("    <selected_workspace>");
-            builder.AppendLine($"      <default_root_id>{EscapeXml(workspace.DefaultRootId)}</default_root_id>");
-            builder.AppendLine($"      <default_root_path>{EscapeXml(workspace.DefaultRootPath)}</default_root_path>");
+            builder.AppendLine($"      <default_root_id>{EscapeXml(rootId.Value)}</default_root_id>");
+            builder.AppendLine($"      <working_directory>{EscapeXml(workingDirectory)}</working_directory>");
             builder.AppendLine("      <roots>");
             foreach (var root in workspace.Roots)
             {
+                var address = new WorkspacePath(root.Id, string.Empty);
                 builder.AppendLine(
-                    $"        <root id=\"{EscapeXml(root.Id)}\" label=\"{EscapeXml(root.Label ?? root.Id)}\" path=\"{EscapeXml(root.Path)}\" access=\"{root.Access}\" />");
+                    $"        <root id=\"{EscapeXml(root.Id.Value)}\" label=\"{EscapeXml(root.DisplayName)}\" path=\"{EscapeXml(address.ToString())}\" access=\"{root.Access}\" />");
             }
             builder.AppendLine("      </roots>");
             builder.AppendLine("    </selected_workspace>");
         }
-        builder.AppendLine($"    <temp_directory>{EscapeXml(TempDirectory)}</temp_directory>");
         builder.AppendLine("    <available_shells>");
         foreach (var shell in AvailableShells)
         {
@@ -443,9 +482,9 @@ public sealed record EnvironmentContext
             Selected: false));
     }
 
-    private static string InferShellKind(string executable)
+    private static string InferShellKind(string executable, bool? windows = null)
     {
-        var name = Path.GetFileNameWithoutExtension(executable);
+        var name = Path.GetFileNameWithoutExtension(executable.Split('/', '\\')[^1]);
 
         if (name.Equals("pwsh", StringComparison.OrdinalIgnoreCase) ||
             name.Equals("powershell", StringComparison.OrdinalIgnoreCase))
@@ -459,7 +498,7 @@ public sealed record EnvironmentContext
             name.Equals("zsh", StringComparison.OrdinalIgnoreCase))
             return "posix";
 
-        return RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "cmd" : "posix";
+        return (windows ?? RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) ? "cmd" : "posix";
     }
 
     private static IReadOnlyList<string> GetDefaultShellArgumentsPrefix(string shellKind)

@@ -132,7 +132,13 @@ public sealed class PermissionMiddleware : IAgentMiddleware
                 evaluationContext = new()
                 {
                     FunctionName = function.Name, Action = invocation?.Action, FunctionCallId = callId,
-                    Authority = binding.Authority, Input = input, RunConfig = runConfig, Services = services
+                    Authority = binding.Authority, Input = input, RunConfig = runConfig, Services = services,
+                    RuntimeCapabilities = context.RuntimeCapabilities,
+                    HarnessConfiguration = function.AdditionalProperties?.TryGetValue(
+                        HPDCapabilityMetadata.AdditionalPropertiesKey, out var metadata) == true &&
+                        metadata is HPDCapabilityMetadata { OwnerHarnessIdentity: { Length: > 0 } owner }
+                            ? runConfig.HarnessConfiguration?.ForOwner(owner)
+                            : null
                 };
                 evaluation = await policy.EvaluateAsync(input, evaluationContext, cancellationToken).ConfigureAwait(false);
             }

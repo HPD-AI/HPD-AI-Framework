@@ -23,22 +23,21 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
     };
 
     private readonly LanguageServerOptions _options;
-    private readonly ILanguageServerService _languageServerService;
+    private readonly ILanguageServerWorkspaceRegistry? _workspaceRegistry;
+    private readonly object _leaseGate = new();
     private readonly LanguageServerDiagnosticFormatter _formatter;
-    private readonly ILanguageServerWorkspaceLease _workspaceLease;
+    private ILanguageServerWorkspaceLease? _workspaceLease;
+    private ILanguageServerService LanguageServerService => _workspaceLease!.Service;
 
-    /// <summary>Creates execution-owned middleware and acquires its workspace-service lease.</summary>
+    /// <summary>Creates execution-owned middleware for the resolved runtime workspace.</summary>
     /// <param name="workspaceRegistry">The registry owned by the built Agent.</param>
-    /// <param name="canonicalWorkspaceIdentity">The canonical workspace captured at input acceptance.</param>
     /// <param name="options">The generated middleware configuration.</param>
     public CodingLanguageServerMiddleware(
         ILanguageServerWorkspaceRegistry workspaceRegistry,
-        string canonicalWorkspaceIdentity,
         [HarnessConfigurationSection(nameof(CodingHarnessConfig.LanguageServer), nameof(LanguageServerSettings.ToRuntime))] LanguageServerOptions options)
     {
         _options = options;
-        _workspaceLease = workspaceRegistry.Acquire(canonicalWorkspaceIdentity, options);
-        _languageServerService = _workspaceLease.Service;
+        _workspaceRegistry = workspaceRegistry;
         _formatter = new LanguageServerDiagnosticFormatter();
     }
 
@@ -46,11 +45,10 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         LanguageServerOptions options,
         ILanguageServerService service) => new(options, new BorrowedWorkspaceLease(service));
 
-    private CodingLanguageServerMiddleware(LanguageServerOptions options, ILanguageServerWorkspaceLease workspaceLease)
+    internal CodingLanguageServerMiddleware(LanguageServerOptions options, ILanguageServerWorkspaceLease workspaceLease)
     {
         _options = options;
         _workspaceLease = workspaceLease;
-        _languageServerService = workspaceLease.Service;
         _formatter = new LanguageServerDiagnosticFormatter();
     }
 
@@ -102,15 +100,19 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         if (!_options.Enabled || !IsObservedCodingFunction(context.ToolHarnessName, context.Function))
             return;
 
-        if (context.RuntimeCapabilities.TryGet<RuntimeProcessExecutionBinding>(
-                out var processExecution) &&
-            context.RuntimeCapabilities.TryGet<RuntimeWorkspaceBinding>(
-                out var workspace))
+        if (_workspaceRegistry is { } registry)
         {
-            await _languageServerService.ConfigureRuntimeAsync(
-                processExecution,
-                workspace,
-                cancellationToken).ConfigureAwait(false);
+            if (!context.RuntimeCapabilities.TryGet<RuntimeProcessExecutionBinding>(out var process) ||
+                !context.RuntimeCapabilities.TryGet<RuntimeWorkspaceBinding>(out var workspace))
+                return;
+
+            lock (_leaseGate)
+            {
+                _workspaceLease ??= registry.Acquire(
+                    $"{process.BindingId:N}/{workspace.Content.Value}", _options);
+            }
+            await LanguageServerService.ConfigureRuntimeAsync(process, workspace, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         var path = TryGetPathArgument(context.Arguments);
@@ -143,7 +145,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
 
     public async Task AfterFunctionAsync(AfterFunctionContext context, CancellationToken cancellationToken)
     {
-        if (!_options.Enabled || !context.IsSuccess)
+        if (!_options.Enabled || !context.IsSuccess || _workspaceLease is null)
             return;
 
         if (!context.ResultMetadata.TryGet<ReadFileSnapshot>(
@@ -210,7 +212,8 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
 
     public async ValueTask DisposeAsync()
     {
-        await _workspaceLease.DisposeAsync().ConfigureAwait(false);
+        if (_workspaceLease is { } lease)
+            await lease.DisposeAsync().ConfigureAwait(false);
     }
 
     private async Task OpenReadFileDocumentAsync(
@@ -221,7 +224,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         LanguageServerPathMap paths = MapPath(
             snapshot.Path,
             context.RuntimeCapabilities);
-        var resolution = await _languageServerService.ResolveDocumentAsync(
+        var resolution = await LanguageServerService.ResolveDocumentAsync(
                 paths.ExecutionPath,
                 cancellationToken)
             .ConfigureAwait(false);
@@ -243,7 +246,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         var uri = resolution.Uri;
         var version = existing?.LanguageId == languageId ? existing.Version : 0;
 
-        var result = await _languageServerService.OpenDocumentAsync(
+        var result = await LanguageServerService.OpenDocumentAsync(
             new LanguageServerDocumentOpenRequest
             {
                 Path = resolution.Path,
@@ -317,7 +320,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         LanguageServerPathMap paths = MapPath(
             mutation.Path,
             context.RuntimeCapabilities);
-        var resolution = await _languageServerService.ResolveDocumentAsync(
+        var resolution = await LanguageServerService.ResolveDocumentAsync(
                 paths.ExecutionPath,
                 cancellationToken)
             .ConfigureAwait(false);
@@ -332,7 +335,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         var uri = resolution.Uri;
 
         var watchedChangeKind = ToWatchedFileChangeKind(mutation.Kind);
-        await _languageServerService.NotifyWatchedFileChangedAsync(
+        await LanguageServerService.NotifyWatchedFileChangedAsync(
             new LanguageServerWatchedFileChangeRequest
             {
                 Path = resolution.Path,
@@ -353,7 +356,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         {
             if (existing is not null && existing.Opened)
             {
-                await _languageServerService.CloseDocumentAsync(
+                await LanguageServerService.CloseDocumentAsync(
                     new LanguageServerDocumentCloseRequest
                     {
                         Path = resolution.Path,
@@ -413,7 +416,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         var opened = true;
         if (existing is null || !existing.Opened || existing.LanguageId != languageId)
         {
-            var openResult = await _languageServerService.OpenDocumentAsync(
+            var openResult = await LanguageServerService.OpenDocumentAsync(
                 new LanguageServerDocumentOpenRequest
                 {
                     Path = resolution.Path,
@@ -441,7 +444,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         }
         else
         {
-            var changeResult = await _languageServerService.ChangeDocumentAsync(
+            var changeResult = await LanguageServerService.ChangeDocumentAsync(
                 new LanguageServerDocumentChangeRequest
                 {
                     Path = resolution.Path,
@@ -465,7 +468,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
             }, cancellationToken).ConfigureAwait(false);
         }
 
-        await _languageServerService.SaveDocumentAsync(
+        await LanguageServerService.SaveDocumentAsync(
             new LanguageServerDocumentSaveRequest
             {
                 Path = resolution.Path,
@@ -482,7 +485,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         }, cancellationToken).ConfigureAwait(false);
 
         diagnostics = MapDiagnosticPaths(
-            await _languageServerService.GetDiagnosticsAsync(
+            await LanguageServerService.GetDiagnosticsAsync(
             new LanguageServerDiagnosticRequest
             {
                 Path = resolution.Path,
@@ -568,7 +571,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         IReadOnlyList<LanguageServerStatus> statuses;
         try
         {
-            statuses = await _languageServerService.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+            statuses = await LanguageServerService.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

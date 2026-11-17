@@ -4,7 +4,6 @@ using System.Security.Cryptography;
 using System.Text;
 using HPD.Agent;
 using HPD.Agent.ToolHarness.Coding;
-using HPD.Agent.ToolHarness.Coding.Security;
 using HPD.Agent.Middleware;
 using HPD.Environment.Contracts;
 using HPDOS.ToolHarnesses.Middleware;
@@ -51,10 +50,6 @@ public partial class CodingToolHarness
         catch (DecoderFallbackException)
         {
             return FormatError(path ?? string.Empty, "Unable to decode file as text.");
-        }
-        catch (AgentCapabilityDeniedException ex)
-        {
-            return FormatError(path ?? string.Empty, ex.Message);
         }
         catch (UnauthorizedAccessException ex)
         {
@@ -224,15 +219,6 @@ public partial class CodingToolHarness
             return $"Limit must be between 1 and {MaxLineLimit.ToString(CultureInfo.InvariantCulture)}.";
 
         return null;
-    }
-
-    private static ResolvedReadPath ResolveReadPath(string path, FunctionExecutionContext context)
-    {
-        var trimmedPath = path.Trim();
-        var fullPath = context?.RunConfig.Context?.Properties?.ContainsKey(CodingWorkspace.ContextKey) == true
-            ? CodingWorkspace.From(context.RunConfig).CanonicalizeExplicitPath(trimmedPath)
-            : Path.GetFullPath(trimmedPath, Directory.GetCurrentDirectory());
-        return new ResolvedReadPath(trimmedPath, fullPath);
     }
 
     private static bool IsBlockedDevicePath(string fullPath)
@@ -620,7 +606,6 @@ public enum ReadFileSourceKind
     Workspace
 }
 
-internal sealed record ResolvedReadPath(string InputPath, string FullPath);
 
 internal sealed record ReadFileTextResult
 {

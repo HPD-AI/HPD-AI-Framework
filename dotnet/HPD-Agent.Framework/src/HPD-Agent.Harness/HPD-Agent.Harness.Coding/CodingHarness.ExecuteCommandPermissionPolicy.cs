@@ -1,3 +1,5 @@
+using HPD.Agent.Middleware;
+using HPD.Agent.Sandbox;
 using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.Permissions;
@@ -21,7 +23,10 @@ public sealed class ExecuteCommandPermissionPolicy :
     /// <summary>The stable canonical rule payload type.</summary>
     public const string RuleTypeId = "hpd.coding.execute-command.rule-set.v2";
 
-    private static readonly ExecuteCommandOptions DefaultOptions = new();
+    private static readonly CodingHarnessConfig DefaultConfig = new();
+
+    private static CodingHarnessConfig GetConfig(PermissionEvaluationContext context) =>
+        context.GetHarnessSettings<CodingHarnessConfig>() ?? DefaultConfig;
 
     /// <inheritdoc />
     public ValueTask<PermissionPolicyResult> EvaluateAsync(
@@ -30,7 +35,12 @@ public sealed class ExecuteCommandPermissionPolicy :
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var plan = Analyze(input, context.RunConfig);
+        var plan = Analyze(input, context);
+        if (plan is UntrustedCommandPermissionPlan { InvalidRequest: true } invalid)
+            return ValueTask.FromResult(new PermissionPolicyResult
+            {
+                Outcome = new PermissionDeny(invalid.FailureReason, PermissionDeniedBehavior.ReturnToModel)
+            });
         var match = ExecuteCommandPermissionRuleMatcher.Match(plan, []);
         var legal = ExecuteCommandPermissionChoiceBuilder.Build(plan, match.MatchingRules);
         var choices = legal.Select(choice => new PermissionChoice(choice.Id, choice.Label,
@@ -60,22 +70,37 @@ public sealed class ExecuteCommandPermissionPolicy :
         ExecuteCommandPermissionRule[]? rules;
         try { rules = JsonSerializer.Deserialize(rule, CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionRuleArray); }
         catch (JsonException) { return false; }
-        if (rules is null || rules.Length == 0 || rules.Any(candidate =>
-            !ExecuteCommandPermissionRuleValidator.ValidatePersistedRuleForCurrentWorkspace(candidate, context.RunConfig).Valid)) return false;
-        return ExecuteCommandPermissionRuleMatcher.Match(Analyze(input, context.RunConfig), rules).Decision is
+        var plan = Analyze(input, context);
+        if (plan is UntrustedCommandPermissionPlan { InvalidRequest: true } || rules is null || rules.Length == 0) return false;
+        var (workspace, process) = GetRuntime(context);
+        if (rules.Any(candidate => !ExecuteCommandPermissionRuleValidator
+            .ValidatePersistedRule(candidate, plan, workspace, process, GetConfig(context)).Valid))
+            return false;
+        return ExecuteCommandPermissionRuleMatcher.Match(plan, rules).Decision is
             { Behavior: ExecuteCommandPermissionBehavior.Allow };
     }
 
     private static ExecuteCommandPermissionPlan Analyze(
         ValidatedPermissionInput input,
-        AgentRunConfig runConfig) =>
-        ExecuteCommandPermissionAnalyzer.Analyze(
-            new Dictionary<string, object?>
-            {
-                ["request"] = input.GetRequiredValue("request")
-            },
-            runConfig,
-            DefaultOptions);
+        PermissionEvaluationContext context)
+    {
+        var (workspace, process) = GetRuntime(context);
+        var config = GetConfig(context);
+        return ExecuteCommandPermissionAnalyzer.Analyze(
+            new Dictionary<string, object?> { ["request"] = input.GetRequiredValue("request") },
+            workspace, process, config.Commands, config.Environment);
+    }
+
+    private static (RuntimeWorkspaceBinding?, RuntimeProcessExecutionBinding?)
+        GetRuntime(PermissionEvaluationContext context)
+    {
+        if (context.RuntimeCapabilities is not { } capabilities)
+            return (null, null);
+
+        capabilities.TryGet<RuntimeWorkspaceBinding>(out var workspace);
+        capabilities.TryGet<RuntimeProcessExecutionBinding>(out var process);
+        return (workspace, process);
+    }
 
     private static JsonElement CreateCanonicalRule(PersistRuleChoice choice)
     {

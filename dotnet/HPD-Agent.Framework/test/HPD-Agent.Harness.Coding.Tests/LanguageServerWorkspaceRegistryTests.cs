@@ -201,9 +201,8 @@ public sealed class LanguageServerWorkspaceRegistryTests
                     MiddlewareType = typeof(CodingLanguageServerMiddleware),
                     Factory = _ => ToolHarnessMiddlewareActivation.ExecutionOwned(
                         new CodingLanguageServerMiddleware(
-                            workspaces,
-                            Path.GetFullPath("."),
-                            new LanguageServerOptions()))
+                            new LanguageServerOptions(),
+                            workspaces.Acquire("test-workspace", new LanguageServerOptions())))
                 },
                 .. additional
             ]);

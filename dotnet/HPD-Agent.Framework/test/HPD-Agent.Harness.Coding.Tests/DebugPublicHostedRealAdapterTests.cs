@@ -1114,18 +1114,12 @@ public sealed class DebugPublicHostedRealAdapterTests
             string action,
             string workspaceRoot)
         {
-            var workspace = new CodingWorkspace(
-                "root",
-                workspaceRoot,
-                [new("root", workspaceRoot, CodingWorkspaceAccess.ReadWrite)]);
+            var workspace = TestRuntimeWorkspace.Create(workspaceRoot);
             RuntimeWorkspaceBinding runtimeWorkspace =
-                TestRuntimeWorkspace.FromAgentWorkspace(workspace);
+                workspace;
             var runConfig = new AgentRunConfig
             {
-                Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>
-                {
-                    [CodingWorkspace.ContextKey] = workspace
-                } }
+                Workspace = new AgentWorkspaceReference("test-workspace")
             };
             var initial = AgentLoopState.InitialSafe(
                 [], "run", "conversation", "DebugPublicReal");

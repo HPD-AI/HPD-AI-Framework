@@ -61,9 +61,9 @@ public sealed class EnvironmentContextMiddlewareTests
         xml.Should().Contain("<directory_separator>/</directory_separator>");
         xml.Should().Contain("<alt_directory_separator>/</alt_directory_separator>");
         xml.Should().Contain("<path_separator>:</path_separator>");
-        xml.Should().Contain("<is_git_repository>true</is_git_repository>");
-        xml.Should().Contain("<workspace_root>/tmp/repo</workspace_root>");
-        xml.Should().Contain("<temp_directory>/tmp/</temp_directory>");
+        xml.Should().NotContain("<is_git_repository>");
+        xml.Should().NotContain("<workspace_root>");
+        xml.Should().NotContain("<temp_directory>");
         xml.Should().Contain("<available_shells>");
         xml.Should().Contain("<shell name=\"zsh\" executable=\"/bin/zsh\" kind=\"posix\" source=\"SHELL\" available=\"true\" selected=\"true\" />");
         xml.Should().Contain("<shell name=\"bash\" executable=\"/bin/bash\" kind=\"posix\" source=\"well_known\" available=\"true\" selected=\"false\" />");
@@ -110,8 +110,8 @@ public sealed class EnvironmentContextMiddlewareTests
         xml.Should().Contain("<operating_system>darwin&amp;linux</operating_system>");
         xml.Should().Contain("<os_version>Darwin &lt;25&gt;&amp;</os_version>");
         xml.Should().Contain("<shell name=\"zsh&amp;bash\" executable=\"/bin/&lt;zsh&gt;&amp;\" kind=\"posix&amp;shell\" source=\"SHELL&amp;env\" available=\"true\" selected=\"true\" />");
-        xml.Should().Contain("<workspace_root>/tmp/&lt;repo&gt;</workspace_root>");
-        xml.Should().Contain("<temp_directory>/tmp/&lt;temp&gt;</temp_directory>");
+        xml.Should().NotContain("<workspace_root>");
+        xml.Should().NotContain("<temp_directory>");
     }
 
     [Fact]
@@ -135,17 +135,14 @@ public sealed class EnvironmentContextMiddlewareTests
             PathSeparator = ":",
             TempDirectory = "/tmp/"
         };
-        var workspace = new CodingWorkspace(
-            "default",
-            "/tmp/selected-workspace",
-            [new CodingWorkspaceRoot("default", "/tmp/selected-workspace", CodingWorkspaceAccess.ReadWrite)]);
+        var workspace = TestRuntimeWorkspace.Create("/tmp/selected-workspace", rootId: "default", resolveLinks: false);
 
         var xml = context.SerializeToXml(workspace);
 
         xml.Should().NotContain("<cwd>");
-        xml.Should().Contain("<workspace_root>/tmp/selected-workspace</workspace_root>");
+        xml.Should().Contain("<workspace_root>@default</workspace_root>");
         xml.Should().NotContain("<host_process_cwd>");
-        xml.Should().Contain("<default_root_path>/tmp/selected-workspace</default_root_path>");
+        xml.Should().Contain("<working_directory>.</working_directory>");
     }
 
     [Fact]
@@ -213,7 +210,7 @@ public sealed class EnvironmentContextMiddlewareTests
         messages.Should().HaveCount(3);
         messages[2].Text.Should().Be("hello");
         context.Options.Instructions.Should().Contain("<environment_context>");
-        context.Options.Instructions.Should().Contain("<workspace_root>");
+        context.Options.Instructions.Should().NotContain("<workspace_root>");
         context.Options.Instructions.Should().NotContain("<cwd>");
     }
 
@@ -231,31 +228,20 @@ public sealed class EnvironmentContextMiddlewareTests
         try
         {
             Directory.SetCurrentDirectory(sourceDirectory);
-            var hostProcessCwd = Directory.GetCurrentDirectory();
             var middleware = new EnvironmentContextMiddleware(new EnvironmentContextConfig());
             var messages = new List<ChatMessage> { new(ChatRole.User, "hello") };
-            var context = CreateBeforeIterationContext(
-                CreateAgentContext(),
-                messages,
-                new AgentRunConfig
-                {
-                    Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>
-                    {
-                        [CodingWorkspace.ContextKey] = new CodingWorkspace(
-                            "default",
-                            selectedWorkspace,
-                            [new CodingWorkspaceRoot("default", selectedWorkspace, CodingWorkspaceAccess.ReadWrite)])
-                    } }
-                });
+            var agentContext = CreateAgentContext();
+            agentContext.RuntimeCapabilities.Set(TestRuntimeWorkspace.Create(selectedWorkspace, rootId: "default"));
+            var context = CreateBeforeIterationContext(agentContext, messages);
 
             await middleware.BeforeIterationAsync(context, CancellationToken.None);
 
             context.Options.Instructions.Should().NotContain("<cwd>");
             context.Options.Instructions.Should().Contain(
-                $"<workspace_root>{AgentFilesystemPath.Canonicalize(selectedWorkspace)}</workspace_root>");
+                "<workspace_root>@default</workspace_root>");
             context.Options.Instructions.Should().NotContain("<host_process_cwd>");
             context.Options.Instructions.Should().Contain(
-                $"<default_root_path>{AgentFilesystemPath.Canonicalize(selectedWorkspace)}</default_root_path>");
+                "<working_directory>.</working_directory>");
         }
         finally
         {
@@ -286,7 +272,7 @@ public sealed class EnvironmentContextMiddlewareTests
     }
 
     [Fact]
-    public async Task BeforeIterationAsync_ReinjectsWhenCwdChanges()
+    public async Task BeforeIterationAsync_ReinjectsWhenWorkspaceChanges()
     {
         var originalCwd = Directory.GetCurrentDirectory();
         var tempRoot = Path.Combine(Path.GetTempPath(), $"hpd-coding-toolharness-tests-{Guid.NewGuid():N}");
@@ -301,20 +287,18 @@ public sealed class EnvironmentContextMiddlewareTests
             var middleware = new EnvironmentContextMiddleware(new EnvironmentContextConfig());
             var agentContext = CreateAgentContext();
 
-            Directory.SetCurrentDirectory(firstDirectory);
-            var firstCwd = Directory.GetCurrentDirectory();
+            agentContext.RuntimeCapabilities.Set(TestRuntimeWorkspace.Create(firstDirectory, rootId: "first"));
             var firstMessages = new List<ChatMessage> { new(ChatRole.User, "first") };
             var firstContext = CreateBeforeIterationContext(agentContext, firstMessages);
             await middleware.BeforeIterationAsync(firstContext, CancellationToken.None);
 
-            Directory.SetCurrentDirectory(secondDirectory);
-            var secondCwd = Directory.GetCurrentDirectory();
+            agentContext.RuntimeCapabilities.Set(TestRuntimeWorkspace.Create(secondDirectory, rootId: "second"));
             var secondMessages = new List<ChatMessage> { new(ChatRole.User, "second") };
             var secondContext = CreateBeforeIterationContext(agentContext, secondMessages);
             await middleware.BeforeIterationAsync(secondContext, CancellationToken.None);
 
-            firstContext.Options.Instructions.Should().Contain($"<workspace_root>{firstCwd}</workspace_root>");
-            secondContext.Options.Instructions.Should().Contain($"<workspace_root>{secondCwd}</workspace_root>");
+            firstContext.Options.Instructions.Should().Contain("<workspace_root>@first</workspace_root>");
+            secondContext.Options.Instructions.Should().Contain("<workspace_root>@second</workspace_root>");
             firstContext.Options.Instructions.Should().NotContain("<cwd>");
             secondContext.Options.Instructions.Should().NotContain("<cwd>");
         }

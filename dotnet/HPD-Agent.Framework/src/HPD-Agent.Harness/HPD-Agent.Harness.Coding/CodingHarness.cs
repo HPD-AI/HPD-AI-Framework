@@ -37,27 +37,17 @@ public partial class CodingToolHarness
     };
 
     private readonly IHarnessConfig<CodingHarnessConfig> _config;
-    private readonly IFileMutationLockProvider _fileMutationLockProvider;
-    private readonly IReadOnlyList<IFileMutationTextSink> _fileMutationTextSinks;
-    private readonly IReadOnlyList<IFileMutationHistorySink> _fileMutationHistorySinks;
-
     static CodingToolHarness()
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         HpdAgentJsonUtilities.RegisterTypeInfoResolver(CodingToolHarnessJsonContext.Default);
     }
 
-    /// <summary>Creates a coding harness with optional host-provided dependencies.</summary>
+    /// <summary>Creates a coding harness with its bound settings.</summary>
     public CodingToolHarness(
-        IHarnessConfig<CodingHarnessConfig> config,
-        IFileMutationLockProvider? fileMutationLockProvider = null,
-        IEnumerable<IFileMutationTextSink>? fileMutationTextSinks = null,
-        IEnumerable<IFileMutationHistorySink>? fileMutationHistorySinks = null)
+        IHarnessConfig<CodingHarnessConfig> config)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
-        _fileMutationLockProvider = fileMutationLockProvider ?? NoOpFileMutationLockProvider.Instance;
-        _fileMutationTextSinks = fileMutationTextSinks?.ToArray() ?? [];
-        _fileMutationHistorySinks = fileMutationHistorySinks?.ToArray() ?? [];
     }
 
     private static IEnumerable<string> EnumerateFileSystemEntries(string fullPath, bool throwOnFailure)

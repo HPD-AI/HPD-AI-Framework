@@ -69,13 +69,7 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
         await new DotNetDebugProjectEvaluator().EvaluateAsync(
             fixture.Request(provider) with
             {
-                ProcessSandbox = new AgentSandboxRuntime
-                {
-                    Security = new AgentSecurityRunConfig
-                    {
-                        Sandbox = new AgentSandboxRunConfig { Mode = AgentSandboxPolicy.Disabled }
-                    }
-                }
+                ProcessSandbox = ProcessIsolationPolicy.Default with { Mode = ProcessIsolationMode.Disabled }
             },
             CancellationToken.None);
 
@@ -132,8 +126,7 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
                 fixture.Request(provider) with
                 {
                     RuntimeWorkspace =
-                        TestRuntimeWorkspace.FromAgentWorkspace(
-                            Workspace(outsideWorkspace)),
+                        Workspace(outsideWorkspace),
                 },
                 CancellationToken.None);
 
@@ -292,7 +285,7 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
                         EnvironmentRuntime = runtime,
                         ExecutionTarget = unit.Status.Handle!.Value,
                     },
-                    RuntimeWorkspace = TestRuntimeWorkspace.FromAgentWorkspace(Workspace(root))
+                    RuntimeWorkspace = Workspace(root)
                 },
                 CancellationToken.None);
 
@@ -511,7 +504,7 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
             var result = await new DotNetDebugProjectEvaluator().EvaluateAsync(
                 fixture.Request(provider) with
                 {
-                    RuntimeWorkspace = TestRuntimeWorkspace.FromAgentWorkspace(Workspace(fixture.Root, secondRoot))
+                    RuntimeWorkspace = Workspace(fixture.Root, secondRoot)
                 },
                 CancellationToken.None);
 
@@ -707,7 +700,7 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
                     ProcessProvider = provider,
                     ExecutionTarget = ExecutionTarget()
                 },
-                RuntimeWorkspace = TestRuntimeWorkspace.FromAgentWorkspace(Workspace(Root))
+                RuntimeWorkspace = Workspace(Root)
             };
 
         public string Json(
@@ -905,12 +898,7 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
             TargetHandleLifetime.LiveCapability,
             TargetHandleAuthority.Control | TargetHandleAuthority.Observe);
 
-    private static CodingWorkspace Workspace(params string[] roots)
-    {
-        var entries = roots.Select((path, index) => new CodingWorkspaceRoot(
-            index == 0 ? "default" : $"root-{index + 1}",
-            path, CodingWorkspaceAccess.ReadWrite,
-            Path.GetFileName(path))).ToArray();
-        return new CodingWorkspace(entries[0].Id, entries[0].Path, entries);
-    }
+    private static HPD.Agent.Sandbox.RuntimeWorkspaceBinding Workspace(params string[] roots) =>
+        TestRuntimeWorkspace.Create(roots.Select((path, index) =>
+            SandboxWorkspaceRequest.HostDirectory(path, rootId: $"root{index + 1}")).ToArray());
 }

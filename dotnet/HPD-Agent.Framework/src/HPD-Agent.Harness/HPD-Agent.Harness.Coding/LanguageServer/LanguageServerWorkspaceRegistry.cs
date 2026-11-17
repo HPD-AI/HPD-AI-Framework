@@ -22,24 +22,11 @@ public sealed class LanguageServerWorkspaceRegistry : ILanguageServerWorkspaceRe
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(canonicalWorkspaceIdentity);
         ArgumentNullException.ThrowIfNull(options);
-        var configuredWorkspaces = options.WorkspaceFolders
-            .Select(static path => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)))
-            .Order(StringComparer.Ordinal)
-            .ToArray();
-        var workspace = configuredWorkspaces.Length switch
-        {
-            0 => Path.TrimEndingDirectorySeparator(Path.GetFullPath(canonicalWorkspaceIdentity)),
-            1 => configuredWorkspaces[0],
-            _ => string.Join("\n", configuredWorkspaces)
-        };
-        var effectiveOptions = options.WorkspaceFolders.Count == 0
-            ? options with { WorkspaceFolders = [workspace] }
-            : options;
-        var key = $"{workspace}\n{GetConfigurationIdentity(effectiveOptions)}";
+        var key = $"{canonicalWorkspaceIdentity}\n{GetConfigurationIdentity(options)}";
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed != 0, this);
-            var entry = _entries.GetOrAdd(key, _ => new Entry(_createService(effectiveOptions)));
+            var entry = _entries.GetOrAdd(key, _ => new Entry(_createService(options)));
             entry.AddReference();
             return new Lease(entry);
         }
@@ -93,7 +80,7 @@ public sealed class LanguageServerWorkspaceRegistry : ILanguageServerWorkspaceRe
         foreach (var value in options.EnabledServers.Order(StringComparer.Ordinal)) Append(identity, value);
         foreach (var value in options.DisabledServers.Order(StringComparer.Ordinal)) Append(identity, value);
         foreach (var value in options.EnabledExperimentalServers.Order(StringComparer.Ordinal)) Append(identity, value);
-        foreach (var value in options.WorkspaceFolders.Select(Path.GetFullPath).Order(StringComparer.Ordinal)) Append(identity, value);
+        foreach (var value in options.WorkspaceFolders.Order(StringComparer.Ordinal)) Append(identity, value);
         Append(identity, options.WorkspaceConfigurationIdentity ?? string.Empty);
         Append(identity, options.ConfigVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity.ToString())));

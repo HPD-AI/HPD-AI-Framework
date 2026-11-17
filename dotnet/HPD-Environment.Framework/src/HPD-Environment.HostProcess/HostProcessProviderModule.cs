@@ -3,6 +3,7 @@ namespace HPD.Environment.HostProcess;
 using System.Runtime.InteropServices;
 using HPD.Environment.Contracts;
 using HPD.Environment.HostProcess.ProcessIsolation;
+using HPD.Environment.HostProcess.Security;
 using HPD.Environment.Runtime;
 using HPD.Environment.HostProcess.Platforms.Windows;
 using Microsoft.Extensions.Logging;
@@ -48,7 +49,45 @@ public sealed class HostProcessProviderModule : ISandboxProvisioningProvider, IA
         if (request.Workspaces.Any(workspace => workspace.CopyInOut))
             throw new NotSupportedException("Host Process requires live workspace projection.");
 
+        var readOnlyRoots = request.Workspaces.Where(workspace => workspace.Root.Access == AccessMode.ReadOnly).ToArray();
+        var writableRoots = request.Workspaces.Where(workspace => workspace.Root.Access == AccessMode.ReadWrite).ToArray();
+        foreach (var readOnly in readOnlyRoots)
+        {
+            foreach (var writable in writableRoots)
+            {
+                string readOnlyPath = readOnly.ExecutionPath.Value;
+                string writablePath = writable.ExecutionPath.Value;
+                if (PathNormalizer.IsWithinPath(readOnlyPath, writablePath) ||
+                    PathNormalizer.IsWithinPath(writablePath, readOnlyPath))
+                    throw new ArgumentException("Read-only and writable host workspace roots must be disjoint.", nameof(request));
+            }
+        }
+
         var isolation = request.Isolation;
+        if (isolation.Mode == ProcessIsolationMode.Disabled && readOnlyRoots.Length != 0)
+            throw new InvalidOperationException("Read-only host workspaces require process isolation.");
+        if (request.Workspaces.Count > 0 && isolation.Mode == ProcessIsolationMode.ProviderDefault)
+            isolation = isolation with { Mode = ProcessIsolationMode.Isolated };
+
+        if (!OperatingSystem.IsWindows() && isolation.Mode == ProcessIsolationMode.Isolated)
+        {
+            var workspaceRules = request.Workspaces.SelectMany(static workspace => new[]
+            {
+                new PathAccessRule { Kind = PathAccessRuleKind.AllowRead, Path = new HostPath(workspace.ExecutionPath.Value) },
+                new PathAccessRule
+                {
+                    Kind = workspace.Root.Access == AccessMode.ReadWrite ? PathAccessRuleKind.AllowWrite : PathAccessRuleKind.DenyWrite,
+                    Path = new HostPath(workspace.ExecutionPath.Value),
+                },
+            });
+            isolation = isolation with
+            {
+                Filesystem = isolation.Filesystem with
+                {
+                    Rules = [.. isolation.Filesystem.Rules, .. workspaceRules],
+                },
+            };
+        }
         bool liveWorkspace = OperatingSystem.IsWindows() && request.Workspaces.Count > 0 &&
             request.Workspaces.All(workspace =>
                 workspace.Source is { Kind: ContentSelectorKind.HostPath, HostPath.Kind: HostPathKind.Directory } &&
@@ -75,7 +114,10 @@ public sealed class HostProcessProviderModule : ISandboxProvisioningProvider, IA
             },
             SandboxEnforcementLocation.Host,
             report => RefineSandboxCapabilities(
-                report, isolation, request.Workspaces.Count != 0 && !liveWorkspace));
+                report, isolation, request.Workspaces.Count != 0 && !liveWorkspace))
+        {
+            Isolation = isolation,
+        };
     }
 
     /// <summary>Grants access to a live Windows workspace for the lifetime of this provider module.</summary>

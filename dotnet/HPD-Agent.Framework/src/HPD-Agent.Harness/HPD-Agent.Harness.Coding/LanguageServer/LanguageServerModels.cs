@@ -9,7 +9,7 @@ namespace HPDOS.ToolHarnesses.Middleware;
 public interface ILanguageServerWorkspaceRegistry : IAsyncDisposable
 {
     /// <summary>Acquires an execution-owned reference to the matching Agent-owned service.</summary>
-    /// <param name="canonicalWorkspaceIdentity">The canonical workspace captured when the input execution was accepted.</param>
+    /// <param name="canonicalWorkspaceIdentity">The identity of the bound workspace and execution environment.</param>
     /// <param name="options">The complete language-server configuration used to form the sharing key.</param>
     /// <returns>A lease that retains the keyed service for the accepted execution.</returns>
     ILanguageServerWorkspaceLease Acquire(string canonicalWorkspaceIdentity, LanguageServerOptions options);

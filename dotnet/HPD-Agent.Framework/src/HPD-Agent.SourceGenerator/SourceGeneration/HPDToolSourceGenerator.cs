@@ -2269,11 +2269,13 @@ $@"    /// <summary>
             sb.AppendLine($"                        Ownership = global::HPD.Agent.ToolHarnessMiddlewareOwnership.{(entry.ServicesOwned ? "Services" : "Execution")},");
             if (entry.RequiresCanonicalWorkspaceIdentity)
                 sb.AppendLine("                        RequiresCanonicalWorkspaceIdentity = true,");
+            var resourceArguments = entry.AgentResourceTypeFqn is null
+                ? ""
+                : $"context.GetRequiredAgentResource<{entry.AgentResourceTypeFqn}>(), ";
+            if (entry.RequiresCanonicalWorkspaceIdentity)
+                resourceArguments += "context.GetCanonicalWorkspaceIdentity(), ";
             if (entry.HarnessConfigurationExpression is not null)
             {
-                var resourceArguments = entry.AgentResourceTypeFqn is null
-                    ? ""
-                    : $"context.GetRequiredAgentResource<{entry.AgentResourceTypeFqn}>(), context.GetCanonicalWorkspaceIdentity(), ";
                 sb.AppendLine("                        UsesHarnessConfiguration = true,");
                 sb.AppendLine($"                        Factory = static context => global::HPD.Agent.ToolHarnessMiddlewareActivation.ExecutionOwned(new {entry.FullyQualifiedTypeName}({resourceArguments}{entry.HarnessConfigurationExpression}))");
             }
@@ -2284,7 +2286,7 @@ $@"    /// <summary>
             else if (entry.AgentResourceTypeFqn is not null)
             {
                 sb.AppendLine($"                        ConfigurationType = typeof({entry.ConfigTypeFqn}),");
-                sb.AppendLine($"                        Factory = static context => global::HPD.Agent.ToolHarnessMiddlewareActivation.ExecutionOwned(new {entry.FullyQualifiedTypeName}(context.GetRequiredAgentResource<{entry.AgentResourceTypeFqn}>(), context.GetCanonicalWorkspaceIdentity(), context.GetConfigurationOrDefault(GetJsonTypeInfo<{entry.ConfigTypeFqn}>({entry.JsonContextTypeFqn}.Default), static () => new {entry.ConfigTypeFqn}())) )");
+                sb.AppendLine($"                        Factory = static context => global::HPD.Agent.ToolHarnessMiddlewareActivation.ExecutionOwned(new {entry.FullyQualifiedTypeName}({resourceArguments}context.GetConfigurationOrDefault(GetJsonTypeInfo<{entry.ConfigTypeFqn}>({entry.JsonContextTypeFqn}.Default), static () => new {entry.ConfigTypeFqn}())) )");
             }
             else if (entry.ConfigTypeFqn is not null)
             {
@@ -2460,13 +2462,13 @@ $@"    /// <summary>
                 .Where(static constructor => constructor.DeclaredAccessibility == Accessibility.Public)
                 .ToArray();
             var resourceConstructors = publicConstructors.Where(constructor =>
-                constructor.Parameters.Length == 3 &&
+                constructor.Parameters.Length is 2 or 3 &&
                 constructor.Parameters[0].Type.GetAttributes().Any(attribute =>
                     agentResourceAttributeType is not null &&
                     SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, agentResourceAttributeType)) &&
-                constructor.Parameters[1].Type.SpecialType == SpecialType.System_String &&
-                (constructor.Parameters[2].Type.Name.EndsWith("Config") || constructor.Parameters[2].Type.Name.EndsWith("Options") ||
-                    constructor.Parameters[2].GetAttributes().Any(attribute => attribute.AttributeClass?.ToDisplayString() == "HPD.Agent.HarnessConfigurationSectionAttribute")))
+                (constructor.Parameters.Length == 2 || constructor.Parameters[1].Type.SpecialType == SpecialType.System_String) &&
+                (constructor.Parameters[constructor.Parameters.Length - 1].Type.Name.EndsWith("Config") || constructor.Parameters[constructor.Parameters.Length - 1].Type.Name.EndsWith("Options") ||
+                    constructor.Parameters[constructor.Parameters.Length - 1].GetAttributes().Any(attribute => attribute.AttributeClass?.ToDisplayString() == "HPD.Agent.HarnessConfigurationSectionAttribute")))
                 .ToArray();
             var configConstructors = publicConstructors.Where(static constructor =>
                 constructor.Parameters.Length == 1 &&
@@ -2530,11 +2532,11 @@ $@"    /// <summary>
                 }
                 entries.Add(new ToolHarnessMiddlewareEntry(namedType.Name, fqn,
                     sectionParameter!.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), null, false,
-                    resourceInterface, resourceImplementation, resourceInterface is not null, false, expression));
+                    resourceInterface, resourceImplementation, resourceInterface is not null && projectionConstructor!.Parameters.Length == 3, false, expression));
                 continue;
             }
 
-            // Agent-owned resource constructor: (attributed resource, canonical workspace identity, config/options).
+            // Agent-owned resource constructor: (attributed resource, optional canonical workspace identity, config/options).
             var resourceCtor = resourceConstructors.SingleOrDefault();
             if (resourceCtor is not null)
             {
@@ -2553,7 +2555,7 @@ $@"    /// <summary>
                     continue;
                 }
 
-                var configType = resourceCtor.Parameters[2].Type;
+                var configType = resourceCtor.Parameters[resourceCtor.Parameters.Length - 1].Type;
                 var jsonContextTypeFqn = GetJsonContextType(configType);
                 if (jsonContextTypeFqn is null)
                 {
@@ -2572,7 +2574,7 @@ $@"    /// <summary>
                     false,
                     resourceCtor.Parameters[0].Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     implementationType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                    true));
+                    resourceCtor.Parameters.Length == 3));
                 continue;
             }
 

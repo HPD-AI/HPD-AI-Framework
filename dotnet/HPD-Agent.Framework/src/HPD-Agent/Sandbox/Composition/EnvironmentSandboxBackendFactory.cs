@@ -205,6 +205,8 @@ public sealed class EnvironmentSandboxBackendFactory
                 EnvironmentId = ProviderId.Value,
                 EnvironmentRevision =
                     host.Metadata.Generation.Value,
+                Platform = hostSpec.Platform,
+                EnforcementLocation = _definition.EnforcementLocation,
                 ProcessProvider = processProvider,
                 EnvironmentRuntime = _runtime,
                 ExecutionTarget = unit.Status.Handle!.Value,
