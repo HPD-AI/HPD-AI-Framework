@@ -438,6 +438,7 @@ export interface AgentRunConfig {
   systemInstructions?: null | SystemInstructionsRunConfig;
   tools?: null | AgentToolsRunConfig;
   context?: null | AgentContextRunConfig;
+  workspace?: null | AgentWorkspaceReference;
   backgroundResponses?: null | BackgroundResponsesRunConfig;
   streaming?: null | StreamingRunConfig;
   uploadStrategy?: number | null;
@@ -488,6 +489,10 @@ export interface AgentSummaryDto {
 
 export interface AgentToolsRunConfig {
   clientInput?: InlineAgentToolsRunConfigClientInput | null;
+}
+
+export interface AgentWorkspaceReference {
+  id: string;
 }
 
 export interface AgenticLoopConfig {
@@ -25046,6 +25051,10 @@ export interface InlineSubAgentRunConfigToolsClientInputContextItem {
   valueText?: string | null;
 }
 
+export interface InlineSubAgentRunConfigWorkspace {
+  id: string;
+}
+
 export interface InlineSummarizingCompactionEvidence {
   includeToolCalls?: boolean | null;
   includeToolResults?: boolean | null;
@@ -26939,6 +26948,7 @@ export interface SubAgentRunConfig {
   systemInstructions?: InlineSubAgentRunConfigSystemInstructions | null;
   tools?: InlineSubAgentRunConfigTools | null;
   context?: InlineSubAgentRunConfigContext | null;
+  workspace?: InlineSubAgentRunConfigWorkspace | null;
   backgroundResponses?: InlineSubAgentRunConfigBackgroundResponses | null;
   streaming?: InlineSubAgentRunConfigStreaming | null;
   uploadStrategy?: number | null;

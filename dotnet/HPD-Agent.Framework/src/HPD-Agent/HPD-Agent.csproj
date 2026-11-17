@@ -117,6 +117,7 @@
     <InternalsVisibleTo Include="HPD-Agent.Harness.Coding.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Harness.Coding.TUI.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Sandbox.HostContainers.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.Sandbox.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.AIFunctionContracts.AotSmoke" />
     <InternalsVisibleTo Include="HPD-Agent.ToolHarness.AotSmoke" />
     <InternalsVisibleTo Include="HPD-Agent.ProviderAuthentication.AotSmoke" />

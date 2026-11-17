@@ -3,7 +3,10 @@ using HPD.Agent.Middleware;
 using HPD.Agent.Providers.OpenRouter;
 using HPD.Agent.Serialization;
 using HPD.Agent.ToolHarness.Coding;
-using HPD.Agent.Sandbox.HostProcess;
+using HPD.Agent.Sandbox;
+using HPD.Environment.HostProcess;
+using WorkspaceRequest = HPD.Environment.Contracts.SandboxWorkspaceRequest;
+using ProcessIsolationPolicy = HPD.Environment.Contracts.ProcessIsolationPolicy;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
@@ -19,22 +22,18 @@ if (options.ShowHelp)
 
 var agentBuilder = CreateAgentBuilder(options.ConfigPath)
     .WithAPIConfiguration(appsettingsPath ?? "appsettings.json", optional: true)
-    .WithHostProcessSandbox(new HostProcessSandboxOptions
+    .WithSandbox(new HostProcessProviderModule(), new SandboxSessionRequest
     {
-        Workspaces =
-        [
-            new HostProcessWorkspaceOptions
-            {
-                Path = Directory.GetCurrentDirectory(),
-            },
-        ],
+        Isolation = ProcessIsolationPolicy.Default,
+        Workspaces = [WorkspaceRequest.HostDirectory(Directory.GetCurrentDirectory())],
     })
+    .WithPermissions()
     .WithToolHarness<CodingToolHarness>();
 
 ConfigureDefaultCompaction(agentBuilder);
 
 var sessionStorePath = ResolveProjectSessionStorePath();
-agentBuilder.WithSessionStore(new FileSessionStore(sessionStorePath, CoreAgentEventComposition.Instance.Codec));
+agentBuilder.WithFileSessionStore(sessionStorePath);
 
 if (string.IsNullOrWhiteSpace(options.ConfigPath))
 {
@@ -70,7 +69,7 @@ if (loggerFactory is not null)
             : LoggingMiddlewareOptions.Minimal);
 }
 
-var agent = await agentBuilder.BuildAsync();
+await using var agent = await agentBuilder.BuildAsync();
 var tools = agent.DefaultOptions?.Tools?.OfType<AIFunction>().Select(tool => tool.Name).Order().ToArray() ?? [];
 
 if (options.ListTools)
@@ -182,6 +181,22 @@ using var errorSubscription = agent.SubscribeAny(evt =>
             ConsoleColor.DarkRed,
             $"{error.Exception.GetType().Name}: {error.Exception.Message}");
     }
+});
+
+using var permissionSubscription = agent.Subscribe<PermissionRequestEvent>(request =>
+{
+    var allow = request.Choices.FirstOrDefault(choice => choice.Id == "allow_once");
+    var deny = request.Choices.FirstOrDefault(choice => choice.Id == "deny_once");
+    if (deny is null)
+        return Task.CompletedTask;
+
+    var label = request.FunctionName ?? request.Authority ?? request.PermissionDomain;
+    CliConsole.WriteErrorLine(ConsoleColor.Yellow,
+        $"[permission] {label} {request.Action} {request.Reason} Allow once? [y/N]");
+    var approved = !Console.IsInputRedirected &&
+        string.Equals(Console.ReadLine()?.Trim(), "y", StringComparison.OrdinalIgnoreCase);
+    return agent.AnswerRequestAsync(new PermissionResponseEvent(
+        request.PermissionId, request.SourceName, (approved ? allow ?? deny : deny).Id));
 });
 
 await EnsureSessionAsync(agent, options.SessionId);

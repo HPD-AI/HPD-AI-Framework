@@ -13,14 +13,14 @@ public sealed class AppleVirtualizationSandboxRegistrationTests
     {
         var registry = new EnvironmentProviderRegistry();
 
-        registry.RegisterAppleVirtualizationSandbox(new AppleVirtualizationProviderOptions
+        registry.RegisterModule(new AppleVirtualizationProviderModule(new AppleVirtualizationProviderOptions
         {
             HelperTransportMode = AppleVirtualizationHelperTransportMode.InMemoryFake,
             FeatureGates = new AppleVirtualizationProviderFeatureGates
             {
                 EnableInMemoryFakeHelper = true,
             },
-        });
+        }));
 
         IReadOnlyList<ProviderDescriptor> providers = await registry.ListAsync();
         ProviderCapabilityReport report = await registry.GetCapabilitiesAsync(AppleVirtualizationProviderDescriptor.ProviderId);

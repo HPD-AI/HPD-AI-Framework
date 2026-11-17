@@ -20,7 +20,7 @@ Choose the replacement based on the trust boundary:
 | Existing use | Replacement |
 | --- | --- |
 | Trusted local coding workspace | [`HPD-Agent.ToolHarness.Coding`](../HPD-Agent.Harness.Coding/README.md) |
-| Untrusted commands, files, or generated code | A sandbox runtime such as [`HPD-Agent.Sandbox.HostProcess`](../../HPD-Agent.Sandbox/HPD-Agent.Sandbox.HostProcess/README.md) or [`HPD-Agent.Sandbox.HostContainers`](../../HPD-Agent.Sandbox/HPD-Agent.Sandbox.HostContainers/README.md) |
+| Untrusted commands, files, or generated code | A sandbox runtime such as [HPD Agent sandbox](../../HPD-Agent/Sandbox/README.md) or the Host Containers Environment provider |
 | Application-specific file access | An application-owned ToolHarness over an explicitly governed storage or workspace service |
 
 For trusted coding tasks, install and register the coding harness:

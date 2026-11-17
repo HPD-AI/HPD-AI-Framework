@@ -1,6 +1,5 @@
 using FluentAssertions;
 using HPD.Agent.Middleware;
-using HPD.Agent.Sandbox.HostProcess;
 using HPD.Environment.Contracts;
 using HPD.Environment.HostProcess;
 using HPD.Environment.Runtime;
@@ -30,11 +29,11 @@ public sealed class HostProcessAdapterTests
                 .Order(StringComparer.Ordinal)
                 .ToArray();
             string[] originalAces = ReadAceIdentities();
-            await using var middleware = new HostProcessSandboxMiddleware(options: ObservationOnlyOptions() with
+            await using var middleware = new EnvironmentSandboxMiddleware(new HostProcessProviderModule(), ObservationOnlyOptions() with
             {
                 Workspaces = [
-                    new() { Path = project.FullName },
-                    new() { RootId = "reference", Path = reference.FullName, Access = AccessMode.ReadOnly },
+                    SandboxWorkspaceRequest.HostDirectory(project.FullName),
+                    SandboxWorkspaceRequest.HostDirectory(reference.FullName, AccessMode.ReadOnly, rootId: "reference"),
                 ],
             });
             await middleware.InitializeAsync();
@@ -84,7 +83,7 @@ public sealed class HostProcessAdapterTests
     public async Task Windows_admits_a_supported_policy_without_workspace_bindings()
     {
         Skip.IfNot(OperatingSystem.IsWindows());
-        await using var middleware = new HostProcessSandboxMiddleware(options: ObservationOnlyOptions());
+        await using var middleware = new EnvironmentSandboxMiddleware(new HostProcessProviderModule(), ObservationOnlyOptions());
         await middleware.InitializeAsync();
         middleware.Session.Should().NotBeNull();
     }
@@ -104,7 +103,6 @@ public sealed class HostProcessAdapterTests
                 new EnvironmentSandboxBackendFactory(
                     new EnvironmentSandboxBackendDefinition
                     {
-                        Kind = SandboxBackendKind.HostProcess,
                         Module = new HostProcessProviderModule(),
                         EnforcementLocation =
                             SandboxEnforcementLocation.Host,
@@ -240,14 +238,14 @@ public sealed class HostProcessAdapterTests
         Skip.If(OperatingSystem.IsWindows(), "Host Process sandboxing is unavailable on Windows.");
 
         await using var middleware =
-            new HostProcessSandboxMiddleware(options: ObservationOnlyOptions());
+            new EnvironmentSandboxMiddleware(new HostProcessProviderModule(), ObservationOnlyOptions());
         await middleware.InitializeAsync();
 
         middleware.IsInitialized.Should().BeTrue();
         middleware.Registry.Should().NotBeNull();
         middleware.Runtime.Should().NotBeNull();
         RuntimeProcessExecutionBinding? binding =
-            middleware.ExecutionBinding;
+            middleware.Session?.Execution;
         binding.Should().NotBeNull();
         RuntimeProcessExecutionBinding requiredBinding = binding!;
         requiredBinding.EnvironmentId.Should().Be(
@@ -268,7 +266,7 @@ public sealed class HostProcessAdapterTests
         Skip.If(OperatingSystem.IsWindows(), "Host Process sandboxing is unavailable on Windows.");
 
         var middleware =
-            new HostProcessSandboxMiddleware(options: ObservationOnlyOptions());
+            new EnvironmentSandboxMiddleware(new HostProcessProviderModule(), ObservationOnlyOptions());
         await middleware.InitializeAsync();
         InMemoryEnvironmentRuntime runtime =
             (InMemoryEnvironmentRuntime)middleware.Runtime!;
@@ -276,12 +274,12 @@ public sealed class HostProcessAdapterTests
         await middleware.DisposeAsync();
 
         (await runtime.ListExecutionUnitsAsync()).Should().BeEmpty();
-        middleware.ExecutionBinding.Should().BeNull();
+        middleware.Session?.Execution.Should().BeNull();
         middleware.Registry.Should().BeNull();
         middleware.Runtime.Should().BeNull();
     }
 
-    private static HostProcessSandboxOptions ObservationOnlyOptions() =>
+    private static SandboxSessionRequest ObservationOnlyOptions() =>
         new()
         {
             Isolation = ProcessIsolationPolicy.Default with
@@ -301,17 +299,30 @@ public sealed class HostProcessAdapterTests
         try
         {
             var firstRun = new HPD.Agent.AgentRunConfig();
-            var secondRun = new HPD.Agent.AgentRunConfig();
+            var secondRun = new HPD.Agent.AgentRunConfig { Workspace = new AgentWorkspaceReference("second") };
             await File.WriteAllTextAsync(Path.Combine(first.FullName, "project.txt"), "first");
             await File.WriteAllTextAsync(Path.Combine(second.FullName, "project.txt"), "second");
-            await using var middleware = new HostProcessSandboxMiddleware(options: ObservationOnlyOptions() with
+            var firstRequest = ObservationOnlyOptions() with
             {
-                WorkspaceOptionsFactory = run => [new() { Path = ReferenceEquals(run, secondRun) ? second.FullName : first.FullName }],
-            });
+                Workspaces = [SandboxWorkspaceRequest.HostDirectory(first.FullName)],
+            };
+            var secondRequest = ObservationOnlyOptions() with
+            {
+                Workspaces = [SandboxWorkspaceRequest.HostDirectory(second.FullName)],
+            };
+            await using var middleware = new EnvironmentSandboxMiddleware(
+                new HostProcessProviderModule(), firstRequest,
+                (workspace, _) => ValueTask.FromResult(workspace.Id == "second"
+                    ? secondRequest with { Workspaces = [SandboxWorkspaceRequest.HostDirectory(second.FullName)] }
+                    : throw new InvalidOperationException("Unknown workspace.")));
             await middleware.InitializeAsync(firstRun);
             var original = middleware.Session!;
             await middleware.InitializeAsync(secondRun);
             middleware.Session.Should().NotBeSameAs(original);
+            var secondSession = middleware.Session;
+            await middleware.InitializeAsync(secondRun);
+            middleware.Session.Should().BeSameAs(secondSession);
+
             var path = new WorkspacePath(new WorkspaceRootId("workspace"), "project.txt");
             (await original.Workspace.Files.ReadTextAsync(path, new WorkspaceTextReadOptions()))!
                 .Content.Should().Be("first");

@@ -22,7 +22,12 @@ public sealed class AppleVirtualizationSandboxRealAcceptanceTests
             environment.RuntimeDiskPath,
             environment.AppDataDiskPath);
         AppleVirtualizationProviderOptions options = environment.CreateProviderOptions(scratchDisks);
-        await using var middleware = new AppleVirtualizationSandboxMiddleware(options);
+        var module = new AppleVirtualizationProviderModule(options);
+        var plan = module.PrepareSandbox(new SandboxProvisioningRequest
+        {
+            Isolation = ProcessIsolationPolicy.Default,
+        });
+        await using var middleware = EnvironmentSandboxBackendFactory.Compose(module, plan);
         await middleware.InitializeAsync();
 
         IEnvironmentRuntime runtime = middleware.Runtime!;

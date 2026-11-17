@@ -3,14 +3,6 @@ namespace HPD.Agent.Sandbox;
 using HPD.Agent.Middleware;
 using HPD.Environment.Contracts;
 
-/// <summary>Identifies the placement mechanism selected for a sandbox session.</summary>
-public enum SandboxBackendKind
-{
-    HostProcess,
-    HostContainers,
-    VirtualMachine,
-}
-
 /// <summary>
 /// Creates backend-neutral sandbox sessions after reporting the capabilities
 /// that can be enforced by the concrete backend.
@@ -18,7 +10,7 @@ public enum SandboxBackendKind
 public interface ISandboxBackendFactory
 {
     /// <summary>Gets the placement mechanism implemented by this factory.</summary>
-    SandboxBackendKind Kind { get; }
+    SandboxEnforcementLocation EnforcementLocation { get; }
 
     /// <summary>Queries provider and sandbox capabilities for a prospective session.</summary>
     ValueTask<SandboxBackendCapabilities> GetCapabilitiesAsync(
@@ -86,48 +78,13 @@ public sealed record SandboxProcessRequirements
 }
 
 /// <summary>
-/// A logical workspace plus the backend execution path where its content must
-/// be visible.
-/// </summary>
-public sealed record SandboxWorkspaceRequest
-{
-    /// <summary>
-    /// Trusted content source represented by the logical workspace root.
-    /// Providers must reject sources they cannot expose at the requested
-    /// execution path.
-    /// </summary>
-    public required ContentSelector Source { get; init; }
-
-    /// <summary>Logical root metadata exposed to file-aware tools.</summary>
-    public required WorkspaceRootBinding Root { get; init; }
-
-    /// <summary>Trusted backend path where the projected workspace is required.</summary>
-    public required WorkspaceExecutionPath ExecutionPath { get; init; }
-
-    /// <summary>Role of the content projection within the session.</summary>
-    public ContentProjectionRole Role { get; init; } =
-        ContentProjectionRole.Workspace;
-
-    /// <summary>Requested synchronization behavior; unsupported modes fail closed.</summary>
-    public SyncPolicy SyncPolicy { get; init; } = SyncPolicy.None;
-
-    /// <summary>Requested content finalization behavior.</summary>
-    public FinalizationPolicy FinalizationPolicy { get; init; } =
-        FinalizationPolicy.Explicit;
-
-    /// <summary>Security requirements for exposing or mutating source content.</summary>
-    public ContentProjectionSecurityPolicy SecurityPolicy { get; init; } =
-        ContentProjectionSecurityPolicy.Default;
-}
-
-/// <summary>
 /// Agent-facing sandbox session that binds process execution and workspace file
 /// access to one selected Environment execution unit.
 /// </summary>
 public interface ISandboxSession : IAsyncDisposable
 {
     /// <summary>Selected placement mechanism.</summary>
-    SandboxBackendKind Backend { get; }
+    SandboxEnforcementLocation EnforcementLocation { get; }
 
     /// <summary>Single authorized binding used by command-backed tools.</summary>
     RuntimeProcessExecutionBinding Execution { get; }

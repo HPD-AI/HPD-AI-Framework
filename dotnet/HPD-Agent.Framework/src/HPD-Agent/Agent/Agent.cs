@@ -5518,6 +5518,9 @@ public sealed partial class Agent : IAsyncDisposable
         if (_harnessOwnerLifetime is not null)
             await AttemptAsync(_harnessOwnerLifetime.DisposeAsync).ConfigureAwait(false);
         await AttemptAsync(() => _agentResources.DisposeAsync()).ConfigureAwait(false);
+        foreach (var middleware in _middlewarePipeline.Middlewares.OfType<IAgentOwnedMiddleware>().Reverse())
+            await AttemptAsync(middleware.DisposeAsync).ConfigureAwait(false);
+
 
         if (_capabilityCatalog is not null)
         {

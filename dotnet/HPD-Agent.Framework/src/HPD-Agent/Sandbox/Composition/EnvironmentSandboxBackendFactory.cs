@@ -9,9 +9,6 @@ using HPD.Environment.Runtime;
 /// </summary>
 public sealed record EnvironmentSandboxBackendDefinition
 {
-    /// <summary>Placement mechanism represented by the Environment provider.</summary>
-    public required SandboxBackendKind Kind { get; init; }
-
     /// <summary>Concrete Environment provider module.</summary>
     public required IProviderModule Module { get; init; }
 
@@ -65,8 +62,21 @@ public sealed class EnvironmentSandboxBackendFactory
             throw new ArgumentNullException(nameof(definition));
     }
 
+    public static EnvironmentSandboxBackendFactory Compose(
+        ISandboxProvisioningProvider provider,
+        SandboxProvisioningPlan plan) =>
+        new(new EnvironmentSandboxBackendDefinition
+        {
+            Module = provider,
+            EnforcementLocation = plan.EnforcementLocation,
+            HostSpecFactory = _ => plan.Host,
+            UnitSpecFactory = (_, host) => plan.CreateUnit?.Invoke(host) ?? new ExecutionUnitSpec { PreferredHost = host },
+            ActivationSpecFactory = plan.Activation is { } activation ? _ => activation : null,
+            RefineCapabilities = (_, report) => plan.RefineCapabilities?.Invoke(report) ?? report,
+        });
+
     /// <inheritdoc />
-    public SandboxBackendKind Kind => _definition.Kind;
+    public SandboxEnforcementLocation EnforcementLocation => _definition.EnforcementLocation;
 
     /// <summary>Provider selected by this factory.</summary>
     public ProviderId ProviderId => _definition.Module.Descriptor.Id;
@@ -202,7 +212,7 @@ public sealed class EnvironmentSandboxBackendFactory
                 Isolation = request.Isolation,
             };
             return new EnvironmentSandboxSession(
-                _definition.Kind,
+                _definition.EnforcementLocation,
                 _runtime,
                 unitRef.Value,
                 execution,
@@ -530,33 +540,40 @@ public sealed class EnvironmentSandboxBackendFactory
         }
 
         _disposed = true;
-        foreach ((IProviderActivator activator,
-                  TargetHandle<ProviderActivation> handle) in
-                 _activations.AsEnumerable().Reverse())
+        List<Exception> failures = [];
+        foreach (var (activator, handle) in _activations.AsEnumerable().Reverse())
         {
-            await activator.StopAsync(
-                handle,
-                new ProviderStopOptions(
-                    TimeSpan.FromSeconds(2),
-                    Force: true,
-                    Reason: "sandbox backend factory dispose"))
-                .ConfigureAwait(false);
+            try
+            {
+                await activator.StopAsync(
+                    handle,
+                    new ProviderStopOptions(
+                        TimeSpan.FromSeconds(2),
+                        Force: true,
+                        Reason: "sandbox backend factory dispose"))
+                    .ConfigureAwait(false);
+            }
+            catch (Exception error) { failures.Add(error); }
         }
 
         _activations.Clear();
         _runtime = null;
         _registry = null;
-        if (_definition.Module is IAsyncDisposable disposable)
+        try
         {
-            await disposable.DisposeAsync().ConfigureAwait(false);
+            if (_definition.Module is IAsyncDisposable disposable)
+                await disposable.DisposeAsync().ConfigureAwait(false);
         }
+        catch (Exception error) { failures.Add(error); }
+        finally { _initLock.Dispose(); }
 
-        _initLock.Dispose();
+        if (failures.Count != 0)
+            throw new AggregateException("Sandbox provider cleanup did not complete.", failures);
     }
 }
 
 internal sealed class EnvironmentSandboxSession(
-    SandboxBackendKind backend,
+    SandboxEnforcementLocation enforcementLocation,
     InMemoryEnvironmentRuntime runtime,
     ResourceRef<ExecutionUnit> unit,
     RuntimeProcessExecutionBinding execution,
@@ -572,7 +589,7 @@ internal sealed class EnvironmentSandboxSession(
         _workspaceAttachments = workspaceAttachments.ToArray();
     private int _disposed;
 
-    public SandboxBackendKind Backend { get; } = backend;
+    public SandboxEnforcementLocation EnforcementLocation { get; } = enforcementLocation;
     public RuntimeProcessExecutionBinding Execution { get; } =
         execution.WorkspaceContent == workspace.Content
             ? execution

@@ -16,7 +16,7 @@ public sealed class EnvironmentSandboxBackendFactoryTests
         await using ISandboxSession session =
             await factory.CreateSessionAsync(ProcessOnlyRequest());
 
-        Assert.Equal(SandboxBackendKind.HostProcess, session.Backend);
+        Assert.Equal(SandboxEnforcementLocation.Provider, session.EnforcementLocation);
         Assert.Equal(
             HostProcessTestModule.ProviderId,
             session.Execution.ProcessProvider.ProviderId);
@@ -115,7 +115,6 @@ public sealed class EnvironmentSandboxBackendFactoryTests
         new(
             new EnvironmentSandboxBackendDefinition
             {
-                Kind = SandboxBackendKind.HostProcess,
                 Module = new HostProcessTestModule(),
                 EnforcementLocation =
                     SandboxEnforcementLocation.Provider,

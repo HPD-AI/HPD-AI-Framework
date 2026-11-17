@@ -24,7 +24,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/HPD-Agent.Sandbox/HPD-Agent.Sandbox/HPD-Agent.Sandbox.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.MCP/HPD-Agent.MCP.csproj" />
     <ProjectReference Include="../../../HPD-Environment.Framework/src/HPD-Environment.Runtime/HPD-Environment.Runtime.csproj" />
   </ItemGroup>

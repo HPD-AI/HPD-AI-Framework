@@ -2,6 +2,33 @@
 
 All notable changes to the HPD AI Framework are documented in this file.
 
+## Unreleased
+
+### Agent sandbox package consolidation
+
+`HPD-Agent.Framework` now includes `WithSandbox(...)`. Remove the retired
+Agent sandbox package references, install the Environment provider for your
+backend, and pass that provider to `WithSandbox(...)`.
+
+| Retired NuGet package | Replacement packages |
+| --- | --- |
+| `HPD-Agent.Sandbox`, `HPD-Agent.Sandbox.Core` | `HPD-Agent.Framework` and the selected Environment provider |
+| `HPD-Agent.Sandbox.HostProcess`, `HPD-Agent.Sandbox.Local` | `HPD-Agent.Framework` and `HPD-Environment.HostProcess` |
+| `HPD-Agent.Sandbox.HostContainers` | `HPD-Agent.Framework` and `HPD-Environment.HostContainers` |
+| `HPD-Agent.Sandbox.VirtualMachine` | `HPD-Agent.Framework` and `HPD-Environment.Virtualization.Apple` |
+
+Provider configuration and default workspace authorization live in host setup.
+A run document can select an approved workspace by ID:
+
+```yaml
+workspace:
+  id: repo-a
+```
+
+For release, publish the replacement packages first. Then deprecate the retired
+package versions on NuGet.org as **Legacy**, with `HPD-Agent.Framework` as the
+recommended alternate and the relevant provider named in the migration message.
+
 ## HPD-Agent 0.9.6 - 2026-11-15
 
 ### Pre-1.0 release

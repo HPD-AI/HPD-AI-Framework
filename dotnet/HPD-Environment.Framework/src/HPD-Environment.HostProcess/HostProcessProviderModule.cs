@@ -11,9 +11,10 @@ using Microsoft.Extensions.Logging;
 /// Registers direct host process execution, operating-system enforcement,
 /// content visibility, and capability reporting as one Environment backend.
 /// </summary>
-public sealed class HostProcessProviderModule : IProviderModule, IAsyncDisposable
+public sealed class HostProcessProviderModule : ISandboxProvisioningProvider, IAsyncDisposable
 {
     private readonly HostProcessProviderState _state = new();
+    private readonly ILogger<HostProcessProviderModule>? _logger;
     private readonly SandboxIsolationManager _isolationManager;
     private readonly HostProcessProcessProvider _processProvider;
     private List<IDisposable>? _workspaces;
@@ -22,6 +23,7 @@ public sealed class HostProcessProviderModule : IProviderModule, IAsyncDisposabl
     public HostProcessProviderModule(
         ILogger<HostProcessProviderModule>? logger = null)
     {
+        _logger = logger;
         _isolationManager = new SandboxIsolationManager(logger);
         _processProvider = new HostProcessProcessProvider(
             _state,
@@ -33,6 +35,48 @@ public sealed class HostProcessProviderModule : IProviderModule, IAsyncDisposabl
         HostProcessProviderDescriptor.Create();
 
     public IProcessProvider ProcessProvider => _processProvider;
+
+    public ISandboxProvisioningProvider CreateSessionProvider() => new HostProcessProviderModule(_logger);
+
+    public SandboxProvisioningPlan PrepareSandbox(
+        SandboxProvisioningRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (request.Workspaces.Any(workspace => workspace.CopyInOut))
+            throw new NotSupportedException("Host Process requires live workspace projection.");
+
+        var isolation = request.Isolation;
+        bool liveWorkspace = OperatingSystem.IsWindows() && request.Workspaces.Count > 0 &&
+            request.Workspaces.All(workspace =>
+                workspace.Source is { Kind: ContentSelectorKind.HostPath, HostPath.Kind: HostPathKind.Directory } &&
+                workspace.Root.Access is AccessMode.ReadWrite or AccessMode.ReadOnly) &&
+            isolation.Filesystem.Rules.Count == 0 &&
+            isolation.Network.Mode == NetworkEgressMode.Blocked &&
+            isolation.Mode != ProcessIsolationMode.Disabled;
+
+        if (liveWorkspace && OperatingSystem.IsWindows())
+        {
+            BindWindowsWorkspaces(
+                request.Workspaces.Select(workspace =>
+                    (workspace.Source.HostPath!.Path.Value, workspace.Root.Access)).ToArray(),
+                cancellationToken);
+        }
+
+        return new SandboxProvisioningPlan(
+            new RuntimeHostSpec
+            {
+                PreferredProvider = Descriptor.Id,
+                Platform = HostProcessProviderDescriptor.CurrentPlatform(),
+                Capacity = request.Resources,
+                LifecyclePolicy = request.Lifecycle,
+            },
+            SandboxEnforcementLocation.Host,
+            report => RefineSandboxCapabilities(
+                report, isolation, request.Workspaces.Count != 0 && !liveWorkspace));
+    }
 
     /// <summary>Grants access to a live Windows workspace for the lifetime of this provider module.</summary>
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]

@@ -38,35 +38,22 @@ mounts during container creation. Commands and language servers use
 the verified local bind source through `IWorkspaceFileStore`.
 
 ```csharp
-.WithHostContainersSandbox(new HostContainersSandboxOptions
+var provider = new HostContainersProviderModule(new HostContainersProviderOptions
 {
-    Image = "hpd/coding-toolchain@sha256:...",
+    SandboxImage = "hpd/coding-toolchain@sha256:...",
     EngineSocketPath = "/var/run/docker.sock",
-    Workspaces =
-    [
-        new HostContainersWorkspaceOptions
-        {
-            Path = workspacePath,
-            ContainerPath = "/workspace",
-        },
-    ],
+});
+
+builder.WithSandbox(provider, new SandboxSessionRequest
+{
+    Isolation = containerIsolation,
+    Workspaces = [SandboxWorkspaceRequest.HostDirectory(workspacePath, executionPath: "/workspace")],
 });
 ```
 
-Content that already exists in the container image or an engine-owned volume
-uses a provider-owned source instead of a host bind:
-
-```csharp
-Workspaces =
-[
-    new HostContainersWorkspaceOptions
-    {
-        SourceKind = HostContainersWorkspaceSourceKind.ProviderSource,
-        ProviderSourceId = "workspace-volume",
-        ContainerPath = "/workspace",
-    },
-],
-```
+Use a `ContentSelector` with `ProviderSource` for content already present in the
+image or an engine-owned volume. Set `CopyInOut` on a writable host-directory
+request to stage content rather than bind-mount it.
 
 The provider supports local Unix-socket engines, validated directory bind
 mounts, provider-owned content already present in the container, retained

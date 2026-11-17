@@ -222,10 +222,6 @@ jobs:
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.AspNetCore.Evaluations/HPD-Agent.AspNetCore.Evaluations.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Client/HPD-Agent.Client.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.MultiAgent.AspNetCore/HPD-Agent.MultiAgent.AspNetCore.csproj"
-            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox/HPD-Agent.Sandbox.csproj"
-            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.HostProcess/HPD-Agent.Sandbox.HostProcess.csproj"
-            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.HostContainers/HPD-Agent.Sandbox.HostContainers.csproj"
-            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.VirtualMachine/HPD-Agent.Sandbox.VirtualMachine.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.MultiAgent.HpdBase/HPD-Agent.MultiAgent.HpdBase.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Evaluations/HPD-Agent.Evaluations.csproj"
@@ -382,22 +378,6 @@ jobs:
             fi
             if [ ! -f "./nupkg/$PACKAGE_ID.${{ needs.determine-version.outputs.version }}.nupkg" ]; then
               echo "::error::$PACKAGE_ID was configured in the Agent release train but no package was produced."
-              exit 1
-            fi
-          done
-
-      - name: Validate sandbox package contents
-        run: |
-          SANDBOX_PACKAGES=(
-            "HPD-Agent.Sandbox"
-            "HPD-Agent.Sandbox.HostProcess"
-            "HPD-Agent.Sandbox.HostContainers"
-            "HPD-Agent.Sandbox.VirtualMachine"
-          )
-
-          for PACKAGE_ID in "${SANDBOX_PACKAGES[@]}"; do
-            if ! ls "./nupkg/${PACKAGE_ID}."*.nupkg >/dev/null 2>&1; then
-              echo "::error::${PACKAGE_ID} package was not produced."
               exit 1
             fi
           done

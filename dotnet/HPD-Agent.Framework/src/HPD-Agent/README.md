@@ -360,3 +360,7 @@ navigation. `Thread.ForkedFrom` is direct lineage; fork groups are semantic
 choice points derived from the shared conversation boundary.
 
 See [Session/THREAD_FORK_GRAPH.md](Session/THREAD_FORK_GRAPH.md).
+
+## Sandbox
+
+Use [`WithSandbox`](Sandbox/README.md) to attach your chosen HPD Environment provider.

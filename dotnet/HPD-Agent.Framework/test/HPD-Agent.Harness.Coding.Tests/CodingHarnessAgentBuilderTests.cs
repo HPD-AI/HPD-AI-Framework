@@ -7,7 +7,9 @@ using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Middleware;
 using HPD.Agent.Providers;
-using HPD.Agent.Sandbox.HostProcess;
+using HPD.Agent.Sandbox;
+using HPD.Environment.HostProcess;
+using HPD.Environment.Contracts;
 using HPD.Events.Core;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
@@ -74,9 +76,10 @@ public class CodingToolHarnessAgentBuilderTests
             .WithEventComposition(CodingEventTestCodec.Composition)
             .WithChatClient(chatClient)
             .WithSessionStore(new InMemorySessionStore(CodingEventTestCodec.Codec))
-            .WithHostProcessSandbox(new HostProcessSandboxOptions
+            .WithSandbox(new HostProcessProviderModule(), new SandboxSessionRequest
             {
-                Workspaces = [new() { Path = Directory.GetCurrentDirectory() }]
+                Isolation = ProcessIsolationPolicy.Default,
+                Workspaces = [SandboxWorkspaceRequest.HostDirectory(Directory.GetCurrentDirectory())],
             })
             .WithToolHarness<CodingToolHarness>()
             .WithPermissions()

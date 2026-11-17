@@ -110,11 +110,11 @@ public sealed record DebugEnvironmentCapabilities
                 Supports(
                     DebugEnvironmentCapabilityIds.Exceptions,
                     baseline: true),
-            Topology = session?.Backend switch
+            Topology = session?.EnforcementLocation switch
             {
-                SandboxBackendKind.HostProcess => "host-process",
-                SandboxBackendKind.HostContainers => "retained-container",
-                SandboxBackendKind.VirtualMachine => "guest-vm",
+                SandboxEnforcementLocation.Host => "host-process",
+                SandboxEnforcementLocation.Container => "retained-container",
+                SandboxEnforcementLocation.Guest => "guest-vm",
                 _ => "process-binding",
             },
         };

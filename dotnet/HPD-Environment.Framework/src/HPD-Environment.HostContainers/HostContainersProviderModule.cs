@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 using HPD.Environment.Contracts;
 using HPD.Environment.Runtime;
 
-public sealed class HostContainersProviderModule : IProviderModule
+public sealed partial class HostContainersProviderModule : ISandboxProvisioningProvider
 {
     private readonly HostContainersProviderOptions _options;
     private readonly IContainerEngineProbe _engineProbe;

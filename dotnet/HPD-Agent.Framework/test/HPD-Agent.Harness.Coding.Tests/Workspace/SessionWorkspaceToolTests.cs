@@ -3,7 +3,7 @@ namespace HPD.Agent.ToolHarness.Coding.Tests.Workspace;
 using HPD.Agent;
 using HPD.Agent.Middleware;
 using HPD.Agent.Sandbox;
-using HPD.Agent.Sandbox.HostProcess;
+using HPD.Environment.HostProcess;
 using HPD.Agent.Serialization;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Environment.Contracts;
@@ -23,8 +23,8 @@ public sealed class SessionWorkspaceToolTests
         {
             string input = Path.Combine(project.FullName, "project.txt");
             await File.WriteAllTextAsync(input, "original");
-            await using var sandbox = new HostProcessSandboxMiddleware(
-                options: new HostProcessSandboxOptions { Workspaces = [new() { Path = project.FullName }] });
+            await using var sandbox = new EnvironmentSandboxMiddleware(new HostProcessProviderModule(),
+                new SandboxSessionRequest { Workspaces = [SandboxWorkspaceRequest.HostDirectory(project.FullName)], Isolation = ProcessIsolationPolicy.Default });
             await sandbox.InitializeAsync();
             var session = sandbox.Session!;
             var resolver = new HPDOS.ToolHarnesses.Middleware.EnvironmentLanguageServerToolResolver(
@@ -68,16 +68,12 @@ public sealed class SessionWorkspaceToolTests
         try
         {
             await using var sandbox =
-                new HostProcessSandboxMiddleware(
-                    options: new HostProcessSandboxOptions
+                new EnvironmentSandboxMiddleware(new HostProcessProviderModule(),
+                    new SandboxSessionRequest
                     {
                         Workspaces =
                         [
-                            new HostProcessWorkspaceOptions
-                            {
-                                Path = root,
-                                RootId = "workspace",
-                            },
+                            SandboxWorkspaceRequest.HostDirectory(root),
                         ],
                         Isolation =
                             ProcessIsolationPolicy.Default with
@@ -167,16 +163,12 @@ public sealed class SessionWorkspaceToolTests
         try
         {
             await using var sandbox =
-                new HostProcessSandboxMiddleware(
-                    options: new HostProcessSandboxOptions
+                new EnvironmentSandboxMiddleware(new HostProcessProviderModule(),
+                    new SandboxSessionRequest
                     {
                         Workspaces =
                         [
-                            new HostProcessWorkspaceOptions
-                            {
-                                Path = root,
-                                RootId = "workspace",
-                            },
+                            SandboxWorkspaceRequest.HostDirectory(root),
                         ],
                         Isolation =
                             ProcessIsolationPolicy.Default with

@@ -55,9 +55,9 @@ workspace, command, language-server, and TUI configuration.
 Use an HPD sandbox backend for code that is not trusted with the host
 filesystem or network:
 
-- [`HPD-Agent.Sandbox.HostProcess`](../../HPD-Agent.Sandbox/HPD-Agent.Sandbox.HostProcess/README.md)
+- [HPD Agent sandbox](../../HPD-Agent/Sandbox/README.md)
   for backend-neutral process isolation.
-- [`HPD-Agent.Sandbox.HostContainers`](../../HPD-Agent.Sandbox/HPD-Agent.Sandbox.HostContainers/README.md)
+- the Host Containers Environment provider
   for container-backed execution and workspace projection.
 
 The application must provision only the workspace roots and process

@@ -11,6 +11,7 @@ public enum HostContainersDurableVolumeBackendKind
 
 public sealed record HostContainersProviderOptions
 {
+    public string? SandboxImage { get; init; }
     public string? EngineSocketPath { get; init; }
     public string? WorkloadStateRoot { get; init; }
     public string? StorageRoot { get; init; }

@@ -21,6 +21,7 @@ internal static class AgentRunConfigSnapshot
         nameof(AgentRunConfig.SystemInstructions),
         nameof(AgentRunConfig.Tools),
         nameof(AgentRunConfig.Context),
+        nameof(AgentRunConfig.Workspace),
         nameof(AgentRunConfig.BackgroundResponses),
         nameof(AgentRunConfig.Streaming),
         nameof(AgentRunConfig.RuntimeMiddleware),
@@ -127,6 +128,7 @@ internal static class AgentRunConfigSnapshot
             Mode = source.Tools.Mode
         },
         Context = AgentContextSnapshot.Capture(source.Context),
+        Workspace = source.Workspace,
         BackgroundResponses = source.BackgroundResponses is null ? null : new BackgroundResponsesRunConfig
         {
             Allow = source.BackgroundResponses.Allow,

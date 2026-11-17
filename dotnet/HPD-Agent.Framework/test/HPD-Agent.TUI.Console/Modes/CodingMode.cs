@@ -1,4 +1,6 @@
-using HPD.Agent.Sandbox.HostProcess;
+using HPD.Agent.Sandbox;
+using HPD.Environment.HostProcess;
+using HPD.Environment.Contracts;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.TUI.Runtime;
 using HPD.Agent.TUI.Composition;
@@ -23,10 +25,6 @@ internal static class CodingMode
             return;
         }
 
-        var workspace = new CodingWorkspace(
-            "default",
-            workspacePath,
-            [new CodingWorkspaceRoot("default", workspacePath, CodingWorkspaceAccess.ReadWrite, Path.GetFileName(workspacePath))]);
         var providers = ConsoleProviderContext.Create();
 
         var agent = await providers.CreateAgentBuilder()
@@ -34,17 +32,10 @@ internal static class CodingMode
             .WithName("TUI Coding Agent")
             .WithInstructions("You are a coding agent. Be concise, inspect before editing, and explain code changes clearly.")
             .WithProvider("openrouter", model)
-            .WithHostProcessSandbox(new HostProcessSandboxOptions
+            .WithSandbox(new HostProcessProviderModule(), new SandboxSessionRequest
             {
-                Workspaces =
-                [
-                    new HostProcessWorkspaceOptions
-                    {
-                        Path = workspacePath,
-                        RootId = "default",
-                        DisplayName = Path.GetFileName(workspacePath),
-                    },
-                ],
+                Isolation = ProcessIsolationPolicy.Default,
+                Workspaces = [SandboxWorkspaceRequest.HostDirectory(workspacePath)],
             })
             .WithPermissions()
             .WithToolHarness<CodingToolHarness>()
@@ -76,14 +67,8 @@ internal static class CodingMode
                 .AddAgentTuiDefaults()
                 .AddConsoleBranding("coding")
                 .AddConsoleModelsDevModelSelection(providers)
-                .SetRunConfigComposer(_ =>
-                {
-                    var runConfig = providers.ModelSelection.ToRunConfig() ?? new AgentRunConfig();
-                    runConfig.Context ??= new AgentContextRunConfig();
-                    runConfig.Context.Properties ??= new Dictionary<string, object>();
-                    runConfig.Context.Properties[CodingWorkspace.ContextKey] = workspace;
-                    return new AgentTuiInputRunConfig(runConfig);
-                })
+                .SetRunConfigComposer(_ => new AgentTuiInputRunConfig(
+                    providers.ModelSelection.ToRunConfig() ?? new AgentRunConfig()))
                 .AddConsoleProviderCommands(providers)
                 .AddConsoleCodingAgent());
         await app.RunAsync();

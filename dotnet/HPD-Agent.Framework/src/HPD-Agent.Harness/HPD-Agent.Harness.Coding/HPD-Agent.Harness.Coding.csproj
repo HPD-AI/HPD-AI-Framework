@@ -34,7 +34,6 @@
   <ItemGroup>
     <!-- Reference to core HPD-Agent project -->
     <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
-    <ProjectReference Include="../../HPD-Agent.Sandbox/HPD-Agent.Sandbox/HPD-Agent.Sandbox.csproj" />
     <ProjectReference Include="../../HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../HPD-Agent.Harness.Coding.SourceGenerator/HPD-Agent.Harness.Coding.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier" AdditionalProperties="PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
   </ItemGroup>

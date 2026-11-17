@@ -20,9 +20,10 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Xunit.SkippableFact" Version="1.5.85" />
+    <ProjectReference Include="../../../HPD-Environment.Framework/src/HPD-Environment.Virtualization/HPD-Environment.Virtualization.Apple/HPD-Environment.Virtualization.Apple.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.VirtualMachine/HPD-Agent.Sandbox.VirtualMachine.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
   </ItemGroup>
 </Project>

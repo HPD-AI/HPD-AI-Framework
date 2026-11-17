@@ -20,7 +20,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
-    <ProjectReference Include="../../src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.HostContainers/HPD-Agent.Sandbox.HostContainers.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj" />
     <ProjectReference Include="../../../HPD-Environment.Framework/src/HPD-Environment.HostContainers/HPD-Environment.HostContainers.csproj" />
   </ItemGroup>

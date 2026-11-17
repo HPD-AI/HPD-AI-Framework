@@ -20,7 +20,7 @@ using HPD.Environment.Contracts;
 using HPD.Environment.Runtime;
 using HPD.Environment.Virtualization.GuestAgent;
 
-public sealed class AppleVirtualizationProviderModule : IProviderModule
+public sealed class AppleVirtualizationProviderModule : ISandboxProvisioningProvider
 {
     private readonly AppleVirtualizationProviderOptions _options;
     private readonly IAppleVirtualizationHelperClient _helperClient;
@@ -69,6 +69,117 @@ public sealed class AppleVirtualizationProviderModule : IProviderModule
         _capabilityReporter = capabilityReporter ?? new AppleVirtualizationCapabilityReporter(_options);
         _hostPlatformOverride = hostPlatformOverride;
     }
+
+    public ISandboxProvisioningProvider CreateSessionProvider() => new AppleVirtualizationProviderModule(_options);
+
+    public SandboxProvisioningPlan PrepareSandbox(
+        SandboxProvisioningRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (request.Workspaces.Any(workspace => workspace.CopyInOut))
+            throw new NotSupportedException("Apple Virtualization does not support staged host-directory copy-back.");
+
+        return new SandboxProvisioningPlan(CreateHostSpec(request), SandboxEnforcementLocation.Guest)
+        {
+            Activation = CreateActivationSpec(),
+        };
+    }
+
+    private RuntimeHostSpec CreateHostSpec(
+        SandboxProvisioningRequest request) =>
+        new()
+        {
+            PreferredProvider =
+                AppleVirtualizationProviderDescriptor.ProviderId,
+            Platform = GuestPlatform(),
+            Capacity = request.Resources with
+            {
+                CpuCores = request.Resources.CpuCores ??
+                    _options.DefaultCpuCores,
+                MemoryBytes = request.Resources.MemoryBytes ??
+                    _options.DefaultMemoryBytes,
+                StorageBytes = request.Resources.StorageBytes ??
+                    _options.DefaultDiskBytes,
+            },
+            LifecyclePolicy = request.Lifecycle,
+            Bootstrap = new RuntimeHostBootstrapSpec
+            {
+                GuestComponents =
+                [
+                    new GuestComponentSpec(
+                        GuestComponentKind.GuestAgent,
+                        "hpd-guest-agent"),
+                ],
+                ReadinessGates =
+                [
+                    new ReadinessGateSpec(
+                        "guest-agent-handshake",
+                        ReadinessGateKind.GuestControlReachable,
+                        ReadinessGateScope.GuestControl,
+                        new RetryPolicy(
+                            MaxAttempts: 30,
+                            Delay: TimeSpan.FromSeconds(1)),
+                        Timeout: TimeSpan.FromSeconds(30)),
+                ],
+            },
+            TopologyPolicy = new RuntimeTopologyPolicy
+            {
+                Mode = RuntimeTopologyMode.OneHostPerRuntime,
+            },
+        };
+
+    private PlatformSpec GuestPlatform()
+    {
+        string architecture =
+            _options.GuestImage.Architecture switch
+            {
+                AppleVirtualizationGuestArchitectureExpectation.Arm64 =>
+                    "arm64",
+                AppleVirtualizationGuestArchitectureExpectation.X64 =>
+                    "x64",
+                _ => RuntimeInformation.ProcessArchitecture ==
+                    Architecture.Arm64
+                        ? "arm64"
+                        : "x64",
+            };
+        return new PlatformSpec("linux", architecture);
+    }
+
+    private static ProviderActivationSpec CreateActivationSpec() =>
+        new()
+        {
+            ProviderId =
+                AppleVirtualizationProviderDescriptor.ProviderId,
+            Scope = ProviderActivationScope.Runtime,
+            ScopeKey = "sandbox-apple-virtualization",
+            RequiredContracts =
+                AppleVirtualizationProviderDescriptor.FirstSliceContracts,
+            ActivationKind =
+                ProviderActivationKind.SupervisedExecutable,
+            Supervisor = new ProviderSupervisorRequirement(
+                true,
+                RestartOnFailure: false,
+                TimeSpan.FromSeconds(5)),
+            Transport = new ProviderTransportRequirement(
+                ProviderTransportKind.StdIo,
+                RequiresStreaming: true,
+                RequiresHandlePassing: false,
+                RequiresPeerAuthentication: false),
+            AuthPolicy = new ProviderAuthPolicy(
+                "current-user",
+                RequireSameUser: true,
+                AllowRemoteIdentity: false),
+            HealthPolicy = new ProviderHealthPolicy(
+                TimeSpan.FromSeconds(5),
+                TimeSpan.FromSeconds(30),
+                TimeSpan.FromSeconds(2)),
+            LogPolicy = new ProviderLogPolicy(
+                "memory",
+                CaptureStartupLogs: true,
+                CaptureDiagnosticLogs: true),
+        };
 
     public ProviderDescriptor Descriptor => AppleVirtualizationProviderDescriptor.Create(_options);
 

@@ -195,6 +195,9 @@ public class AgentRunConfig
     /// <summary>Gets or sets per-run context values.</summary>
     public AgentContextRunConfig? Context { get; set; }
 
+    /// <summary>Opaque workspace selection resolved and authorized by the host.</summary>
+    public AgentWorkspaceReference? Workspace { get; set; }
+
     /// <summary>Gets or sets per-run background-response behavior.</summary>
     public BackgroundResponsesRunConfig? BackgroundResponses { get; set; }
 
@@ -722,3 +725,6 @@ public class ReasoningOptions
         Output = Output,
     };
 }
+
+/// <summary>References a workspace registered by the host application.</summary>
+public sealed record AgentWorkspaceReference(string Id);

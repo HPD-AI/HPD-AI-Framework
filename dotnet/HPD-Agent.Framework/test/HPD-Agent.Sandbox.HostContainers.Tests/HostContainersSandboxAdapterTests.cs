@@ -6,12 +6,47 @@ using HPD.Agent.Middleware;
 using HPD.Agent.Serialization;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Environment.Contracts;
+using HPD.Environment.HostContainers;
 using HPD.Environment.Runtime;
 using HPD.Events.Core;
 using Microsoft.Extensions.AI;
 
 public sealed class HostContainersSandboxAdapterTests
 {
+    private static ProcessIsolationPolicy ContainerIsolation { get; } =
+        ProcessIsolationPolicy.Default with
+        {
+            Mode = ProcessIsolationMode.Isolated,
+            Violations =
+                ProcessViolationPolicy.Default with
+                {
+                    Action =
+                        ProcessViolationAction.ObserveOnly,
+                },
+            Degradation =
+                ProcessIsolationDegradationPolicy.FailClosed with
+                {
+                    Mode =
+                        ProcessIsolationDegradationMode
+                            .AllowProviderDegraded,
+                    AllowDegradedFeatures =
+                    [
+                        StandardSandboxEnvironmentCapabilities
+                            .SymlinkHandling.Value,
+                    ],
+                },
+        };
+
+    private static SandboxWorkspaceRequest ProviderWorkspace(string id, string executionPath) =>
+        SandboxWorkspaceRequest.HostDirectory(executionPath, executionPath: executionPath) with
+        {
+            Source = new ContentSelector
+            {
+                Kind = ContentSelectorKind.ProviderSource,
+                ProviderSource = new ProviderSourceSelection(HostContainersProviderDescriptor.ProviderId, id),
+            },
+        };
+
     [SkippableFact]
     [Trait("Category", "RealAdapter")]
     public async Task Real_engine_runs_file_tools_and_processes_in_one_retained_container()
@@ -45,29 +80,21 @@ public sealed class HostContainersSandboxAdapterTests
         try
         {
             await using var middleware =
-                new HostContainersSandboxMiddleware(
-                    new HostContainersSandboxOptions
+                new EnvironmentSandboxMiddleware(
+                    new HostContainersProviderModule(new HostContainersProviderOptions
                     {
-                        Image = image!,
+                        SandboxImage = image!,
                         EngineSocketPath = socket!,
                         DockerCliPath =
                             System.Environment.GetEnvironmentVariable(
                                 "HPD_DOCKER_CLI"),
                         WorkloadStateRoot =
                             Path.Combine(root, "provider"),
-                        Workspaces =
-                        [
-                            new HostContainersWorkspaceOptions
-                            {
-                                SourceKind =
-                                    HostContainersWorkspaceSourceKind
-                                        .ProviderSource,
-                                ProviderSourceId =
-                                    "real-container-provider-workspace",
-                                ContainerPath =
-                                    "/tmp/provider-workspace",
-                            },
-                        ],
+                    }),
+                    new SandboxSessionRequest
+                    {
+                        Isolation = ContainerIsolation,
+                        Workspaces = [ProviderWorkspace("real-container-provider-workspace", "/tmp/provider-workspace")],
                     });
             await middleware.InitializeAsync();
             ISandboxSession session = middleware.Session!;
@@ -135,28 +162,24 @@ public sealed class HostContainersSandboxAdapterTests
                 root,
                 workspace);
             await using var middleware =
-                new HostContainersSandboxMiddleware(
-                    new HostContainersSandboxOptions
+                new EnvironmentSandboxMiddleware(
+                    new HostContainersProviderModule(new HostContainersProviderOptions
                     {
-                        Image = "hpd/test:latest",
+                        SandboxImage = "hpd/test:latest",
                         EngineSocketPath = socket,
                         DockerCliPath = docker,
                         WorkloadStateRoot =
                             Path.Combine(root, "provider"),
-                        Workspaces =
-                        [
-                            new HostContainersWorkspaceOptions
-                            {
-                                Path = workspace,
-                                RootId = "workspace",
-                                ContainerPath = "/workspace",
-                            },
-                        ],
+                    }),
+                    new SandboxSessionRequest
+                    {
+                        Isolation = ContainerIsolation,
+                        Workspaces = [SandboxWorkspaceRequest.HostDirectory(workspace, executionPath: "/workspace")],
                     });
             await middleware.InitializeAsync();
             ISandboxSession session = middleware.Session!;
-            session.Backend.Should().Be(
-                SandboxBackendKind.HostContainers);
+            session.EnforcementLocation.Should().Be(
+                SandboxEnforcementLocation.Container);
             session.Workspace.Roots.Should().ContainSingle();
             var logical = new WorkspacePath(
                 new WorkspaceRootId("workspace"),
@@ -233,27 +256,19 @@ public sealed class HostContainersSandboxAdapterTests
                 root,
                 workspace);
             await using var middleware =
-                new HostContainersSandboxMiddleware(
-                    new HostContainersSandboxOptions
+                new EnvironmentSandboxMiddleware(
+                    new HostContainersProviderModule(new HostContainersProviderOptions
                     {
-                        Image = "hpd/test:latest",
+                        SandboxImage = "hpd/test:latest",
                         EngineSocketPath = socket,
                         DockerCliPath = docker,
                         WorkloadStateRoot =
                             Path.Combine(root, "provider"),
-                        Workspaces =
-                        [
-                            new HostContainersWorkspaceOptions
-                            {
-                                SourceKind =
-                                    HostContainersWorkspaceSourceKind
-                                        .ProviderSource,
-                                ProviderSourceId =
-                                    "test-provider-volume",
-                                RootId = "workspace",
-                                ContainerPath = workspace,
-                            },
-                        ],
+                    }),
+                    new SandboxSessionRequest
+                    {
+                        Isolation = ContainerIsolation,
+                        Workspaces = [ProviderWorkspace("test-provider-volume", workspace)],
                     });
             await middleware.InitializeAsync();
             ISandboxSession session = middleware.Session!;
@@ -385,26 +400,19 @@ public sealed class HostContainersSandboxAdapterTests
                 root,
                 containerWorkspace);
             await using var middleware =
-                new HostContainersSandboxMiddleware(
-                    new HostContainersSandboxOptions
+                new EnvironmentSandboxMiddleware(
+                    new HostContainersProviderModule(new HostContainersProviderOptions
                     {
-                        Image = "hpd/test:latest",
+                        SandboxImage = "hpd/test:latest",
                         EngineSocketPath = socket,
                         DockerCliPath = docker,
                         WorkloadStateRoot =
                             Path.Combine(root, "provider"),
-                        Workspaces =
-                        [
-                            new HostContainersWorkspaceOptions
-                            {
-                                SourceKind =
-                                    HostContainersWorkspaceSourceKind
-                                        .CopyInOut,
-                                Path = hostWorkspace,
-                                RootId = "workspace",
-                                ContainerPath = containerWorkspace,
-                            },
-                        ],
+                    }),
+                    new SandboxSessionRequest
+                    {
+                        Isolation = ContainerIsolation,
+                        Workspaces = [SandboxWorkspaceRequest.HostDirectory(hostWorkspace, executionPath: containerWorkspace) with { CopyInOut = true }],
                     });
             await middleware.InitializeAsync();
             ISandboxSession session = middleware.Session!;

@@ -2,28 +2,6 @@ namespace HPD.Agent.Sandbox;
 
 using HPD.Environment.Contracts;
 
-/// <summary>Metadata for one logical root owned by a sandbox session.</summary>
-public sealed record WorkspaceRootBinding
-{
-    /// <summary>Stable model-facing root identifier.</summary>
-    public required WorkspaceRootId Id { get; init; }
-
-    /// <summary>Human-readable name used in diagnostics.</summary>
-    public required string DisplayName { get; init; }
-
-    /// <summary>Access granted to model-facing file operations.</summary>
-    public AccessMode Access { get; init; } = AccessMode.ReadOnly;
-
-    /// <summary>Logical default directory for commands associated with this root.</summary>
-    public required WorkspacePath DefaultExecutionPath { get; init; }
-
-    /// <summary>Content instance and generation exposed through this root.</summary>
-    public required WorkspaceContentIdentity Content { get; init; }
-
-    /// <summary>Path behavior that the backend can guarantee.</summary>
-    public required WorkspacePathSemantics PathSemantics { get; init; }
-}
-
 /// <summary>
 /// Session-scoped workspace capability shared by coding tools, process working
 /// directories, language servers, and debug adapters.
