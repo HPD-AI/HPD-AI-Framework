@@ -7,6 +7,7 @@ using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Middleware;
 using HPD.Agent.Providers;
+using HPD.Agent.Sandbox.HostProcess;
 using HPD.Events.Core;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
@@ -61,6 +62,34 @@ public class CodingToolHarnessAgentBuilderTests
             });
         GetKind(forcedOpen.Should().ContainSingle(tool => tool.Name == "Debug").Subject)
             .Should().Be(HPDCapabilityKind.Function);
+    }
+
+    [Fact]
+    public async Task Debug_UsesHarnessOwnedRuntimeWithoutApplicationServices()
+    {
+        using var chatClient = new RecordingTestChatClient(debugOnFirstTurn: true);
+        var config = CreateTestConfig();
+        config.MaxAgenticIterations = 6;
+        await using var agent = await new AgentBuilder(config, new TestProviderRegistry(chatClient))
+            .WithEventComposition(CodingEventTestCodec.Composition)
+            .WithChatClient(chatClient)
+            .WithSessionStore(new InMemorySessionStore(CodingEventTestCodec.Codec))
+            .WithHostProcessSandbox(new HostProcessSandboxOptions
+            {
+                Workspaces = [new() { Path = Directory.GetCurrentDirectory() }]
+            })
+            .WithToolHarness<CodingToolHarness>()
+            .WithPermissions()
+            .BuildAsync();
+
+        var sessionId = await agent.CreateSessionAsync();
+        await agent.RunAsync("List debugger sessions.", sessionId, runConfig: new AgentRunConfig
+        {
+            Security = new AgentSecurityRunConfig { Approval = AgentApprovalPolicy.AutoApprove }
+        });
+
+        chatClient.DebugResult.Should().Contain("listSessions")
+            .And.Contain("success=\"true\"");
     }
 
     private static HPDCapabilityKind GetKind(AIFunction function) =>
@@ -526,13 +555,16 @@ public class CodingToolHarnessAgentBuilderTests
         }
     }
 
-    private sealed class RecordingTestChatClient(bool expandContainerOnFirstRequest = false) : IChatClient
+    private sealed class RecordingTestChatClient(
+        bool expandContainerOnFirstRequest = false,
+        bool debugOnFirstTurn = false) : IChatClient
     {
         private int _requestCount;
 
         public ChatClientMetadata Metadata { get; } = new("test", defaultModelId: "test-model");
 
         public List<string[]> ToolNamesByRequest { get; } = [];
+        public string? DebugResult { get; private set; }
 
         public Task<ChatResponse> GetResponseAsync(
             IEnumerable<ChatMessage> chatMessages,
@@ -547,6 +579,34 @@ public class CodingToolHarnessAgentBuilderTests
         {
             ToolNamesByRequest.Add(options?.Tools?.OfType<AIFunction>().Select(tool => tool.Name).ToArray() ?? []);
             await Task.Yield();
+
+            if (debugOnFirstTurn)
+            {
+                var call = _requestCount++ switch
+                {
+                    0 => new FunctionCallContent("expand-coding-harness", nameof(CodingToolHarness)),
+                    1 => new FunctionCallContent("expand-debug", "Debug"),
+                    2 => new FunctionCallContent("list-debug-sessions", "Debug",
+                        new Dictionary<string, object?>
+                        {
+                            ["request"] = JsonSerializer.SerializeToElement(new { action = "listSessions" })
+                        }),
+                    _ => null
+                };
+                if (call is not null)
+                {
+                    yield return new ChatResponseUpdate
+                    {
+                        Contents = [call],
+                        FinishReason = ChatFinishReason.ToolCalls
+                    };
+                    yield break;
+                }
+
+                DebugResult = chatMessages.SelectMany(message => message.Contents)
+                    .OfType<FunctionResultContent>()
+                    .LastOrDefault(result => result.CallId == "list-debug-sessions")?.Result?.ToString();
+            }
 
             if (expandContainerOnFirstRequest && _requestCount++ == 0)
             {

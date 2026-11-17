@@ -205,9 +205,10 @@ public sealed record DebugRuntimeBinding
         if (string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(threadId))
             throw new InvalidOperationException("Debugging requires an invocation scoped to an HPD session and thread.");
 
-        var manager = context.RuntimeCapabilities.GetRequired<IDebugSessionManager>();
-        var bindingState = context.RuntimeCapabilities.GetRequired<DebugRuntimeBindingState>();
-        if (!manager.IsAvailable)
+        var sessions = context.GetAgentResource<CodingDebugResource>()?.GetSessions(context.RuntimeCapabilities);
+        var manager = sessions?.Manager ?? context.RuntimeCapabilities.GetRequired<IDebugSessionManager>();
+        var bindingState = sessions?.State ?? context.RuntimeCapabilities.GetRequired<DebugRuntimeBindingState>();
+        if (!bindingState.IsAvailable || !manager.IsAvailable)
             throw new InvalidOperationException("The runtime debug session manager is unavailable.");
 
         context.RuntimeCapabilities.TryGet<RuntimeProcessExecutionBinding>(out var processExecution);

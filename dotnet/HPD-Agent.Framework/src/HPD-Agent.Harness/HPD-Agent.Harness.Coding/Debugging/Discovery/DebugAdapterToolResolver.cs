@@ -66,7 +66,7 @@ public sealed class CatalogCommandDebugAdapterToolSearchPolicy : IDebugAdapterTo
 
     private static IReadOnlyList<string> ProbeArguments(DebugAdapterDescriptor descriptor)
         => string.Equals(descriptor.Id, "debugpy", StringComparison.Ordinal)
-            ? ["-c", "import debugpy; import debugpy.adapter; print(debugpy.__version__)"]
+            ? ["-I", "-c", "import debugpy; import debugpy.adapter; print(debugpy.__version__)"]
             : ["--version"];
 }
 

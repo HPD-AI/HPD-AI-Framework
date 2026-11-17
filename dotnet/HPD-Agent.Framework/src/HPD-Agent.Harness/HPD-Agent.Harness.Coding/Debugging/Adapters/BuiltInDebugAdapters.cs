@@ -8,8 +8,9 @@ namespace HPD.Agent.ToolHarness.Coding.Debugging.Adapters;
 [DebugAdapterRootMarkers("pyproject.toml", "setup.py", "requirements.txt", "Pipfile", ".venv")]
 [DebugAdapterTargetKinds(DebugTargetKind.SourceFile | DebugTargetKind.ProjectDirectory | DebugTargetKind.Process | DebugTargetKind.RegisteredRemoteEndpoint)]
 [DebugAdapterProgramKinds(DebugAdapterProgramKind.SourceFile)]
+[DebugAdapterCommandHint("python3")]
 [DebugAdapterCommandHint("python")]
-[DebugAdapterArgumentHints("-m", "debugpy.adapter")]
+[DebugAdapterArgumentHints("-I", "-m", "debugpy.adapter")]
 [DebugAdapterInstallGuidance("debug.debugpy.install")]
 [DebugAdapterFactory(typeof(DebugPyAdapterFactory))]
 public sealed class DebugPyAdapterDeclaration;

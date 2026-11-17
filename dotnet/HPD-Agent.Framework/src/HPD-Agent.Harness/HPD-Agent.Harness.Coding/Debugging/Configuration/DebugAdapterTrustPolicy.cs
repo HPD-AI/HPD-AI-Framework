@@ -5,16 +5,20 @@ public interface IDebugAdapterTrustPolicy
     DebugAdapterTrustDecision Evaluate(DebugAdapterDescriptor descriptor);
 }
 
-public sealed class DenyByDefaultDebugAdapterTrustPolicy : IDebugAdapterTrustPolicy
+internal sealed class BuiltInDebugAdapterTrustPolicy : IDebugAdapterTrustPolicy
 {
     public DebugAdapterTrustDecision Evaluate(DebugAdapterDescriptor descriptor)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
+        bool builtIn = string.Equals(
+            descriptor.Provenance.AssemblyName,
+            typeof(BuiltInDebugAdapterTrustPolicy).Assembly.GetName().Name,
+            StringComparison.Ordinal);
         return new DebugAdapterTrustDecision
         {
-            TrustLevel = DebugAdapterTrustLevel.Denied,
-            PolicyRevision = "default-deny-v1",
-            ReasonCode = "HOST_TRUST_POLICY_NOT_CONFIGURED"
+            TrustLevel = builtIn ? DebugAdapterTrustLevel.Trusted : DebugAdapterTrustLevel.Denied,
+            PolicyRevision = "built-in-adapters-v1",
+            ReasonCode = builtIn ? "BUILT_IN_ADAPTER" : "EXTERNAL_ADAPTER_REQUIRES_HOST_TRUST"
         };
     }
 }

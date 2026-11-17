@@ -97,6 +97,7 @@ public sealed class FunctionExecutionContext : IHarnessConfigurationContext
     private readonly AgentConfig? _parentConfig;
     private readonly AgentClientSet? _clientSet;
     private readonly ToolHarnessExecutionScope? _toolHarnessExecutionScope;
+    private readonly IReadOnlyDictionary<Type, object> _agentResources;
     private readonly FunctionOperationCommitGate? _operationCommitGate;
     private readonly ContentRetrievalBudget _contentRetrievalBudget;
     private readonly FunctionContentOutputs _outputs;
@@ -145,6 +146,7 @@ public sealed class FunctionExecutionContext : IHarnessConfigurationContext
         _eventComposition = hookContext.EventComposition;
         _clientSet = hookContext.Base.ClientSet;
         _toolHarnessExecutionScope = hookContext.Base.ToolHarnessExecutionScope;
+        _agentResources = hookContext.Base.AgentResources;
         _operationCommitGate = request.OperationCommitGate;
         _contentRetrievalBudget = request.ExecutionContext?.ContentRetrievalBudget ?? new();
         _outputs = new FunctionContentOutputs();
@@ -174,6 +176,7 @@ public sealed class FunctionExecutionContext : IHarnessConfigurationContext
         _clientSet = source._clientSet;
         _effectiveChatClient = source._effectiveChatClient;
         _toolHarnessExecutionScope = null;
+        _agentResources = source._agentResources;
         _operationCommitGate = source._operationCommitGate;
         _contentRetrievalBudget = source._contentRetrievalBudget;
         _outputs = source._outputs;
@@ -271,6 +274,9 @@ public sealed class FunctionExecutionContext : IHarnessConfigurationContext
     internal AgentClientSet? ClientSet => _clientSet;
     internal AgentConfig? ParentConfig => _parentConfig;
     internal ToolHarnessExecutionScope? ToolHarnessExecutionScope => _toolHarnessExecutionScope;
+
+    internal T? GetAgentResource<T>() where T : class =>
+        _agentResources.TryGetValue(typeof(T), out var resource) ? (T)resource : null;
     internal ContentRetrievalBudget ContentRetrievalBudget => _contentRetrievalBudget;
 
     /// <summary>Gets the capture surface owned by this function invocation.</summary>

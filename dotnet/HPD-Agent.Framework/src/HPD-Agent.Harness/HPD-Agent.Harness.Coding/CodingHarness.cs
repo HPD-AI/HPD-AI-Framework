@@ -3,11 +3,13 @@ using System.Text.RegularExpressions;
 using System.Xml;
 using HPD.Agent;
 using HPD.Agent.Serialization;
+using HPD.Agent.ToolHarness.Coding.Debugging;
 using HPDOS.ToolHarnesses.Middleware;
 
 /// <summary>
 /// Shared partial class for coding toolharness functions.
 /// </summary>
+[ToolHarnessAgentResource(typeof(CodingDebugResource))]
 [Collapse(
     "Contains tools for coding operations: file operations, code search, shell execution, and code analysis.",
     SystemPrompt = CodingToolHarnessPrompts.SystemPrompt,

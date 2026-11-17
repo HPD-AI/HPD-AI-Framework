@@ -518,7 +518,10 @@ internal sealed class DebugExecutionPlanningService(
         DebugAdapterSelectionKind.Unavailable =>
             throw new DebugStartPlanningException(
                 "adapter_unavailable",
-                "Matching debug adapters are unavailable."),
+                "Matching debug adapters are unavailable in the selected execution environment. " +
+                string.Join("; ", selection.Candidates.Select(candidate =>
+                    $"{candidate.AdapterId}: {candidate.Availability.SafeReasonCode}" +
+                    (candidate.Availability.InstallGuidanceId is { } guidance ? $" ({guidance})" : "")))),
         DebugAdapterSelectionKind.Ambiguous =>
             throw new DebugStartPlanningException(
                 "adapter_ambiguous",

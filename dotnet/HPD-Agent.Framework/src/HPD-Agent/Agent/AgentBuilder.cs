@@ -3025,7 +3025,8 @@ public partial class AgentBuilder
             _functionToToolHarnessMap,
             _functionToSkillMap,
             _middlewares.Select(middleware => middleware is PermissionMiddleware permission
-                ? permission.ForAgent(_runtimeOptions.AgentId ?? _config.Name, _config.Name) : middleware).ToList(),
+                ? permission.ForAgent(_runtimeOptions.AgentId ?? _config.Name, _config.Name) : middleware)
+                .Concat(agentResources.Resources.Values.OfType<IAgentMiddleware>()).ToList(),
             _serviceProvider,
             _eventSubscriptionFactories,
             _providerRegistry,

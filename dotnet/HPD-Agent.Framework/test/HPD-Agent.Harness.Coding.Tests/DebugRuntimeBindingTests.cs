@@ -142,6 +142,7 @@ public sealed class DebugRuntimeBindingTests
 
         result.Available.Should().BeTrue();
         process.LastSpec!.Command.Arguments.Should().Equal(
+            "-I",
             "-c",
             "import debugpy; import debugpy.adapter; print(debugpy.__version__)");
     }

@@ -55,7 +55,7 @@ public sealed class DebugAdapterCatalogTests
         entries["codelldb"].Descriptor.ArgumentHints.Should().Equal("--port", "0");
         entries["delve"].Descriptor.RootMarkers.Should().Contain(["go.mod", "go.sum", "go.work"]);
         entries["javascript"].Descriptor.RootMarkers.Should().Contain(["package.json", "tsconfig.json", "jsconfig.json"]);
-        entries["debugpy"].Descriptor.ArgumentHints.Should().Equal("-m", "debugpy.adapter");
+        entries["debugpy"].Descriptor.ArgumentHints.Should().Equal("-I", "-m", "debugpy.adapter");
         entries["rdbg"].Descriptor.RootMarkers.Should().Contain("Rakefile");
     }
 

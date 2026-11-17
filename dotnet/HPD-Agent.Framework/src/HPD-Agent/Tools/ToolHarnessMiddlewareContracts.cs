@@ -21,8 +21,10 @@ public sealed class ToolHarnessMiddlewareLifetimeAttribute(ToolHarnessMiddleware
     public ToolHarnessMiddlewareOwnership Ownership { get; } = ownership;
 }
 
-/// <summary>Declares the Agent-owned implementation used for a middleware constructor resource.</summary>
-[AttributeUsage(AttributeTargets.Interface, Inherited = false, AllowMultiple = false)]
+/// <summary>Declares an Agent-owned resource. A declaration on a harness registers the
+/// concrete type directly. A declaration on an interface supplies the implementation
+/// for that interface when used by a harness middleware constructor.</summary>
+[AttributeUsage(AttributeTargets.Interface | AttributeTargets.Class, Inherited = false, AllowMultiple = false)]
 public sealed class ToolHarnessAgentResourceAttribute(Type implementationType) : Attribute
 {
     /// <summary>Gets the concrete async resource type created once per built Agent.</summary>

@@ -11,12 +11,6 @@ namespace HPD.Agent.ToolHarness.Coding.Debugging;
 
 public static class DebuggingServiceCollectionExtensions
 {
-    public static AgentBuilder WithHPDCodingDebuggingRuntime(this AgentBuilder builder)
-    {
-        ArgumentNullException.ThrowIfNull(builder);
-        return builder.WithMiddleware(new DebugRuntimeAttachmentMiddleware());
-    }
-
     public static IServiceCollection AddHPDCodingDebugging(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -27,11 +21,10 @@ public static class DebuggingServiceCollectionExtensions
         services.TryAddSingleton<JavaScriptDebugAdapterFactory>();
         services.TryAddSingleton<IDebugAdapterToolSearchPolicy, CatalogCommandDebugAdapterToolSearchPolicy>();
         services.TryAddSingleton<IDebugAdapterToolResolver, EnvironmentDebugAdapterToolResolver>();
-        services.TryAddTransient<DebugRuntimeAttachmentMiddleware>();
         services.TryAddTransient<IDebugTerminalRecordStore, DebugTerminalRecordStore>();
         services.TryAddSingleton(new DebugTerminalRecordStoreOptions());
         services.TryAddSingleton<IDebugAdapterAvailabilityCache, DebugAdapterAvailabilityCache>();
-        services.TryAddSingleton<IDebugAdapterTrustPolicy, DenyByDefaultDebugAdapterTrustPolicy>();
+        services.TryAddSingleton<IDebugAdapterTrustPolicy, BuiltInDebugAdapterTrustPolicy>();
         services.TryAddSingleton<IDebugWorkspaceCanonicalizer, LexicalDebugWorkspaceCanonicalizer>();
         services.TryAddSingleton<IWorkspaceRootMarkerResolver, WorkspaceRootMarkerResolver>();
         services.TryAddSingleton<IDebugAdapterConfigurationComposer, BuiltInDebugAdapterConfigurationComposer>();

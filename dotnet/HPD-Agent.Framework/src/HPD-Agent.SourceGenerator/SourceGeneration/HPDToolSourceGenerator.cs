@@ -864,6 +864,13 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
             var agentResources = (ToolHarness.MiddlewareEntries ?? [])
                 .Concat(ToolHarness.EagerMiddlewareEntries ?? [])
                 .Where(static entry => entry.AgentResourceTypeFqn is not null)
+                .Select(static entry => (entry.AgentResourceTypeFqn, entry.AgentResourceImplementationTypeFqn))
+                .Concat(ToolHarness.OwnerType!.GetAttributes()
+                    .Where(static attribute => attribute.AttributeClass?.ToDisplayString() == "HPD.Agent.ToolHarnessAgentResourceAttribute")
+                    .Select(static attribute => attribute.ConstructorArguments.FirstOrDefault().Value as INamedTypeSymbol)
+                    .OfType<INamedTypeSymbol>()
+                    .Select(static type => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))
+                    .Select(static name => (AgentResourceTypeFqn: (string?)name, AgentResourceImplementationTypeFqn: (string?)name)))
                 .GroupBy(static entry => entry.AgentResourceTypeFqn, StringComparer.Ordinal)
                 .Select(static group => group.First())
                 .ToArray();

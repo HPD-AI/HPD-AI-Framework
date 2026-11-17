@@ -26,7 +26,8 @@ public partial class CodingToolHarness
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(context);
-        var dispatcher = context.Services?.GetService<DebugOperationDispatcher>();
+        var dispatcher = context.Services?.GetService<DebugOperationDispatcher>()
+            ?? context.GetAgentResource<CodingDebugResource>()?.Dispatcher;
         return dispatcher is null
             ? Task.FromResult(
                 "<error tool=\"Debug\" action=\"unknown\" success=\"false\" kind=\"debug_not_configured\">" +

@@ -71,7 +71,7 @@ public sealed class DebugAdapterRuntimeInfrastructureTests
     }
 
     [Fact]
-    public void DI_composition_is_explicit_and_default_trust_fails_closed()
+    public void Default_trust_accepts_built_in_adapters_and_denies_external_adapters()
     {
         var services = new ServiceCollection()
             .AddHPDCodingDebugging()
@@ -84,8 +84,13 @@ public sealed class DebugAdapterRuntimeInfrastructureTests
 
         catalog.Entries.Should().HaveCount(8);
         catalog.GetFactory("debugpy").Should().BeOfType<DebugPyAdapterFactory>();
-        trust.TrustLevel.Should().Be(DebugAdapterTrustLevel.Denied);
-        trust.ReasonCode.Should().Be("HOST_TRUST_POLICY_NOT_CONFIGURED");
+        trust.TrustLevel.Should().Be(DebugAdapterTrustLevel.Trusted);
+        trust.ReasonCode.Should().Be("BUILT_IN_ADAPTER");
+        var descriptor = catalog.Entries[0].Descriptor;
+        services.GetRequiredService<IDebugAdapterTrustPolicy>().Evaluate(descriptor with
+        {
+            Provenance = descriptor.Provenance with { AssemblyName = "External.Adapters" }
+        }).TrustLevel.Should().Be(DebugAdapterTrustLevel.Denied);
         services.GetRequiredService<IDebugAdapterConfigurationComposer>()
             .Should().BeOfType<BuiltInDebugAdapterConfigurationComposer>();
         services.GetRequiredService<DebugRuntimeServiceFactory>().Should().NotBeNull();

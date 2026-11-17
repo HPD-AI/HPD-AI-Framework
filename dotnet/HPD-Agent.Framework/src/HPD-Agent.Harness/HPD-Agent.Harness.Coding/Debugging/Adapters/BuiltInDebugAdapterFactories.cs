@@ -51,7 +51,7 @@ public abstract class BuiltInBehavioralDebugAdapterFactory(
 public sealed class DebugPyAdapterFactory(StandardDebugAdapterFactory standardFactory)
     : BuiltInBehavioralDebugAdapterFactory(
         standardFactory,
-        ["-c", "import debugpy; import debugpy.adapter; print(debugpy.__version__)"]);
+        ["-I", "-c", "import debugpy; import debugpy.adapter; print(debugpy.__version__)"]);
 
 public sealed class CodeLldbAdapterFactory(StandardDebugAdapterFactory standardFactory)
     : BuiltInBehavioralDebugAdapterFactory(
