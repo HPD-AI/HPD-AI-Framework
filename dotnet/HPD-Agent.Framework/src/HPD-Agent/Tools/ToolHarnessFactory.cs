@@ -192,7 +192,22 @@ public record ToolHarnessFactory(
     HarnessConfigurationContract? Configuration = null,
 
     /// <summary>Delegate to serialize supported typed metadata without reflection.</summary>
-    Func<IToolMetadata, JsonElement>? SerializeMetadata = null
+    Func<IToolMetadata, JsonElement>? SerializeMetadata = null,
+
+    /// <summary>Generated constructor inputs and their exact resolution contracts.</summary>
+    IReadOnlyList<ToolHarnessConstructorDependencyDescriptor>? ConstructorDependencies = null,
+
+    /// <summary>MCP source names declared before external discovery.</summary>
+    IReadOnlyList<string>? McpSourceNames = null,
+
+    /// <summary>OpenAPI source names declared before external discovery.</summary>
+    IReadOnlyList<string>? OpenApiSourceNames = null,
+
+    /// <summary>Native multi-agent workflow declaration member names.</summary>
+    IReadOnlyList<string>? MultiAgentDeclarationNames = null,
+
+    /// <summary>Generated function declarations available before owner materialization.</summary>
+    IReadOnlyList<ToolHarnessFunctionDeclarationDescriptor>? FunctionDeclarations = null
 )
 {
     /// <summary>Gets the non-empty stable activation identity.</summary>
@@ -202,4 +217,43 @@ public record ToolHarnessFactory(
 
     /// <summary>Ordered middleware activated at accepted-input admission.</summary>
     public IReadOnlyList<ToolHarnessMiddlewareDescriptor>? EagerMiddleware { get; init; }
+}
+
+/// <summary>Identifies how one generated ToolHarness constructor input is resolved.</summary>
+public enum ToolHarnessConstructorDependencyKind
+{
+    /// <summary>A generated immutable harness settings handle.</summary>
+    HarnessConfiguration,
+    /// <summary>A required application or owner-local service.</summary>
+    RequiredService,
+    /// <summary>An optional service or declared literal default.</summary>
+    OptionalService,
+    /// <summary>A generated explicit default value.</summary>
+    Literal
+}
+
+/// <summary>Describes one exact generated ToolHarness constructor input.</summary>
+public sealed record ToolHarnessConstructorDependencyDescriptor
+{
+    /// <summary>Gets the constructor parameter name.</summary>
+    public required string Name { get; init; }
+    /// <summary>Gets the exact CLR contract type name.</summary>
+    public required string TypeName { get; init; }
+    /// <summary>Gets the exact CLR contract type.</summary>
+    public required Type ContractType { get; init; }
+    /// <summary>Gets the generated resolution classification.</summary>
+    public required ToolHarnessConstructorDependencyKind Kind { get; init; }
+    /// <summary>Gets whether omission selects a declared fallback.</summary>
+    public bool IsOptional { get; init; }
+}
+
+/// <summary>Describes one generated ToolHarness function declaration before runtime allocation.</summary>
+public sealed record ToolHarnessFunctionDeclarationDescriptor
+{
+    /// <summary>Gets the model-facing function name.</summary>
+    public required string FunctionName { get; init; }
+    /// <summary>Gets the exact generated declaration member name.</summary>
+    public required string DeclarationMemberName { get; init; }
+    /// <summary>Gets the declared closed-union action discriminators.</summary>
+    public IReadOnlyList<string> ActionNames { get; init; } = [];
 }

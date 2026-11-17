@@ -13,7 +13,7 @@ namespace HPD.Base;
 /// <summary>
 /// Process-local, thread-safe, non-durable HPD.BASE record store implementation.
 /// </summary>
-internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreamingRecordStore, IRelationalReadStore, IConsistentRecordIncludeStore, IInMemoryProjectionAuthority, ITransactionalMutationJournalStore, IBaseSubjectAdministration, IBaseSubjectPublicationStore, IBaseSubjectValidationPlanReceiptStore, IBaseSubjectLifecycleStore, IBaseSubjectRetirementStore, IBaseSubjectAuthorityMaintenanceStore, IBaseActivationProvider, IBaseSemanticActivationAdministration, IBaseStudioDynamicStoreAuthoritySource, IBaseStudioControlInspectionStore, IBaseLogicalIndexCertificationInspection
+internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreamingRecordStore, IRelationalReadStore, IConsistentRecordIncludeStore, IInMemoryProjectionAuthority, ITransactionalMutationJournalStore, IBaseSubjectAdministration, IBaseSubjectPublicationStore, IBaseSubjectValidationPlanReceiptStore, IBaseSubjectLifecycleStore, IBaseSubjectRetirementStore, IBaseSubjectAuthorityMaintenanceStore, IBaseActivationProvider, IBaseSemanticActivationAdministration, IStudioDynamicStoreAuthoritySource, IStudioControlInspectionStore, IBaseLogicalIndexCertificationInspection
 {
     private readonly ImmutableArray<byte> _semanticProviderIncarnation;
     private readonly BaseSemanticActivationCapability _semanticActivationCapability;
@@ -22,19 +22,19 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
     /// <inheritdoc />
     public ImmutableArray<byte> ProviderIncarnation => _semanticProviderIncarnation.ToArray().ToImmutableArray();
     /// <inheritdoc />
-    public ValueTask<OperationResult<BaseStudioDynamicStoreAuthority>> CaptureStudioDynamicStoreAuthorityAsync(
-        BaseStudioDynamicStoreAuthorityRequest request, CancellationToken cancellationToken = default)
+    public ValueTask<OperationResult<StudioDynamicStoreAuthority>> CaptureStudioDynamicStoreAuthorityAsync(
+        StudioDynamicStoreAuthorityRequest request, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(request);
-        if (!BaseStudioDynamicStoreAuthorityContract.IsValid(request))
+        if (!StudioDynamicStoreAuthorityContract.IsValid(request))
             throw new ArgumentException("Studio authority bounds are invalid.", nameof(request));
-        BaseStudioDynamicStoreAuthority value = BaseStudioDynamicStoreAuthorityContract.Create(
+        StudioDynamicStoreAuthority value = StudioDynamicStoreAuthorityContract.Create(
             request.ApplicationId, _options.StoreId, 0, 1);
         return ValueTask.FromResult(value.Accounting.EvidenceBytes <= request.MaximumEvidenceBytes
             && value.Accounting.TransientBytes <= request.MaximumTransientBytes
             ? OperationResults.Ok(value)
-            : OperationResults.ValidationFailed<BaseStudioDynamicStoreAuthority>(new BaseError
+            : OperationResults.ValidationFailed<StudioDynamicStoreAuthority>(new BaseError
             {
                 Code = "base.studio.storeAuthorityLimitExceeded",
                 Message = "The store authority exceeded its bound.",

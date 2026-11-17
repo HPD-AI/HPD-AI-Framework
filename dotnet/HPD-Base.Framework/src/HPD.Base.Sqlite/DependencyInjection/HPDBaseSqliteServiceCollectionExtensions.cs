@@ -57,10 +57,10 @@ public static class HPDBaseSqliteServiceCollectionExtensions
         services.TryAddSingleton<IAtomicRecordStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         services.TryAddSingleton<IBaseSubjectLifecycleStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         services.TryAddSingleton<ITransactionalMutationJournalStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
-        services.TryAddSingleton<IBaseStudioDynamicStoreAuthoritySource>(provider => provider.GetRequiredService<SqliteRecordStore>());
-        services.TryAddSingleton<IBaseStudioControlInspectionStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
-        services.TryAddSingleton<IBaseStudioEvidenceStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
-        services.TryAddSingleton<IBaseStudioInfrastructureInventoryStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
+        services.TryAddSingleton<IStudioDynamicStoreAuthoritySource>(provider => provider.GetRequiredService<SqliteRecordStore>());
+        services.TryAddSingleton<IStudioControlInspectionStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
+        services.TryAddSingleton<IStudioEvidenceStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
+        services.TryAddSingleton<IStudioInfrastructureInventoryStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         if (options.ContributeRelationalDescriptors)
         {
             services.TryAddSingleton<SqliteRelationalDescriptorProvider>();

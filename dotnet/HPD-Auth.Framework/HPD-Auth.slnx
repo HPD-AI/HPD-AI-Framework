@@ -18,6 +18,7 @@
     <Project Path="src/HPD.Auth.ControlPlane.AspNetCore/HPD.Auth.ControlPlane.AspNetCore.csproj" />
     <Project Path="src/HPD.Auth.Infrastructure/HPD.Auth.Infrastructure.csproj" />
     <Project Path="src/HPD.Auth.OAuth/HPD.Auth.OAuth.csproj" />
+    <Project Path="src/HPD.Auth.Studio/HPD.Auth.Studio.csproj" />
     <Project Path="src/HPD.Auth.TwoFactor/HPD.Auth.TwoFactor.csproj" />
   </Folder>
   <Folder Name="/Tests/">
@@ -33,6 +34,7 @@
     <Project Path="test/HPD.Auth.Infrastructure.Tests/HPD.Auth.Infrastructure.Tests.csproj" />
     <Project Path="test/HPD.Auth.NativeAotSmoke/HPD.Auth.NativeAotSmoke.csproj" />
     <Project Path="test/HPD.Auth.OAuth.Tests/HPD.Auth.OAuth.Tests.csproj" />
+    <Project Path="test/HPD.Auth.Studio.Tests/HPD.Auth.Studio.Tests.csproj" />
     <Project Path="test/HPD.Auth.TwoFactor.Tests/HPD.Auth.TwoFactor.Tests.csproj" />
   </Folder>
   <Folder Name="/Tools/">

@@ -45,22 +45,22 @@ public sealed class SqliteStudioControlInspectionTests
                 }
             }
 
-            IBaseStudioControlInspectionStore inspection = store;
-            BaseStudioControlInspectionRequest request = Request(BaseStudioControlFactKind.ActivationReceipt, take: 2);
-            OperationResult<BaseStudioControlInspectionPage> first = await inspection.ReadStudioControlFactsAsync(request);
+            IStudioControlInspectionStore inspection = store;
+            StudioControlInspectionRequest request = Request(StudioControlFactKind.ActivationReceipt, take: 2);
+            OperationResult<StudioControlInspectionPage> first = await inspection.ReadStudioControlFactsAsync(request);
             first.IsSuccess().Should().BeTrue();
             first.Value!.Items.Select(static value => value.Identity).Should().Equal("receipt-1", "receipt-2");
             first.Value.NextIdentity.Should().Be("receipt-2");
             first.Value.Items.Should().OnlyContain(static value => value.FactChecksum.Length == 32);
-            BaseStudioControlInspectionContract.IsValidResult(request, first.Value).Should().BeTrue();
+            StudioControlInspectionContract.IsValidResult(request, first.Value).Should().BeTrue();
 
-            OperationResult<BaseStudioControlInspectionPage> second = await inspection.ReadStudioControlFactsAsync(request with { AfterIdentity = first.Value.NextIdentity });
+            OperationResult<StudioControlInspectionPage> second = await inspection.ReadStudioControlFactsAsync(request with { AfterIdentity = first.Value.NextIdentity });
             second.Value!.Items.Select(static value => value.Identity).Should().Equal("receipt-3");
             second.Value.NextIdentity.Should().BeNull();
 
-            OperationResult<BaseStudioControlInspectionPage> exact = await inspection.ReadStudioControlFactsAsync(request with { Identity = "receipt-2", Take = 1 });
-            exact.Value!.Items.Should().ContainSingle().Which.As<BaseStudioActivationReceiptFact>().TransitionKind.Should().Be("activation-completed");
-            OperationResult<BaseStudioControlInspectionPage> history = await inspection.ReadStudioControlFactsAsync(request with
+            OperationResult<StudioControlInspectionPage> exact = await inspection.ReadStudioControlFactsAsync(request with { Identity = "receipt-2", Take = 1 });
+            exact.Value!.Items.Should().ContainSingle().Which.As<StudioActivationReceiptFact>().TransitionKind.Should().Be("activation-completed");
+            OperationResult<StudioControlInspectionPage> history = await inspection.ReadStudioControlFactsAsync(request with
             { SubjectKind = "activation", SubjectIdentity = "activation-2" });
             history.Value!.Items.Should().ContainSingle().Which.Identity.Should().Be("receipt-2");
             history.Value.RowsRead.Should().Be(1);
@@ -77,40 +77,40 @@ public sealed class SqliteStudioControlInspectionTests
     [Fact]
     public async Task Invalid_or_ambiguous_bounds_fail_before_provider_read()
     {
-        await using var store = SqliteTestFactory.Create(); IBaseStudioControlInspectionStore inspection = store;
-        (await inspection.ReadStudioControlFactsAsync(Request(BaseStudioControlFactKind.Activation) with { Identity = "one", AfterIdentity = "zero" }))
+        await using var store = SqliteTestFactory.Create(); IStudioControlInspectionStore inspection = store;
+        (await inspection.ReadStudioControlFactsAsync(Request(StudioControlFactKind.Activation) with { Identity = "one", AfterIdentity = "zero" }))
             .Status.Should().Be(OperationStatus.ValidationFailed);
-        (await inspection.ReadStudioControlFactsAsync(Request(BaseStudioControlFactKind.Activation) with { Take = 3,
+        (await inspection.ReadStudioControlFactsAsync(Request(StudioControlFactKind.Activation) with { Take = 3,
             Limits = Limits() with { MaximumItems = 2 } })).Status.Should().Be(OperationStatus.ValidationFailed);
-        (await inspection.ReadStudioControlFactsAsync(Request(BaseStudioControlFactKind.Activation) with { ProtectedScopeChecksum = [1] }))
+        (await inspection.ReadStudioControlFactsAsync(Request(StudioControlFactKind.Activation) with { ProtectedScopeChecksum = [1] }))
             .Status.Should().Be(OperationStatus.ValidationFailed);
     }
 
     [Theory]
-    [InlineData(BaseStudioControlFactKind.LifecycleConsumer)]
-    [InlineData(BaseStudioControlFactKind.LifecycleCheckpoint)]
-    [InlineData(BaseStudioControlFactKind.RetirementBarrier)]
-    public async Task Lifecycle_and_retirement_inspection_families_are_bounded_and_canonical(BaseStudioControlFactKind kind)
+    [InlineData(StudioControlFactKind.LifecycleConsumer)]
+    [InlineData(StudioControlFactKind.LifecycleCheckpoint)]
+    [InlineData(StudioControlFactKind.RetirementBarrier)]
+    public async Task Lifecycle_and_retirement_inspection_families_are_bounded_and_canonical(StudioControlFactKind kind)
     {
-        await using var store = SqliteTestFactory.Create(); IBaseStudioControlInspectionStore inspection = store;
-        BaseStudioControlInspectionRequest request = Request(kind);
-        OperationResult<BaseStudioControlInspectionPage> result = await inspection.ReadStudioControlFactsAsync(request);
+        await using var store = SqliteTestFactory.Create(); IStudioControlInspectionStore inspection = store;
+        StudioControlInspectionRequest request = Request(kind);
+        OperationResult<StudioControlInspectionPage> result = await inspection.ReadStudioControlFactsAsync(request);
         result.IsSuccess().Should().BeTrue("the provider returned {0}", result.Error?.Code); result.Value.Should().NotBeNull();
-        BaseStudioControlInspectionContract.IsValidResult(request, result.Value).Should().BeTrue();
+        StudioControlInspectionContract.IsValidResult(request, result.Value).Should().BeTrue();
     }
 
     [Fact]
     public void Compound_identity_codec_is_canonical_closed_and_application_bound()
     {
-        string atomic = BaseStudioControlInspectionContract.AtomicIdentity("tenant-a", "users.rotate", "request-1");
-        BaseStudioControlInspectionContract.TryDecodeAtomicIdentity(atomic, out string scope, out string operation, out string key).Should().BeTrue();
+        string atomic = StudioControlInspectionContract.AtomicIdentity("tenant-a", "users.rotate", "request-1");
+        StudioControlInspectionContract.TryDecodeAtomicIdentity(atomic, out string scope, out string operation, out string key).Should().BeTrue();
         (scope, operation, key).Should().Be(("tenant-a", "users.rotate", "request-1"));
-        BaseStudioControlInspectionContract.TryDecodeAtomicIdentity(atomic + "=", out _, out _, out _).Should().BeFalse();
+        StudioControlInspectionContract.TryDecodeAtomicIdentity(atomic + "=", out _, out _, out _).Should().BeFalse();
 
-        string executor = BaseStudioControlInspectionContract.ExecutorIdentity("sample.application", "host-a", "process-a");
-        BaseStudioControlInspectionContract.IsValid(Request(BaseStudioControlFactKind.Executor) with { Identity = executor }).Should().BeTrue();
-        BaseStudioControlInspectionContract.IsValid(Request(BaseStudioControlFactKind.Executor) with
-        { Identity = BaseStudioControlInspectionContract.ExecutorIdentity("other.application", "host-a", "process-a") }).Should().BeFalse();
+        string executor = StudioControlInspectionContract.ExecutorIdentity("sample.application", "host-a", "process-a");
+        StudioControlInspectionContract.IsValid(Request(StudioControlFactKind.Executor) with { Identity = executor }).Should().BeTrue();
+        StudioControlInspectionContract.IsValid(Request(StudioControlFactKind.Executor) with
+        { Identity = StudioControlInspectionContract.ExecutorIdentity("other.application", "host-a", "process-a") }).Should().BeFalse();
     }
 
     [Fact]
@@ -118,11 +118,11 @@ public sealed class SqliteStudioControlInspectionTests
     {
         var services = new ServiceCollection(); services.AddLogging(); services.AddHPDBaseSqliteStore();
         await using ServiceProvider provider = services.BuildServiceProvider();
-        provider.GetRequiredService<IBaseStudioControlInspectionStore>().Should().BeSameAs(provider.GetRequiredService<SqliteRecordStore>());
+        provider.GetRequiredService<IStudioControlInspectionStore>().Should().BeSameAs(provider.GetRequiredService<SqliteRecordStore>());
     }
 
-    private static BaseStudioControlInspectionRequest Request(BaseStudioControlFactKind kind, int take = 1) => new()
+    private static StudioControlInspectionRequest Request(StudioControlFactKind kind, int take = 1) => new()
     { ApplicationId = "sample.application", Kind = kind, Take = take, ProtectedScopeChecksum = Enumerable.Repeat((byte)7, 32).ToImmutableArray(), Limits = Limits() };
-    private static BaseStudioControlInspectionLimits Limits() => new()
+    private static StudioControlInspectionLimits Limits() => new()
     { MaximumItems = 16, MaximumRowsRead = 17, MaximumEvidenceBytes = 65_536, MaximumTransientBytes = 65_536, Deadline = TimeSpan.FromSeconds(2) };
 }

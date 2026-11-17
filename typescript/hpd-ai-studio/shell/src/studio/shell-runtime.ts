@@ -4,7 +4,8 @@ import {
   type StudioBootstrapSnapshot, type StudioClientBinding, type StudioClientId,
   type StudioModuleActivation, type StudioModuleActivationContext, type StudioModuleDescriptor,
   type StudioFrameworkClientActivator, type StudioFrameworkClientTransportRequest,
-  type StudioNavigationHandle, type StudioPageComponent, type StudioRuntimeMethodMap, type StudioRuntimeTransport, type StudioRuntimeTransportRequest
+  type StudioNavigationHandle, type StudioPageComponent, type StudioPageMounter, type StudioRuntimeMethodMap,
+  type StudioRuntimeTransport, type StudioRuntimeTransportRequest, type StudioRuntimeTransportResult
 } from '@hpd-research/hpd-studio-core';
 import { StudioHistoryRouter } from './history-router.ts';
 import type { StudioHistoryRoute } from './history-router.ts';
@@ -12,7 +13,12 @@ import { StudioHostAuthentication, type StudioSessionSnapshot } from './authenti
 import type { StudioEditionModuleAsset, StudioHostContract } from './host-contract.ts';
 import { createStudioPageRuntime, type StudioPageRuntime } from './page-runtime.ts';
 
-export interface StudioActivePage { readonly route: StudioHistoryRoute; readonly component: StudioPageComponent; readonly runtime: StudioPageRuntime; }
+export interface StudioActivePage {
+  readonly route: StudioHistoryRoute;
+  readonly component: StudioPageComponent;
+  readonly mounter: StudioPageMounter | null;
+  readonly runtime: StudioPageRuntime;
+}
 export interface StudioShellState {
   readonly kind: 'authenticationRequired' | 'loading' | 'ready' | 'failed';
   readonly session: StudioSessionSnapshot;
@@ -62,6 +68,7 @@ export class StudioShellRuntime {
   }
   async #bootstrap(session: Extract<StudioSessionSnapshot, { kind: 'authenticated' }>, signal?: AbortSignal, retainVisibleState = false): Promise<void> {
     const generation = ++this.#generation; await this.#destroy();
+    const studioRoot = studioRootFromBootstrap(this.#host.bootstrapRoute);
     if (!retainVisibleState) this.#publish(freezeState('loading', session, null, null, []));
     try {
       const response = await this.authentication.authorize(new URL(this.#host.bootstrapRoute, globalThis.location.origin), {
@@ -74,14 +81,14 @@ export class StudioShellRuntime {
       if (response.status === 401) { this.#publish(freezeState('authenticationRequired', this.authentication.current, null, null, [])); return; }
       if (!response.ok) throw new Error(`base.studio.bootstrap.${response.status}`);
       const snapshot = validateStudioBootstrap(await response.json() as StudioBootstrapSnapshot);
-      const transport = createTransport(this.authentication, snapshot.snapshotChecksum, snapshot.authority.checksum);
+      const transport = createTransport(this.authentication, snapshot.snapshotChecksum, snapshot.authority.checksum, studioRoot);
       const runtimeMap = hydrateStudioRuntimeMap(snapshot.contractMap, transport);
       this.#runtimeMap = runtimeMap;
       const quarantined: string[] = [];
       for (const visible of snapshot.modules) {
         const asset = this.#host.modules.find(item => item.moduleId === visible.moduleId && item.moduleVersion === visible.version);
         if (!asset || asset.assetGraphChecksum !== visible.assetGraphChecksum) { if (visible.necessity === 'required') throw new Error('base.studio.assetMismatch'); quarantined.push(visible.moduleId); continue; }
-        try { this.#active.push(await activate(asset, visible.frontendAbiChecksum, snapshot,
+        try { this.#active.push(await activate(asset, visible.frontendAbiChecksum, snapshot, studioRoot,
           runtimeMap, this.authentication, session, async (target: Parameters<StudioNavigationHandle['navigate']>[0]) => this.#navigateResource(snapshot, target),
           () => this.#generation === generation)); }
         catch (error) {
@@ -92,7 +99,13 @@ export class StudioShellRuntime {
       }
       if (generation !== this.#generation || this.#disposed) return;
       this.#router = new StudioHistoryRouter(snapshot.pages);
-      this.#router.subscribe(() => this.#publishRoute(snapshot, quarantined));
+      this.#router.subscribe(() => {
+        try { this.#publishRoute(snapshot, quarantined); }
+        catch (error) {
+          void this.#destroy();
+          this.#publish(freezeState('failed', this.authentication.current, snapshot, null, quarantined, safeFailure(error)));
+        }
+      });
       if (!this.#router.current) {
         const landing = snapshot.pages.find(page => page.navigationRole === 'areaLanding');
         if (landing) this.#router.navigate(routePath(landing), true);
@@ -100,12 +113,15 @@ export class StudioShellRuntime {
       this.#scheduleRenewal(snapshot);
     } catch (error) {
       if (generation !== this.#generation || this.#disposed) return;
+      console.error('HPD Studio bootstrap failed.', error);
       await this.#destroy(); this.#publish(freezeState('failed', session, null, null, [], safeFailure(error)));
     }
   }
   #publishRoute(snapshot = this.#state.bootstrap, quarantined = [...this.#state.quarantinedModuleIds]): void {
     if (!snapshot) return; const matched = this.#router?.current ?? null; let route: StudioActivePage | null = null;
-    this.#pageRuntime?.dispose(); this.#pageRuntime = null;
+    document.documentElement.dataset.studioRoute = matched?.page.pageId ?? 'none';
+    try { this.#pageRuntime?.dispose(); } catch { /* previous page teardown cannot block navigation */ }
+    this.#pageRuntime = null;
     if (matched) {
       const module = this.#active.find(item => item.descriptor.moduleId === matched.page.moduleId);
       const binding = module?.descriptor.pageComponents[matched.page.pageId];
@@ -114,10 +130,14 @@ export class StudioShellRuntime {
           async (request,signal)=>{const result=await this.authentication.acquireFreshAuthentication(request,signal);
             return result.kind==='challenge'?this.authentication.completeFreshAuthentication(result,signal):result;});
         this.#pageRuntime = pageRuntime; pageRuntime.subscribe(() => this.#publishPageObservation(snapshot, quarantined));
-        route = Object.freeze({ route: matched, component: binding.component, runtime: pageRuntime });
+        route = Object.freeze({ route: matched, component: binding.component, mounter: binding.mount ?? null, runtime: pageRuntime });
+        this.#publish(freezeState('ready', this.authentication.current, snapshot, route, quarantined));
         void pageRuntime.refresh().then(() => {
           if (this.#pageRuntime !== pageRuntime || this.#disposed) return;
           this.#publish(freezeState('ready', this.authentication.current, snapshot, route, quarantined));
+        }, (error: unknown) => {
+          console.error(`HPD Studio page '${matched.page.pageId}' refresh failed.`, error);
+          this.#publishPageObservation(snapshot, quarantined);
         });
         return;
       }
@@ -127,7 +147,7 @@ export class StudioShellRuntime {
   #publishPageObservation(snapshot: StudioBootstrapSnapshot, quarantined: readonly string[]): void {
     const route = this.#state.route; if (!route || route.runtime !== this.#pageRuntime) return;
     this.#publish(freezeState('ready', this.authentication.current, snapshot,
-      Object.freeze({ route: route.route, component: route.component, runtime: route.runtime }), quarantined));
+      Object.freeze({ route: route.route, component: route.component, mounter: route.mounter, runtime: route.runtime }), quarantined));
   }
   async #navigateResource(snapshot: StudioBootstrapSnapshot, target: Parameters<StudioNavigationHandle['navigate']>[0]): Promise<void> {
     const runtime = this.#pageRuntime; if (!runtime) throw new Error('base.studio.navigationUnavailable');
@@ -149,11 +169,13 @@ export class StudioShellRuntime {
     this.#renewalTimer = setTimeout(() => { this.#renewalTimer = null; void this.refresh(); }, Math.max(0, remaining - lead));
   }
   #publish(state: StudioShellState): void {
-    this.#state = state; for (const listener of this.#listeners) try { listener(state); } catch { /* shell observers are isolated */ }
+    this.#state = state;
+    document.documentElement.dataset.studioPublished = state.route?.route.page.pageId ?? state.kind;
+    for (const listener of this.#listeners) try { listener(state); } catch { /* shell observers are isolated */ }
   }
 }
 
-async function activate(asset: StudioEditionModuleAsset, checksum: string, snapshot: StudioBootstrapSnapshot,
+async function activate(asset: StudioEditionModuleAsset, checksum: string, snapshot: StudioBootstrapSnapshot, studioRoot: string,
   runtimeMap: StudioRuntimeMethodMap, authentication: StudioHostAuthentication,
   session: Extract<StudioSessionSnapshot, { kind: 'authenticated' }>, navigate: StudioNavigationHandle['navigate'], current: () => boolean): Promise<ActiveModule> {
   const loaded = await within(import(/* @vite-ignore */ new URL(asset.entryModulePath, globalThis.location.origin).href) as Promise<StudioModuleExports>, 10_000,
@@ -172,8 +194,9 @@ async function activate(asset: StudioEditionModuleAsset, checksum: string, snaps
           activator.runtimeAbiChecksum !== visible.staticRuntimeAbiChecksum || activator.generatedContractChecksum !== visible.generatedContractChecksum ||
           activator.operationInventoryChecksum !== visible.operationInventoryChecksum) throw new TypeError('base.studio.frameworkClientMismatch');
       const lease = await within(activator.create(Object.freeze({ endpointSurfaceId: visible.endpointSurfaceId,
+        applicationId: snapshot.applicationId,
         principalGeneration: BigInt(session.principalGeneration), authenticationSessionChecksum: studioSha256(session.sessionChecksum),
-        signal: lifecycle.signal, transport: createStudioFrameworkTransport(authentication, visible, snapshot.snapshotChecksum, snapshot.authority.checksum),
+        signal: lifecycle.signal, transport: createStudioFrameworkTransport(authentication, visible, snapshot.snapshotChecksum, snapshot.authority.checksum, studioRoot),
         limits: numericClientLimits(visible.limits) })), Number(visible.limits.acquisitionDeadlineMilliseconds), 'base.studio.frameworkClientAcquireTimeout');
       if (!lease || typeof lease.client !== 'object' || typeof lease.dispose !== 'function') throw new TypeError('base.studio.frameworkClientLeaseInvalid');
       lifecycle.defer(() => within(Promise.resolve(lease.dispose()), Number(visible.limits.disposalDeadlineMilliseconds), 'base.studio.frameworkClientDisposeTimeout'));
@@ -185,9 +208,17 @@ async function activate(asset: StudioEditionModuleAsset, checksum: string, snaps
       transportClass: visible.transportClass, owningPageIds: visible.owningPageIds, limitsChecksum: visible.limits.checksum, client }));
   }
   const navigation: StudioNavigationHandle = Object.freeze({ navigate });
+  const realtime = Object.freeze({
+    subscribe(methodId: string, request: unknown, signal?: AbortSignal): AsyncIterable<unknown> {
+      const method = runtimeMap.methods.get(methodId);
+      if (!method || method.kind !== 'subscription') throw new Error('base.studio.realtimeMethodUnavailable');
+      return method.subscribe(request, signal);
+    }
+  });
   const context: StudioModuleActivationContext = Object.freeze({ moduleId: asset.moduleId, moduleVersion: asset.moduleVersion,
-    frontendAbiChecksum: descriptor.frontendAbiChecksum, disclosedPageIds: Object.freeze(snapshot.pages.filter(page => page.moduleId === asset.moduleId).map(page => page.pageId)),
-    clients, navigation, lifecycle });
+    applicationId: snapshot.applicationId, frontendAbiChecksum: descriptor.frontendAbiChecksum,
+    disclosedPageIds: Object.freeze(snapshot.pages.filter(page => page.moduleId === asset.moduleId).map(page => page.pageId)),
+    clients, navigation, lifecycle, realtime });
   validateStudioModuleActivation(descriptor, context);
   const pending = loaded.activateStudioModule(context);
   pending.then(value => { if (!current()) void within(value.dispose(), 5_000, 'base.studio.moduleDisposeTimeout').catch(() => {}); }, () => {});
@@ -206,7 +237,7 @@ function numericClientLimits(value: StudioBootstrapSnapshot['clients'][number]['
 
 /** @internal Creates the sealed snapshot-bound framework-client bridge. */
 export function createStudioFrameworkTransport(authentication: StudioHostAuthentication, client: StudioBootstrapSnapshot['clients'][number], snapshotChecksum: string,
-  authorityChecksum: string): Readonly<{ execute(request: StudioFrameworkClientTransportRequest): Promise<Response> }> {
+  authorityChecksum: string, studioRoot = '/'): Readonly<{ execute(request: StudioFrameworkClientTransportRequest): Promise<Response> }> {
   return Object.freeze({ async execute(request: StudioFrameworkClientTransportRequest): Promise<Response> {
     const operation = client.operations.find(item => item.operationId === request.operation);
     if (!/^[a-z][a-zA-Z0-9]*(?:[.-][a-zA-Z0-9]+)*$/u.test(request.operation) || !/^\/[A-Za-z0-9._~!$&'()*+,;=:@%/?-]{1,2048}$/u.test(request.relativePathAndQuery) ||
@@ -226,7 +257,7 @@ export function createStudioFrameworkTransport(authentication: StudioHostAuthent
     const controller = new AbortController(); const timeout = globalThis.setTimeout(() => controller.abort(), request.deadlineMilliseconds);
     request.signal.addEventListener('abort', () => controller.abort(), { once: true });
     try {
-      const response = await authentication.authorize(new URL(route.slice(1), new URL('.', globalThis.location.href)), { method: request.method,
+      const response = await authentication.authorize(studioUrl(studioRoot, route), { method: request.method,
         headers: { ...request.headers, 'X-HPD-Studio-Operation': request.operation, 'X-HPD-Studio-Snapshot': snapshotChecksum }, body: request.body, signal: controller.signal },
       request.purpose);
       requireStudioResponseAuthority(response, authorityChecksum);
@@ -256,12 +287,12 @@ class ShellLifecycle {
   }
 }
 
-function createTransport(authentication: StudioHostAuthentication, snapshotChecksum: string, responseAuthorityChecksum: string): StudioRuntimeTransport {
+function createTransport(authentication: StudioHostAuthentication, snapshotChecksum: string, responseAuthorityChecksum: string, studioRoot = '/'): StudioRuntimeTransport {
   const execute = async (request: StudioRuntimeTransportRequest): Promise<Readonly<{ ok: boolean; body: string }>> => {
     const controller = new AbortController(); const deadline = Number(request.deadlineMilliseconds);
     const timeout = globalThis.setTimeout(() => controller.abort(), Math.min(deadline, 60_000));
     request.signal?.addEventListener('abort', () => controller.abort(), { once: true });
-    try { const response = await authentication.authorize(new URL(request.relativeRoute.replace(/^\//u, ''), new URL('.', globalThis.location.href)), {
+    try { const response = await authentication.authorize(studioUrl(studioRoot, request.relativeRoute), {
       method: request.method, headers: { Accept: 'application/json', 'Content-Type': 'application/json',
         'X-HPD-Studio-Method': request.registeredMethodId, 'X-HPD-Studio-Snapshot': snapshotChecksum }, body: request.body, signal: controller.signal }, purpose(request.registeredKind));
       requireStudioResponseAuthority(response, responseAuthorityChecksum);
@@ -271,14 +302,90 @@ function createTransport(authentication: StudioHostAuthentication, snapshotCheck
       return Object.freeze({ok:false as const,body,...(failureCode===undefined?{}:{failureCode})});
     } finally { globalThis.clearTimeout(timeout); }
   };
-  return Object.freeze({ executeJson: execute,
-    async *subscribe(): AsyncIterable<never> { throw new Error('base.studio.realtimeTransportUnavailable'); },
+  const subscribe = async function* (request: StudioRuntimeTransportRequest): AsyncIterable<StudioRuntimeTransportResult> {
+    const controller = new AbortController();
+    const timeout = globalThis.setTimeout(() => controller.abort(), Number(request.deadlineMilliseconds));
+    request.signal?.addEventListener('abort', () => controller.abort(), { once: true });
+    try {
+      const payload = encodeBase64Url(new TextEncoder().encode(request.body));
+      const route = `${request.relativeRoute}${request.relativeRoute.includes('?') ? '&' : '?'}request=${payload}`;
+      const response = await authentication.authorize(studioUrl(studioRoot, route), {
+        method: 'GET',
+        headers: {
+          Accept: 'text/event-stream',
+          'X-HPD-Studio-Method': request.registeredMethodId,
+          'X-HPD-Studio-Snapshot': snapshotChecksum
+        },
+        body: undefined,
+        signal: controller.signal
+      }, purpose(request.registeredKind));
+      requireStudioResponseAuthority(response, responseAuthorityChecksum);
+      if (!response.ok) {
+        const body = await readStudioResponseBody(response, request.maximumResultBytes, controller.signal);
+        throw new Error(body || `base.studio.subscription.${response.status}`);
+      }
+      if (!response.headers.get('Content-Type')?.toLowerCase().startsWith('text/event-stream')) {
+        throw new TypeError('base.studio.subscriptionContentTypeInvalid');
+      }
+      if (!response.body) return;
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8', { fatal: true });
+      let buffer = '';
+      let eventBytes = 0n;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          if (new TextEncoder().encode(buffer).byteLength > Number(request.maximumResultBytes) + 65_536) {
+            throw new RangeError('base.studio.resultTooLarge');
+          }
+          while (true) {
+            const boundary = buffer.indexOf('\n\n');
+            if (boundary < 0) break;
+            const frame = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            const data = frame.split('\n')
+              .filter(line => line.startsWith('data:'))
+              .map(line => line.slice(5).replace(/^ /u, ''))
+              .join('\n');
+            if (!data) continue;
+            eventBytes = BigInt(new TextEncoder().encode(data).byteLength);
+            if (eventBytes > request.maximumResultBytes) throw new RangeError('base.studio.resultTooLarge');
+            yield Object.freeze({ ok: true as const, body: data });
+          }
+        }
+        buffer += decoder.decode();
+      } finally {
+        await reader.cancel().catch(() => {});
+        reader.releaseLock();
+      }
+    } finally {
+      globalThis.clearTimeout(timeout);
+    }
+  };
+  return Object.freeze({ executeJson: execute, subscribe,
     async upload(): Promise<never> { throw new Error('base.studio.uploadTransportUnavailable'); } });
+}
+
+function encodeBase64Url(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return globalThis.btoa(binary).replace(/\+/gu, '-').replace(/\//gu, '_').replace(/=+$/gu, '');
 }
 
 function routePath(page: StudioBootstrapSnapshot['pages'][number]): string {
   if (page.route.segments.some(segment => segment.kind === 'parameter') || page.route.query.some(member => member.required)) return '/';
   return `/${page.route.segments.map(segment => segment.kind === 'literal' ? segment.value : '').join('/')}`;
+}
+function studioRootFromBootstrap(bootstrapRoute: string): string {
+  const suffix = '/control/bootstrap';
+  return bootstrapRoute.endsWith(suffix) ? bootstrapRoute.slice(0, -suffix.length) || '/' : '/';
+}
+function studioUrl(studioRoot: string, relativeRoute: string): URL {
+  const suffix = relativeRoute.replace(/^\/+/u, '');
+  const origin = globalThis.location.origin || new URL(globalThis.location.href).origin;
+  return new URL(studioRoot === '/' ? `/${suffix}` : `${studioRoot}/${suffix}`, origin);
 }
 function canonicalLocale(): string { const value = navigator.language; return /^[A-Za-z0-9-]{1,35}$/u.test(value) ? value : 'en-US'; }
 function purpose(kind: StudioRuntimeTransportRequest['registeredKind']): import('./authentication.ts').StudioAuthorizationPurpose {

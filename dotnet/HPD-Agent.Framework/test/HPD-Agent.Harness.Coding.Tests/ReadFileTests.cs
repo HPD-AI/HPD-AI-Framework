@@ -302,16 +302,16 @@ public sealed class ReadFileTests : IDisposable
     {
         string cwd = Path.GetFullPath(
             defaultRoot ?? Directory.GetCurrentDirectory());
-        var roots = new List<AgentWorkspaceRoot>
+        var roots = new List<CodingWorkspaceRoot>
         {
-            new("default", cwd, AgentWorkspaceAccess.ReadWrite),
+            new("default", cwd, CodingWorkspaceAccess.ReadWrite),
         };
         if (docsRoot is not null)
         {
-            roots.Add(new AgentWorkspaceRoot(
+            roots.Add(new CodingWorkspaceRoot(
                 "docs",
                 Path.GetFullPath(docsRoot),
-                AgentWorkspaceAccess.ReadWrite,
+                CodingWorkspaceAccess.ReadWrite,
                 "Docs"));
         }
         return new AgentRunConfig
@@ -320,7 +320,7 @@ public sealed class ReadFileTests : IDisposable
             {
                 Properties = new Dictionary<string, object>
                 {
-                    [AgentWorkspace.ContextKey] = new AgentWorkspace(
+                    [CodingWorkspace.ContextKey] = new CodingWorkspace(
                         "default",
                         cwd,
                         roots),

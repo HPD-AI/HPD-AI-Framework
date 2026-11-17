@@ -1,11 +1,11 @@
 {
-  "TypeCount": 1564,
-  "MethodCount": 6068,
-  "ConstructorCount": 1019,
-  "PropertyCount": 5417,
+  "TypeCount": 1568,
+  "MethodCount": 6079,
+  "ConstructorCount": 1021,
+  "PropertyCount": 5427,
   "FieldCount": 1169,
   "EventCount": 1,
-  "Fingerprint": "350f405e51e92666e10e77a8b71c1895530f076f463165296e7dd531e1c88267",
+  "Fingerprint": "c5be3cecf3b988be82372582d0c337929bc50df9f47c5f7a1ec9c6220cc8127f",
   "Types": [
     {
       "FullName": "AIDescriptionAttribute",
@@ -1499,6 +1499,19 @@
         "System.String[]System.String AgentName { get; init; }",
         "System.String[]System.String DecisionType { get; init; }"
       ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.AgentDefinitionRevision",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [
+        "System.String[]System.String[]static System.String Compute(System.String[]HPD.Agent.StoredAgent agent)"
+      ],
+      "Properties": [],
       "Fields": [],
       "Events": []
     },
@@ -3507,6 +3520,23 @@
         "System.String[]HPD.Agent.AgentRemoteOperationShutdownPolicy RemoteOperations { get; init; }",
         "System.String[]System.TimeSpan CancellationDrainTimeout { get; init; }",
         "System.String[]System.TimeSpan GracefulDrainTimeout { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
+      "FullName": "HPD.Agent.AgentStoreConcurrencyException",
+      "Attributes": [],
+      "BaseType": "System.InvalidOperationException",
+      "Interfaces": [
+        "System.Runtime.Serialization.ISerializable"
+      ],
+      "Constructors": [
+        "System.String[].ctor(System.String[]System.String agentId)"
+      ],
+      "Methods": [],
+      "Properties": [
+        "System.String[]System.String AgentId { get; }"
       ],
       "Fields": [],
       "Events": []
@@ -16658,6 +16688,19 @@
       "Events": []
     },
     {
+      "FullName": "HPD.Agent.IAgentStoreConditional",
+      "Attributes": [],
+      "BaseType": null,
+      "Interfaces": [],
+      "Constructors": [],
+      "Methods": [
+        "System.String[]System.String[]abstract System.Threading.Tasks.Task\u003CSystem.Boolean\u003E SaveIfUnchangedAsync(System.String[]HPD.Agent.StoredAgent agent,System.String[]HPD.Agent.StoredAgent expected,System.String[]System.Threading.CancellationToken ct = null)"
+      ],
+      "Properties": [],
+      "Fields": [],
+      "Events": []
+    },
+    {
       "FullName": "HPD.Agent.ICapabilitySourceRevisionOwner",
       "Attributes": [],
       "BaseType": null,
@@ -17216,7 +17259,8 @@
       "Attributes": [],
       "BaseType": "System.Object",
       "Interfaces": [
-        "HPD.Agent.IAgentStore"
+        "HPD.Agent.IAgentStore",
+        "HPD.Agent.IAgentStoreConditional"
       ],
       "Constructors": [
         "System.String[].ctor()"
@@ -17225,6 +17269,7 @@
         "System.String[]System.String[]System.Threading.Tasks.Task DeleteAsync(System.String[]System.String agentId,System.String[]System.Threading.CancellationToken ct = null)",
         "System.String[]System.String[]System.Threading.Tasks.Task SaveAsync(System.String[]HPD.Agent.StoredAgent agent,System.String[]System.Threading.CancellationToken ct = null)",
         "System.String[]System.String[]System.Threading.Tasks.Task\u003CHPD.Agent.StoredAgent\u003E LoadAsync(System.String[]System.String agentId,System.String[]System.Threading.CancellationToken ct = null)",
+        "System.String[]System.String[]System.Threading.Tasks.Task\u003CSystem.Boolean\u003E SaveIfUnchangedAsync(System.String[]HPD.Agent.StoredAgent agent,System.String[]HPD.Agent.StoredAgent expected,System.String[]System.Threading.CancellationToken ct = null)",
         "System.String[]System.String[]System.Threading.Tasks.Task\u003CSystem.Collections.Generic.List\u003CSystem.String\u003E\u003E ListIdsAsync(System.String[]System.Threading.CancellationToken ct = null)"
       ],
       "Properties": [],
@@ -17561,7 +17606,8 @@
       "Attributes": [],
       "BaseType": "System.Object",
       "Interfaces": [
-        "HPD.Agent.IAgentStore"
+        "HPD.Agent.IAgentStore",
+        "HPD.Agent.IAgentStoreConditional"
       ],
       "Constructors": [
         "System.String[].ctor(System.String[]System.String basePath)"
@@ -17570,6 +17616,7 @@
         "System.String[]System.String[]System.Threading.Tasks.Task DeleteAsync(System.String[]System.String agentId,System.String[]System.Threading.CancellationToken ct = null)",
         "System.String[]System.String[]System.Threading.Tasks.Task SaveAsync(System.String[]HPD.Agent.StoredAgent agent,System.String[]System.Threading.CancellationToken ct = null)",
         "System.String[]System.String[]System.Threading.Tasks.Task\u003CHPD.Agent.StoredAgent\u003E LoadAsync(System.String[]System.String agentId,System.String[]System.Threading.CancellationToken ct = null)",
+        "System.String[]System.String[]System.Threading.Tasks.Task\u003CSystem.Boolean\u003E SaveIfUnchangedAsync(System.String[]HPD.Agent.StoredAgent agent,System.String[]HPD.Agent.StoredAgent expected,System.String[]System.Threading.CancellationToken ct = null)",
         "System.String[]System.String[]System.Threading.Tasks.Task\u003CSystem.Collections.Generic.List\u003CSystem.String\u003E\u003E ListIdsAsync(System.String[]System.Threading.CancellationToken ct = null)"
       ],
       "Properties": [
@@ -37351,6 +37398,37 @@
       "Events": []
     },
     {
+      "FullName": "HPD.Agent.Validation.AgentConfigValidationLimits",
+      "Attributes": [],
+      "BaseType": "System.Object",
+      "Interfaces": [
+        "System.IEquatable\u003CHPD.Agent.Validation.AgentConfigValidationLimits\u003E"
+      ],
+      "Constructors": [
+        "System.String[].ctor()"
+      ],
+      "Methods": [
+        "System.String[]System.String[]HPD.Agent.Validation.AgentConfigValidationLimits \u003CClone\u003E$()",
+        "System.String[]System.String[]System.Boolean Equals(System.String[]HPD.Agent.Validation.AgentConfigValidationLimits? other)",
+        "System.String[]System.String[]override System.Boolean Equals(System.String[]System.Object? obj)",
+        "System.String[]System.String[]override System.Int32 GetHashCode()",
+        "System.String[]System.String[]override System.String ToString()"
+      ],
+      "Properties": [
+        "System.String[]System.Nullable\u003CSystem.Int32\u003E? MaximumAgentNameLength { get; init; }",
+        "System.String[]System.Nullable\u003CSystem.Int32\u003E? MaximumAgenticIterations { get; init; }",
+        "System.String[]System.Nullable\u003CSystem.Int32\u003E? MaximumAudioComponentInstanceLength { get; init; }",
+        "System.String[]System.Nullable\u003CSystem.Int32\u003E? MaximumAudioSchemaLength { get; init; }",
+        "System.String[]System.Nullable\u003CSystem.Int32\u003E? MaximumConsecutiveCalls { get; init; }",
+        "System.String[]System.Nullable\u003CSystem.Int32\u003E? MaximumConsecutiveErrors { get; init; }",
+        "System.String[]System.Nullable\u003CSystem.Int32\u003E? MaximumExtensionNameLength { get; init; }",
+        "System.String[]System.Nullable\u003CSystem.Int32\u003E? MaximumRetries { get; init; }",
+        "System.String[]System.Nullable\u003CSystem.Int32\u003E? MaximumTotalErrors { get; init; }"
+      ],
+      "Fields": [],
+      "Events": []
+    },
+    {
       "FullName": "HPD.Agent.Validation.AgentConfigValidator",
       "Attributes": [],
       "BaseType": "System.Object",
@@ -37358,7 +37436,9 @@
       "Constructors": [],
       "Methods": [
         "System.String[]System.String[]static System.Collections.Generic.List\u003CSystem.String\u003E Validate(System.String[]HPD.Agent.AgentConfig config)",
-        "System.String[]System.String[]static System.Void ValidateAndThrow(System.String[]HPD.Agent.AgentConfig config)"
+        "System.String[]System.String[]static System.Collections.Generic.List\u003CSystem.String\u003E Validate(System.String[]HPD.Agent.AgentConfig config,System.String[]HPD.Agent.Validation.AgentConfigValidationLimits? hostLimits)",
+        "System.String[]System.String[]static System.Void ValidateAndThrow(System.String[]HPD.Agent.AgentConfig config)",
+        "System.String[]System.String[]static System.Void ValidateAndThrow(System.String[]HPD.Agent.AgentConfig config,System.String[]HPD.Agent.Validation.AgentConfigValidationLimits? hostLimits)"
       ],
       "Properties": [],
       "Fields": [],

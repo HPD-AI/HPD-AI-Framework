@@ -23,6 +23,7 @@ public class JsonAgentStore : IAgentStore
         StorePersistenceCapability.RestartDurable;
 
     private readonly string _basePath;
+    private readonly SemaphoreSlim _gate = new(1, 1);
 
     public JsonAgentStore(string basePath)
     {
@@ -84,6 +85,43 @@ public class JsonAgentStore : IAgentStore
 
     public async Task SaveAsync(StoredAgent agent, CancellationToken ct = default)
     {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await using FileStream storeLock = await AcquireStoreLockAsync(ct).ConfigureAwait(false);
+            await SaveCoreAsync(agent, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<bool> SaveIfUnchangedAsync(
+        StoredAgent agent, StoredAgent expected, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(agent);
+        ArgumentNullException.ThrowIfNull(expected);
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await using FileStream storeLock = await AcquireStoreLockAsync(ct).ConfigureAwait(false);
+            StoredAgent? current = await LoadAsync(agent.Id, ct).ConfigureAwait(false);
+            if (current is null || !StringComparer.Ordinal.Equals(
+                    AgentDefinitionRevision.Compute(current),
+                    AgentDefinitionRevision.Compute(expected)))
+                return false;
+            await SaveCoreAsync(agent, ct).ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async Task SaveCoreAsync(StoredAgent agent, CancellationToken ct)
+    {
         ArgumentNullException.ThrowIfNull(agent);
         ArgumentException.ThrowIfNullOrWhiteSpace(agent.Id);
         var path = GetAgentFilePath(agent.Id);
@@ -102,13 +140,20 @@ public class JsonAgentStore : IAgentStore
         }
     }
 
-    public Task DeleteAsync(string agentId, CancellationToken ct = default)
+    public async Task DeleteAsync(string agentId, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
-        ct.ThrowIfCancellationRequested();
-        if (Directory.Exists(_basePath))
-            File.Delete(GetAgentFilePath(agentId));
-        return Task.CompletedTask;
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await using FileStream storeLock = await AcquireStoreLockAsync(ct).ConfigureAwait(false);
+            if (Directory.Exists(_basePath))
+                File.Delete(GetAgentFilePath(agentId));
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     public async Task<List<string>> ListIdsAsync(CancellationToken ct = default)
@@ -162,6 +207,25 @@ public class JsonAgentStore : IAgentStore
 
     private string GetAgentFilePath(string agentId) =>
         Path.Combine(_basePath, GetAgentFileName(agentId));
+
+    private async Task<FileStream> AcquireStoreLockAsync(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        Directory.CreateDirectory(_basePath);
+        var path = Path.Combine(_basePath, ".agent-store.lock");
+        for (int attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite,
+                    FileShare.None, bufferSize: 1, useAsync: true);
+            }
+            catch (IOException) when (attempt < 100)
+            {
+                await Task.Delay(10, ct).ConfigureAwait(false);
+            }
+        }
+    }
 
     private static string GetAgentFileName(string agentId) =>
         $"agent_{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(agentId))).ToLowerInvariant()}.json";

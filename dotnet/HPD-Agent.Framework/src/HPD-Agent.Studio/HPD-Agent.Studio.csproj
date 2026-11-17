@@ -21,10 +21,22 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\HPD-AI.Platform\HPD-AI.Platform.csproj" />
+    <ProjectReference Include="..\..\..\HPD-Base.Framework\src\HPD.Base\HPD.Base.csproj" />
+    <ProjectReference Include="..\HPD-Agent.Hosting\HPD-Agent.Hosting.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <None Include="$(StudioAgentModuleRoot)**\*" Exclude="$(StudioAgentModuleRoot)node_modules\**\*;$(StudioAgentModuleRoot)dist\**\*" Pack="true" PackagePath="clientapp-modules\hpd-agent-studio\%(RecursiveDir)%(Filename)%(Extension)" />
+    <EmbeddedResource Include="$(StudioAgentModuleRoot)dist\agent.js" LogicalName="HPD.Agent.Studio.Assets.agent.js" />
+    <None Include="$(StudioAgentModuleRoot)dist\agent.js" Pack="true" PackagePath="studio-assets\agent\db403d8fb72955ac2f5b58787ad4c85ae238708c7cfafc95200a610e110741cc.js" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD-Agent.Studio.Tests" />
   </ItemGroup>
 
 </Project>

@@ -515,7 +515,7 @@ public sealed class LanguageServerService : ILanguageServerService
         if (_workspace is not null)
         {
             WorkspacePath logical =
-                CodingWorkspaceAccess.Resolve(
+                CodingWorkspacePathAccess.Resolve(
                     _workspace,
                     path);
             return _workspace.Paths
@@ -568,7 +568,7 @@ public sealed class LanguageServerService : ILanguageServerService
                 continue;
 
             WorkspacePath folder =
-                CodingWorkspaceAccess.Resolve(
+                CodingWorkspacePathAccess.Resolve(
                     workspace,
                     workspaceFolder);
             if (folder.RootId.Equals(logicalPath.RootId) &&

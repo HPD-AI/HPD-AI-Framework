@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "vite build",
+    "build": "npm run design:check && vite build",
+    "design:check": "npm --prefix ../packages/hpd-studio-design run check",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "typecheck": "svelte-check --tsgo --tsconfig ./tsconfig.json",

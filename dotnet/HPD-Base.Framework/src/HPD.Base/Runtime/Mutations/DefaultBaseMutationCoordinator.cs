@@ -391,7 +391,8 @@ internal sealed class DefaultBaseMutationCoordinator(
                 items[index] = SkippedItem(commands[index]);
         }
 
-        return BatchResult(BaseRecordBatchOutcome.RolledBack, items);
+        return BatchResult(BaseRecordBatchOutcome.RolledBack, items,
+            items.Select(static item => item.Error).FirstOrDefault(static error => error is not null));
     }
 
     private async ValueTask<OperationResult<BaseRecordBatchResult>> ExecuteOrderedBatchAsync(

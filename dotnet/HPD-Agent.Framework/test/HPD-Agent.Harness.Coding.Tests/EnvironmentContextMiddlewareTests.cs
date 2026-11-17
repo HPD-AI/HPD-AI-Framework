@@ -135,10 +135,10 @@ public sealed class EnvironmentContextMiddlewareTests
             PathSeparator = ":",
             TempDirectory = "/tmp/"
         };
-        var workspace = new AgentWorkspace(
+        var workspace = new CodingWorkspace(
             "default",
             "/tmp/selected-workspace",
-            [new AgentWorkspaceRoot("default", "/tmp/selected-workspace", AgentWorkspaceAccess.ReadWrite)]);
+            [new CodingWorkspaceRoot("default", "/tmp/selected-workspace", CodingWorkspaceAccess.ReadWrite)]);
 
         var xml = context.SerializeToXml(workspace);
 
@@ -241,10 +241,10 @@ public sealed class EnvironmentContextMiddlewareTests
                 {
                     Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>
                     {
-                        [AgentWorkspace.ContextKey] = new AgentWorkspace(
+                        [CodingWorkspace.ContextKey] = new CodingWorkspace(
                             "default",
                             selectedWorkspace,
-                            [new AgentWorkspaceRoot("default", selectedWorkspace, AgentWorkspaceAccess.ReadWrite)])
+                            [new CodingWorkspaceRoot("default", selectedWorkspace, CodingWorkspaceAccess.ReadWrite)])
                     } }
                 });
 

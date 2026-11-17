@@ -10,11 +10,11 @@ internal static class CodingHarnessPathResolution
 {
     public static bool UsesWorkspace(FunctionExecutionContext? context)
         => context?.RunConfig.Context?.Properties?.ContainsKey(
-            AgentWorkspace.ContextKey) == true;
+            CodingWorkspace.ContextKey) == true;
 
     public static string BaseDirectory(FunctionExecutionContext? context)
         => UsesWorkspace(context)
-            ? AgentWorkspace.From(context!.RunConfig).DefaultRootPath
+            ? CodingWorkspace.From(context!.RunConfig).DefaultRootPath
             : Directory.GetCurrentDirectory();
 
     public static string ResolvePath(
@@ -24,7 +24,7 @@ internal static class CodingHarnessPathResolution
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         var trimmed = path.Trim();
         return UsesWorkspace(context)
-            ? AgentWorkspace.From(context!.RunConfig)
+            ? CodingWorkspace.From(context!.RunConfig)
                 .CanonicalizeExplicitPath(trimmed)
             : Path.GetFullPath(trimmed, Directory.GetCurrentDirectory());
     }

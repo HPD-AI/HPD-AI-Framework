@@ -40,10 +40,23 @@ export interface StudioPageProps {
 
 export type StudioPageComponent = Component<StudioPageProps>;
 
+export interface StudioPageMountHandle {
+  update(props: StudioPageProps): void;
+  destroy(): void;
+}
+
+export interface StudioPageMountContext {
+  readonly target: HTMLElement;
+  readonly props: StudioPageProps;
+}
+
+export type StudioPageMounter = (context: StudioPageMountContext) => StudioPageMountHandle;
+
 export interface StudioPageComponentBinding {
   readonly componentExportId: string;
   readonly componentAbiChecksum: StudioSha256;
   readonly component: StudioPageComponent;
+  readonly mount?: StudioPageMounter;
 }
 
 export interface StudioClientBinding {
@@ -70,7 +83,7 @@ export interface StudioFrameworkClientTransportRequest { readonly operation: str
   readonly headers: Readonly<Record<string, string>>; readonly body: string | undefined; readonly maximumResponseBytes: number;
   readonly purpose: 'observation' | 'commandPreview' | 'commandExecution' | 'receiptResolution' | 'artifactStaging';
   readonly deadlineMilliseconds: number; readonly signal: AbortSignal; }
-export interface StudioFrameworkClientHostContext { readonly endpointSurfaceId: string; readonly principalGeneration: bigint;
+export interface StudioFrameworkClientHostContext { readonly endpointSurfaceId: string; readonly applicationId: string; readonly principalGeneration: bigint;
   readonly authenticationSessionChecksum: StudioSha256; readonly signal: AbortSignal;
   readonly transport: Readonly<{ execute(request: StudioFrameworkClientTransportRequest): Promise<Response> }>;
   readonly limits: Readonly<{ maximumOperations: number; maximumRequestBytes: number; maximumResponseBytes: number;
@@ -105,14 +118,20 @@ export interface StudioModuleLifecycle {
   defer(dispose: () => void | Promise<void>): void;
 }
 
+export interface StudioModuleRealtimeHandle {
+  subscribe(methodId: string, request: unknown, signal?: AbortSignal): AsyncIterable<unknown>;
+}
+
 export interface StudioModuleActivationContext {
   readonly moduleId: string;
   readonly moduleVersion: number;
+  readonly applicationId: string;
   readonly frontendAbiChecksum: StudioSha256;
   readonly disclosedPageIds: readonly StudioPageId[];
   readonly clients: ReadonlyMap<StudioClientId, StudioClientBinding>;
   readonly navigation: StudioNavigationHandle;
   readonly lifecycle: StudioModuleLifecycle;
+  readonly realtime?: StudioModuleRealtimeHandle;
 }
 
 export interface StudioModuleActivation {
@@ -166,14 +185,18 @@ export function defineStudioModuleDescriptor(value: StudioModuleDescriptor): Stu
   if (!isCanonical(clientSlots.map((slot) => `${slot.clientId}\0${slot.version}`)))
     throw new TypeError('Studio client slots are not canonical.');
   const entries = Object.entries(value.pageComponents);
-  for (const [, binding] of entries) exactKeys(binding, ['componentExportId', 'componentAbiChecksum', 'component']);
+  for (const [, binding] of entries) exactKeys(binding, binding.mount === undefined
+    ? ['componentExportId', 'componentAbiChecksum', 'component']
+    : ['componentExportId', 'componentAbiChecksum', 'component', 'mount']);
   if (entries.length < 1 || entries.length > 64 || !isCanonical(entries.map(([id]) => id)) ||
       entries.some(([id, binding]) => !ID.test(id) || !binding || !ID.test(binding.componentExportId) ||
-        !SHA256.test(binding.componentAbiChecksum) || !binding.component))
+        !SHA256.test(binding.componentAbiChecksum) || !binding.component ||
+        binding.mount !== undefined && typeof binding.mount !== 'function'))
     throw new TypeError('Studio page components are invalid.');
   const components = Object.freeze(Object.fromEntries(entries.map(([id, binding]) =>
     [id, Object.freeze({ componentExportId: binding.componentExportId,
-      componentAbiChecksum: studioSha256(binding.componentAbiChecksum), component: binding.component })]))) as
+      componentAbiChecksum: studioSha256(binding.componentAbiChecksum), component: binding.component,
+      ...(binding.mount === undefined ? {} : { mount: binding.mount } ) })]))) as
       Readonly<Record<StudioPageId, StudioPageComponentBinding>>;
   const expected = computeStudioFrontendAbiChecksum(value.moduleId, value.moduleVersion, clientSlots, components);
   if (expected !== value.frontendAbiChecksum) throw new TypeError('Studio frontend ABI checksum is invalid.');

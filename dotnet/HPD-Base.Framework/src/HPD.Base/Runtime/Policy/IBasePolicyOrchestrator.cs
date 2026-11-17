@@ -19,12 +19,12 @@ public interface IBasePolicyOrchestrator
 
     /// <summary>Evaluates one graph-owned Studio boundary.</summary>
     ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateStudioAsync(
-        BaseStudioPolicyRequest request,
+        StudioPolicyRequest request,
         CancellationToken cancellationToken = default);
 }
 
 /// <summary>Defines one Studio policy request without fabricating record authority.</summary>
-public sealed record BaseStudioPolicyRequest
+public sealed record StudioPolicyRequest
 {
     /// <summary>Gets the authenticated BASE principal.</summary>
     public required PrincipalContext Principal { get; init; }

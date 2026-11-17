@@ -10,12 +10,12 @@ public sealed class GatewayStudioHostingTests
     [Fact]
     public void Edition_contribution_is_content_addressed_and_optional()
     {
-        BaseStudioEditionModuleAssetContribution contribution =
+        StudioEditionModuleAssetContribution contribution =
             GatewayStudioModuleRegistry.CreateEditionAssetContribution();
 
         contribution.ModuleId.Should().Be("gateway");
         contribution.ModuleVersion.Should().Be(1);
-        contribution.Asset.Necessity.Should().Be(BaseStudioModuleNecessity.Optional);
+        contribution.Asset.Necessity.Should().Be(StudioModuleNecessity.Optional);
         contribution.Asset.EntryModulePath.Should().MatchRegex(
             "^gateway/[0-9a-f]{64}\\.js$");
         contribution.Asset.Assets.Should().ContainSingle();
@@ -27,21 +27,21 @@ public sealed class GatewayStudioHostingTests
     [Fact]
     public void Frontend_asset_matches_the_exact_gateway_client_slot()
     {
-        BaseStudioEditionModuleAssetContribution contribution =
+        StudioEditionModuleAssetContribution contribution =
             GatewayStudioModuleRegistry.CreateEditionAssetContribution();
 
         contribution.Asset.EntryExportName.Should().Be("activateStudioModule");
         contribution.Asset.GetType().Should().NotBeNull();
-        contribution.Asset.ShellContractChecksum.Should().Be(BaseStudioShellContract.Current.Checksum);
+        contribution.Asset.ShellContractChecksum.Should().Be(StudioShellContract.Current.Checksum);
     }
 
     [Fact]
     public void Registration_binds_the_generated_gateway_contract_and_shell_transport()
     {
         string[] pages = ["gateway.configure", "gateway.diagnose", "gateway.operate", "gateway.overview"];
-        BaseStudioFrameworkClientRegistration client = GatewayStudioModuleRegistry.CreateClientRegistration(pages);
-        client.Protocol.Should().Be(BaseStudioFrameworkClientProtocol.FrameworkGeneratedContractV1);
-        client.TransportClass.Should().Be(BaseStudioFrameworkClientTransportClass.SameOriginShellAuthenticated);
+        StudioFrameworkClientRegistration client = GatewayStudioModuleRegistry.CreateClientRegistration(pages);
+        client.Protocol.Should().Be(StudioFrameworkClientProtocol.FrameworkGeneratedContractV1);
+        client.TransportClass.Should().Be(StudioFrameworkClientTransportClass.SameOriginShellAuthenticated);
         client.EndpointSurfaceId.Should().Be("gateway.admin.v1");
         client.Limits.MaximumOperations.Should().Be(23);
         client.OwningPageIds.Should().Equal(pages);

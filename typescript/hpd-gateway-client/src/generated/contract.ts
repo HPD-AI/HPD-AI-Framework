@@ -326,7 +326,7 @@ export const gatewayOperations = [
     "mutationResponse": "none",
     "success": {
       "status": 200,
-      "schemaRef": "#/components/schemas/HPD_Gateway_Admin_GatewayAdminPage_1__HPD_Gateway_Admin_GatewayAuditProjection__HPD_Gateway_Admin__Version_0_6_0_0__Culture_neutral__PublicKeyToken_null__",
+      "schemaRef": "#/components/schemas/HPD_Gateway_Admin_GatewayAdminPage_1__HPD_Gateway_Admin_GatewayAuditProjection__",
       "meaning": "completed-read"
     },
     "documentedErrors": [
@@ -1750,7 +1750,7 @@ export const gatewayOperations = [
     "mutationResponse": "none",
     "success": {
       "status": 200,
-      "schemaRef": "#/components/schemas/HPD_Gateway_Admin_GatewayAdminPage_1__HPD_Gateway_Admin_GatewayRevisionProjection__HPD_Gateway_Admin__Version_0_6_0_0__Culture_neutral__PublicKeyToken_null__",
+      "schemaRef": "#/components/schemas/HPD_Gateway_Admin_GatewayAdminPage_1__HPD_Gateway_Admin_GatewayRevisionProjection__",
       "meaning": "completed-read"
     },
     "documentedErrors": [

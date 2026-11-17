@@ -1,10 +1,63 @@
+using System.Text.Json.Serialization;
+
 namespace HPD.Gateway.ControlPlane;
 
 public enum GatewayAuthorityDurability { ProcessLocal, RestartDurable }
-public enum GatewayValidationOutcome { Valid, Invalid, DependencyUnavailable, Canceled, InternalFailure }
-internal enum GatewayDeliveryState { Immediate, Claimed, RetryScheduled, OutcomePersistencePending, Completed, TerminalFailure }
-public enum GatewayNodeOutcomeKind { ActiveAcknowledged, RejectedBeforePublish, CanceledBeforePublish, PublicationIndeterminate, Superseded, Stale, Conflict }
-public enum GatewayAdministrativeOperationKind { Purge, Backup }
-public enum GatewayAdministrativeObservationKind { Succeeded, Failed, Indeterminate }
-public enum GatewayAdministrativeCompletionState { Completed, Failed, ExecutionSucceededCompletionPending, IndeterminatePending }
-internal enum GatewayAdministrativeExecutionPhase { Unclaimed, ClaimedPreBoundary, BoundaryCrossed, Observed }
+public enum GatewayValidationOutcome
+{
+    [JsonStringEnumMemberName("valid")] Valid,
+    [JsonStringEnumMemberName("invalid")] Invalid,
+    [JsonStringEnumMemberName("dependencyUnavailable")] DependencyUnavailable,
+    [JsonStringEnumMemberName("canceled")] Canceled,
+    [JsonStringEnumMemberName("internalFailure")] InternalFailure,
+}
+
+internal enum GatewayDeliveryState
+{
+    [JsonStringEnumMemberName("immediate")] Immediate,
+    [JsonStringEnumMemberName("claimed")] Claimed,
+    [JsonStringEnumMemberName("retryScheduled")] RetryScheduled,
+    [JsonStringEnumMemberName("outcomePersistencePending")] OutcomePersistencePending,
+    [JsonStringEnumMemberName("completed")] Completed,
+    [JsonStringEnumMemberName("terminalFailure")] TerminalFailure,
+}
+
+public enum GatewayNodeOutcomeKind
+{
+    [JsonStringEnumMemberName("activeAcknowledged")] ActiveAcknowledged,
+    [JsonStringEnumMemberName("rejectedBeforePublish")] RejectedBeforePublish,
+    [JsonStringEnumMemberName("canceledBeforePublish")] CanceledBeforePublish,
+    [JsonStringEnumMemberName("publicationIndeterminate")] PublicationIndeterminate,
+    [JsonStringEnumMemberName("superseded")] Superseded,
+    [JsonStringEnumMemberName("stale")] Stale,
+    [JsonStringEnumMemberName("conflict")] Conflict,
+}
+
+public enum GatewayAdministrativeOperationKind
+{
+    [JsonStringEnumMemberName("purge")] Purge,
+    [JsonStringEnumMemberName("backup")] Backup,
+}
+
+public enum GatewayAdministrativeObservationKind
+{
+    [JsonStringEnumMemberName("succeeded")] Succeeded,
+    [JsonStringEnumMemberName("failed")] Failed,
+    [JsonStringEnumMemberName("indeterminate")] Indeterminate,
+}
+
+public enum GatewayAdministrativeCompletionState
+{
+    [JsonStringEnumMemberName("completed")] Completed,
+    [JsonStringEnumMemberName("failed")] Failed,
+    [JsonStringEnumMemberName("executionSucceededCompletionPending")] ExecutionSucceededCompletionPending,
+    [JsonStringEnumMemberName("indeterminatePending")] IndeterminatePending,
+}
+
+internal enum GatewayAdministrativeExecutionPhase
+{
+    [JsonStringEnumMemberName("unclaimed")] Unclaimed,
+    [JsonStringEnumMemberName("claimedPreBoundary")] ClaimedPreBoundary,
+    [JsonStringEnumMemberName("boundaryCrossed")] BoundaryCrossed,
+    [JsonStringEnumMemberName("observed")] Observed,
+}

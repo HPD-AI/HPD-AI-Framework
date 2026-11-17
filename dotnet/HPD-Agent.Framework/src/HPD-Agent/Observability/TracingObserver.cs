@@ -44,6 +44,7 @@ public sealed class TracingObserver : IDisposable
     // Per-iteration: the iteration activity, looked up by iterSpanId so tool
     // call spans can parent themselves correctly.
     private readonly ConcurrentDictionary<string, Activity> _iterActivities = new();
+    private readonly ConcurrentDictionary<string, Activity> _subAgentActivities = new();
     private readonly SpanPayloadSanitizer _sanitizer;
 
     public TracingObserver(string sourceName = "HPD.Agent", SpanSanitizerOptions? sanitizerOptions = null)
@@ -93,7 +94,35 @@ public sealed class TracingObserver : IDisposable
                 OnToolCallResult(e);
                 break;
 
+            // ── Durable subagent span ─────────────────────────────────────────
+
+            case SubAgentInvocationStartedEvent e:
+                OnSubAgentStarted(e);
+                break;
+
+            case SubAgentInvocationCompletedEvent e:
+                OnSubAgentFinished(e.InvocationId, e.Summary, "completed", null);
+                break;
+
+            case SubAgentInvocationFailedEvent e:
+                OnSubAgentFinished(
+                    e.InvocationId, e.Message, "failed", e.ErrorType);
+                break;
+
+            case SubAgentInvocationCancelledEvent e:
+                OnSubAgentFinished(
+                    e.InvocationId, e.Reason, "cancelled", "OperationCanceledException");
+                break;
+
             // ── Events on the current iteration span ──────────────────────────
+
+            case FunctionInvocationAuditedEvent e:
+                OnFunctionInvocationAudited(e);
+                break;
+
+            case ProviderOperationUsageEvent e:
+                AddProviderUsageEvent(e);
+                break;
 
             case AgentDecisionEvent e:
                 AddEventToIteration(e.TraceId!, "agent.decision",
@@ -155,6 +184,12 @@ public sealed class TracingObserver : IDisposable
         activity.SetTag("agent.conversation_id", e.ConversationId);
         activity.SetTag("agent.message_turn_id", e.MessageTurnId);
         activity.SetTag("hpd.trace_id", e.TraceId);  // our ID, for cross-referencing events
+        if (e.SpanId is not null)
+            activity.SetTag("hpd.span_id", e.SpanId);
+        if (e.SessionId is not null)
+            activity.SetTag("hpd.session_id", e.SessionId);
+        if (e.ThreadId is not null)
+            activity.SetTag("hpd.thread_id", e.ThreadId);
 
         _turnActivities[e.TraceId!] = activity;
         if (e.SpanId is not null)
@@ -164,6 +199,17 @@ public sealed class TracingObserver : IDisposable
     private void OnTurnFinished(MessageTurnFinishedEvent e)
     {
         if (e.TraceId is null) return;
+
+        foreach (var subAgent in _subAgentActivities
+                     .Where(value =>
+                         StringComparer.Ordinal.Equals(
+                             value.Value.GetTagItem("hpd.trace_id") as string, e.TraceId))
+                     .ToArray())
+        {
+            OnSubAgentFinished(
+                subAgent.Key, "Parent turn finished before subagent terminal evidence.",
+                "cancelled", "ParentTurnFinished");
+        }
 
         if (_turnActivities.TryRemove(e.TraceId, out var activity))
         {
@@ -192,6 +238,13 @@ public sealed class TracingObserver : IDisposable
 
         activity.SetTag("agent.iteration", e.Iteration);
         activity.SetTag("hpd.trace_id", e.TraceId);
+        activity.SetTag("hpd.span_id", e.SpanId);
+        if (e.ParentSpanId is not null)
+            activity.SetTag("hpd.parent_span_id", e.ParentSpanId);
+        if (e.SessionId is not null)
+            activity.SetTag("hpd.session_id", e.SessionId);
+        if (e.ThreadId is not null)
+            activity.SetTag("hpd.thread_id", e.ThreadId);
 
         _iterActivities[e.SpanId] = activity;
         _openSpans[e.SpanId] = activity;
@@ -202,7 +255,28 @@ public sealed class TracingObserver : IDisposable
         if (e.SpanId is null) return;
 
         if (_iterActivities.TryRemove(e.SpanId, out var activity))
+        {
+            if (e.ProviderKey is { Length: > 0 } provider)
+                activity.SetTag("model.provider", provider);
+            if (e.ModelId is { Length: > 0 } model)
+                activity.SetTag("model.id", model);
+            activity.SetTag("model.operation_id", e.OperationId);
+            activity.SetTag("model.attempt", e.Attempt);
+            activity.SetTag("model.outcome", e.Outcome.ToString());
+            if (e.Usage is { } usage)
+            {
+                if (usage.InputTokenCount is { } input)
+                    activity.SetTag("model.usage.input_tokens", input);
+                if (usage.OutputTokenCount is { } output)
+                    activity.SetTag("model.usage.output_tokens", output);
+                if (usage.TotalTokenCount is { } total)
+                    activity.SetTag("model.usage.total_tokens", total);
+            }
+            activity.SetStatus(e.Outcome == ProviderOperationOutcome.Succeeded
+                ? ActivityStatusCode.Ok
+                : ActivityStatusCode.Error);
             activity.Stop();
+        }
 
         _openSpans.TryRemove(e.SpanId, out _);
     }
@@ -232,12 +306,89 @@ public sealed class TracingObserver : IDisposable
         if (activity is null) return;
 
         activity.SetTag("tool.name", e.Name);
+        activity.SetTag("function.name", e.Name);
         activity.SetTag("tool.call_id", e.CallId);
         activity.SetTag("tool.toolharness", e.ToolHarnessName ?? "");
+        if (e.ToolHarnessName is { Length: > 0 } harness)
+            activity.SetTag("function.toolharness", harness);
+        if (e.CallType is { } callType)
+            activity.SetTag("tool.call_type", callType.ToString());
         activity.SetTag("hpd.trace_id", e.TraceId);
+        activity.SetTag("hpd.span_id", e.SpanId);
+        if (e.ParentSpanId is not null)
+            activity.SetTag("hpd.parent_span_id", e.ParentSpanId);
+        if (e.SessionId is not null)
+            activity.SetTag("hpd.session_id", e.SessionId);
+        if (e.ThreadId is not null)
+            activity.SetTag("hpd.thread_id", e.ThreadId);
 
         // Key by CallId so ToolCallEndEvent (which has CallId, not SpanId) can close it.
         _openSpans[e.CallId] = activity;
+    }
+
+    private void OnFunctionInvocationAudited(FunctionInvocationAuditedEvent e)
+    {
+        if (!_openSpans.TryGetValue(e.Invocation.FunctionCallId, out Activity? activity))
+            return;
+        if (e.Invocation.Action is { Length: > 0 } action)
+            activity.SetTag("function.action", action);
+        activity.SetTag("function.invocation_mode", e.Invocation.ResolvedMode.ToString());
+        if (e.Invocation.RequestedMode is { } requestedMode)
+            activity.SetTag("function.requested_mode", requestedMode.ToString());
+        activity.SetTag("function.invocation_policy", e.Invocation.Policy.ToString());
+        activity.SetTag("function.invocation_handling", e.Invocation.Handling.ToString());
+        activity.SetTag("function.argument_provenance", e.Invocation.IngressProvenance.ToString());
+        activity.AddEvent(new ActivityEvent("function.invocation.audited"));
+    }
+
+    private void OnSubAgentStarted(SubAgentInvocationStartedEvent e)
+    {
+        if (e.TraceId is null) return;
+        Activity? parent = null;
+        if (e.ParentToolCallId.Length > 0)
+            _openSpans.TryGetValue(e.ParentToolCallId, out parent);
+        parent ??= _turnActivities.GetValueOrDefault(e.TraceId);
+
+        Activity? activity = parent is null
+            ? _source.StartActivity("agent.subagent", ActivityKind.Internal)
+            : _source.StartActivity("agent.subagent", ActivityKind.Internal, parent.Context);
+        if (activity is null) return;
+
+        string spanId = Convert.ToHexString(
+            System.Security.Cryptography.RandomNumberGenerator.GetBytes(8)).ToLowerInvariant();
+        activity.SetTag("hpd.trace_id", e.TraceId);
+        activity.SetTag("hpd.span_id", spanId);
+        if (parent?.GetTagItem("hpd.span_id") is string parentSpanId)
+            activity.SetTag("hpd.parent_span_id", parentSpanId);
+        if (e.SessionId is not null)
+            activity.SetTag("hpd.session_id", e.SessionId);
+        if (e.ThreadId is not null)
+            activity.SetTag("hpd.thread_id", e.ThreadId);
+        activity.SetTag("subagent.invocation_id", e.InvocationId);
+        activity.SetTag("subagent.parent_tool_call_id", e.ParentToolCallId);
+        activity.SetTag("subagent.agent_id", e.ChildAgentId);
+        activity.SetTag("subagent.session_id", e.ChildSessionId);
+        activity.SetTag("subagent.thread_id", e.ChildThreadId);
+        activity.SetTag("subagent.role", e.RoleName);
+        activity.SetTag("subagent.context_policy", e.ContextPolicy.ToString());
+        activity.SetTag("subagent.invocation_mode", e.Mode.ToString());
+        _subAgentActivities[e.InvocationId] = activity;
+    }
+
+    private void OnSubAgentFinished(
+        string invocationId, string? summary, string status, string? errorType)
+    {
+        if (!_subAgentActivities.TryRemove(invocationId, out Activity? activity))
+            return;
+        activity.SetTag("subagent.status", status);
+        if (summary is { Length: > 0 })
+            activity.SetTag("subagent.summary", _sanitizer.Sanitize(summary));
+        if (errorType is { Length: > 0 })
+            activity.SetTag("subagent.error_type", errorType);
+        activity.SetStatus(status == "completed"
+            ? ActivityStatusCode.Ok
+            : ActivityStatusCode.Error);
+        activity.Stop();
     }
 
     private void OnToolCallEnded(ToolCallEndEvent e)
@@ -267,6 +418,29 @@ public sealed class TracingObserver : IDisposable
         }
     }
 
+    private void AddProviderUsageEvent(ProviderOperationUsageEvent e)
+    {
+        if (e.TraceId is null)
+            return;
+        Activity? activity = null;
+        if (e.SpanId is { Length: > 0 })
+            _iterActivities.TryGetValue(e.SpanId, out activity);
+        activity ??= _turnActivities.GetValueOrDefault(e.TraceId);
+        if (activity is null) return;
+        activity.AddEvent(new ActivityEvent("provider.operation.usage", tags: new ActivityTagsCollection
+        {
+            ["provider.operation.kind"] = e.OperationKind.ToString(),
+            ["provider.operation.outcome"] = e.Outcome.ToString(),
+            ["provider.operation.attempt"] = e.Attempt,
+            ["provider.operation.id"] = e.OperationId,
+            ["model.provider"] = e.ProviderKey ?? "",
+            ["model.id"] = e.ModelId ?? "",
+            ["model.usage.input_tokens"] = e.Usage?.InputTokenCount ?? 0,
+            ["model.usage.output_tokens"] = e.Usage?.OutputTokenCount ?? 0,
+            ["model.usage.total_tokens"] = e.Usage?.TotalTokenCount ?? 0
+        }));
+    }
+
     private static string FormatToolResult(ToolResultPayload result) =>
         result.Text ?? result.Json?.GetRawText() ?? string.Empty;
 
@@ -281,7 +455,7 @@ public sealed class TracingObserver : IDisposable
 
         activity.SetStatus(ActivityStatusCode.Error, sanitizedMessage);
         activity.SetTag("error.message", sanitizedMessage);
-            activity.SetTag("error.type", (e as IErrorEvent)?.Exception?.GetType().Name ?? "");
+        activity.SetTag("error.type", (e as IErrorEvent)?.Exception?.GetType().Name ?? "");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -317,6 +491,12 @@ public sealed class TracingObserver : IDisposable
             activity.Stop();
         }
         _openSpans.Clear();
+        foreach (var activity in _subAgentActivities.Values)
+        {
+            activity.SetStatus(ActivityStatusCode.Error, "Observer disposed before clean completion.");
+            activity.Stop();
+        }
+        _subAgentActivities.Clear();
         _turnActivities.Clear();
         _iterActivities.Clear();
         _source.Dispose();

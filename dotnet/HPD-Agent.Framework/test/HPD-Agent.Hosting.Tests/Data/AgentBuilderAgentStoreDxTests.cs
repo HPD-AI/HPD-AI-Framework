@@ -343,6 +343,12 @@ public class AgentBuilderAgentStoreDxTests
             await _inner.SaveAsync(agent, ct);
         }
 
+        public Task<bool> SaveIfUnchangedAsync(
+            StoredAgent agent,
+            StoredAgent expected,
+            CancellationToken ct = default) =>
+            _inner.SaveIfUnchangedAsync(agent, expected, ct);
+
         public Task DeleteAsync(string agentId, CancellationToken ct = default)
             => _inner.DeleteAsync(agentId, ct);
 

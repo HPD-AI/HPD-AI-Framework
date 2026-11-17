@@ -102,13 +102,12 @@ internal sealed class GatewayManagementCommandCoordinator(
     IGatewayAuthorityRuntime authority,
     IBaseSessionFactory sessions,
     HostCapabilitySnapshot gatewayCapabilities,
-    GatewayManagementRuntimeOptions options) : IGatewayManagementCommandCoordinator
+    GatewayManagementRuntimeOptions options,
+    GatewayManagementMutationGate mutationGate) : IGatewayManagementCommandCoordinator
 {
     private const string ContractVersion = "gateway.management.command.v1";
     private const string EpochReservationContractVersion = "gateway.management.epoch-reservation.v1";
     private const int MaximumTargetEpochReservations = 4_096;
-    private readonly SemaphoreSlim _commands = new(1, 1);
-
     public async ValueTask<GatewayManagementCommandResult> ProvisionLocalTargetAsync(
         GatewayLocalProvisionTargetCommand command,
         CancellationToken cancellationToken = default)
@@ -116,7 +115,7 @@ internal sealed class GatewayManagementCommandCoordinator(
         ArgumentNullException.ThrowIfNull(command);
         ValidateCommon(command.NamespaceId, command.TargetNodeId, command.IdempotencyKey, command.Actor, command.CorrelationId);
         await authority.InitializeAsync(cancellationToken).ConfigureAwait(false);
-        await _commands.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await mutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             BaseSession session = Session(command.Actor, command.NamespaceId, command.CorrelationId);
@@ -137,7 +136,7 @@ internal sealed class GatewayManagementCommandCoordinator(
                 command.CorrelationId,
                 reservation.AuthorityEpoch!), cancellationToken).ConfigureAwait(false);
         }
-        finally { _commands.Release(); }
+        finally { mutationGate.Release(); }
     }
 
     public async ValueTask<GatewayManagementCommandResult> ProvisionTargetAsync(
@@ -148,12 +147,12 @@ internal sealed class GatewayManagementCommandCoordinator(
         ValidateCommon(command.NamespaceId, command.TargetNodeId, command.IdempotencyKey, command.Actor, command.CorrelationId);
         Validate(command.AuthorityEpoch, nameof(command.AuthorityEpoch));
         await authority.InitializeAsync(cancellationToken).ConfigureAwait(false);
-        await _commands.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await mutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             return await ProvisionTargetCoreAsync(command, cancellationToken).ConfigureAwait(false);
         }
-        finally { _commands.Release(); }
+        finally { mutationGate.Release(); }
     }
 
     private async ValueTask<GatewayManagementCommandResult> ProvisionTargetCoreAsync(
@@ -351,7 +350,7 @@ internal sealed class GatewayManagementCommandCoordinator(
                 Diagnostics: candidate.Errors.Select(static error => new GatewayNodeActivationDiagnostic(
                     error.Code.ToString(), error.Path, error.Message)).ToImmutableArray());
 
-        await _commands.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await mutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             BaseSession session = Session(command.Actor, command.NamespaceId, command.CorrelationId);
@@ -498,7 +497,7 @@ internal sealed class GatewayManagementCommandCoordinator(
                 desiredId, receiptId.Value, revisionId.Value, selectedIntentId,
                 selectedDesiredToken, cancellationToken).ConfigureAwait(false);
         }
-        finally { _commands.Release(); }
+        finally { mutationGate.Release(); }
     }
 
     public async ValueTask<GatewayManagementCommandResult> ActivateRevisionAsync(
@@ -511,7 +510,7 @@ internal sealed class GatewayManagementCommandCoordinator(
         if (!Enum.IsDefined(command.Kind))
             return new(GatewayManagementCommandState.Invalid, "management.activation-kind.invalid");
         await authority.InitializeAsync(cancellationToken).ConfigureAwait(false);
-        await _commands.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await mutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             BaseSession session = Session(command.Actor, command.NamespaceId, command.CorrelationId);
@@ -621,7 +620,7 @@ internal sealed class GatewayManagementCommandCoordinator(
                 desiredId, receiptId.Value, command.RevisionId, intentId.Value,
                 selectedDesiredToken, cancellationToken).ConfigureAwait(false);
         }
-        finally { _commands.Release(); }
+        finally { mutationGate.Release(); }
     }
 
     private BaseSession Session(GatewayManagementActor actor, string namespaceId, string correlationId) =>

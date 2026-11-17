@@ -13,16 +13,16 @@ public sealed class GraphStudioModuleRegistryTests
     [Fact]
     public void Registry_is_semantic_and_links_to_base_authority()
     {
-        BaseStudioModuleRegistration module = GraphStudioModuleRegistry.Create(Snapshot());
+        StudioModuleRegistration module = GraphStudioModuleRegistry.Create(Snapshot());
         Assert.Equal("graph", module.Identity.ModuleId);
         Assert.Equal(6, module.Pages.Length);
-        Assert.Equal([BaseStudioResourceKind.GraphDefinition, BaseStudioResourceKind.GraphExecution, BaseStudioResourceKind.GraphCheckpoint],
+        Assert.Equal([StudioResourceKind.GraphDefinition, StudioResourceKind.GraphExecution, StudioResourceKind.GraphCheckpoint],
             module.Resources.Select(static value => value.Kind));
         Assert.Empty(module.Commands);
         Assert.Collection(module.Links,
-            link => { Assert.Equal(BaseStudioResourceKind.GraphDefinition, link.SourceKind); Assert.Equal(BaseStudioResourceKind.Schedule, link.TargetKind); },
-            link => { Assert.Equal(BaseStudioResourceKind.GraphExecution, link.SourceKind); Assert.Equal(BaseStudioResourceKind.Activation, link.TargetKind); });
-        Assert.Equal(BaseStudioFrameworkClientProtocol.FrameworkGeneratedContractV1, module.Clients.Single().Protocol);
+            link => { Assert.Equal(StudioResourceKind.GraphDefinition, link.SourceKind); Assert.Equal(StudioResourceKind.Schedule, link.TargetKind); },
+            link => { Assert.Equal(StudioResourceKind.GraphExecution, link.SourceKind); Assert.Equal(StudioResourceKind.Activation, link.TargetKind); });
+        Assert.Equal(StudioFrameworkClientProtocol.FrameworkGeneratedContractV1, module.Clients.Single().Protocol);
         Assert.Equal(6, module.Clients.Single().Limits.MaximumOperations);
         Assert.Equal("acb04f05700c7af25c0ea6cc76c536334f89998249298a169abf743f8d6fc992",
             Convert.ToHexString(module.Clients.Single().OperationInventoryChecksum.ToArray()).ToLowerInvariant());
@@ -30,7 +30,7 @@ public sealed class GraphStudioModuleRegistryTests
             Convert.ToHexString(module.Clients.Single().Limits.Checksum.ToArray()).ToLowerInvariant());
         Assert.Equal(module.Pages.Select(static x => x.PageId), module.Frontend.Components.Select(static x => x.PageId));
         using ServiceProvider runtimeServices = new ServiceCollection().BuildServiceProvider();
-        BaseStudioModuleRuntimeContribution runtime = new GraphStudioRuntimeContributionFactory(
+        StudioModuleRuntimeContribution runtime = new GraphStudioRuntimeContributionFactory(
             runtimeServices, new Inspection(), []).Create(module);
         Assert.Equal(3, runtime.Producers.Length);
     }
@@ -44,7 +44,7 @@ public sealed class GraphStudioModuleRegistryTests
         services.AddSingleton<IGraphStudioInspectionAuthority, Inspection>();
         services.AddHPDAIPlatform().AddGraphStudio();
         using ServiceProvider provider = services.BuildServiceProvider();
-        Assert.Equal("graph", provider.GetRequiredService<BaseStudioEditionAssetCatalogProvider>().GetRequiredCatalog().Single().ModuleId);
+        Assert.Equal("graph", provider.GetRequiredService<StudioEditionAssetCatalogProvider>().GetRequiredCatalog().Single().ModuleId);
     }
 
     /// <summary>Proves required fixed disclosure grants fail closed.</summary>
@@ -71,8 +71,8 @@ public sealed class GraphStudioModuleRegistryTests
 
     private sealed class Inspection : IGraphStudioInspectionAuthority
     {
-        public ValueTask<BaseStudioFrameworkSurfaceResponse?> ObserveAsync(string operationId, string relativePath,
-            string applicationId, CancellationToken cancellationToken) => new((BaseStudioFrameworkSurfaceResponse?)null);
-        public ValueTask<bool> ExistsAsync(BaseStudioResourceIdentity resource, CancellationToken cancellationToken) => new(false);
+        public ValueTask<StudioFrameworkSurfaceResponse?> ObserveAsync(string operationId, string relativePath,
+            string applicationId, CancellationToken cancellationToken) => new((StudioFrameworkSurfaceResponse?)null);
+        public ValueTask<bool> ExistsAsync(StudioResourceIdentity resource, CancellationToken cancellationToken) => new(false);
     }
 }

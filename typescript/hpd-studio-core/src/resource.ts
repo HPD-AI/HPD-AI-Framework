@@ -8,7 +8,9 @@ export const STUDIO_RESOURCE_KINDS = Object.freeze([
   'subject', 'lifecycleConsumer', 'lifecycleCheckpoint', 'retirementBarrier', 'textIndex', 'vectorIndex',
   'searchRebuild', 'certificationReceipt', 'policy', 'grant', 'store', 'provider', 'schema', 'migration',
   'backup', 'restore', 'maintenance', 'health', 'diagnostic', 'quarantineItem', 'graphDefinition',
-  'graphExecution', 'graphNode', 'graphChannel', 'graphCheckpoint'
+  'graphExecution', 'graphNode', 'graphChannel', 'graphCheckpoint',
+  'agent', 'agentSession', 'agentThread', 'agentExecution', 'toolHarness', 'agentTrace',
+  'aiFunction', 'aiFunctionAction'
 ] as const);
 export type StudioResourceKind = typeof STUDIO_RESOURCE_KINDS[number];
 type MemberKind = 'text' | 'int' | 'long' | 'checksum';
@@ -40,7 +42,13 @@ const members: Readonly<Record<StudioResourceKind, readonly (readonly [string, M
   quarantineItem: [['quarantineKind','text'],['owningSubsystemId','text'],['quarantineIdentity','text']],
   graphDefinition: [['graphId','text'],['graphVersion','text']], graphExecution: [['graphId','text'],['graphVersion','text'],['executionId','text']],
   graphNode: [['graphId','text'],['graphVersion','text'],['executionId','text'],['nodeId','text']], graphChannel: [['graphId','text'],['graphVersion','text'],['executionId','text'],['channelId','text']],
-  graphCheckpoint: [['graphId','text'],['graphVersion','text'],['executionId','text'],['checkpointId','text']]
+  graphCheckpoint: [['graphId','text'],['graphVersion','text'],['executionId','text'],['checkpointId','text']],
+  agent: [['agentId','text']], agentSession: [['sessionId','text']],
+  agentThread: [['sessionId','text'],['threadId','text']],
+  agentExecution: [['sessionId','text'],['threadId','text'],['threadExecutionId','text']],
+  toolHarness: [['harnessId','text']], agentTrace: [['traceId','text']],
+  aiFunction: [['harnessId','text'],['functionId','text']],
+  aiFunctionAction: [['harnessId','text'],['functionId','text'],['actionId','text']]
 });
 
 export function isStudioResourceKind(value: unknown): value is StudioResourceKind {
@@ -63,7 +71,7 @@ export function studioOutwardResourceChecksum(value: Omit<StudioOutwardResourceA
   return studioSha256(studioCanonicalHash('base.studio.resource-identity.v1', writer => {
     writer.discriminator(STUDIO_RESOURCE_KINDS.indexOf(value.kind as StudioResourceKind) + 1); writer.string(value.applicationId as string); writer.count(shape.length);
     for (const [name, kind] of shape) { const member = value[name]; if (!validMember(member, kind)) invalid(); writer.string(name);
-      writer.discriminator(kind === 'text' ? 1 : kind === 'int' ? 2 : kind === 'long' ? 3 : 4);
+      writer.int32(kind === 'text' ? 1 : kind === 'int' ? 2 : kind === 'long' ? 3 : 4);
       if (kind === 'text') writer.string(member as string); else if (kind === 'int') writer.int32(member as number);
       else if (kind === 'long') writer.int64(member as string); else writer.checksum(member as string); }
   }));

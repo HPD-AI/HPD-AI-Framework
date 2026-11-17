@@ -14,16 +14,16 @@ internal static class TestRuntimeWorkspace
         AgentRunConfig runConfig)
     {
         ArgumentNullException.ThrowIfNull(runConfig);
-        return AgentWorkspace.TryFrom(
+        return CodingWorkspace.TryFrom(
                 runConfig,
-                out AgentWorkspace workspace,
+                out CodingWorkspace workspace,
                 out _)
             ? FromAgentWorkspace(workspace)
             : Create(Path.GetTempPath());
     }
 
     public static RuntimeWorkspaceBinding FromAgentWorkspace(
-        AgentWorkspace workspace)
+        CodingWorkspace workspace)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         WorkspaceRootBinding[] roots = workspace.Roots
@@ -31,7 +31,7 @@ internal static class TestRuntimeWorkspace
             {
                 Id = new WorkspaceRootId(root.Id),
                 DisplayName = root.Label ?? root.Id,
-                Access = root.Access == AgentWorkspaceAccess.ReadWrite
+                Access = root.Access == CodingWorkspaceAccess.ReadWrite
                     ? AccessMode.ReadWrite
                     : AccessMode.ReadOnly,
                 DefaultExecutionPath =

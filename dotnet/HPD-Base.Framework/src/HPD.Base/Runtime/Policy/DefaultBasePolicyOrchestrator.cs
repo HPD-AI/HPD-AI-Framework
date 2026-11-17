@@ -32,7 +32,7 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
         CancellationToken cancellationToken = default) =>
         EvaluateAsync(request, cancellationToken);
 
-    public ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateStudioAsync(BaseStudioPolicyRequest request,
+    public ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateStudioAsync(StudioPolicyRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);

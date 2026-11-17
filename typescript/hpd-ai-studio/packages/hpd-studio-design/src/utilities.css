@@ -44,9 +44,9 @@
   line-height: 1;
   text-decoration: none;
   transition:
-    background-color 160ms ease,
-    border-color 160ms ease,
-    color 160ms ease;
+    background-color var(--duration-studio-fast) ease,
+    border-color var(--duration-studio-fast) ease,
+    color var(--duration-studio-fast) ease;
 
   &:hover {
     border-color: var(--color-studio-line-strong);
@@ -73,17 +73,72 @@
   }
 }
 
+@utility studio-button-primary {
+  border-color: var(--studio-accent);
+  background: var(--studio-accent);
+  color: var(--studio-panel-raised);
+
+  &:hover {
+    border-color: var(--studio-accent-text);
+    background: var(--studio-accent-text);
+    color: var(--studio-panel-raised);
+  }
+
+  &:active {
+    border-color: var(--studio-brand);
+    background: var(--studio-brand);
+    color: var(--studio-text);
+  }
+
+  &:disabled,
+  &[aria-disabled="true"] {
+    border-color: var(--studio-border);
+    background: var(--studio-panel-soft);
+    color: var(--studio-text-disabled);
+  }
+}
+
+@utility studio-button-danger {
+  border-color: var(--studio-danger-soft);
+  background: var(--studio-danger-muted);
+  color: var(--studio-danger);
+
+  &:hover {
+    border-color: var(--studio-danger);
+    background: var(--studio-danger-soft);
+  }
+
+  &:disabled,
+  &[aria-disabled="true"] {
+    border-color: var(--studio-border);
+    background: var(--studio-panel-soft);
+    color: var(--studio-text-disabled);
+  }
+}
+
 @utility studio-input {
-  min-height: 2.5rem;
+  min-block-size: var(--spacing-studio-control-sm);
   width: 100%;
   border: 1px solid var(--color-studio-border);
-  border-radius: 0.5rem;
+  border-radius: var(--radius-studio);
   background: var(--color-studio-surface);
   color: var(--color-studio-text);
   padding: 0.5rem 0.625rem;
+
   &:focus-visible {
     outline: 3px solid var(--color-studio-focus);
     outline-offset: 2px;
+  }
+
+  &:disabled,
+  &[aria-disabled="true"] {
+    border-color: var(--color-studio-line);
+    background: var(--color-studio-panel-soft);
+    color: var(--color-studio-disabled);
+  }
+
+  &[aria-invalid="true"] {
+    border-color: var(--color-studio-danger);
   }
 }
 
@@ -103,9 +158,9 @@
   padding-inline: 0.875rem;
   outline: none;
   transition:
-    background-color 160ms ease,
-    border-color 160ms ease,
-    box-shadow 160ms ease;
+    background-color var(--duration-studio-fast) ease,
+    border-color var(--duration-studio-fast) ease,
+    box-shadow var(--duration-studio-fast) ease;
 
   &:hover {
     border-color: var(--color-studio-nav-muted);
@@ -132,8 +187,8 @@
   padding-inline: 0.75rem;
   text-decoration: none;
   transition:
-    background-color 160ms ease,
-    color 160ms ease;
+    background-color var(--duration-studio-fast) ease,
+    color var(--duration-studio-fast) ease;
 
   &:hover {
     background: var(--color-studio-nav-raised);
@@ -202,14 +257,6 @@
   white-space: nowrap;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .studio-button,
-  .studio-nav-control,
-  .studio-nav-item {
-    transition-duration: 0.01ms;
-  }
-}
-
 @utility studio-workspace {
   display: grid;
   min-block-size: 100%;
@@ -226,7 +273,7 @@
   justify-content: space-between;
   gap: 1rem;
 
-  & h1 { margin-block: 0.25rem; font-size: clamp(1.5rem, 3vw, 2.25rem); font-weight: 800; line-height: 1.1; }
+  & h1 { margin-block: 0.25rem; font-size: var(--text-display); font-weight: 800; line-height: var(--text-display--line-height); }
 }
 
 @utility studio-workspace-grid {
@@ -319,7 +366,10 @@
 @utility studio-status { margin: 0; padding: 0.75rem 1rem; border-block-end: 1px solid var(--color-studio-line); font-weight: 700; }
 @utility studio-status-info { background: var(--color-studio-info-muted); color: var(--color-studio-info); }
 @utility studio-status-warning { background: var(--color-studio-warning-muted); color: var(--color-studio-warning); }
+@utility studio-status-danger { background: var(--color-studio-danger-muted); color: var(--color-studio-danger); }
+@utility studio-status-good { background: var(--color-studio-good-muted); color: var(--color-studio-good); }
 @utility studio-empty { display: grid; gap: 0.25rem; padding: 1.5rem; color: var(--color-studio-muted); text-align: center; }
+@utility studio-row-selected { background: var(--color-studio-accent-soft); }
 @utility studio-skip-link {
   position: fixed; z-index: 100; inset-block-start: 0.5rem; inset-inline-start: 0.5rem; transform: translateY(-200%);
   border-radius: var(--radius-studio-sm); background: var(--color-studio-brand); color: var(--color-studio-ink); padding: 0.75rem 1rem; font-weight: 800;

@@ -142,7 +142,7 @@ public sealed class ExecuteCommandTests : IDisposable
         {
             Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>()
             {
-                [AgentWorkspace.ContextKey] = document.RootElement.Clone()
+                [CodingWorkspace.ContextKey] = document.RootElement.Clone()
             } }
         };
 
@@ -150,7 +150,7 @@ public sealed class ExecuteCommandTests : IDisposable
             new FakeProcessProvider(),
             runConfig: runConfig);
 
-        action.Should().Throw<AgentWorkspaceException>()
+        action.Should().Throw<CodingWorkspaceException>()
             .WithMessage("*Workspace 'version' is required.*");
     }
 
@@ -1670,19 +1670,19 @@ public sealed class ExecuteCommandTests : IDisposable
     private static AgentRunConfig CreateWorkspaceRunConfig(string? defaultRoot = null, string? docsRoot = null)
     {
         var cwd = Path.GetFullPath(defaultRoot ?? Directory.GetCurrentDirectory());
-        var roots = new List<AgentWorkspaceRoot>
+        var roots = new List<CodingWorkspaceRoot>
         {
-            new("default", cwd, AgentWorkspaceAccess.ReadWrite)
+            new("default", cwd, CodingWorkspaceAccess.ReadWrite)
         };
 
         if (docsRoot is not null)
-            roots.Add(new AgentWorkspaceRoot("docs", Path.GetFullPath(docsRoot), AgentWorkspaceAccess.ReadWrite, "Docs"));
+            roots.Add(new CodingWorkspaceRoot("docs", Path.GetFullPath(docsRoot), CodingWorkspaceAccess.ReadWrite, "Docs"));
 
         return new AgentRunConfig
         {
             Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>()
             {
-                [AgentWorkspace.ContextKey] = new AgentWorkspace(
+                [CodingWorkspace.ContextKey] = new CodingWorkspace(
                     "default",
                     cwd,
                     roots)

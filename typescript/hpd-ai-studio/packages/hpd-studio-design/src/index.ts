@@ -4,5 +4,13 @@ export { default as StudioResourceWorkspace } from './StudioResourceWorkspace.sv
 export { default as StudioCommandWorkbench } from './StudioCommandWorkbench.svelte';
 export { default as StudioResourceLinks } from './StudioResourceLinks.svelte';
 export { default as StudioRegisteredWorkspace } from './StudioRegisteredWorkspace.svelte';
+export { default as StudioButton } from './StudioButton.svelte';
+export { default as StudioInput } from './StudioInput.svelte';
+export { default as StudioField } from './StudioField.svelte';
+export { default as StudioPanel } from './StudioPanel.svelte';
+export { default as StudioStatusBadge } from './StudioStatusBadge.svelte';
+export { default as StudioNotice } from './StudioNotice.svelte';
+export { default as StudioEmptyState } from './StudioEmptyState.svelte';
+export { default as StudioPageHeader } from './StudioPageHeader.svelte';
 export { nextStudioGridFocusIndex } from './grid-focus.ts';
 export type { StudioDisplayObservation, StudioDisplayRow, StudioDisplayColumn, StudioDisplayRailItem } from './types.ts';

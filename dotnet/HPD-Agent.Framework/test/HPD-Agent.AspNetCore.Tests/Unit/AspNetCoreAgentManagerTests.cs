@@ -144,6 +144,57 @@ public class AspNetCoreAgentManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task EnsureConfiguredDefinitionAsync_RejectsDefinitionAboveHostLimit()
+    {
+        _optionsMonitor.CurrentValue.DefaultAgent = new AgentConfig
+        {
+            Name = "Host limited",
+            MaxAgenticIterations = 51
+        };
+        _optionsMonitor.CurrentValue.ValidationLimits = new HPD.Agent.Validation.AgentConfigValidationLimits
+        {
+            MaximumAgenticIterations = 50
+        };
+
+        var manager = MakeManager();
+        var action = () => manager.EnsureConfiguredDefinitionAsync("host-limited", CancellationToken.None);
+
+        await action.Should().ThrowAsync<HPD.Agent.Validation.ValidationException>()
+            .WithMessage("*exceeds host limit of 50*");
+        (await _agentStore.LoadAsync("host-limited")).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task BuildAgentAsync_RejectsStoredDefinitionAboveHostLimit()
+    {
+        _optionsMonitor.CurrentValue.ValidationLimits = new HPD.Agent.Validation.AgentConfigValidationLimits
+        {
+            MaximumAgenticIterations = 50
+        };
+        _optionsMonitor.CurrentValue.ConfigureEachAgentBuilder = InjectTestProvider;
+
+        var manager = MakeManager();
+        var stored = await manager.CreateDefinitionAsync(new AgentConfig
+        {
+            Name = "Host limited",
+            MaxAgenticIterations = 51,
+            Clients = new AgentClientsConfig
+            {
+                Chat = new ChatClientConfig
+                {
+                    Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
+                    ModelName = "test-model"
+                }
+            }
+        });
+
+        var action = () => manager.GetOrBuildAgentAsync(stored.Id);
+
+        await action.Should().ThrowAsync<HPD.Agent.Validation.ValidationException>()
+            .WithMessage("*exceeds host limit of 50*");
+    }
+
+    [Fact]
     public async Task GetOrBuildAgentAsync_CachesInstance_ByAgentId()
     {
         _optionsMonitor.CurrentValue.ConfigureEachAgentBuilder = InjectTestProvider;

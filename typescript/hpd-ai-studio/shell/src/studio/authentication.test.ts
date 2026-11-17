@@ -92,24 +92,42 @@ describe('Studio host authentication', () => {
     await expect(new StudioHostAuthentication(host).acquireFreshAuthentication({ requestIdentity: crypto.randomUUID(), commandId: 'record.delete',
       targetToken: 'opaque', previewChecksum: zero }, new AbortController().signal)).rejects.toThrow('base.studio.freshAuthenticationInvalid');
   });
+  it('resolves fresh authentication inside the configured Studio base path', async () => {
+    let freshUrl = '';
+    Object.assign(globalThis, { document: { baseURI: 'https://studio.test/studio/' }, location: { origin: 'https://studio.test' },
+      fetch: vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/auth/authorize'))
+          return new Response(JSON.stringify({ headerName: 'X-HPD-CSRF', headerValue: 'protected',
+            authorizedThroughUtc: '2099-01-01T00:00:00.0000000Z', descriptorChecksum: zero,
+            purpose: JSON.parse(String(init?.body)).purpose }), { status: 200 });
+        freshUrl = url;
+        return new Response(JSON.stringify({ kind: 'satisfied', authority: 'A'.repeat(32),
+          expiresAtUtc: '2099-01-01T00:00:00.0000000Z' }), { status: 200 });
+      }) });
+    await new StudioHostAuthentication(host).acquireFreshAuthentication({
+      requestIdentity: crypto.randomUUID(), commandId: 'record.delete', targetToken: 'opaque', previewChecksum: zero
+    }, new AbortController().signal);
+    expect(new URL(freshUrl).pathname).toBe('/studio/base/studio/auth/fresh');
+  });
   it('decodes the exact fresh-authentication challenge without exposing continuation bytes elsewhere', async () => {
     const continuation='C'.repeat(32);Object.assign(globalThis,{document:{baseURI:'https://studio.test/studio/'},location:{origin:'https://studio.test'},
       fetch:vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>String(input).endsWith('/auth/authorize')
         ?new Response(JSON.stringify({headerName:'X-HPD-CSRF',headerValue:'protected',authorizedThroughUtc:'2099-01-01T00:00:00.0000000Z',descriptorChecksum:zero,purpose:JSON.parse(String(init?.body)).purpose}),{status:200})
-        :new Response(JSON.stringify({kind:'challenge',continuation,browserAction:{kind:'redirect',target:`https://studio.test/base/studio/auth/fresh/callback?continuation=${continuation}`},expiresAtUtc:'2099-01-01T00:00:00.0000000Z'}),{status:200}))});
+        :new Response(JSON.stringify({kind:'challenge',continuation,browserAction:{kind:'redirect',target:`https://studio.test/studio/base/studio/auth/fresh/callback?continuation=${continuation}`},expiresAtUtc:'2099-01-01T00:00:00.0000000Z'}),{status:200}))});
     await expect(new StudioHostAuthentication(host).acquireFreshAuthentication({requestIdentity:crypto.randomUUID(),commandId:'record.delete',targetToken:'opaque',previewChecksum:zero},new AbortController().signal))
       .resolves.toMatchObject({kind:'challenge',continuation,browserAction:{kind:'redirect'}});
   });
   it('consumes the fixed callback continuation once without posting or retaining it in browser history', () => {
     const continuation='C'.repeat(32);const replaceState=vi.fn();const fetch=vi.fn();Object.assign(globalThis,{document:{baseURI:'https://studio.test/studio/'},
-      location:{origin:'https://studio.test',href:`https://studio.test/base/studio/auth/fresh/callback?continuation=${continuation}`},
+      location:{origin:'https://studio.test',href:`https://studio.test/studio/base/studio/auth/fresh/callback?continuation=${continuation}`},
       history:{state:null,replaceState},fetch});
     expect(new StudioHostAuthentication(host).consumeFreshAuthenticationCallback()).toBe(true);
-    expect(replaceState).toHaveBeenCalledWith(null,'','/base/studio/auth/fresh/callback');expect(fetch).not.toHaveBeenCalled();
+    expect(replaceState).toHaveBeenCalledWith(null,'','/studio/base/studio/auth/fresh/callback');expect(fetch).not.toHaveBeenCalled();
   });
   it('rejects callback continuation smuggling before history replacement', () => {
     const continuation='C'.repeat(32);const replaceState=vi.fn();Object.assign(globalThis,{document:{baseURI:'https://studio.test/studio/'},
-      location:{origin:'https://studio.test',href:`https://studio.test/base/studio/auth/fresh/callback?continuation=${continuation}&return=foreign`},
+      location:{origin:'https://studio.test',href:`https://studio.test/studio/base/studio/auth/fresh/callback?continuation=${continuation}&return=foreign`},
       history:{state:null,replaceState}});
     expect(()=>new StudioHostAuthentication(host).consumeFreshAuthenticationCallback()).toThrow('base.studio.freshAuthenticationInvalid');
     expect(replaceState).not.toHaveBeenCalled();

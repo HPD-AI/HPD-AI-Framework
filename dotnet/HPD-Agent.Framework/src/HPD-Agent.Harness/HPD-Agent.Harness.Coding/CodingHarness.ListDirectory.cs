@@ -47,7 +47,7 @@ public partial class CodingToolHarness
             if (argumentError != null)
                 return FormatListDirectoryError(path ?? string.Empty, argumentError);
 
-            if (!CodingWorkspaceAccess.TryGet(context, out var workspace))
+            if (!CodingWorkspacePathAccess.TryGet(context, out var workspace))
             {
                 return FormatListDirectoryError(
                     path ?? string.Empty,
@@ -100,9 +100,9 @@ public partial class CodingToolHarness
         bool includeMetadata)
     {
         WorkspacePath logical =
-            CodingWorkspaceAccess.Resolve(workspace, path);
+            CodingWorkspacePathAccess.Resolve(workspace, path);
         string displayPath =
-            CodingWorkspaceAccess.Display(workspace, logical);
+            CodingWorkspacePathAccess.Display(workspace, logical);
         WorkspaceFileInfo? info =
             await workspace.Files.GetInfoAsync(logical)
                 .ConfigureAwait(false);

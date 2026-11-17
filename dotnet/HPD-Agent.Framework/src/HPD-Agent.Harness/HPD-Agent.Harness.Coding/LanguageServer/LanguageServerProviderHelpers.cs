@@ -48,7 +48,7 @@ public sealed class StaticCommandLanguageServerProvider(
                 ? start
                 : LanguageServerWorkspaceAccess.Parent(start);
         WorkspacePath workspaceRoot =
-            HPD.Agent.ToolHarness.Coding.CodingWorkspaceAccess.Resolve(
+            HPD.Agent.ToolHarness.Coding.CodingWorkspacePathAccess.Resolve(
                 context.Workspace,
                 context.WorkspaceRoot);
 

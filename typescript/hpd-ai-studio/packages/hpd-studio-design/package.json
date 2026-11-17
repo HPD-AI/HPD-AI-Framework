@@ -16,9 +16,13 @@
   },
   "files": [
     "src",
+    "scripts",
     "DESIGN.md",
     "README.md"
   ],
+  "scripts": {
+    "check": "node scripts/validate-design-system.mjs"
+  },
   "dependencies": {
     "svelte": "5.56.10"
   },

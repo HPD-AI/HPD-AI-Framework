@@ -766,7 +766,7 @@ public partial class CodingToolHarness
         ExecuteCommandOptions options)
     {
         RuntimeWorkspaceBinding? workspace =
-            CodingWorkspaceAccess.TryGet(
+            CodingWorkspacePathAccess.TryGet(
                 context,
                 out var sessionWorkspace)
                 ? sessionWorkspace
@@ -945,7 +945,7 @@ public partial class CodingToolHarness
         => ResolveExecuteCommandWorkingDirectory(
             workingDirectory,
             context.RunConfig,
-            CodingWorkspaceAccess.TryGet(context, out var workspace)
+            CodingWorkspacePathAccess.TryGet(context, out var workspace)
                 ? workspace
                 : null);
 
@@ -960,12 +960,12 @@ public partial class CodingToolHarness
             {
                 string modelPath = string.IsNullOrWhiteSpace(
                     workingDirectory)
-                    ? CodingWorkspaceAccess.Display(
+                    ? CodingWorkspacePathAccess.Display(
                         sessionWorkspace,
                         sessionWorkspace.WorkingDirectory)
                     : workingDirectory;
                 WorkspacePath logical =
-                    CodingWorkspaceAccess.Resolve(
+                    CodingWorkspacePathAccess.Resolve(
                         sessionWorkspace,
                         modelPath);
                 return new ExecuteCommandWorkingDirectoryResult(
@@ -992,12 +992,12 @@ public partial class CodingToolHarness
         string fullPath;
         try
         {
-            var workspace = AgentWorkspace.From(runConfig);
+            var workspace = CodingWorkspace.From(runConfig);
             fullPath = string.IsNullOrWhiteSpace(workingDirectory)
                 ? workspace.DefaultRootPath
                 : workspace.CanonicalizeExplicitPath(workingDirectory);
         }
-        catch (AgentWorkspaceException ex)
+        catch (CodingWorkspaceException ex)
         {
             return new ExecuteCommandWorkingDirectoryResult(
                 workingDirectory,
@@ -1033,10 +1033,10 @@ public partial class CodingToolHarness
         return new ExecuteCommandWorkingDirectoryResult(fullPath, null);
     }
 
-    private static ExecuteCommandErrorKind ToExecuteCommandWorkspaceErrorKind(AgentWorkspaceErrorKind kind)
+    private static ExecuteCommandErrorKind ToExecuteCommandWorkspaceErrorKind(CodingWorkspaceErrorKind kind)
         => kind switch
         {
-            AgentWorkspaceErrorKind.PathOutsideWorkspace or AgentWorkspaceErrorKind.UnknownRootId
+            CodingWorkspaceErrorKind.PathOutsideWorkspace or CodingWorkspaceErrorKind.UnknownRootId
                 => ExecuteCommandErrorKind.WorkingDirectoryNotFound,
             _ => ExecuteCommandErrorKind.InvalidWorkspace
         };

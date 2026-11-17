@@ -6,10 +6,19 @@ namespace HPD.Agent.Hosting.Lifecycle;
 public sealed class AgentDefinitionService : IAgentDefinitionService
 {
     private readonly AgentManager _agentManager;
+    private readonly AgentConfigValidationLimits? _validationLimits;
 
     public AgentDefinitionService(AgentManager agentManager)
+        : this(agentManager, validationLimits: null)
+    {
+    }
+
+    public AgentDefinitionService(
+        AgentManager agentManager,
+        AgentConfigValidationLimits? validationLimits)
     {
         _agentManager = agentManager ?? throw new ArgumentNullException(nameof(agentManager));
+        _validationLimits = validationLimits;
     }
 
     public async Task<AgentServiceResult<StoredAgentDto>> CreateAgentAsync(
@@ -19,7 +28,7 @@ public sealed class AgentDefinitionService : IAgentDefinitionService
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.AgentId);
 
-        var errors = AgentConfigValidator.Validate(request.Config);
+        var errors = AgentConfigValidator.Validate(request.Config, _validationLimits);
         if (errors.Count > 0)
             return AgentServiceResult<StoredAgentDto>.Validation("config", errors);
 
@@ -99,7 +108,9 @@ public sealed class AgentDefinitionService : IAgentDefinitionService
         var config = request.Config is null
             ? AgentConfigSnapshot.Create(existing.Config)
             : request.Config.ApplyTo(existing.Config, patchErrors);
-        var errors = patchErrors.Concat(AgentConfigValidator.Validate(config)).ToList();
+        var errors = patchErrors
+            .Concat(AgentConfigValidator.Validate(config, _validationLimits))
+            .ToList();
         if (errors.Count > 0)
             return AgentServiceResult<StoredAgentDto>.Validation("config", errors);
 
@@ -107,13 +118,23 @@ public sealed class AgentDefinitionService : IAgentDefinitionService
             ? null
             : request.Metadata ?? existing.Metadata;
 
-        var stored = await _agentManager.UpdateDefinitionAsync(
-            agentId,
-            config,
-            metadata,
-            replaceMetadata: true,
-            cancellationToken);
-        return AgentServiceResult<StoredAgentDto>.Success(ToDto(stored));
+        try
+        {
+            var stored = await _agentManager.UpdateDefinitionIfUnchangedAsync(
+                agentId,
+                existing,
+                config,
+                metadata,
+                replaceMetadata: true,
+                cancellationToken);
+            return AgentServiceResult<StoredAgentDto>.Success(ToDto(stored));
+        }
+        catch (AgentStoreConcurrencyException)
+        {
+            return AgentServiceResult<StoredAgentDto>.ConflictWith(
+                "AgentDefinitionConcurrencyConflict",
+                $"Agent definition '{agentId}' changed after it was read. Refresh and retry the update.");
+        }
     }
 
     public async Task<AgentServiceResult> DeleteAgentAsync(

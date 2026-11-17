@@ -715,6 +715,29 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
             sb.AppendLine($"                Name: \"{ToolHarness.EffectiveName}\",");
             sb.AppendLine($"                ToolHarnessType: typeof({fullTypeName}),");
             sb.AppendLine($"                Activate: {construction.ActivationExpression()},");
+            sb.AppendLine("                ConstructorDependencies: new global::HPD.Agent.ToolHarnessConstructorDependencyDescriptor[]");
+            sb.AppendLine("                {");
+            foreach (var parameter in construction.Parameters)
+            {
+                var kind = parameter.Kind switch
+                {
+                    ToolHarnessConstructorParameterKind.HarnessConfiguration => "HarnessConfiguration",
+                    ToolHarnessConstructorParameterKind.RequiredService => "RequiredService",
+                    ToolHarnessConstructorParameterKind.OptionalService => "OptionalService",
+                    ToolHarnessConstructorParameterKind.Literal => "Literal",
+                    _ => throw new InvalidOperationException(
+                        $"Unknown constructor parameter kind '{parameter.Kind}'.")
+                };
+                sb.AppendLine("                    new global::HPD.Agent.ToolHarnessConstructorDependencyDescriptor");
+                sb.AppendLine("                    {");
+                sb.AppendLine($"                        Name = \"{parameter.Parameter.Name}\",");
+                sb.AppendLine($"                        TypeName = \"{EscapeForVerbatim(parameter.Parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))}\",");
+                sb.AppendLine($"                        ContractType = typeof({parameter.Parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}),");
+                sb.AppendLine($"                        Kind = global::HPD.Agent.ToolHarnessConstructorDependencyKind.{kind},");
+                sb.AppendLine($"                        IsOptional = {parameter.Parameter.IsOptional.ToString().ToLowerInvariant()}");
+                sb.AppendLine("                    },");
+            }
+            sb.AppendLine("                },");
             var configContractType = HarnessConfigurationEmitter.ConfigType(ToolHarness.OwnerType);
             if (configContractType is not null)
                 sb.AppendLine($"                Configuration: {HarnessConfigurationEmitter.Name(configContractType)}.Contract,");
@@ -781,6 +804,27 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
                 ? $"new string[] {{ {string.Join(", ", ToolHarness.FunctionNames.Select(n => $"\"{n}\""))} }}"
                 : "Array.Empty<string>()";
             sb.AppendLine($"                FunctionNames: {functionNamesArray},");
+            sb.AppendLine("                FunctionDeclarations: new global::HPD.Agent.ToolHarnessFunctionDeclarationDescriptor[]");
+            sb.AppendLine("                {");
+            foreach (var function in ToolHarness.FunctionCapabilities)
+            {
+                var actionNames = function.Parameters
+                    .Select(static parameter => parameter.Contract)
+                    .OfType<UnionContractNode>()
+                    .SelectMany(static union => union.Cases)
+                    .Where(static unionCase => unionCase.ConcreteType.GetAttributes().Any(static attribute =>
+                        attribute.AttributeClass?.Name == "AIFunctionActionAttribute"))
+                    .Select(static unionCase => unionCase.Discriminator)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
+                sb.AppendLine("                    new global::HPD.Agent.ToolHarnessFunctionDeclarationDescriptor");
+                sb.AppendLine("                    {");
+                sb.AppendLine($"                        FunctionName = \"{EscapeForVerbatim(function.FunctionName)}\",");
+                sb.AppendLine($"                        DeclarationMemberName = \"{EscapeForVerbatim(function.Name)}\",");
+                sb.AppendLine($"                        ActionNames = new string[] {{ {string.Join(", ", actionNames.Select(name => "\"" + EscapeForVerbatim(name) + "\""))} }}");
+                sb.AppendLine("                    },");
+            }
+            sb.AppendLine("                },");
             var collapsibleDeclarations = ToolHarness.FunctionCapabilities
                 .Where(static function => function.FunctionCollapse is not null)
                 .Select(static function => function.Name)
@@ -853,14 +897,26 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
                 sb.AppendLine($"                SkillDeclarationNames: new string[] {{ {string.Join(", ", ToolHarness.SkillCapabilities.Select(skill => "\"" + skill.MethodName + "\""))} }}");
             }
 
-            var sourceNames = ToolHarness.MCPServerCapabilities.Select(source => source.Name)
-                .Concat(ToolHarness.OpenApiCapabilities.Select(source => source.Prefix ?? source.MethodName))
-                .Distinct(StringComparer.Ordinal)
-                .ToArray();
+            var mcpSourceNames = ToolHarness.MCPServerCapabilities.Select(source => source.Name)
+                .Distinct(StringComparer.Ordinal).ToArray();
+            var openApiSourceNames = ToolHarness.OpenApiCapabilities
+                .Select(source => source.Prefix ?? source.MethodName)
+                .Distinct(StringComparer.Ordinal).ToArray();
+            var sourceNames = mcpSourceNames.Concat(openApiSourceNames)
+                .Distinct(StringComparer.Ordinal).ToArray();
             if (sourceNames.Length > 0)
             {
                 sb.AppendLine(",");
                 sb.AppendLine($"                SourceNames: new string[] {{ {string.Join(", ", sourceNames.Select(name => "\"" + name + "\""))} }}");
+                if (mcpSourceNames.Length > 0)
+                    sb.AppendLine($"                ,McpSourceNames: new string[] {{ {string.Join(", ", mcpSourceNames.Select(name => "\"" + name + "\""))} }}");
+                if (openApiSourceNames.Length > 0)
+                    sb.AppendLine($"                ,OpenApiSourceNames: new string[] {{ {string.Join(", ", openApiSourceNames.Select(name => "\"" + name + "\""))} }}");
+            }
+            if (ToolHarness.MultiAgentCapabilities.Any())
+            {
+                sb.AppendLine(",");
+                sb.AppendLine($"                MultiAgentDeclarationNames: new string[] {{ {string.Join(", ", ToolHarness.MultiAgentCapabilities.Select(workflow => "\"" + workflow.MethodName + "\""))} }}");
             }
 
             if (requiredEventProviders.Count > 0)
@@ -2203,6 +2259,9 @@ $@"    /// <summary>
             sb.AppendLine("                    new global::HPD.Agent.ToolHarnessMiddlewareDescriptor");
             sb.AppendLine("                    {");
             sb.AppendLine($"                        MiddlewareType = typeof({entry.FullyQualifiedTypeName}),");
+            sb.AppendLine($"                        Ownership = global::HPD.Agent.ToolHarnessMiddlewareOwnership.{(entry.ServicesOwned ? "Services" : "Execution")},");
+            if (entry.RequiresCanonicalWorkspaceIdentity)
+                sb.AppendLine("                        RequiresCanonicalWorkspaceIdentity = true,");
             if (entry.HarnessConfigurationExpression is not null)
             {
                 var resourceArguments = entry.AgentResourceTypeFqn is null

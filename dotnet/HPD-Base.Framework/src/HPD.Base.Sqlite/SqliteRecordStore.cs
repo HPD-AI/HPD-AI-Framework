@@ -28,16 +28,16 @@ public sealed partial class SqliteRecordStore :
     IBaseActivationProvider,
     IBaseSemanticActivationPreflightStore,
     IBaseSemanticActivationAdministration,
-    IBaseStudioDynamicStoreAuthoritySource,
-    IBaseStudioControlInspectionStore,
+    IStudioDynamicStoreAuthoritySource,
+    IStudioControlInspectionStore,
     IAsyncDisposable
 {
     /// <inheritdoc />
-    public async ValueTask<OperationResult<BaseStudioDynamicStoreAuthority>> CaptureStudioDynamicStoreAuthorityAsync(
-        BaseStudioDynamicStoreAuthorityRequest request, CancellationToken cancellationToken = default)
+    public async ValueTask<OperationResult<StudioDynamicStoreAuthority>> CaptureStudioDynamicStoreAuthorityAsync(
+        StudioDynamicStoreAuthorityRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (!BaseStudioDynamicStoreAuthorityContract.IsValid(request))
+        if (!StudioDynamicStoreAuthorityContract.IsValid(request))
             throw new ArgumentException("Studio authority bounds are invalid.", nameof(request));
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(request.Deadline);
@@ -48,12 +48,12 @@ public sealed partial class SqliteRecordStore :
             command.CommandText = $"SELECT COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='restore_epoch'),0);";
             restore = Convert.ToInt64(await command.ExecuteScalarAsync(deadline.Token).ConfigureAwait(false), CultureInfo.InvariantCulture);
         }
-        BaseStudioDynamicStoreAuthority value = BaseStudioDynamicStoreAuthorityContract.Create(
+        StudioDynamicStoreAuthority value = StudioDynamicStoreAuthorityContract.Create(
             request.ApplicationId, _options.StoreId, restore, Volatile.Read(ref _schemaGeneration));
         return value.Accounting.EvidenceBytes <= request.MaximumEvidenceBytes
             && value.Accounting.TransientBytes <= request.MaximumTransientBytes
             ? OperationResults.Ok(value)
-            : OperationResults.ValidationFailed<BaseStudioDynamicStoreAuthority>(new BaseError
+            : OperationResults.ValidationFailed<StudioDynamicStoreAuthority>(new BaseError
             {
                 Code = "base.studio.storeAuthorityLimitExceeded",
                 Message = "The store authority exceeded its bound.",

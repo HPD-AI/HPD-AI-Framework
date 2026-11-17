@@ -35,7 +35,7 @@ public partial class CodingToolHarness
             if (argumentError != null)
                 return FormatError(path ?? string.Empty, argumentError);
 
-            if (!CodingWorkspaceAccess.TryGet(context, out var workspace))
+            if (!CodingWorkspacePathAccess.TryGet(context, out var workspace))
             {
                 return FormatError(
                     path ?? string.Empty,
@@ -78,9 +78,9 @@ public partial class CodingToolHarness
         int limit)
     {
         WorkspacePath logical =
-            CodingWorkspaceAccess.Resolve(workspace, path);
+            CodingWorkspacePathAccess.Resolve(workspace, path);
         string displayPath =
-            CodingWorkspaceAccess.Display(workspace, logical);
+            CodingWorkspacePathAccess.Display(workspace, logical);
         WorkspaceFileInfo? info =
             await workspace.Files.GetInfoAsync(logical)
                 .ConfigureAwait(false);
@@ -229,8 +229,8 @@ public partial class CodingToolHarness
     private static ResolvedReadPath ResolveReadPath(string path, FunctionExecutionContext context)
     {
         var trimmedPath = path.Trim();
-        var fullPath = context?.RunConfig.Context?.Properties?.ContainsKey(AgentWorkspace.ContextKey) == true
-            ? AgentWorkspace.From(context.RunConfig).CanonicalizeExplicitPath(trimmedPath)
+        var fullPath = context?.RunConfig.Context?.Properties?.ContainsKey(CodingWorkspace.ContextKey) == true
+            ? CodingWorkspace.From(context.RunConfig).CanonicalizeExplicitPath(trimmedPath)
             : Path.GetFullPath(trimmedPath, Directory.GetCurrentDirectory());
         return new ResolvedReadPath(trimmedPath, fullPath);
     }

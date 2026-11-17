@@ -27,7 +27,7 @@
   <ItemGroup>
     <None Include="$(StudioGraphModuleRoot)**\*" Exclude="$(StudioGraphModuleRoot)node_modules\**\*;$(StudioGraphModuleRoot)dist\**\*" Pack="true" PackagePath="clientapp-modules\hpd-graph-studio\%(RecursiveDir)%(Filename)%(Extension)" />
     <EmbeddedResource Include="$(StudioGraphModuleRoot)dist\graph.js" LogicalName="HPD.Graph.Studio.Assets.graph.js" />
-    <None Include="$(StudioGraphModuleRoot)dist\graph.js" Pack="true" PackagePath="studio-assets\graph\ad53192c6b4e30b967b69c210a14edef1bd80422f4ac5b0356ba808713e8a44a.js" />
+    <None Include="$(StudioGraphModuleRoot)dist\graph.js" Pack="true" PackagePath="studio-assets\graph\f2dc7b4b4b2f3d924cdaeee058d779df309ebc0f78668d07aa6994c229e81e3e.js" />
   </ItemGroup>
 
 </Project>

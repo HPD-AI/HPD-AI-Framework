@@ -87,6 +87,12 @@ internal static class BaseQueryValue
                 Kind = QueryValueKind.CanonicalJson,
                 CanonicalJsonUtf8 = ImmutableArray.Create(canonicalJson.Utf8.Span.ToArray()),
             },
+            _ when boxed.GetType().IsEnum && BaseClosedEnumGeneratedContract.TryGetWire(
+                boxed.GetType(), boxed, out string wire) => new QueryValue
+            {
+                Kind = QueryValueKind.String,
+                String = wire,
+            },
             _ when boxed.GetType().IsEnum => new QueryValue
             {
                 Kind = QueryValueKind.String,

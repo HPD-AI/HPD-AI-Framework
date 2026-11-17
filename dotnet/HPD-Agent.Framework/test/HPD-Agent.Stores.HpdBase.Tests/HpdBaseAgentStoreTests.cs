@@ -62,6 +62,77 @@ public sealed class HpdBaseAgentStoreTests
         }
     }
 
+    [Fact]
+    public async Task AgentStore_SaveIfUnchangedRejectsAStaleDefinition()
+    {
+        string database = TemporaryDatabase();
+        try
+        {
+            await using ServiceProvider provider = await CreateProviderAsync(database);
+            IAgentStore store = provider.GetRequiredService<IAgentStore>();
+            StoredAgent original = MakeAgent("conditional-agent");
+            await store.SaveAsync(original);
+            StoredAgent expected = (await store.LoadAsync(original.Id))!;
+            var competitor = new StoredAgent
+            {
+                Id = original.Id,
+                Config = new AgentConfig { Name = "Competitor" },
+                CreatedAt = original.CreatedAt,
+                UpdatedAt = original.UpdatedAt.AddSeconds(1),
+                Metadata = original.Metadata,
+            };
+            await store.SaveAsync(competitor);
+            var stale = new StoredAgent
+            {
+                Id = original.Id,
+                Config = new AgentConfig { Name = "Stale Studio Draft" },
+                CreatedAt = original.CreatedAt,
+                UpdatedAt = original.UpdatedAt.AddSeconds(2),
+                Metadata = original.Metadata,
+            };
+
+            bool saved = await store.SaveIfUnchangedAsync(stale, expected);
+
+            saved.Should().BeFalse();
+            (await store.LoadAsync(original.Id))!.Config.Name.Should().Be("Competitor");
+        }
+        finally
+        {
+            ClearDatabase(database);
+        }
+    }
+
+    [Fact]
+    public async Task AgentStore_SaveIfUnchangedPersistsTheWinningRevision()
+    {
+        string database = TemporaryDatabase();
+        try
+        {
+            await using ServiceProvider provider = await CreateProviderAsync(database);
+            IAgentStore store = provider.GetRequiredService<IAgentStore>();
+            StoredAgent original = MakeAgent("conditional-winner");
+            await store.SaveAsync(original);
+            StoredAgent expected = (await store.LoadAsync(original.Id))!;
+            var update = new StoredAgent
+            {
+                Id = original.Id,
+                Config = new AgentConfig { Name = "Conditional winner" },
+                CreatedAt = original.CreatedAt,
+                UpdatedAt = original.UpdatedAt.AddSeconds(1),
+                Metadata = original.Metadata,
+            };
+
+            bool saved = await store.SaveIfUnchangedAsync(update, expected);
+
+            saved.Should().BeTrue();
+            (await store.LoadAsync(original.Id))!.Config.Name.Should().Be("Conditional winner");
+        }
+        finally
+        {
+            ClearDatabase(database);
+        }
+    }
+
     private static StoredAgent MakeAgent(string id) => new()
     {
         Id = id,

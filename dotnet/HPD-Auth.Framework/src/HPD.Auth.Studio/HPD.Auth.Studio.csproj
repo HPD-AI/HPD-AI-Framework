@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks></TargetFrameworks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>HPD.Auth.Studio</RootNamespace>
+    <AssemblyName>HPD.Auth.Studio</AssemblyName>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Auth-Studio</PackageId>
+    <Description>Hosted HPD.Auth integration for HPD AI Platform Studio.</Description>
+    <PackageTags>hpd;auth;studio;aspnetcore</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../HPD.Auth.Core/HPD.Auth.Core.csproj" />
+    <ProjectReference Include="../../../HPD-AI.Platform/HPD-AI.Platform.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+</Project>

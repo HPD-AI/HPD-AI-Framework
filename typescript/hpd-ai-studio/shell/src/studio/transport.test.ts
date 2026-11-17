@@ -25,7 +25,7 @@ describe('Studio bounded transport', () => {
       operations: [{ operationId: 'observe', method: 'POST', relativePathTemplate: 'observe', purpose: 'observation', maximumRequestBytes: '1024',
         maximumResponseBytes: '1024', deadlineMilliseconds: '1000', requestMediaTypes: ['application/json'], requestHeaderNames: [] }] };
     try {
-      const transport = createStudioFrameworkTransport(authentication as never, client as never, 'b'.repeat(64), 'a'.repeat(64));
+      const transport = createStudioFrameworkTransport(authentication as never, client as never, 'b'.repeat(64), 'a'.repeat(64), '/platform/studio');
       await transport.execute({ operation: 'observe', purpose: 'observation', method: 'POST', relativePathAndQuery: '/observe',
         headers: { 'Content-Type': 'application/json' }, body: '{}', maximumResponseBytes: 1024, deadlineMilliseconds: 1000,
         signal: new AbortController().signal });

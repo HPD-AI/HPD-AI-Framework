@@ -180,7 +180,7 @@ internal sealed class DebugBreakpointSelectionEventFactory(
         try
         {
             return SafeText(
-                CodingWorkspaceAccess.Resolve(
+                CodingWorkspacePathAccess.Resolve(
                     workspace,
                     path).ToString()) ?? "source";
         }

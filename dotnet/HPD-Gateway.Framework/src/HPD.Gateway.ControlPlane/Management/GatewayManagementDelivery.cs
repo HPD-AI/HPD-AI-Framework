@@ -25,15 +25,15 @@ internal sealed class GatewayDeliveryCoordinator(
     IBaseSessionFactory sessions,
     IGatewayNodeActivator activator,
     GatewayManagementRuntimeOptions options,
-    TimeProvider timeProvider) : IGatewayDeliveryCoordinator
+    TimeProvider timeProvider,
+    GatewayManagementMutationGate mutationGate) : IGatewayDeliveryCoordinator
 {
-    private readonly SemaphoreSlim _lease = new(1, 1);
     private int _fairnessCursor = -1;
 
     public async ValueTask<GatewayDeliveryRunResult> ReconcileOnceAsync(CancellationToken cancellationToken = default)
     {
         await authority.InitializeAsync(cancellationToken).ConfigureAwait(false);
-        await _lease.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await mutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             BaseSession session = Session();
@@ -134,7 +134,7 @@ internal sealed class GatewayDeliveryCoordinator(
             }
             return new(items.Length, claimed, completed, pending, failed);
         }
-        finally { _lease.Release(); }
+        finally { mutationGate.Release(); }
     }
 
     private async ValueTask<BaseRecord<GatewayDeliveryOutboxItem>[]> LoadEligible(

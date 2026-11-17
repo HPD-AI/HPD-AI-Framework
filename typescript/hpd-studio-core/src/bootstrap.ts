@@ -639,7 +639,8 @@ function decodeBase64Url(value: string): Uint8Array {
 }
 
 function methodTransportMatches(kind: StudioMethodKind, endpoint: StudioEndpointContract): boolean {
-  if (kind === 'invalidationSubscribe') return endpoint.transport === 'sameOriginRealtime' && endpoint.method === 'WEBSOCKET';
+  if (kind === 'invalidationSubscribe') return (endpoint.transport === 'sameOriginRealtime' && endpoint.method === 'WEBSOCKET') ||
+    (endpoint.transport === 'sameOriginHttp' && endpoint.method === 'GET');
   if (kind === 'stageUpload') return endpoint.transport === 'sameOriginHttp' && endpoint.method === 'PUT';
   return endpoint.transport === 'sameOriginHttp' && endpoint.method !== 'WEBSOCKET';
 }

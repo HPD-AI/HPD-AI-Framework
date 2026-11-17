@@ -9,7 +9,7 @@ export default defineConfig({
     lib: { entry: 'src/index.ts', formats: ['es'], fileName: () => 'gateway.js' },
     cssCodeSplit: false,
     rollupOptions: {
-      external: ['@hpd/gateway-client', '@hpd-research/hpd-studio-core'],
+      external: ['@hpd/gateway-client', '@hpd/gateway-client/studio-host', '@hpd-research/hpd-studio-core'],
       output: { assetFileNames: asset => asset.name?.endsWith('.css') ? 'gateway.css' : '[name]-[hash][extname]' }
     }
   }

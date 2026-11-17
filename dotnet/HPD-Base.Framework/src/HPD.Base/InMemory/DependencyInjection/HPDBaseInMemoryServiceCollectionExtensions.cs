@@ -76,10 +76,10 @@ internal static class HPDBaseInMemoryServiceCollectionExtensions
         services.TryAddSingleton<IBaseSemanticActivationAdministration>(provider => provider.GetRequiredService<InMemoryRecordStore>());
         services.TryAddSingleton<IBaseSubjectLifecycleStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
         services.TryAddSingleton<IStreamingRecordStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
-        services.TryAddSingleton<IBaseStudioDynamicStoreAuthoritySource>(provider => provider.GetRequiredService<InMemoryRecordStore>());
-        services.TryAddSingleton<IBaseStudioControlInspectionStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
-        services.TryAddSingleton<IBaseStudioEvidenceStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
-        services.TryAddSingleton<IBaseStudioInfrastructureInventoryStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
+        services.TryAddSingleton<IStudioDynamicStoreAuthoritySource>(provider => provider.GetRequiredService<InMemoryRecordStore>());
+        services.TryAddSingleton<IStudioControlInspectionStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
+        services.TryAddSingleton<IStudioEvidenceStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
+        services.TryAddSingleton<IStudioInfrastructureInventoryStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
 
         if (options.ContributeModuleDescriptor || options.ContributeCapabilities || options.Collections is not null)
         {

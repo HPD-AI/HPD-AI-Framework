@@ -6,11 +6,11 @@ namespace HPD.Graph.Studio;
 public interface IGraphStudioInspectionAuthority
 {
     /// <summary>Executes one registered bounded observation after Studio authorization succeeds.</summary>
-    ValueTask<BaseStudioFrameworkSurfaceResponse?> ObserveAsync(
+    ValueTask<StudioFrameworkSurfaceResponse?> ObserveAsync(
         string operationId, string relativePath, string applicationId, CancellationToken cancellationToken);
 
     /// <summary>Confirms that an exact graph resource identity is current.</summary>
-    ValueTask<bool> ExistsAsync(BaseStudioResourceIdentity resource, CancellationToken cancellationToken);
+    ValueTask<bool> ExistsAsync(StudioResourceIdentity resource, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -19,14 +19,14 @@ public interface IGraphStudioInspectionAuthority
 /// </summary>
 internal sealed class UnavailableGraphStudioInspectionAuthority : IGraphStudioInspectionAuthority
 {
-    public ValueTask<BaseStudioFrameworkSurfaceResponse?> ObserveAsync(
+    public ValueTask<StudioFrameworkSurfaceResponse?> ObserveAsync(
         string operationId, string relativePath, string applicationId, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult<BaseStudioFrameworkSurfaceResponse?>(null);
+        return ValueTask.FromResult<StudioFrameworkSurfaceResponse?>(null);
     }
 
-    public ValueTask<bool> ExistsAsync(BaseStudioResourceIdentity resource, CancellationToken cancellationToken)
+    public ValueTask<bool> ExistsAsync(StudioResourceIdentity resource, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult(false);

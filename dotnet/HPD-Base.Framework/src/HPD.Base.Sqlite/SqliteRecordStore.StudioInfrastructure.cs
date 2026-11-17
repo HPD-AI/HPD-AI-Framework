@@ -5,24 +5,24 @@ using Microsoft.Data.Sqlite;
 
 namespace HPD.Base.Sqlite;
 
-public sealed partial class SqliteRecordStore : IBaseStudioInfrastructureInventoryStore
+public sealed partial class SqliteRecordStore : IStudioInfrastructureInventoryStore
 {
     internal async ValueTask PublishInfrastructureMaintenanceAsync(string maintenanceKind, string operationIdentity,
-        BaseStudioInfrastructureState state, int progressBasisPoints, CancellationToken cancellationToken)
+        StudioInfrastructureState state, int progressBasisPoints, CancellationToken cancellationToken)
     {
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await PublishInfrastructureAsync(connection, null, BaseStudioInfrastructureInventoryKind.Maintenance, state,
+        await PublishInfrastructureAsync(connection, null, StudioInfrastructureInventoryKind.Maintenance, state,
             maintenanceKind, operationIdentity, null, progressBasisPoints, 0, cancellationToken).ConfigureAwait(false);
     }
 
     internal ValueTask PublishInfrastructureMaintenanceAsync(SqliteConnection connection, SqliteTransaction transaction,
-        string maintenanceKind, string operationIdentity, BaseStudioInfrastructureState state, int progressBasisPoints,
+        string maintenanceKind, string operationIdentity, StudioInfrastructureState state, int progressBasisPoints,
         CancellationToken cancellationToken) => PublishInfrastructureAsync(connection, transaction,
-            BaseStudioInfrastructureInventoryKind.Maintenance, state, maintenanceKind, operationIdentity, null,
+            StudioInfrastructureInventoryKind.Maintenance, state, maintenanceKind, operationIdentity, null,
             progressBasisPoints, 0, cancellationToken);
 
     private async ValueTask PublishInfrastructureAsync(SqliteConnection connection, SqliteTransaction? transaction,
-        BaseStudioInfrastructureInventoryKind kind, BaseStudioInfrastructureState state, string identity,
+        StudioInfrastructureInventoryKind kind, StudioInfrastructureState state, string identity,
         string? secondaryIdentity, byte[]? checksum, long numberA, long numberB, CancellationToken cancellationToken)
     {
         long restore = await InfrastructureRestoreEpochAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
@@ -42,24 +42,24 @@ public sealed partial class SqliteRecordStore : IBaseStudioInfrastructureInvento
         CancellationToken cancellationToken)
     {
         byte[] digest = Convert.FromHexString(manifest.ProviderPayloadSha256);
-        await PublishInfrastructureAsync(connection, null, BaseStudioInfrastructureInventoryKind.Backup,
-            BaseStudioInfrastructureState.Completed, requestIdentity, null, digest,
+        await PublishInfrastructureAsync(connection, null, StudioInfrastructureInventoryKind.Backup,
+            StudioInfrastructureState.Completed, requestIdentity, null, digest,
             manifest.ProviderPayloadLength, 0, cancellationToken).ConfigureAwait(false);
     }
 
-    private async ValueTask PublishBackupAttemptAsync(string requestIdentity, BaseStudioInfrastructureState state,
+    private async ValueTask PublishBackupAttemptAsync(string requestIdentity, StudioInfrastructureState state,
         CancellationToken cancellationToken)
     {
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await PublishInfrastructureAsync(connection, null, BaseStudioInfrastructureInventoryKind.Backup, state,
+        await PublishInfrastructureAsync(connection, null, StudioInfrastructureInventoryKind.Backup, state,
             requestIdentity, null, new byte[32], 0, 0, cancellationToken).ConfigureAwait(false);
     }
 
-    private async ValueTask PublishRestoreAttemptAsync(string requestIdentity, BaseStudioInfrastructureState state,
+    private async ValueTask PublishRestoreAttemptAsync(string requestIdentity, StudioInfrastructureState state,
         CancellationToken cancellationToken)
     {
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await PublishInfrastructureAsync(connection, null, BaseStudioInfrastructureInventoryKind.Restore, state,
+        await PublishInfrastructureAsync(connection, null, StudioInfrastructureInventoryKind.Restore, state,
             requestIdentity, null, new byte[32], 0, 0, cancellationToken).ConfigureAwait(false);
     }
 
@@ -67,20 +67,20 @@ public sealed partial class SqliteRecordStore : IBaseStudioInfrastructureInvento
         long resultRestoreEpoch, CancellationToken cancellationToken)
     {
         byte[] digest = Convert.FromHexString(manifest.ProviderPayloadSha256);
-        await PublishInfrastructureAsync(connection, null, BaseStudioInfrastructureInventoryKind.Restore,
-            BaseStudioInfrastructureState.Completed, requestIdentity, null, digest,
+        await PublishInfrastructureAsync(connection, null, StudioInfrastructureInventoryKind.Restore,
+            StudioInfrastructureState.Completed, requestIdentity, null, digest,
             resultRestoreEpoch, 0, cancellationToken).ConfigureAwait(false);
     }
     /// <inheritdoc />
-    public BaseStudioInfrastructureInventoryCapability InfrastructureInventoryCapability { get; } =
-        BaseStudioInfrastructureInventoryContract.Capability(durable: true);
+    public StudioInfrastructureInventoryCapability InfrastructureInventoryCapability { get; } =
+        StudioInfrastructureInventoryContract.Capability(durable: true);
 
     /// <inheritdoc />
     public async ValueTask<OperationResult<BaseCapturedStudioInfrastructureAuthority>> CaptureInfrastructureAuthorityAsync(
-        BaseStudioInfrastructureInventoryRequirement request, CancellationToken cancellationToken = default)
+        StudioInfrastructureInventoryRequirement request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (!BaseStudioInfrastructureInventoryContract.Valid(request, InfrastructureInventoryCapability) ||
+        if (!StudioInfrastructureInventoryContract.Valid(request, InfrastructureInventoryCapability) ||
             !StringComparer.Ordinal.Equals(request.StoreId, _options.StoreId) || !StringComparer.Ordinal.Equals(request.StoreInstanceId, _options.StoreId))
             return InfrastructureFailure<BaseCapturedStudioInfrastructureAuthority>("base.studio.infrastructure.authorityMismatch", ErrorCategory.Authorization);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken); deadline.CancelAfter(request.Limits.AcquisitionDeadline);
@@ -93,21 +93,21 @@ public sealed partial class SqliteRecordStore : IBaseStudioInfrastructureInvento
         long generation;
         await using (SqliteCommand high = connection.CreateCommand())
         { high.CommandText = $"SELECT COALESCE(MAX(sequence),0) FROM {_names.StudioInfrastructureInventory};"; generation = Convert.ToInt64(await high.ExecuteScalarAsync(deadline.Token).ConfigureAwait(false), CultureInfo.InvariantCulture); }
-        string path = BaseStudioInfrastructureInventoryContract.Path(request.Kind);
-        var accounting = new BaseStudioInfrastructureProviderAccounting { RowsRead = 2, EvidenceBytes = 64, TransientBytes = 64 };
-        var receipt = new BaseStudioInfrastructureCaptureReceipt { ApplicationId = new(request.ApplicationId.AsSpan()), StoreId = new(_options.StoreId.AsSpan()), Kind = request.Kind,
+        string path = StudioInfrastructureInventoryContract.Path(request.Kind);
+        var accounting = new StudioInfrastructureProviderAccounting { RowsRead = 2, EvidenceBytes = 64, TransientBytes = 64 };
+        var receipt = new StudioInfrastructureCaptureReceipt { ApplicationId = new(request.ApplicationId.AsSpan()), StoreId = new(_options.StoreId.AsSpan()), Kind = request.Kind,
             StoreInstanceId = new(_options.StoreId.AsSpan()), RestoreEpoch = restore, SchemaGeneration = schema, InventoryGeneration = generation,
-            LogicalAccessPathId = path, Accounting = accounting, AuthorityChecksum = BaseStudioInfrastructureInventoryContract.AuthorityChecksum(request, generation, path) };
+            LogicalAccessPathId = path, Accounting = accounting, AuthorityChecksum = StudioInfrastructureInventoryContract.AuthorityChecksum(request, generation, path) };
         return OperationResults.Ok<BaseCapturedStudioInfrastructureAuthority>(new InfrastructureAuthority(this, request with
         { ApplicationId = new(request.ApplicationId.AsSpan()), StoreId = new(request.StoreId.AsSpan()), StoreInstanceId = new(request.StoreInstanceId.AsSpan()), Limits = request.Limits with { } }, receipt));
     }
 
     /// <inheritdoc />
-    public async ValueTask<OperationResult<IBaseStudioInfrastructureInventorySession>> OpenInfrastructureSessionAsync(
+    public async ValueTask<OperationResult<IStudioInfrastructureInventorySession>> OpenInfrastructureSessionAsync(
         BaseCapturedStudioInfrastructureAuthority authority, CancellationToken cancellationToken = default)
     {
         if (authority is not InfrastructureAuthority captured || !ReferenceEquals(captured.Owner, this) || !captured.TryOpen())
-            return InfrastructureFailure<IBaseStudioInfrastructureInventorySession>("base.studio.infrastructure.authorityMismatch", ErrorCategory.Authorization);
+            return InfrastructureFailure<IStudioInfrastructureInventorySession>("base.studio.infrastructure.authorityMismatch", ErrorCategory.Authorization);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken); deadline.CancelAfter(captured.Requirement.Limits.SessionDeadline);
         SqliteConnection? connection = null; SqliteTransaction? transaction = null;
         try
@@ -116,8 +116,8 @@ public sealed partial class SqliteRecordStore : IBaseStudioInfrastructureInvento
             transaction = (SqliteTransaction)await connection.BeginTransactionAsync(deadline.Token).ConfigureAwait(false);
             long restore = await InfrastructureRestoreEpochAsync(connection, transaction, deadline.Token).ConfigureAwait(false);
             if (restore != captured.Receipt.RestoreEpoch || Volatile.Read(ref _schemaGeneration) != captured.Receipt.SchemaGeneration)
-            { await transaction.DisposeAsync().ConfigureAwait(false); await connection.DisposeAsync().ConfigureAwait(false); return InfrastructureFailure<IBaseStudioInfrastructureInventorySession>("base.studio.infrastructure.authorityMismatch", ErrorCategory.Authorization); }
-            return OperationResults.Ok<IBaseStudioInfrastructureInventorySession>(new InfrastructureSession(this, captured, connection, transaction));
+            { await transaction.DisposeAsync().ConfigureAwait(false); await connection.DisposeAsync().ConfigureAwait(false); return InfrastructureFailure<IStudioInfrastructureInventorySession>("base.studio.infrastructure.authorityMismatch", ErrorCategory.Authorization); }
+            return OperationResults.Ok<IStudioInfrastructureInventorySession>(new InfrastructureSession(this, captured, connection, transaction));
         }
         catch { if (transaction is not null) await transaction.DisposeAsync().ConfigureAwait(false); if (connection is not null) await connection.DisposeAsync().ConfigureAwait(false); throw; }
     }
@@ -131,7 +131,7 @@ SELECT 1,$restore,$schema,'1970-01-01T00:00:00.0000000Z',3,'sqlite.current',NULL
 WHERE NOT EXISTS (SELECT 1 FROM {_names.StudioInfrastructureInventory} WHERE kind=1 AND restore_epoch=$restore AND schema_generation=$schema);
 """;
         command.Parameters.AddWithValue("$restore", restore); command.Parameters.AddWithValue("$schema", schema);
-        command.Parameters.Add("$checksum", SqliteType.Blob).Value = BaseStudioInfrastructureInventoryContract.Hash(writer => { writer.Write("sqlite.schema.v1"); writer.Write(schema); }).ToArray();
+        command.Parameters.Add("$checksum", SqliteType.Blob).Value = StudioInfrastructureInventoryContract.Hash(writer => { writer.Write("sqlite.schema.v1"); writer.Write(schema); }).ToArray();
         _ = await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
 
         var history = new List<(long Generation, string AppliedAt, int Outcome, string PlanId, byte[] Checksum)>();
@@ -178,60 +178,60 @@ WHERE NOT EXISTS (
     { await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = $"SELECT COALESCE(CAST(value AS INTEGER),0) FROM {_names.ProviderState} WHERE key='restore_epoch';";
       return Convert.ToInt64(await command.ExecuteScalarAsync(token).ConfigureAwait(false), CultureInfo.InvariantCulture); }
 
-    private sealed class InfrastructureAuthority(SqliteRecordStore owner, BaseStudioInfrastructureInventoryRequirement requirement,
-        BaseStudioInfrastructureCaptureReceipt receipt) : BaseCapturedStudioInfrastructureAuthority(receipt)
-    { private int _opened; internal SqliteRecordStore Owner { get; } = owner; internal BaseStudioInfrastructureInventoryRequirement Requirement { get; } = requirement;
+    private sealed class InfrastructureAuthority(SqliteRecordStore owner, StudioInfrastructureInventoryRequirement requirement,
+        StudioInfrastructureCaptureReceipt receipt) : BaseCapturedStudioInfrastructureAuthority(receipt)
+    { private int _opened; internal SqliteRecordStore Owner { get; } = owner; internal StudioInfrastructureInventoryRequirement Requirement { get; } = requirement;
       internal bool TryOpen() => Interlocked.CompareExchange(ref _opened, 1, 0) == 0; }
 
     private sealed class InfrastructureSession(SqliteRecordStore owner, InfrastructureAuthority authority, SqliteConnection connection, SqliteTransaction transaction)
-        : IBaseStudioInfrastructureInventorySession
+        : IStudioInfrastructureInventorySession
     {
         private int _disposed; private readonly CancellationTokenSource _lifetime = new(authority.Requirement.Limits.SessionDeadline);
-        public async ValueTask<OperationResult<BaseStudioInfrastructurePage>> ReadPageAsync(BaseStudioInfrastructurePageRequest request,
+        public async ValueTask<OperationResult<StudioInfrastructurePage>> ReadPageAsync(StudioInfrastructurePageRequest request,
             CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(request);
             if (Volatile.Read(ref _disposed) != 0 || request.Take < 1 || request.Take > authority.Requirement.Limits.MaximumItems ||
-                !BaseStudioInfrastructureInventoryContract.Position(authority.Requirement.Kind, request.After, out long after))
-                return InfrastructureFailure<BaseStudioInfrastructurePage>("base.studio.infrastructure.authorityMismatch", ErrorCategory.Authorization);
+                !StudioInfrastructureInventoryContract.Position(authority.Requirement.Kind, request.After, out long after))
+                return InfrastructureFailure<StudioInfrastructurePage>("base.studio.infrastructure.authorityMismatch", ErrorCategory.Authorization);
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token); deadline.CancelAfter(authority.Requirement.Limits.PageDeadline);
             if (await owner.InfrastructureRestoreEpochAsync(connection, transaction, deadline.Token).ConfigureAwait(false) != authority.Receipt.RestoreEpoch ||
                 Volatile.Read(ref owner._schemaGeneration) != authority.Receipt.SchemaGeneration)
-                return InfrastructureFailure<BaseStudioInfrastructurePage>("base.studio.infrastructure.authorityMismatch", ErrorCategory.Authorization);
+                return InfrastructureFailure<StudioInfrastructurePage>("base.studio.infrastructure.authorityMismatch", ErrorCategory.Authorization);
             await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction;
             command.CommandText = $"SELECT sequence,restore_epoch,schema_generation,observed_at,state,identity,secondary_identity,checksum_a,number_a,number_b,flag_a " +
                 $"FROM {owner._names.StudioInfrastructureInventory} INDEXED BY {owner._names.StudioInfrastructureKindSequenceIndex} WHERE kind=$kind AND sequence>$after AND sequence<=$through ORDER BY sequence LIMIT $take;";
             command.Parameters.AddWithValue("$kind", (int)authority.Requirement.Kind); command.Parameters.AddWithValue("$after", after);
             command.Parameters.AddWithValue("$through", authority.Receipt.InventoryGeneration); command.Parameters.AddWithValue("$take", checked(request.Take + 1));
-            var values = new List<BaseStudioInfrastructureItem>(request.Take + 1); await using SqliteDataReader reader = await command.ExecuteReaderAsync(deadline.Token).ConfigureAwait(false);
+            var values = new List<StudioInfrastructureItem>(request.Take + 1); await using SqliteDataReader reader = await command.ExecuteReaderAsync(deadline.Token).ConfigureAwait(false);
             while (await reader.ReadAsync(deadline.Token).ConfigureAwait(false)) values.Add(Item(authority.Requirement.Kind, owner._options.StoreId, reader));
             long rowsRead = values.Count; if (rowsRead > authority.Requirement.Limits.MaximumRowsRead)
-                return InfrastructureFailure<BaseStudioInfrastructurePage>("base.studio.infrastructure.budgetExceeded", ErrorCategory.Validation);
-            bool more = values.Count > request.Take; if (more) values.RemoveAt(values.Count - 1); ImmutableArray<BaseStudioInfrastructureItem> items = [.. values];
-            long bytes = items.Sum(BaseStudioInfrastructureInventoryContract.Measure); if (bytes > authority.Requirement.Limits.MaximumEvidenceBytes || bytes > authority.Requirement.Limits.MaximumTransientBytes)
-                return InfrastructureFailure<BaseStudioInfrastructurePage>("base.studio.infrastructure.budgetExceeded", ErrorCategory.Validation);
-            BaseStudioInfrastructureBoundary? next = more && items.Length > 0 ? BaseStudioInfrastructureInventoryContract.Boundary(authority.Requirement.Kind, items[^1].Sequence) : null;
-            var accounting = new BaseStudioInfrastructureProviderAccounting { RowsRead = rowsRead, EvidenceBytes = bytes, TransientBytes = bytes };
-            return OperationResults.Ok(new BaseStudioInfrastructurePage { Items = items, Next = next, InventoryGeneration = authority.Receipt.InventoryGeneration,
-                Accounting = accounting, PageChecksum = BaseStudioInfrastructureInventoryContract.PageChecksum(items, authority.Receipt.InventoryGeneration, next, accounting) });
+                return InfrastructureFailure<StudioInfrastructurePage>("base.studio.infrastructure.budgetExceeded", ErrorCategory.Validation);
+            bool more = values.Count > request.Take; if (more) values.RemoveAt(values.Count - 1); ImmutableArray<StudioInfrastructureItem> items = [.. values];
+            long bytes = items.Sum(StudioInfrastructureInventoryContract.Measure); if (bytes > authority.Requirement.Limits.MaximumEvidenceBytes || bytes > authority.Requirement.Limits.MaximumTransientBytes)
+                return InfrastructureFailure<StudioInfrastructurePage>("base.studio.infrastructure.budgetExceeded", ErrorCategory.Validation);
+            StudioInfrastructureBoundary? next = more && items.Length > 0 ? StudioInfrastructureInventoryContract.Boundary(authority.Requirement.Kind, items[^1].Sequence) : null;
+            var accounting = new StudioInfrastructureProviderAccounting { RowsRead = rowsRead, EvidenceBytes = bytes, TransientBytes = bytes };
+            return OperationResults.Ok(new StudioInfrastructurePage { Items = items, Next = next, InventoryGeneration = authority.Receipt.InventoryGeneration,
+                Accounting = accounting, PageChecksum = StudioInfrastructureInventoryContract.PageChecksum(items, authority.Receipt.InventoryGeneration, next, accounting) });
         }
         public async ValueTask DisposeAsync() { if (Interlocked.Exchange(ref _disposed, 1) != 0) return; _lifetime.Dispose(); await transaction.DisposeAsync().ConfigureAwait(false); await connection.DisposeAsync().ConfigureAwait(false); }
     }
 
-    private static BaseStudioInfrastructureItem Item(BaseStudioInfrastructureInventoryKind kind, string store, SqliteDataReader reader)
+    private static StudioInfrastructureItem Item(StudioInfrastructureInventoryKind kind, string store, SqliteDataReader reader)
     {
         long sequence = reader.GetInt64(0), restore = reader.GetInt64(1), schema = reader.GetInt64(2); DateTimeOffset observed = DateTimeOffset.ParseExact(reader.GetString(3),
             "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
-        var state = (BaseStudioInfrastructureState)reader.GetInt32(4); string identity = reader.GetString(5); string? secondary = reader.IsDBNull(6) ? null : reader.GetString(6);
+        var state = (StudioInfrastructureState)reader.GetInt32(4); string identity = reader.GetString(5); string? secondary = reader.IsDBNull(6) ? null : reader.GetString(6);
         ImmutableArray<byte> checksum = reader.IsDBNull(7) ? [] : [.. (byte[])reader[7]]; long a = reader.GetInt64(8), b = reader.GetInt64(9); bool flag = reader.GetInt64(10) != 0;
-        BaseStudioInfrastructureItem value = kind switch
-        { BaseStudioInfrastructureInventoryKind.SchemaGeneration => new BaseStudioSchemaGenerationItem { Kind=kind,Sequence=sequence,StoreId=store,RestoreEpoch=restore,SchemaGeneration=schema,ObservedAtUtc=observed,State=state,BaselineId=identity,SchemaChecksum=checksum,DriftDetected=flag,Checksum=[] },
-          BaseStudioInfrastructureInventoryKind.Migration => new BaseStudioMigrationItem { Kind=kind,Sequence=sequence,StoreId=store,RestoreEpoch=restore,SchemaGeneration=schema,ObservedAtUtc=observed,State=state,MigrationId=identity,FromSchemaGeneration=a,ToSchemaGeneration=b,PlanChecksum=checksum,Checksum=[] },
-          BaseStudioInfrastructureInventoryKind.Backup => new BaseStudioBackupItem { Kind=kind,Sequence=sequence,StoreId=store,RestoreEpoch=restore,SchemaGeneration=schema,ObservedAtUtc=observed,State=state,ArtifactId=identity,ArtifactDigest=checksum,ArtifactBytes=a,Checksum=[] },
-          BaseStudioInfrastructureInventoryKind.Restore => new BaseStudioRestoreItem { Kind=kind,Sequence=sequence,StoreId=store,RestoreEpoch=restore,SchemaGeneration=schema,ObservedAtUtc=observed,State=state,RestoreRequestIdentity=identity,ArtifactDigest=checksum,ResultRestoreEpoch=a,Checksum=[] },
-          BaseStudioInfrastructureInventoryKind.Maintenance => new BaseStudioMaintenanceItem { Kind=kind,Sequence=sequence,StoreId=store,RestoreEpoch=restore,SchemaGeneration=schema,ObservedAtUtc=observed,State=state,MaintenanceKind=identity,OperationIdentity=secondary ?? "unknown",ProgressBasisPoints=checked((int)a),Checksum=[] },
+        StudioInfrastructureItem value = kind switch
+        { StudioInfrastructureInventoryKind.SchemaGeneration => new StudioSchemaGenerationItem { Kind=kind,Sequence=sequence,StoreId=store,RestoreEpoch=restore,SchemaGeneration=schema,ObservedAtUtc=observed,State=state,BaselineId=identity,SchemaChecksum=checksum,DriftDetected=flag,Checksum=[] },
+          StudioInfrastructureInventoryKind.Migration => new StudioMigrationItem { Kind=kind,Sequence=sequence,StoreId=store,RestoreEpoch=restore,SchemaGeneration=schema,ObservedAtUtc=observed,State=state,MigrationId=identity,FromSchemaGeneration=a,ToSchemaGeneration=b,PlanChecksum=checksum,Checksum=[] },
+          StudioInfrastructureInventoryKind.Backup => new StudioBackupItem { Kind=kind,Sequence=sequence,StoreId=store,RestoreEpoch=restore,SchemaGeneration=schema,ObservedAtUtc=observed,State=state,ArtifactId=identity,ArtifactDigest=checksum,ArtifactBytes=a,Checksum=[] },
+          StudioInfrastructureInventoryKind.Restore => new StudioRestoreItem { Kind=kind,Sequence=sequence,StoreId=store,RestoreEpoch=restore,SchemaGeneration=schema,ObservedAtUtc=observed,State=state,RestoreRequestIdentity=identity,ArtifactDigest=checksum,ResultRestoreEpoch=a,Checksum=[] },
+          StudioInfrastructureInventoryKind.Maintenance => new StudioMaintenanceItem { Kind=kind,Sequence=sequence,StoreId=store,RestoreEpoch=restore,SchemaGeneration=schema,ObservedAtUtc=observed,State=state,MaintenanceKind=identity,OperationIdentity=secondary ?? "unknown",ProgressBasisPoints=checked((int)a),Checksum=[] },
           _ => throw new InvalidDataException("Infrastructure inventory kind is corrupt.") };
-        return value with { Checksum = BaseStudioInfrastructureInventoryContract.ItemChecksum(value) };
+        return value with { Checksum = StudioInfrastructureInventoryContract.ItemChecksum(value) };
     }
 
     private static BaseError InfrastructureError(string code, ErrorCategory category) => new() { Code=code,Message="The infrastructure inventory operation could not be completed.",Category=category };

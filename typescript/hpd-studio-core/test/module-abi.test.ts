@@ -50,7 +50,7 @@ test('activation requires exact static pages and client slots', () => {
   const value = descriptor();
   const frontendAbiChecksum = value.frontendAbiChecksum;
   const context: StudioModuleActivationContext = {
-    moduleId: 'base', moduleVersion: 1, frontendAbiChecksum,
+    moduleId: 'base', moduleVersion: 1, applicationId: 'tests.application', frontendAbiChecksum,
     disclosedPageIds: [studioPageId('base.overview')],
     clients: new Map([[studioClientId('base.control-plane'), Object.freeze({
       ...slot(), client: Object.freeze({})
@@ -75,7 +75,8 @@ test('activation accepts client ownership filtered to disclosed pages', () => {
   };
   const value = defineStudioModuleDescriptor({ moduleId: 'base', moduleVersion: 1,
     frontendAbiChecksum: computeStudioFrontendAbiChecksum('base', 1, clients, pages), clientSlots: clients, pageComponents: pages });
-  const context: StudioModuleActivationContext = { moduleId: 'base', moduleVersion: 1, frontendAbiChecksum: value.frontendAbiChecksum,
+  const context: StudioModuleActivationContext = { moduleId: 'base', moduleVersion: 1,
+    applicationId: 'tests.application', frontendAbiChecksum: value.frontendAbiChecksum,
     disclosedPageIds: [overview], clients: new Map([[studioClientId('base.control-plane'), Object.freeze({
       ...clients[0]!, owningPageIds: [overview], client: Object.freeze({})
     })]]), navigation: { async navigate() {} }, lifecycle: { signal: new AbortController().signal, defer() {} } };

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using HPD.Agent.MCP;
 
@@ -15,8 +14,16 @@ public static class AgentConfigValidator
     /// Validates the configuration and throws if invalid.
     /// </summary>
     public static void ValidateAndThrow(AgentConfig config)
+        => ValidateAndThrow(config, hostLimits: null);
+
+    /// <summary>
+    /// Validates the configuration against optional host-owned limits and throws if invalid.
+    /// </summary>
+    public static void ValidateAndThrow(
+        AgentConfig config,
+        AgentConfigValidationLimits? hostLimits)
     {
-        var errors = Validate(config);
+        var errors = Validate(config, hostLimits);
         if (errors.Count > 0)
         {
             throw new ValidationException(errors);
@@ -27,14 +34,24 @@ public static class AgentConfigValidator
     /// Validates the configuration and returns a list of error messages.
     /// </summary>
     public static List<string> Validate(AgentConfig config)
+        => Validate(config, hostLimits: null);
+
+    /// <summary>
+    /// Validates the configuration against optional host-owned limits.
+    /// </summary>
+    public static List<string> Validate(
+        AgentConfig config,
+        AgentConfigValidationLimits? hostLimits)
     {
         var errors = new List<string>();
+        if (hostLimits is not null)
+            ValidateHostLimits(hostLimits, errors);
 
         // Basic configuration validation
-        ValidateName(config, errors);
-        ValidateMaxAgenticIterations(config, errors);
-        ValidateResilience(config, errors);
-        ValidatePrivacy(config, errors);
+        ValidateName(config, hostLimits, errors);
+        ValidateMaxAgenticIterations(config, hostLimits, errors);
+        ValidateResilience(config, hostLimits, errors);
+        ValidatePrivacy(config, hostLimits, errors);
         ValidateObservability(config, errors);
         ValidateCompaction(config, errors);
         if (config.Goals is { } goals) errors.AddRange(goals.Validate());
@@ -43,11 +60,34 @@ public static class AgentConfigValidator
             errors.Add("ToolOutputs is required.");
         else
             errors.AddRange(config.ToolOutputs.Validate("ToolOutputs"));
-        ValidateAudio(config, errors);
+        ValidateAudio(config, hostLimits, errors);
         ValidateMcp(config, errors);
-        ValidateCrossConfiguration(config, errors);
 
         return errors;
+    }
+
+    private static void ValidateHostLimits(
+        AgentConfigValidationLimits limits,
+        List<string> errors)
+    {
+        if (limits.MaximumAgentNameLength is < 1)
+            errors.Add("ValidationLimits.MaximumAgentNameLength must be positive.");
+        if (limits.MaximumAgenticIterations is < 1)
+            errors.Add("ValidationLimits.MaximumAgenticIterations must be positive.");
+        if (limits.MaximumRetries is < 0)
+            errors.Add("ValidationLimits.MaximumRetries must not be negative.");
+        if (limits.MaximumConsecutiveCalls is < 1)
+            errors.Add("ValidationLimits.MaximumConsecutiveCalls must be positive.");
+        if (limits.MaximumConsecutiveErrors is < 1)
+            errors.Add("ValidationLimits.MaximumConsecutiveErrors must be positive.");
+        if (limits.MaximumTotalErrors is < 1)
+            errors.Add("ValidationLimits.MaximumTotalErrors must be positive.");
+        if (limits.MaximumExtensionNameLength is < 1)
+            errors.Add("ValidationLimits.MaximumExtensionNameLength must be positive.");
+        if (limits.MaximumAudioComponentInstanceLength is < 1)
+            errors.Add("ValidationLimits.MaximumAudioComponentInstanceLength must be positive.");
+        if (limits.MaximumAudioSchemaLength is < 1)
+            errors.Add("ValidationLimits.MaximumAudioSchemaLength must be positive.");
     }
 
     private static void ValidateMcp(AgentConfig config, List<string> errors)
@@ -77,7 +117,10 @@ public static class AgentConfigValidator
         }
     }
 
-    private static void ValidateAudio(AgentConfig config, List<string> errors)
+    private static void ValidateAudio(
+        AgentConfig config,
+        AgentConfigValidationLimits? hostLimits,
+        List<string> errors)
     {
         var audio = config.Audio;
         if (audio is null) return;
@@ -87,10 +130,16 @@ public static class AgentConfigValidator
             config.Clients.SpeechToText is null)
             errors.Add("Streaming Audio input requires a speech-to-text client configuration.");
         if (audio.Transport is not { } transport) return;
-        if (string.IsNullOrWhiteSpace(transport.ComponentInstance) || transport.ComponentInstance.Length > 128)
-            errors.Add("Audio transport ComponentInstance must contain 1-128 characters.");
-        if (string.IsNullOrWhiteSpace(transport.Schema) || transport.Schema.Length > 256 || transport.Version == 0)
+        if (string.IsNullOrWhiteSpace(transport.ComponentInstance))
+            errors.Add("Audio transport ComponentInstance must not be empty.");
+        else if (hostLimits?.MaximumAudioComponentInstanceLength is { } componentLimit &&
+                 transport.ComponentInstance.Length > componentLimit)
+            errors.Add($"Audio transport ComponentInstance exceeds host limit of {componentLimit} characters.");
+        if (string.IsNullOrWhiteSpace(transport.Schema) || transport.Version == 0)
             errors.Add("Audio transport schema identity is invalid.");
+        else if (hostLimits?.MaximumAudioSchemaLength is { } schemaLimit &&
+                 transport.Schema.Length > schemaLimit)
+            errors.Add($"Audio transport Schema exceeds host limit of {schemaLimit} characters.");
         if (!Uri.TryCreate(transport.Endpoint, UriKind.Absolute, out _))
             errors.Add("Audio transport Endpoint must be an absolute URI.");
     }
@@ -108,65 +157,103 @@ public static class AgentConfigValidator
         }
     }
 
-    private static void ValidateName(AgentConfig config, List<string> errors)
+    private static void ValidateName(
+        AgentConfig config,
+        AgentConfigValidationLimits? hostLimits,
+        List<string> errors)
     {
         if (string.IsNullOrEmpty(config.Name))
         {
             errors.Add("Agent name must not be empty.");
         }
-        else if (config.Name.Length < 1 || config.Name.Length > 100)
+        else if (hostLimits?.MaximumAgentNameLength is { } nameLimit &&
+                 config.Name.Length > nameLimit)
         {
-            errors.Add("Agent name must be between 1 and 100 characters.");
+            errors.Add($"Agent name exceeds host limit of {nameLimit} characters.");
         }
     }
 
-    private static void ValidateMaxAgenticIterations(AgentConfig config, List<string> errors)
+    private static void ValidateMaxAgenticIterations(
+        AgentConfig config,
+        AgentConfigValidationLimits? hostLimits,
+        List<string> errors)
     {
-        if (config.MaxAgenticIterations <= 0 || config.MaxAgenticIterations > 50)
-        {
-            errors.Add("MaxFunctionCallTurns must be between 1 and 50.");
-        }
+        if (config.MaxAgenticIterations <= 0)
+            errors.Add("MaxFunctionCallTurns must be greater than zero.");
+        else if (hostLimits?.MaximumAgenticIterations is { } iterationLimit &&
+                 config.MaxAgenticIterations > iterationLimit)
+            errors.Add($"MaxFunctionCallTurns exceeds host limit of {iterationLimit}.");
     }
 
-    private static void ValidateResilience(AgentConfig config, List<string> errors)
+    private static void ValidateResilience(
+        AgentConfig config,
+        AgentConfigValidationLimits? hostLimits,
+        List<string> errors)
     {
         if (config.Resilience is not { } resilience)
             return;
         if (resilience.Retry is { } retry)
         {
-            ValidateRetryPolicy(retry.ModelRetries, "resilience.retry.modelRetries", errors);
-            ValidateRetryPolicy(retry.FunctionRetries, "resilience.retry.functionRetries", errors);
+            ValidateRetryPolicy(
+                retry.ModelRetries,
+                "resilience.retry.modelRetries",
+                hostLimits?.MaximumRetries,
+                errors);
+            ValidateRetryPolicy(
+                retry.FunctionRetries,
+                "resilience.retry.functionRetries",
+                hostLimits?.MaximumRetries,
+                errors);
             ValidateRetryExclusions(retry.FunctionRetries.Exclude,
                 "resilience.retry.functionRetries.exclude", errors);
             ValidateExtensionName(
                 retry.ModelCustomRetryStrategy,
                 "resilience.retry.modelCustomRetryStrategy",
+                hostLimits?.MaximumExtensionNameLength,
                 errors);
             ValidateExtensionName(
                 retry.FunctionCustomRetryStrategy,
                 "resilience.retry.functionCustomRetryStrategy",
+                hostLimits?.MaximumExtensionNameLength,
                 errors);
         }
-        if (resilience.CircuitBreaker is { } circuitBreaker &&
-            circuitBreaker.MaxConsecutiveCalls is < 1 or > 100)
-            errors.Add("resilience.circuitBreaker.maxConsecutiveCalls must be between 1 and 100.");
-        if (resilience.ConsecutiveErrors is { } consecutive &&
-            consecutive.MaxConsecutiveErrors is < 1 or > 100)
-            errors.Add("resilience.consecutiveErrors.maxConsecutiveErrors must be between 1 and 100.");
+        if (resilience.CircuitBreaker is { } circuitBreaker)
+        {
+            if (circuitBreaker.MaxConsecutiveCalls < 1)
+                errors.Add("resilience.circuitBreaker.maxConsecutiveCalls must be greater than zero.");
+            else if (hostLimits?.MaximumConsecutiveCalls is { } callLimit &&
+                     circuitBreaker.MaxConsecutiveCalls > callLimit)
+                errors.Add($"resilience.circuitBreaker.maxConsecutiveCalls exceeds host limit of {callLimit}.");
+        }
+        if (resilience.ConsecutiveErrors is { } consecutive)
+        {
+            if (consecutive.MaxConsecutiveErrors < 1)
+                errors.Add("resilience.consecutiveErrors.maxConsecutiveErrors must be greater than zero.");
+            else if (hostLimits?.MaximumConsecutiveErrors is { } consecutiveLimit &&
+                     consecutive.MaxConsecutiveErrors > consecutiveLimit)
+                errors.Add($"resilience.consecutiveErrors.maxConsecutiveErrors exceeds host limit of {consecutiveLimit}.");
+        }
         if (resilience.TotalErrors is { } total)
         {
-            if (total.MaxTotalErrors is < 1 or > 1000)
-                errors.Add("resilience.totalErrors.maxTotalErrors must be between 1 and 1000.");
+            if (total.MaxTotalErrors < 1)
+                errors.Add("resilience.totalErrors.maxTotalErrors must be greater than zero.");
+            else if (hostLimits?.MaximumTotalErrors is { } totalLimit &&
+                     total.MaxTotalErrors > totalLimit)
+                errors.Add($"resilience.totalErrors.maxTotalErrors exceeds host limit of {totalLimit}.");
             ValidateExtensionName(
                 total.CustomErrorDetector,
                 "resilience.totalErrors.customErrorDetector",
+                hostLimits?.MaximumExtensionNameLength,
                 errors);
         }
         if (resilience.FunctionTimeout is { } timeout && timeout <= TimeSpan.Zero)
             errors.Add("resilience.functionTimeout must be positive.");
     }
 
-    private static void ValidatePrivacy(AgentConfig config, List<string> errors)
+    private static void ValidatePrivacy(
+        AgentConfig config,
+        AgentConfigValidationLimits? hostLimits,
+        List<string> errors)
     {
         if (config.Privacy?.PII is not { } pii)
             return;
@@ -193,7 +280,11 @@ public static class AgentConfigValidator
                 errors.Add($"{path}.pattern is not a valid regular expression.");
             }
         }
-        ValidateExtensionName(pii.ExternalDetector, "privacy.pii.externalDetector", errors);
+        ValidateExtensionName(
+            pii.ExternalDetector,
+            "privacy.pii.externalDetector",
+            hostLimits?.MaximumExtensionNameLength,
+            errors);
     }
 
     private static void ValidateObservability(AgentConfig config, List<string> errors)
@@ -211,10 +302,13 @@ public static class AgentConfigValidator
     private static void ValidateRetryPolicy(
         RetryPolicyConfig policy,
         string path,
+        int? maximumRetries,
         List<string> errors)
     {
-        if (policy.MaxRetries < 0 || policy.MaxRetries > 10)
-            errors.Add($"{path}.MaxRetries must be between 0 and 10.");
+        if (policy.MaxRetries < 0)
+            errors.Add($"{path}.MaxRetries must not be negative.");
+        else if (maximumRetries is { } retryLimit && policy.MaxRetries > retryLimit)
+            errors.Add($"{path}.MaxRetries exceeds host limit of {retryLimit}.");
         if (policy.RetryDelay < TimeSpan.Zero)
             errors.Add($"{path}.RetryDelay must not be negative.");
         if (policy.MaxRetryDelay < TimeSpan.Zero)
@@ -224,8 +318,10 @@ public static class AgentConfigValidator
 
         foreach (var (category, retries) in policy.MaxRetriesByCategory ?? [])
         {
-            if (retries < 0 || retries > 10)
-                errors.Add($"{path}.MaxRetriesByCategory.{category} must be between 0 and 10.");
+            if (retries < 0)
+                errors.Add($"{path}.MaxRetriesByCategory.{category} must not be negative.");
+            else if (maximumRetries is { } retryLimit && retries > retryLimit)
+                errors.Add($"{path}.MaxRetriesByCategory.{category} exceeds host limit of {retryLimit}.");
         }
     }
 
@@ -273,6 +369,7 @@ public static class AgentConfigValidator
     private static void ValidateExtensionName(
         string? name,
         string path,
+        int? maximumLength,
         List<string> errors)
     {
         if (name is null)
@@ -282,8 +379,8 @@ public static class AgentConfigValidator
             errors.Add($"{path} must not be empty.");
             return;
         }
-        if (name.Length > 128)
-            errors.Add($"{path} must be at most 128 characters.");
+        if (maximumLength is { } limit && name.Length > limit)
+            errors.Add($"{path} exceeds host limit of {limit} characters.");
         if (name.Any(char.IsControl))
             errors.Add($"{path} must not contain control characters.");
     }
@@ -345,49 +442,6 @@ public static class AgentConfigValidator
         }
     }
 
-    private static void ValidateCrossConfiguration(AgentConfig config, List<string> errors)
-    {
-        if (!HasReasonableResourceLimits(config))
-        {
-            errors.Add("Resource limits (MaxTokens, MaxFunctionCallTurns) may be too high for stable operation.");
-        }
-    }
-
-    #region Helper Methods
-
-    private static bool IsValidPath(string path)
-    {
-        try
-        {
-            // Basic path validation - avoid path traversal and null characters
-            return !string.IsNullOrWhiteSpace(path) &&
-                   path.IndexOfAny(Path.GetInvalidPathChars()) == -1 &&
-                   !path.Contains("..") &&
-                   path.Length < 260; // Windows path limit
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static bool HasReasonableResourceLimits(AgentConfig config)
-    {
-        // Check if the combination of settings might cause issues
-        var maxFunctionCalls = config.MaxAgenticIterations;
-        var maxHistory = config.Compaction?.Automatic?.Compaction.Preservation switch
-        {
-            PreservePreviousTurns turns => turns.Count,
-            PreservePreviousUserMessages { Limit: PreviousItemCountLimit count } => count.Count,
-            _ => 20
-        };
-
-        // Warn if total potential token usage is very high
-        var estimatedMaxTokens = (maxHistory * 500) + (maxFunctionCalls * 200);
-        return estimatedMaxTokens < 200000; // Reasonable upper limit
-    }
-
-    #endregion
 }
 
 /// <summary>

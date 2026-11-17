@@ -113,6 +113,10 @@ public abstract class HarnessConfigurationContract
 {
     public abstract Type ConfigurationType { get; }
     public abstract HarnessSettingSchema Schema { get; }
+    /// <summary>Gets whether any declared setting supports execution-scoped overrides.</summary>
+    public bool SupportsRunOverrides => Schema.HasRunSettings;
+    /// <summary>Gets whether the generated contract installs a typed settings validator.</summary>
+    public virtual bool HasValidator => false;
     public abstract object CreateDefaults();
     public abstract JsonElement Encode(object value);
     public abstract object Decode(JsonElement json);
@@ -231,6 +235,7 @@ public sealed class HarnessConfigurationContract<T>(Func<T> defaults, Func<JsonE
 {
     public override Type ConfigurationType => typeof(T);
     public override HarnessSettingSchema Schema => schema;
+    public override bool HasValidator => validate is not null;
     public override object CreateDefaults() => defaults();
     public override JsonElement Encode(object value)
     {

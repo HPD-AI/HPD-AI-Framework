@@ -62,10 +62,10 @@ public sealed class WorkspaceAccessTests : IDisposable
     public void ReadOnlyChildUnderWritableParentIsRejected()
     {
         var config = Config();
-        config.Context!.Properties![AgentWorkspace.ContextKey] = new AgentWorkspace("all", _root,
-            [new("all", _root, AgentWorkspaceAccess.ReadWrite), new("evidence", Evidence, AgentWorkspaceAccess.ReadOnly)]);
-        Assert.Throws<AgentWorkspaceException>(() => AgentWorkspace.From(config));
-        Assert.Throws<AgentWorkspaceException>(() => CodingSandboxRuntime.Capture(config));
+        config.Context!.Properties![CodingWorkspace.ContextKey] = new CodingWorkspace("all", _root,
+            [new("all", _root, CodingWorkspaceAccess.ReadWrite), new("evidence", Evidence, CodingWorkspaceAccess.ReadOnly)]);
+        Assert.Throws<CodingWorkspaceException>(() => CodingWorkspace.From(config));
+        Assert.Throws<CodingWorkspaceException>(() => CodingSandboxRuntime.Capture(config));
     }
 
     [Fact]
@@ -74,13 +74,13 @@ public sealed class WorkspaceAccessTests : IDisposable
         var writableChild = Path.Combine(Evidence, "generated");
         Directory.CreateDirectory(writableChild);
         var config = Config();
-        config.Context!.Properties![AgentWorkspace.ContextKey] = new AgentWorkspace("evidence", Evidence,
+        config.Context!.Properties![CodingWorkspace.ContextKey] = new CodingWorkspace("evidence", Evidence,
             [
-                new("evidence", Evidence, AgentWorkspaceAccess.ReadOnly),
-                new("generated", writableChild, AgentWorkspaceAccess.ReadWrite)
+                new("evidence", Evidence, CodingWorkspaceAccess.ReadOnly),
+                new("generated", writableChild, CodingWorkspaceAccess.ReadWrite)
             ]);
-        Assert.Throws<AgentWorkspaceException>(() => AgentWorkspace.From(config));
-        Assert.Throws<AgentWorkspaceException>(() => CodingSandboxRuntime.Capture(config));
+        Assert.Throws<CodingWorkspaceException>(() => CodingWorkspace.From(config));
+        Assert.Throws<CodingWorkspaceException>(() => CodingSandboxRuntime.Capture(config));
     }
 
     [Fact]
@@ -95,16 +95,16 @@ public sealed class WorkspaceAccessTests : IDisposable
     public void SerializedRootsRequireExplicitAccess()
     {
         using var document = System.Text.Json.JsonDocument.Parse("{\"version\":1,\"defaultRootId\":\"evidence\",\"roots\":[{\"id\":\"evidence\",\"path\":" + System.Text.Json.JsonSerializer.Serialize(Evidence) + "}]}");
-        var config = Config(); config.Context!.Properties![AgentWorkspace.ContextKey] = document.RootElement.Clone();
-        Assert.Throws<AgentWorkspaceException>(() => AgentWorkspace.From(config));
+        var config = Config(); config.Context!.Properties![CodingWorkspace.ContextKey] = document.RootElement.Clone();
+        Assert.Throws<CodingWorkspaceException>(() => CodingWorkspace.From(config));
     }
 
     private AgentRunConfig Config() => new()
     {
         Context = new() { Properties = new Dictionary<string, object>
         {
-            [AgentWorkspace.ContextKey] = new AgentWorkspace("outputs", Outputs,
-                [new("evidence", Evidence, AgentWorkspaceAccess.ReadOnly), new("outputs", Outputs, AgentWorkspaceAccess.ReadWrite)])
+            [CodingWorkspace.ContextKey] = new CodingWorkspace("outputs", Outputs,
+                [new("evidence", Evidence, CodingWorkspaceAccess.ReadOnly), new("outputs", Outputs, CodingWorkspaceAccess.ReadWrite)])
         } }
     };
     private static FunctionExecutionContext Context(AgentRunConfig config)

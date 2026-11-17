@@ -6,5 +6,5 @@ HPD BASE Studio module contribution for `HPD-AI.Platform`.
 
 ```csharp
 builder.Services.AddHPDAIPlatform()
-    .AddBaseStudio();
+    .AddHPDBaseStudio(principalResolver);
 ```

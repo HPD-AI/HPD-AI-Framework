@@ -101,7 +101,8 @@ function decodeBase64Url(value: string): Uint8Array {
   if (encoded !== value) mismatch(); return bytes;
 }
 function methodTransportMatches(binding: StudioMethodBinding, endpoint: StudioEndpointContract): boolean {
-  if (binding.kind === 'invalidationSubscribe') return endpoint.transport === 'sameOriginRealtime' && endpoint.method === 'WEBSOCKET';
+  if (binding.kind === 'invalidationSubscribe') return (endpoint.transport === 'sameOriginRealtime' && endpoint.method === 'WEBSOCKET') ||
+    (endpoint.transport === 'sameOriginHttp' && endpoint.method === 'GET');
   if (binding.kind === 'stageUpload') return endpoint.transport === 'sameOriginHttp' && endpoint.method === 'PUT';
   return endpoint.transport === 'sameOriginHttp' && endpoint.method !== 'WEBSOCKET';
 }

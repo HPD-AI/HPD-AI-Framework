@@ -9,7 +9,7 @@ HPD AI Platform is a product UI: a quiet, dense, task-focused workbench for buil
 ## Ownership
 
 - `hpd-ai-studio/shell` owns app composition and the final Tailwind CSS build.
-- `hpd-ai-studio/packages/hpd-studio-design` owns shared tokens, base rules, and public `studio-*` utilities.
+- `hpd-ai-studio/packages/hpd-studio-design` owns primitive material, semantic roles, the Tailwind theme bridge, base rules, public `studio-*` utilities, and shared Svelte presentation primitives.
 - Module packages own components, routes, and package-local behavior.
 - Module packages may use shared `studio-*` utilities and `studio-*` theme tokens as a stable contract.
 
@@ -22,6 +22,10 @@ HPD AI Platform is a product UI: a quiet, dense, task-focused workbench for buil
 
 ## Color
 
+- Primitive OKLCH ramps are implementation material and are not product-facing utilities.
+- Semantic roles (`--studio-canvas`, `--studio-text`, `--studio-border`, and status roles) own product meaning.
+- `@theme inline` bridges semantic roles into Tailwind utilities without copying resolved values.
+- Light and dark themes replace semantic values while preserving utility names.
 - Use neutral surfaces first.
 - Use accent color for primary actions, current selection, and meaningful state only.
 - Avoid decorative gradients, glow, glass effects, and heavy inactive color.
@@ -51,10 +55,16 @@ Every shared interactive component should support:
 - Error
 - Success
 
+Shared presentation primitives currently include Button, Input, Field, Panel,
+StatusBadge, Notice, EmptyState, and PageHeader. Module pages compose these
+primitives and use domain components for domain-specific interaction.
+
 ## Current Public Utilities
 
 - `studio-panel`: shared panel surface with border, radius, background, and shadow.
 - `studio-button`: neutral button/link control with hover, active, disabled, and focus states.
+- `studio-button-primary`: accent action with hover, active, disabled, and focus states.
+- `studio-button-danger`: destructive action treatment.
 - `studio-button-sm`: compact companion for toolbar actions.
 - `studio-nav-control`: dark-navigation select/input control.
 - `studio-nav-divider`: dark-navigation separator.
@@ -67,3 +77,9 @@ Every shared interactive component should support:
 - `studio-truncate`: single-line overflow guard.
 
 This list should stay intentionally small. Add a utility only when multiple module packages need the same visual contract.
+
+## Validation
+
+Run `npm run check` from this package. The shell build runs the same check before
+Vite so unresolved custom properties, missing public classes, unregistered
+installed modules, and raw module colors fail the build.

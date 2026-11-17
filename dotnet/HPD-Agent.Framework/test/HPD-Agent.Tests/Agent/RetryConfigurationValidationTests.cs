@@ -14,7 +14,7 @@ public sealed class RetryConfigurationValidationTests
             {
                 Retry = new RetryPolicySection
                 {
-                    ModelRetries = new() { MaxRetries = 11 },
+                    ModelRetries = new() { MaxRetries = -1 },
                     FunctionRetries = new()
                     {
                         RetryDelay = TimeSpan.FromMilliseconds(-1),
@@ -98,7 +98,7 @@ public sealed class RetryConfigurationValidationTests
                 },
                 TotalErrors = new TotalErrorPolicy
                 {
-                    CustomErrorDetector = new string('x', 129)
+                    CustomErrorDetector = "detector\nname"
                 }
             },
             Privacy = new PrivacyConfig
@@ -119,7 +119,7 @@ public sealed class RetryConfigurationValidationTests
             error.Contains("control characters", StringComparison.Ordinal));
         Assert.Contains(errors, error =>
             error.Contains("resilience.totalErrors.customErrorDetector", StringComparison.Ordinal) &&
-            error.Contains("128", StringComparison.Ordinal));
+            error.Contains("control characters", StringComparison.Ordinal));
         Assert.Contains(errors, error =>
             error.Contains("privacy.pii.externalDetector", StringComparison.Ordinal));
     }

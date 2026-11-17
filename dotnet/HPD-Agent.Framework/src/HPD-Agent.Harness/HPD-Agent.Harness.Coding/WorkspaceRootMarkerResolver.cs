@@ -32,7 +32,7 @@ public interface IWorkspaceRootMarkerResolver
     /// Environment bindings are available.
     /// </summary>
     ValueTask<WorkspaceRootMarkerResolution> ResolveAsync(
-        AgentWorkspace workspace,
+        CodingWorkspace workspace,
         string startingPath,
         IReadOnlyCollection<string> markers,
         CancellationToken cancellationToken = default);
@@ -145,7 +145,7 @@ public sealed class WorkspaceRootMarkerResolver : IWorkspaceRootMarkerResolver
     }
 
     public ValueTask<WorkspaceRootMarkerResolution> ResolveAsync(
-        AgentWorkspace workspace,
+        CodingWorkspace workspace,
         string startingPath,
         IReadOnlyCollection<string> markers,
         CancellationToken cancellationToken = default)

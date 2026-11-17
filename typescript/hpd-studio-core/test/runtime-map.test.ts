@@ -62,6 +62,16 @@ test('runtime map separates realtime, streaming, and typed error transports', as
   for await (const value of (subscription as Extract<typeof subscription, { kind: 'subscription' }>).subscribe({ message: 'join' })) values.push(value);
   assert.deepEqual(values, [{ message: 'hint' }]);
 
+  const sse = hydrateStudioRuntimeMap({ ...original,
+    endpoints: [{ ...original.endpoints[0]!, method: 'GET', transport: 'sameOriginHttp' }],
+    methods: [{ ...binding, kind: 'invalidationSubscribe' }] }, {
+    async executeJson() { throw new Error(); }, async *subscribe() { yield { ok: true as const, body: '{"message":"sse-hint"}' }; },
+    async upload() { throw new Error(); }
+  }).methods.get('base.echo.invoke');
+  assert.equal(sse?.kind, 'subscription'); const sseValues: unknown[] = [];
+  for await (const value of (sse as Extract<typeof sse, { kind: 'subscription' }>).subscribe({ message: 'join' })) sseValues.push(value);
+  assert.deepEqual(sseValues, [{ message: 'sse-hint' }]);
+
   const upload = hydrateStudioRuntimeMap({ ...original, endpoints: [{ ...original.endpoints[0]!, method: 'PUT' }],
     methods: [{ ...binding, kind: 'stageUpload' }] }, {
     async executeJson() { throw new Error(); }, async *subscribe() {}, async upload(request) {

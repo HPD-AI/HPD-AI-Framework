@@ -25,7 +25,10 @@ public abstract class AgentManager : IAsyncDisposable
     private readonly IAgentStore _store;
     private readonly ConcurrentDictionary<string, AgentEntry> _agents = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _buildLocks = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _definitionLocks = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, EventCoordinator> _runtimeEventHubs = new();
+    private readonly ConcurrentDictionary<string, IDisposable> _runtimeGlobalEventBridges = new(StringComparer.Ordinal);
+    private readonly EventCoordinator _globalEventHub = new();
     private readonly Timer _evictionTimer;
     private bool _disposed;
 
@@ -113,25 +116,49 @@ public abstract class AgentManager : IAsyncDisposable
         AgentConfig config,
         Dictionary<string, object>? metadata = null,
         bool replaceMetadata = false,
+        CancellationToken ct = default) =>
+        await UpdateDefinitionIfUnchangedAsync(agentId, null, config, metadata, replaceMetadata, ct)
+            .ConfigureAwait(false);
+
+    /// <summary>
+    /// Replaces a definition only if the store still contains the exact expected definition.
+    /// </summary>
+    public async Task<StoredAgent> UpdateDefinitionIfUnchangedAsync(
+        string agentId,
+        StoredAgent? expected,
+        AgentConfig config,
+        Dictionary<string, object>? metadata = null,
+        bool replaceMetadata = false,
         CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ArgumentNullException.ThrowIfNull(config);
+        SemaphoreSlim definitionLock = _definitionLocks.GetOrAdd(
+            agentId, static _ => new SemaphoreSlim(1, 1));
+        await definitionLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            StoredAgent current = await _store.LoadAsync(agentId, ct).ConfigureAwait(false)
+                ?? throw new KeyNotFoundException($"Agent '{agentId}' not found.");
+            var proposal = new StoredAgent
+            {
+                Id = current.Id,
+                Config = config,
+                CreatedAt = current.CreatedAt,
+                UpdatedAt = DateTime.UtcNow,
+                Metadata = replaceMetadata ? metadata : current.Metadata,
+            };
+            StoredAgent compare = expected ?? current;
+            if (!await _store.SaveIfUnchangedAsync(proposal, compare, ct).ConfigureAwait(false))
+                throw new AgentStoreConcurrencyException(agentId);
 
-        var existing = await _store.LoadAsync(agentId, ct)
-            ?? throw new KeyNotFoundException($"Agent '{agentId}' not found.");
-
-        existing.Config = config;
-        if (replaceMetadata)
-            existing.Metadata = metadata;
-        existing.UpdatedAt = DateTime.UtcNow;
-
-        await _store.SaveAsync(existing, ct);
-
-        // Evict cached instance — next request will rebuild
-        EvictAgent(agentId);
-
-        return existing;
+            EvictAgent(agentId);
+            return proposal;
+        }
+        finally
+        {
+            definitionLock.Release();
+        }
     }
 
     /// <summary>
@@ -200,6 +227,15 @@ public abstract class AgentManager : IAsyncDisposable
 
             var agent = await BuildAgentAsync(agentId, ct);
             var liveEventHub = _runtimeEventHubs.GetOrAdd(cacheKey, static _ => new EventCoordinator());
+            _runtimeGlobalEventBridges.GetOrAdd(cacheKey, _ => liveEventHub.ForwardTo(
+                _globalEventHub,
+                new EventForwardingOptions
+                {
+                    Capacity = 4096,
+                    FullMode = System.Threading.Channels.BoundedChannelFullMode.Wait,
+                    EventType = typeof(AgentEvent),
+                    IncludeDerivedTypes = true
+                }));
             var liveEventBridge = agent.EventCoordinator.ForwardTo(
                 liveEventHub,
                 new EventForwardingOptions
@@ -297,6 +333,21 @@ public abstract class AgentManager : IAsyncDisposable
     }
 
     /// <summary>
+    /// Creates a bounded process-wide Agent event inbox. Runtimes constructed by this manager are
+    /// bridged into the global hub without changing their scoped event routing or journal identity.
+    /// </summary>
+    public EventInbox<AgentEvent> CreateGlobalEventInbox(EventInboxOptions? options = null)
+    {
+        EventInboxOptions owned = (options ?? new EventInboxOptions
+        {
+            Capacity = 4096,
+            FullMode = System.Threading.Channels.BoundedChannelFullMode.Wait,
+            IncludeDerivedTypes = true
+        }) with { OwnerScope = EventOwnerScope.AllOwners };
+        return _globalEventHub.CreateInbox<AgentEvent>(owned);
+    }
+
+    /// <summary>
     /// Seeds a definition with the exact <paramref name="agentId"/> into the store.
     /// Use this for synthesizing fallback definitions when no stored definition exists.
     /// </summary>
@@ -366,10 +417,14 @@ public abstract class AgentManager : IAsyncDisposable
             await entry.DisposeAsync().ConfigureAwait(false);
         foreach (var hub in _runtimeEventHubs.Values)
             hub.Dispose();
+        foreach (var bridge in _runtimeGlobalEventBridges.Values)
+            bridge.Dispose();
+        _globalEventHub.Dispose();
         foreach (var kvp in _buildLocks)
             kvp.Value.Dispose();
         _agents.Clear();
         _runtimeEventHubs.Clear();
+        _runtimeGlobalEventBridges.Clear();
         _buildLocks.Clear();
     }
 

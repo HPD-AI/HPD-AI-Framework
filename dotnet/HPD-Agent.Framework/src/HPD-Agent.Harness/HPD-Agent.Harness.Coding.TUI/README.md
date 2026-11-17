@@ -50,7 +50,7 @@ permission-governed. `AddAgentTuiDefaults()` supplies the permission dialog;
 `AddCodingHarnessTui()` supplies the coding presentation.
 
 The run configuration must expose an appropriate coding workspace to the harness.
-Use `AgentWorkspace.ContextKey` from `HPD.Agent.ToolHarness.Coding` and validate the
+Use `CodingWorkspace.ContextKey` from `HPD.Agent.ToolHarness.Coding` and validate the
 workspace before starting the TUI.
 
 ## What the TUI presents

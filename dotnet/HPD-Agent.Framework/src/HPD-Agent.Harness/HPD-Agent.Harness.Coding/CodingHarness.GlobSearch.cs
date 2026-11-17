@@ -46,7 +46,7 @@ public partial class CodingToolHarness
             if (argumentError != null)
                 return FormatGlobSearchError(path ?? string.Empty, argumentError);
 
-            if (!CodingWorkspaceAccess.TryGet(context, out var workspace))
+            if (!CodingWorkspacePathAccess.TryGet(context, out var workspace))
             {
                 return FormatGlobSearchError(
                     path ?? string.Empty,
@@ -97,9 +97,9 @@ public partial class CodingToolHarness
         SortDirection sortDirection)
     {
         WorkspacePath root =
-            CodingWorkspaceAccess.Resolve(workspace, path);
+            CodingWorkspacePathAccess.Resolve(workspace, path);
         string displayPath =
-            CodingWorkspaceAccess.Display(workspace, root);
+            CodingWorkspacePathAccess.Display(workspace, root);
         WorkspaceFileInfo? rootInfo =
             await workspace.Files.GetInfoAsync(root)
                 .ConfigureAwait(false);

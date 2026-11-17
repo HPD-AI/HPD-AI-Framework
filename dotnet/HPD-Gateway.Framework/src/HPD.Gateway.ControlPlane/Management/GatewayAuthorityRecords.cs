@@ -4,7 +4,9 @@ using HPD.Base;
 namespace HPD.Gateway.ControlPlane;
 
 [BaseCollection(GatewayAuthoritySchema.AcceptedRevisions, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge)]
-[BaseIndex("gateway.revisions.namespace-target", nameof(NamespaceId), nameof(TargetNodeId), Required = false)]
+[BaseIndex("gateway.revisions.namespace-target", StoreRequired = false)]
+[BaseIndexPart("gateway.revisions.namespace-target", 0, nameof(NamespaceId))]
+[BaseIndexPart("gateway.revisions.namespace-target", 1, nameof(TargetNodeId))]
 internal sealed partial record GatewayAcceptedRevision
 {
     [BaseField("revision.namespace-id")] public required string NamespaceId { get; init; }
@@ -25,20 +27,26 @@ internal sealed partial record GatewayAcceptedRevision
 }
 
 [BaseCollection(GatewayAuthoritySchema.ValidationRecords, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge)]
-[BaseIndex("gateway.validations.namespace-target", nameof(NamespaceId), nameof(TargetNodeId), Required = false)]
+[BaseIndex("gateway.validations.namespace-target", StoreRequired = false)]
+[BaseIndexPart("gateway.validations.namespace-target", 0, nameof(NamespaceId))]
+[BaseIndexPart("gateway.validations.namespace-target", 1, nameof(TargetNodeId))]
 internal sealed partial record GatewayValidationRecord
 {
     [BaseField("validation.namespace-id")] public required string NamespaceId { get; init; }
     [BaseField("validation.target-node-id")] public required string TargetNodeId { get; init; }
-    [BaseField("validation.outcome")] public required GatewayValidationOutcome Outcome { get; init; }
+    [BaseField("validation.outcome", AllowedEnumLiterals = ["canceled", "dependencyUnavailable", "internalFailure", "invalid", "valid"])]
+    [JsonConverter(typeof(BaseClosedEnumJsonConverter<GatewayValidationOutcome>))]
+    public required GatewayValidationOutcome Outcome { get; init; }
     [BaseField("validation.content-hash-value")] public string? ContentHashValue { get; init; }
     [BaseField("validation.diagnostics-json", MaximumBytes = 1_048_576)] public required BaseBinary DiagnosticsJson { get; init; }
     [BaseField("validation.correlation-id")] public required string CorrelationId { get; init; }
 }
 
 [BaseCollection(GatewayAuthoritySchema.AdministrativeAudit, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge)]
-[BaseIndex("gateway.audit.namespace", nameof(NamespaceId), Required = false)]
-[BaseIndex("gateway.audit.actor", nameof(ActorId), Required = false)]
+[BaseIndex("gateway.audit.namespace", StoreRequired = false)]
+[BaseIndexPart("gateway.audit.namespace", 0, nameof(NamespaceId))]
+[BaseIndex("gateway.audit.actor", StoreRequired = false)]
+[BaseIndexPart("gateway.audit.actor", 0, nameof(ActorId))]
 internal sealed partial record GatewayAdministrativeAuditRecord
 {
     [BaseField("audit.namespace-id")] public required string NamespaceId { get; init; }
@@ -52,7 +60,8 @@ internal sealed partial record GatewayAdministrativeAuditRecord
 }
 
 [BaseCollection(GatewayAuthoritySchema.TargetOwnership, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnly)]
-[BaseIndex("gateway.ownership.namespace", nameof(NamespaceId), Required = false)]
+[BaseIndex("gateway.ownership.namespace", StoreRequired = false)]
+[BaseIndexPart("gateway.ownership.namespace", 0, nameof(NamespaceId))]
 internal sealed partial record GatewayTargetOwnership
 {
     [BaseField("ownership.management-authority-id")] public required string ManagementAuthorityId { get; init; }
@@ -79,7 +88,8 @@ internal sealed partial record GatewayTargetEpochReservationReceipt
 }
 
 [BaseCollection(GatewayAuthoritySchema.DesiredStates, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.Mutable)]
-[BaseIndex("gateway.desired.namespace", nameof(NamespaceId), Required = false)]
+[BaseIndex("gateway.desired.namespace", StoreRequired = false)]
+[BaseIndexPart("gateway.desired.namespace", 0, nameof(NamespaceId))]
 internal sealed partial record GatewayDesiredState
 {
     [BaseField("desired.management-authority-id")] public required string ManagementAuthorityId { get; init; }
@@ -102,7 +112,9 @@ internal sealed partial record GatewayNodeDeliveryAuthorityState
 }
 
 [BaseCollection(GatewayAuthoritySchema.ActivationIntents, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnly)]
-[BaseIndex("gateway.intents.namespace-target", nameof(NamespaceId), nameof(TargetNodeId), Required = false)]
+[BaseIndex("gateway.intents.namespace-target", StoreRequired = false)]
+[BaseIndexPart("gateway.intents.namespace-target", 0, nameof(NamespaceId))]
+[BaseIndexPart("gateway.intents.namespace-target", 1, nameof(TargetNodeId))]
 internal sealed partial record GatewayActivationIntent
 {
     [BaseField("intent.namespace-id")] public required string NamespaceId { get; init; }
@@ -116,22 +128,39 @@ internal sealed partial record GatewayActivationIntent
 }
 
 [BaseCollection(GatewayAuthoritySchema.DeliveryOutbox, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.Mutable)]
-[BaseIndex("gateway.outbox.state", nameof(State), Required = false)]
-[BaseIndex("gateway.outbox.state-target", nameof(State), nameof(TargetNodeId), Required = false)]
-[BaseIndex("gateway.outbox.namespace-target", nameof(NamespaceId), nameof(TargetNodeId), Required = false)]
-[BaseIndex("gateway.outbox.state-next-attempt", nameof(State), nameof(NextAttemptAt), Required = false)]
-[BaseIndex("gateway.outbox.state-claim-expiry", nameof(State), nameof(ClaimExpiresAt), Required = false)]
+[BaseIndex("gateway.outbox.state", StoreRequired = false)]
+[BaseIndexPart("gateway.outbox.state", 0, nameof(State))]
+[BaseIndex("gateway.outbox.state-target", StoreRequired = false)]
+[BaseIndexPart("gateway.outbox.state-target", 0, nameof(State))]
+[BaseIndexPart("gateway.outbox.state-target", 1, nameof(TargetNodeId))]
+[BaseIndex("gateway.outbox.namespace-target", StoreRequired = false)]
+[BaseIndexPart("gateway.outbox.namespace-target", 0, nameof(NamespaceId))]
+[BaseIndexPart("gateway.outbox.namespace-target", 1, nameof(TargetNodeId))]
+[BaseIndex("gateway.outbox.state-next-attempt", StoreRequired = false)]
+[BaseIndexPart("gateway.outbox.state-next-attempt", 0, nameof(State))]
+[BaseIndexPart("gateway.outbox.state-next-attempt", 1, nameof(NextAttemptAt))]
+[BaseIndex("gateway.outbox.state-claim-expiry", StoreRequired = false)]
+[BaseIndexPart("gateway.outbox.state-claim-expiry", 0, nameof(State))]
+[BaseIndexPart("gateway.outbox.state-claim-expiry", 1, nameof(ClaimExpiresAt))]
 internal sealed partial record GatewayDeliveryOutboxItem
 {
     [BaseField("outbox.namespace-id")] public required string NamespaceId { get; init; }
     [BaseField("outbox.target-node-id")] public required string TargetNodeId { get; init; }
     [BaseField("outbox.activation-intent-id")] public required string ActivationIntentId { get; init; }
-    [BaseField("outbox.state")] public required GatewayDeliveryState State { get; init; }
+    [BaseField("outbox.state", AllowedEnumLiterals = ["claimed", "completed", "immediate", "outcomePersistencePending", "retryScheduled", "terminalFailure"])]
+    [JsonConverter(typeof(BaseClosedEnumJsonConverter<GatewayDeliveryState>))]
+    public required GatewayDeliveryState State { get; init; }
     [BaseField("outbox.attempt-count")] public required int AttemptCount { get; init; }
-    [BaseField("outbox.next-attempt-at", Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order)] public DateTimeOffset? NextAttemptAt { get; init; }
+    [BaseField("outbox.next-attempt-at", Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order)]
+    [JsonConverter(typeof(BaseUtcDateTimeJsonConverter))]
+    public DateTimeOffset? NextAttemptAt { get; init; }
     [BaseField("outbox.claim-id")] public string? ClaimId { get; init; }
-    [BaseField("outbox.claim-expires-at", Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order)] public DateTimeOffset? ClaimExpiresAt { get; init; }
-    [BaseField("outbox.pending-outcome-kind")] public GatewayNodeOutcomeKind? PendingOutcomeKind { get; init; }
+    [BaseField("outbox.claim-expires-at", Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order)]
+    [JsonConverter(typeof(BaseUtcDateTimeJsonConverter))]
+    public DateTimeOffset? ClaimExpiresAt { get; init; }
+    [BaseField("outbox.pending-outcome-kind", AllowedEnumLiterals = ["activeAcknowledged", "canceledBeforePublish", "conflict", "publicationIndeterminate", "rejectedBeforePublish", "stale", "superseded"])]
+    [JsonConverter(typeof(BaseClosedEnumJsonConverter<GatewayNodeOutcomeKind>))]
+    public GatewayNodeOutcomeKind? PendingOutcomeKind { get; init; }
     [BaseField("outbox.pending-outcome-code")] public string? PendingOutcomeCode { get; init; }
     [BaseField("outbox.pending-application-id")] public string? PendingApplicationId { get; init; }
     [BaseField("outbox.pending-symbolic-plan-algorithm")] public string? PendingSymbolicPlanAlgorithm { get; init; }
@@ -139,8 +168,11 @@ internal sealed partial record GatewayDeliveryOutboxItem
 }
 
 [BaseCollection(GatewayAuthoritySchema.NodeOutcomes, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge)]
-[BaseIndex("gateway.outcomes.intent", nameof(ActivationIntentId), Required = false)]
-[BaseIndex("gateway.outcomes.namespace-target", nameof(NamespaceId), nameof(TargetNodeId), Required = false)]
+[BaseIndex("gateway.outcomes.intent", StoreRequired = false)]
+[BaseIndexPart("gateway.outcomes.intent", 0, nameof(ActivationIntentId))]
+[BaseIndex("gateway.outcomes.namespace-target", StoreRequired = false)]
+[BaseIndexPart("gateway.outcomes.namespace-target", 0, nameof(NamespaceId))]
+[BaseIndexPart("gateway.outcomes.namespace-target", 1, nameof(TargetNodeId))]
 internal sealed partial record GatewayNodeActivationOutcome
 {
     [BaseField("outcome.namespace-id")] public required string NamespaceId { get; init; }
@@ -149,7 +181,9 @@ internal sealed partial record GatewayNodeActivationOutcome
     [BaseField("outcome.authority-id")] public required string AuthorityId { get; init; }
     [BaseField("outcome.authority-epoch")] public required string AuthorityEpoch { get; init; }
     [BaseField("outcome.authority-version", Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order)] public required long AuthorityVersion { get; init; }
-    [BaseField("outcome.kind")] public required GatewayNodeOutcomeKind Kind { get; init; }
+    [BaseField("outcome.kind", AllowedEnumLiterals = ["activeAcknowledged", "canceledBeforePublish", "conflict", "publicationIndeterminate", "rejectedBeforePublish", "stale", "superseded"])]
+    [JsonConverter(typeof(BaseClosedEnumJsonConverter<GatewayNodeOutcomeKind>))]
+    public required GatewayNodeOutcomeKind Kind { get; init; }
     [BaseField("outcome.code")] public required string Code { get; init; }
     [BaseField("outcome.application-id")] public string? ApplicationId { get; init; }
     [BaseField("outcome.symbolic-plan-algorithm")] public string? SymbolicPlanAlgorithm { get; init; }
@@ -157,8 +191,14 @@ internal sealed partial record GatewayNodeActivationOutcome
 }
 
 [BaseCollection(GatewayAuthoritySchema.CommandReceipts, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnly)]
-[BaseIndex("gateway.receipts.lookup", nameof(NamespaceId), nameof(TargetNodeId), nameof(Operation), nameof(IdempotencyKey), Required = false)]
-[BaseIndex("gateway.receipts.operation", nameof(NamespaceId), nameof(StableOperationId), Required = false)]
+[BaseIndex("gateway.receipts.lookup", StoreRequired = false)]
+[BaseIndexPart("gateway.receipts.lookup", 0, nameof(NamespaceId))]
+[BaseIndexPart("gateway.receipts.lookup", 1, nameof(TargetNodeId))]
+[BaseIndexPart("gateway.receipts.lookup", 2, nameof(Operation))]
+[BaseIndexPart("gateway.receipts.lookup", 3, nameof(IdempotencyKey))]
+[BaseIndex("gateway.receipts.operation", StoreRequired = false)]
+[BaseIndexPart("gateway.receipts.operation", 0, nameof(NamespaceId))]
+[BaseIndexPart("gateway.receipts.operation", 1, nameof(StableOperationId))]
 internal sealed partial record GatewayCommandReceipt
 {
     [BaseField("receipt.namespace-id")] public required string NamespaceId { get; init; }
@@ -177,7 +217,9 @@ internal sealed partial record GatewayCommandReceipt
 internal sealed partial record GatewayAdministrativeOperationIntent
 {
     [BaseField("admin-intent.namespace-id")] public required string NamespaceId { get; init; }
-    [BaseField("admin-intent.operation")] public required GatewayAdministrativeOperationKind Operation { get; init; }
+    [BaseField("admin-intent.operation", AllowedEnumLiterals = ["backup", "purge"])]
+    [JsonConverter(typeof(BaseClosedEnumJsonConverter<GatewayAdministrativeOperationKind>))]
+    public required GatewayAdministrativeOperationKind Operation { get; init; }
     [BaseField("admin-intent.actor-id")] public required string ActorId { get; init; }
     [BaseField("admin-intent.authentication-scheme")] public required string AuthenticationScheme { get; init; }
     [BaseField("admin-intent.authorization-policy")] public required string AuthorizationPolicy { get; init; }
@@ -195,18 +237,26 @@ internal sealed partial record GatewayAdministrativeArtifactObservation
     [BaseField("admin-artifact.intent-id")] public required string IntentId { get; init; }
     [BaseField("admin-artifact.sink-name")] public required string SinkName { get; init; }
     [BaseField("admin-artifact.public-reference")] public required string PublicReference { get; init; }
-    [BaseField("admin-artifact.observed-at")] public required DateTimeOffset ObservedAt { get; init; }
+    [BaseField("admin-artifact.observed-at")]
+    [JsonConverter(typeof(BaseUtcDateTimeJsonConverter))]
+    public required DateTimeOffset ObservedAt { get; init; }
 }
 
 [BaseCollection(GatewayAuthoritySchema.AdministrativeExecutions, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.Mutable)]
 internal sealed partial record GatewayAdministrativeExecutionState
 {
     [BaseField("admin-execution.intent-id")] public required string IntentId { get; init; }
-    [BaseField("admin-execution.phase")] public required GatewayAdministrativeExecutionPhase Phase { get; init; }
+    [BaseField("admin-execution.phase", AllowedEnumLiterals = ["boundaryCrossed", "claimedPreBoundary", "observed", "unclaimed"])]
+    [JsonConverter(typeof(BaseClosedEnumJsonConverter<GatewayAdministrativeExecutionPhase>))]
+    public required GatewayAdministrativeExecutionPhase Phase { get; init; }
     [BaseField("admin-execution.state-revision", Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order)] public required long StateRevision { get; init; }
     [BaseField("admin-execution.claim-id")] public string? ClaimId { get; init; }
-    [BaseField("admin-execution.lease-expires-at")] public DateTimeOffset? LeaseExpiresAt { get; init; }
-    [BaseField("admin-execution.boundary-crossed-at")] public DateTimeOffset? BoundaryCrossedAt { get; init; }
+    [BaseField("admin-execution.lease-expires-at")]
+    [JsonConverter(typeof(BaseUtcDateTimeJsonConverter))]
+    public DateTimeOffset? LeaseExpiresAt { get; init; }
+    [BaseField("admin-execution.boundary-crossed-at")]
+    [JsonConverter(typeof(BaseUtcDateTimeJsonConverter))]
+    public DateTimeOffset? BoundaryCrossedAt { get; init; }
     [BaseField("admin-execution.observation-id")] public string? ObservationId { get; init; }
 }
 
@@ -223,7 +273,9 @@ internal sealed partial record GatewayPurgeAuthorityState
 internal sealed partial record GatewayAdministrativeOperationObservation
 {
     [BaseField("admin-observation.intent-id")] public required string IntentId { get; init; }
-    [BaseField("admin-observation.kind")] public required GatewayAdministrativeObservationKind Kind { get; init; }
+    [BaseField("admin-observation.kind", AllowedEnumLiterals = ["failed", "indeterminate", "succeeded"])]
+    [JsonConverter(typeof(BaseClosedEnumJsonConverter<GatewayAdministrativeObservationKind>))]
+    public required GatewayAdministrativeObservationKind Kind { get; init; }
     [BaseField("admin-observation.result-code")] public required string ResultCode { get; init; }
     [BaseField("admin-observation.provider-generation")] public long? ProviderGeneration { get; init; }
     [BaseField("admin-observation.result-json", MaximumBytes = 1_048_576)] public required BaseBinary ResultJson { get; init; }
@@ -234,7 +286,9 @@ internal sealed partial record GatewayAdministrativeOperationCompletion
 {
     [BaseField("admin-completion.intent-id")] public required string IntentId { get; init; }
     [BaseField("admin-completion.observation-id")] public required string ObservationId { get; init; }
-    [BaseField("admin-completion.state")] public required GatewayAdministrativeCompletionState State { get; init; }
+    [BaseField("admin-completion.state", AllowedEnumLiterals = ["completed", "executionSucceededCompletionPending", "failed", "indeterminatePending"])]
+    [JsonConverter(typeof(BaseClosedEnumJsonConverter<GatewayAdministrativeCompletionState>))]
+    public required GatewayAdministrativeCompletionState State { get; init; }
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]

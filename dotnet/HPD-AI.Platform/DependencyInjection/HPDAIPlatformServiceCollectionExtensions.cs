@@ -10,38 +10,38 @@ public static class HPDAIPlatformServiceCollectionExtensions
     public static HPDAIPlatformBuilder AddHPDAIPlatform(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        if (!services.Any(static descriptor => descriptor.ServiceType == typeof(BaseStudioShellContract)))
-            services.AddSingleton(BaseStudioShellContract.Current);
-        if (!services.Any(static descriptor => descriptor.ServiceType == typeof(BaseStudioShellAssetGraph)))
-            services.AddSingleton<BaseStudioShellAssetGraph>();
+        if (!services.Any(static descriptor => descriptor.ServiceType == typeof(StudioShellContract)))
+            services.AddSingleton(StudioShellContract.Current);
+        if (!services.Any(static descriptor => descriptor.ServiceType == typeof(StudioShellAssetGraph)))
+            services.AddSingleton<StudioShellAssetGraph>();
         if (!services.Any(static descriptor => descriptor.ServiceType == typeof(TimeProvider)))
             services.AddSingleton(TimeProvider.System);
-        if (!services.Any(static descriptor => descriptor.ServiceType == typeof(BaseStudioRuntimeLeaseRegistry)))
-            services.AddSingleton<BaseStudioRuntimeLeaseRegistry>();
-        if (!services.Any(static descriptor => descriptor.ServiceType == typeof(BaseStudioLateWorkRegistry)))
-            services.AddSingleton<BaseStudioLateWorkRegistry>();
-        if (!services.Any(static descriptor => descriptor.ServiceType == typeof(BaseStudioCommandAuthorityRegistry)))
-            services.AddSingleton<BaseStudioCommandAuthorityRegistry>();
-        if (!services.Any(static descriptor => descriptor.ServiceType == typeof(BaseStudioFrameworkEndpointSurfaceCatalog)))
-            services.AddSingleton<BaseStudioFrameworkEndpointSurfaceCatalog>();
-        BaseStudioEditionAssetCatalog editionAssets = services
-            .Where(static descriptor => descriptor.ServiceType == typeof(BaseStudioEditionAssetCatalog))
+        if (!services.Any(static descriptor => descriptor.ServiceType == typeof(StudioRuntimeLeaseRegistry)))
+            services.AddSingleton<StudioRuntimeLeaseRegistry>();
+        if (!services.Any(static descriptor => descriptor.ServiceType == typeof(StudioLateWorkRegistry)))
+            services.AddSingleton<StudioLateWorkRegistry>();
+        if (!services.Any(static descriptor => descriptor.ServiceType == typeof(StudioCommandAuthorityRegistry)))
+            services.AddSingleton<StudioCommandAuthorityRegistry>();
+        if (!services.Any(static descriptor => descriptor.ServiceType == typeof(StudioFrameworkEndpointSurfaceCatalog)))
+            services.AddSingleton<StudioFrameworkEndpointSurfaceCatalog>();
+        StudioEditionAssetCatalog editionAssets = services
+            .Where(static descriptor => descriptor.ServiceType == typeof(StudioEditionAssetCatalog))
             .Select(static descriptor => descriptor.ImplementationInstance)
-            .OfType<BaseStudioEditionAssetCatalog>().SingleOrDefault() ?? new BaseStudioEditionAssetCatalog();
-        if (!services.Any(static descriptor => descriptor.ServiceType == typeof(BaseStudioEditionAssetCatalog)))
+            .OfType<StudioEditionAssetCatalog>().SingleOrDefault() ?? new StudioEditionAssetCatalog();
+        if (!services.Any(static descriptor => descriptor.ServiceType == typeof(StudioEditionAssetCatalog)))
         {
             services.AddSingleton(editionAssets);
-            services.AddSingleton<BaseStudioEditionAssetCatalogProvider>();
+            services.AddSingleton<StudioEditionAssetCatalogProvider>();
         }
-        BaseStudioContributionCatalog catalog = services
-            .Where(static descriptor => descriptor.ServiceType == typeof(BaseStudioContributionCatalog))
+        StudioContributionCatalog catalog = services
+            .Where(static descriptor => descriptor.ServiceType == typeof(StudioContributionCatalog))
             .Select(static descriptor => descriptor.ImplementationInstance)
-            .OfType<BaseStudioContributionCatalog>().SingleOrDefault() ?? new BaseStudioContributionCatalog();
-        if (!services.Any(static descriptor => descriptor.ServiceType == typeof(BaseStudioContributionCatalog)))
+            .OfType<StudioContributionCatalog>().SingleOrDefault() ?? new StudioContributionCatalog();
+        if (!services.Any(static descriptor => descriptor.ServiceType == typeof(StudioContributionCatalog)))
         {
             services.AddSingleton(catalog);
-            services.AddSingleton(serviceProvider => new BaseStudioApplicationGraphProvider(serviceProvider, catalog));
-            services.AddSingleton<BaseStudioRuntimeCatalog>();
+            services.AddSingleton(serviceProvider => new StudioApplicationGraphProvider(serviceProvider, catalog));
+            services.AddSingleton<StudioRuntimeCatalog>();
         }
         return new HPDAIPlatformBuilder(services, catalog, editionAssets);
     }
@@ -50,17 +50,17 @@ public static class HPDAIPlatformServiceCollectionExtensions
 /// <summary>Builds one explicit immutable Studio application graph.</summary>
 public sealed class HPDAIPlatformBuilder
 {
-    internal HPDAIPlatformBuilder(IServiceCollection services, BaseStudioContributionCatalog studioContributions,
-        BaseStudioEditionAssetCatalog editionAssets)
+    internal HPDAIPlatformBuilder(IServiceCollection services, StudioContributionCatalog studioContributions,
+        StudioEditionAssetCatalog editionAssets)
     { Services = services ?? throw new ArgumentNullException(nameof(services)); StudioContributions = studioContributions ?? throw new ArgumentNullException(nameof(studioContributions));
       EditionAssets = editionAssets ?? throw new ArgumentNullException(nameof(editionAssets)); }
 
     /// <summary>Gets application services used for explicit framework registrations.</summary>
     public IServiceCollection Services { get; }
-    internal BaseStudioContributionCatalog StudioContributions { get; }
-    internal BaseStudioEditionAssetCatalog EditionAssets { get; }
+    internal StudioContributionCatalog StudioContributions { get; }
+    internal StudioEditionAssetCatalog EditionAssets { get; }
 
     /// <summary>Adds one authorization-neutral first-party module to the host's explicit edition asset universe.</summary>
-    public HPDAIPlatformBuilder AddStudioEditionModuleAsset(BaseStudioEditionModuleAssetContribution contribution)
+    public HPDAIPlatformBuilder AddStudioEditionModuleAsset(StudioEditionModuleAssetContribution contribution)
     { EditionAssets.Add(contribution); return this; }
 }

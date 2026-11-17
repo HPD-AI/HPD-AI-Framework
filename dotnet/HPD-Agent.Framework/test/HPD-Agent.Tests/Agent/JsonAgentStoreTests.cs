@@ -55,7 +55,38 @@ public sealed class JsonAgentStoreTests : IDisposable
         var exception = await act.Should().ThrowAsync<InvalidDataException>();
         exception.Which.Message.Should().Contain("agent configuration is invalid");
         exception.Which.Message.Should().Contain("Agent name must not be empty");
-        exception.Which.Message.Should().Contain("MaxFunctionCallTurns must be between 1 and 50");
+        exception.Which.Message.Should().Contain("MaxFunctionCallTurns must be greater than zero");
+    }
+
+    [Fact]
+    public async Task LoadAsync_UserOperationalBudgetAboveFormerFrameworkLimit_IsAccepted()
+    {
+        await WriteAgentAsync("""
+        {
+          "id": "test-agent",
+          "config": {
+            "name": "Large Budget Agent",
+            "maxAgenticIterations": 500,
+            "resilience": {
+              "retry": {
+                "modelRetries": { "maxRetries": 50 },
+                "functionRetries": { "maxRetries": 50 }
+              },
+              "circuitBreaker": { "maxConsecutiveCalls": 500 },
+              "consecutiveErrors": { "maxConsecutiveErrors": 500 },
+              "totalErrors": { "maxTotalErrors": 5000 }
+            }
+          },
+          "createdAt": "2026-06-14T00:00:00Z",
+          "updatedAt": "2026-06-14T00:00:00Z"
+        }
+        """);
+
+        var stored = await new JsonAgentStore(_root).LoadAsync("test-agent");
+
+        stored.Should().NotBeNull();
+        stored!.Config.MaxAgenticIterations.Should().Be(500);
+        stored.Config.Resilience!.Retry!.ModelRetries.MaxRetries.Should().Be(50);
     }
 
     [Fact]
@@ -118,6 +149,36 @@ public sealed class JsonAgentStoreTests : IDisposable
         await reopened.DeleteAsync(first);
         (await reopened.LoadAsync(first)).Should().BeNull();
         (await reopened.ListIdsAsync()).Should().Equal(second);
+    }
+
+    [Fact]
+    public async Task SaveIfUnchangedAsync_RejectsAStaleExpectedDefinition()
+    {
+        var store = new JsonAgentStore(_root);
+        await store.SaveAsync(new StoredAgent
+        {
+            Id = "conditional-agent",
+            Config = new AgentConfig { Name = "Original" },
+        });
+        StoredAgent expected = (await store.LoadAsync("conditional-agent"))!;
+        await store.SaveAsync(new StoredAgent
+        {
+            Id = "conditional-agent",
+            Config = new AgentConfig { Name = "Competitor" },
+            CreatedAt = expected.CreatedAt,
+            UpdatedAt = DateTime.UtcNow.AddSeconds(1),
+        });
+
+        bool saved = await store.SaveIfUnchangedAsync(new StoredAgent
+        {
+            Id = "conditional-agent",
+            Config = new AgentConfig { Name = "Stale Studio Draft" },
+            CreatedAt = expected.CreatedAt,
+            UpdatedAt = DateTime.UtcNow.AddSeconds(2),
+        }, expected);
+
+        saved.Should().BeFalse();
+        (await store.LoadAsync("conditional-agent"))!.Config.Name.Should().Be("Competitor");
     }
 
     public void Dispose()

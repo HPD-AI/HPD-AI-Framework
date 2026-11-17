@@ -28,8 +28,8 @@ public partial class CodingToolHarness
             throw new FileMutationException(FileMutationErrorKind.InvalidArguments, "Path is required.");
 
         var trimmedPath = path.Trim();
-        var fullPath = context?.RunConfig.Context?.Properties?.ContainsKey(AgentWorkspace.ContextKey) == true
-            ? AgentWorkspace.From(context.RunConfig).CanonicalizeExplicitPath(trimmedPath)
+        var fullPath = context?.RunConfig.Context?.Properties?.ContainsKey(CodingWorkspace.ContextKey) == true
+            ? CodingWorkspace.From(context.RunConfig).CanonicalizeExplicitPath(trimmedPath)
             : Path.GetFullPath(trimmedPath, Directory.GetCurrentDirectory());
         return new ResolvedMutationPath(trimmedPath, fullPath);
     }

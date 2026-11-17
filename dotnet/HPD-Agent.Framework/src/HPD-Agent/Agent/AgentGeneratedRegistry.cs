@@ -42,6 +42,20 @@ public static class AgentGeneratedRegistry
         }
     }
 
+    /// <summary>Returns a stable snapshot of every generated ToolHarness owner loaded in this process.</summary>
+    /// <returns>Factories ordered by exact activation identity.</returns>
+    public static IReadOnlyList<ToolHarnessFactory> GetToolHarnesses()
+    {
+        lock (s_lock)
+        {
+            return s_toolharnesses
+                .GroupBy(static factory => factory.ActivationIdentity, StringComparer.Ordinal)
+                .Select(static group => group.First())
+                .OrderBy(static factory => factory.ActivationIdentity, StringComparer.Ordinal)
+                .ToArray();
+        }
+    }
+
     internal static void ClearForTesting()
     {
         lock (s_lock)

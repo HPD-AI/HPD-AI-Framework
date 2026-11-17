@@ -19,7 +19,7 @@ internal static class DebugWorkspaceAccess
         string path)
     {
         ArgumentNullException.ThrowIfNull(workspace);
-        return CodingWorkspaceAccess.Resolve(workspace, path);
+        return CodingWorkspacePathAccess.Resolve(workspace, path);
     }
 
     /// <summary>Resolves a path relative to an explicit logical directory.</summary>
@@ -155,7 +155,7 @@ internal static class DebugWorkspaceAccess
         WorkspacePath path,
         AccessMode required)
     {
-        WorkspaceRootBinding root = CodingWorkspaceAccess.GetRoot(
+        WorkspaceRootBinding root = CodingWorkspacePathAccess.GetRoot(
             workspace,
             path);
         bool granted = required == AccessMode.ReadOnly

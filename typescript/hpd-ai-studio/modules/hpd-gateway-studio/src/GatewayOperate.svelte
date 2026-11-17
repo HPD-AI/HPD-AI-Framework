@@ -13,7 +13,7 @@
   let compareLeft=$state('');
   let compareRight=$state('');
   let importText=$state('');
-  let importSource=$state('studio-import');
+  let importSource=$state('gateway-import');
   let backupSink=$state('');let backupLabel=$state('');let purgeIds=$state('');let purgeCategory=$state<'RevisionContent'|'ValidationContent'|'ActivationOutcomeHistory'|'AuditHistory'>('RevisionContent');
   onMount(()=>{const first=controller.subscribe(next=>managed=next);const second=operations.subscribe(next=>operating=next);return()=>{first();second();};});
   function requireValue<T>(value:T|undefined):T{if(value===undefined)throw new Error('Gateway managed workflow context is unavailable.');return value;}

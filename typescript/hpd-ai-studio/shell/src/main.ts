@@ -7,6 +7,9 @@ import './styles.css';
 const target = document.getElementById('app');
 if (!target) throw new Error('base.studio.mountTargetMissing');
 
+document.documentElement.dataset.theme ??=
+  globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+
 const host = await readStudioHostContract();
 const runtime = new StudioShellRuntime(host);
 const isFreshAuthenticationCallback = runtime.authentication.consumeFreshAuthenticationCallback();

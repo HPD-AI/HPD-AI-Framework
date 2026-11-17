@@ -61,12 +61,12 @@ public sealed class DebugPresentationEventTests : IDisposable
             var firstPath = Path.Combine(_root, "Shared.cs");
             await File.WriteAllTextAsync(firstPath, "first");
             await File.WriteAllTextAsync(Path.Combine(secondRoot, "Shared.cs"), "second");
-            var workspace = new AgentWorkspace(
+            var workspace = new CodingWorkspace(
                 "first",
                 _root,
                 [
-                    new AgentWorkspaceRoot("first", _root, AgentWorkspaceAccess.ReadWrite),
-                    new AgentWorkspaceRoot("second", secondRoot, AgentWorkspaceAccess.ReadWrite)
+                    new CodingWorkspaceRoot("first", _root, CodingWorkspaceAccess.ReadWrite),
+                    new CodingWorkspaceRoot("second", secondRoot, CodingWorkspaceAccess.ReadWrite)
                 ]);
             var provider = new DebugSourcePreviewProvider(
                 new DebugSourcePreviewOptions());

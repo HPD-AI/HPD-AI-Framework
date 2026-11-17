@@ -68,10 +68,10 @@ internal static class AgentFilesystemAccess
         if (context is null)
             return new AgentFilesystemAuthorization(canonical, Escalated: false);
 
-        var workspace = context.RunConfig.Context?.Properties?.ContainsKey(AgentWorkspace.ContextKey) == true
-            ? AgentWorkspace.From(context.RunConfig) : null;
+        var workspace = context.RunConfig.Context?.Properties?.ContainsKey(CodingWorkspace.ContextKey) == true
+            ? CodingWorkspace.From(context.RunConfig) : null;
         if (capability == AgentCapabilityKind.FilesystemWrite && workspace is not null
-            && workspace.Roots.Any(root => root.Access == AgentWorkspaceAccess.ReadOnly && (AgentWorkspace.IsPathUnderDirectory(root.Path, Path.GetFullPath(path)) || AgentFilesystemPath.Contains(root.Path, canonical))))
+            && workspace.Roots.Any(root => root.Access == CodingWorkspaceAccess.ReadOnly && (CodingWorkspace.IsPathUnderDirectory(root.Path, Path.GetFullPath(path)) || AgentFilesystemPath.Contains(root.Path, canonical))))
             throw new AgentCapabilityDeniedException(capability, canonical);
 
         var security = context.RunConfig.Security;
@@ -109,7 +109,7 @@ internal static class AgentFilesystemAccess
         foreach (var grant in grants)
         {
             var root = Path.GetFullPath(grant.Path);
-            if (!AgentWorkspace.IsPathUnderDirectory(root, canonical))
+            if (!CodingWorkspace.IsPathUnderDirectory(root, canonical))
                 continue;
 
             if (capability == AgentCapabilityKind.FilesystemRead ||

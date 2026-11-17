@@ -324,6 +324,7 @@ internal static class BaseSchemaContract
             (BaseScalarKind.Guid, Guid item) => GuidBytes(item),
             (BaseScalarKind.UtcDateTime, DateTimeOffset item) when item.Offset == TimeSpan.Zero => Signed64(item.UtcTicks),
             (BaseScalarKind.Decimal, decimal item) => DecimalBytes(item),
+            (BaseScalarKind.ClosedEnum, Enum item) when BaseClosedEnumGeneratedContract.TryGetWire(item.GetType(), item, out string wire) => StrictUtf8(wire),
             (BaseScalarKind.ClosedEnum, Enum item) => StrictUtf8(item.ToString()),
             _ => throw Invalid(),
         };

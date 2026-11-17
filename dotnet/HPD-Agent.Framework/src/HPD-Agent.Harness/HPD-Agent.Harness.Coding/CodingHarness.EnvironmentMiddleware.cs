@@ -37,7 +37,7 @@ public sealed class EnvironmentContextMiddleware : IToolHarnessMiddleware
     public Task BeforeIterationAsync(BeforeIterationContext context, CancellationToken cancellationToken)
     {
         var environmentContext = EnvironmentContext.CreateCurrent(_config);
-        AgentWorkspace.TryFrom(context.RunConfig, out var workspace, out _);
+        CodingWorkspace.TryFrom(context.RunConfig, out var workspace, out _);
         var environmentInstructions = environmentContext.SerializeToXml(workspace);
         var state = context.GetMiddlewareState<EnvironmentContextState>();
         if (state?.LastSerializedContext == environmentInstructions)
@@ -245,7 +245,7 @@ public sealed record EnvironmentContext
         };
     }
 
-    public string SerializeToXml(AgentWorkspace? workspace = null)
+    public string SerializeToXml(CodingWorkspace? workspace = null)
     {
         var builder = new StringBuilder();
         var workspaceRoot = workspace?.DefaultRootPath ?? WorkspaceRoot;

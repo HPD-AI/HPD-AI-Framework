@@ -54,7 +54,7 @@ export class StudioHostAuthentication {
       headers: { [authority.headerName]: authority.headerValue }, cache: 'no-store', redirect: 'error', signal });
   }
   async acquireFreshAuthentication(request: Readonly<{requestIdentity:string;commandId:string;targetToken:string;previewChecksum:string}>, signal:AbortSignal):Promise<StudioFreshAuthenticationResult>{
-    const response=await this.authorize(new URL('/base/studio/auth/fresh',document.baseURI),{method:'POST',headers:{'Content-Type':'application/json'},
+    const response=await this.authorize(new URL('base/studio/auth/fresh',document.baseURI),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(request),signal},'commandExecution');if(!response.ok)throw new Error('base.studio.freshAuthenticationUnavailable');
     return decodeFreshResult(await response.json());
   }
@@ -62,16 +62,16 @@ export class StudioHostAuthentication {
     if(Date.parse(challenge.expiresAtUtc)<=Date.now())throw new Error('base.studio.freshAuthenticationExpired');let popup:Window|null=null;
     const target=new URL(challenge.browserAction.target,document.baseURI);if(target.origin!==location.origin||target.username||target.password||target.hash)
       throw new TypeError('base.studio.freshAuthenticationInvalid');
-    if(target.pathname!=='/base/studio/auth/fresh/callback'||target.searchParams.getAll('continuation').length!==1||
+    if(target.pathname.length<2||target.pathname.startsWith('//')||target.searchParams.getAll('continuation').length!==1||
       target.searchParams.get('continuation')!==challenge.continuation||[...target.searchParams.keys()].some(key=>key!=='continuation'))
       throw new TypeError('base.studio.freshAuthenticationInvalid');
     popup=window.open(target,'hpd-studio-fresh-auth','popup,width=640,height=720');if(!popup)throw new Error('base.studio.freshAuthenticationPopupBlocked');
-    try{while(Date.now()<Date.parse(challenge.expiresAtUtc)){const response=await this.authorize(new URL('/base/studio/auth/fresh/complete',document.baseURI),{method:'POST',headers:{'Content-Type':'application/json'},
+    try{while(Date.now()<Date.parse(challenge.expiresAtUtc)){const response=await this.authorize(new URL('base/studio/auth/fresh/complete',document.baseURI),{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({continuation:challenge.continuation}),signal},'commandExecution');if(!response.ok)throw new Error('base.studio.freshAuthenticationUnavailable');const result=decodeFreshResult(await response.json());
         if(result.kind!=='challenge')return result;if(result.continuation!==challenge.continuation||result.expiresAtUtc!==challenge.expiresAtUtc)
           throw new TypeError('base.studio.freshAuthenticationInvalid');await delay(500,signal);}throw new Error('base.studio.freshAuthenticationExpired');}finally{popup?.close();}
   }
-  consumeFreshAuthenticationCallback():boolean{const url=new URL(location.href);if(url.pathname!=='/base/studio/auth/fresh/callback')return false;
+  consumeFreshAuthenticationCallback():boolean{const url=new URL(location.href);if(url.pathname!==new URL('base/studio/auth/fresh/callback',document.baseURI).pathname)return false;
     const values=url.searchParams.getAll('continuation');if(values.length!==1||[...url.searchParams.keys()].some(key=>key!=='continuation')||url.hash||!protectedValue(values[0]))
       throw new TypeError('base.studio.freshAuthenticationInvalid');history.replaceState(history.state,'',url.pathname);return true;}
   async authorize(input: RequestInfo | URL, init: RequestInit = {}, purpose: StudioAuthorizationPurpose): Promise<Response> {

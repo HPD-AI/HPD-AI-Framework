@@ -6,8 +6,8 @@
   }
 
   html {
-    color: var(--color-studio-ink);
-    background: var(--color-studio-bg);
+    color: var(--studio-text);
+    background: var(--studio-canvas);
     font-size: 14px;
     text-size-adjust: 100%;
   }
@@ -54,12 +54,23 @@
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-studio-brand);
+    outline: 2px solid var(--studio-focus);
     outline-offset: 2px;
   }
 
   ::selection {
-    background: var(--color-studio-accent-soft);
-    color: var(--color-studio-accent-ink);
+    background: var(--studio-selection);
+    color: var(--studio-text);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      scroll-behavior: auto !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }

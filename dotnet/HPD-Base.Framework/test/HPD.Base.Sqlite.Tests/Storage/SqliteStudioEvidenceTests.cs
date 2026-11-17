@@ -25,18 +25,18 @@ public sealed class SqliteStudioEvidenceTests
                 await transaction.CommitAsync();
             }
 
-            BaseStudioEvidenceRequirement requirement = Requirement(BaseSubjectScopeKind.Project, "project-a");
-            OperationResult<BaseStudioEvidencePage> first = await new DefaultBaseStudioEvidenceRuntime().ReadPageAsync(store, requirement,
-                Scope(requirement), new BaseStudioEvidencePageRequest { Take = 1 });
+            StudioEvidenceRequirement requirement = Requirement(BaseSubjectScopeKind.Project, "project-a");
+            OperationResult<StudioEvidencePage> first = await new DefaultStudioEvidenceRuntime().ReadPageAsync(store, requirement,
+                Scope(requirement), new StudioEvidencePageRequest { Take = 1 });
             first.IsSuccess().Should().BeTrue(); first.Value!.Accounting.RowsRead.Should().Be(2);
-            first.Value.Items.Should().ContainSingle().Which.Should().BeOfType<BaseStudioRecordMutationEvidenceItem>()
+            first.Value.Items.Should().ContainSingle().Which.Should().BeOfType<StudioRecordMutationEvidenceItem>()
                 .Which.EvidenceId.Should().Be("wanted-a");
             first.Value.Next.Should().NotBeNull();
 
-            OperationResult<BaseStudioEvidencePage> second = await new DefaultBaseStudioEvidenceRuntime().ReadPageAsync(store, requirement,
-                Scope(requirement), new BaseStudioEvidencePageRequest { Take = 1, After = first.Value.Next });
+            OperationResult<StudioEvidencePage> second = await new DefaultStudioEvidenceRuntime().ReadPageAsync(store, requirement,
+                Scope(requirement), new StudioEvidencePageRequest { Take = 1, After = first.Value.Next });
             second.IsSuccess().Should().BeTrue(); second.Value!.Accounting.RowsRead.Should().Be(1);
-            second.Value.Items.Should().ContainSingle().Which.Should().BeOfType<BaseStudioRecordMutationEvidenceItem>()
+            second.Value.Items.Should().ContainSingle().Which.Should().BeOfType<StudioRecordMutationEvidenceItem>()
                 .Which.EvidenceId.Should().Be("wanted-b");
 
             await using var verify = new SqliteConnection($"Data Source={database}"); await verify.OpenAsync();
@@ -66,11 +66,11 @@ public sealed class SqliteStudioEvidenceTests
                 await InsertAsync(connection, transaction, 3, BaseSubjectScopeKind.Project, "project-a", "orders", "project");
                 await transaction.CommitAsync();
             }
-            BaseStudioEvidenceRequirement requirement = Requirement(kind, value);
-            OperationResult<BaseStudioEvidencePage> result = await new DefaultBaseStudioEvidenceRuntime().ReadPageAsync(store, requirement,
-                Scope(requirement), new BaseStudioEvidencePageRequest { Take = 2 });
+            StudioEvidenceRequirement requirement = Requirement(kind, value);
+            OperationResult<StudioEvidencePage> result = await new DefaultStudioEvidenceRuntime().ReadPageAsync(store, requirement,
+                Scope(requirement), new StudioEvidencePageRequest { Take = 2 });
             result.IsSuccess().Should().BeTrue();
-            result.Value!.Items.Should().ContainSingle().Which.Should().BeOfType<BaseStudioRecordMutationEvidenceItem>()
+            result.Value!.Items.Should().ContainSingle().Which.Should().BeOfType<StudioRecordMutationEvidenceItem>()
                 .Which.EvidenceId.Should().Be(expected);
         }
         finally { File.Delete(database); }
@@ -87,14 +87,14 @@ public sealed class SqliteStudioEvidenceTests
         command.Parameters.AddWithValue("$record", "record-" + position); await command.ExecuteNonQueryAsync();
     }
 
-    private static BaseStudioEvidenceRequirement Requirement(BaseSubjectScopeKind kind, string? value) => new()
+    private static StudioEvidenceRequirement Requirement(BaseSubjectScopeKind kind, string? value) => new()
     {
-        ApplicationId = "app", Kind = BaseStudioEvidenceKind.RecordMutation, Scope = new() { Kind = kind, Value = value },
-        Parent = new BaseStudioCollectionEvidenceSubject { CollectionId = "orders", InstalledCollectionChecksum = ImmutableArray.CreateRange(new byte[32]) },
+        ApplicationId = "app", Kind = StudioEvidenceKind.RecordMutation, Scope = new() { Kind = kind, Value = value },
+        Parent = new StudioCollectionEvidenceSubject { CollectionId = "orders", InstalledCollectionChecksum = ImmutableArray.CreateRange(new byte[32]) },
         ProtectedScopeSeekChecksum = ImmutableArray.CreateRange(Enumerable.Repeat((byte)7, 32)),
         Limits = new() { MaximumItems = 2, MaximumRowsRead = 3, MaximumIntervals = 1, MaximumEvidenceBytes = 4096,
             MaximumTransientBytes = 4096, AcquisitionDeadline = TimeSpan.FromSeconds(2), SessionDeadline = TimeSpan.FromSeconds(4), PageDeadline = TimeSpan.FromSeconds(2) },
     };
-    private static BaseOwnedScopeSeekAuthority Scope(BaseStudioEvidenceRequirement requirement) => new()
+    private static BaseOwnedScopeSeekAuthority Scope(StudioEvidenceRequirement requirement) => new()
     { Kind = requirement.Scope.Kind, ProtectedIndexDigest = requirement.ProtectedScopeSeekChecksum };
 }

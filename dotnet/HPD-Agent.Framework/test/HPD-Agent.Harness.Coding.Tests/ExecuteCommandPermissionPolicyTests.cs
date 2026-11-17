@@ -146,10 +146,10 @@ public sealed class ExecuteCommandPermissionPolicyTests
             {
                 Properties = new Dictionary<string, object>
                 {
-                    [AgentWorkspace.ContextKey] = new AgentWorkspace(
+                    [CodingWorkspace.ContextKey] = new CodingWorkspace(
                         "default",
                         root,
-                        [new AgentWorkspaceRoot("default", root, AgentWorkspaceAccess.ReadWrite)])
+                        [new CodingWorkspaceRoot("default", root, CodingWorkspaceAccess.ReadWrite)])
                 }
             }
         };

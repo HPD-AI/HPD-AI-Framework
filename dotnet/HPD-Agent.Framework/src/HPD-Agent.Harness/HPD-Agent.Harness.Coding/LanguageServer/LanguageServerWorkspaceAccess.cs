@@ -16,7 +16,7 @@ internal static class LanguageServerWorkspaceAccess
         string path) =>
         workspace.Paths.TryFromExecutionPath(
             new WorkspaceExecutionPath(path)) ??
-        HPD.Agent.ToolHarness.Coding.CodingWorkspaceAccess.Resolve(
+        HPD.Agent.ToolHarness.Coding.CodingWorkspacePathAccess.Resolve(
             workspace,
             path);
 
@@ -81,7 +81,7 @@ internal static class LanguageServerWorkspaceAccess
         WorkspacePath logical =
             workspace.Paths.TryFromExecutionPath(
                 new WorkspaceExecutionPath(path)) ??
-            HPD.Agent.ToolHarness.Coding.CodingWorkspaceAccess.Resolve(
+            HPD.Agent.ToolHarness.Coding.CodingWorkspacePathAccess.Resolve(
                 workspace,
                 path);
         return await workspace.Files.GetInfoAsync(

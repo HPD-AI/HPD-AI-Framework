@@ -82,7 +82,7 @@ public partial class CodingToolHarness
             if (argumentError != null)
                 return FormatGrepError(path ?? string.Empty, argumentError);
 
-            if (!CodingWorkspaceAccess.TryGet(context, out var workspace))
+            if (!CodingWorkspacePathAccess.TryGet(context, out var workspace))
             {
                 return FormatGrepError(
                     path ?? string.Empty,
@@ -153,9 +153,9 @@ public partial class CodingToolHarness
         bool respectIgnoreFiles)
     {
         WorkspacePath searchRoot =
-            CodingWorkspaceAccess.Resolve(workspace, path);
+            CodingWorkspacePathAccess.Resolve(workspace, path);
         string displayPath =
-            CodingWorkspaceAccess.Display(workspace, searchRoot);
+            CodingWorkspacePathAccess.Display(workspace, searchRoot);
         WorkspaceFileInfo? rootInfo =
             await workspace.Files.GetInfoAsync(searchRoot)
                 .ConfigureAwait(false);
@@ -234,7 +234,7 @@ public partial class CodingToolHarness
             .ToArray();
         GrepMatchInfo[] matches = filtered
             .Select(result => new GrepMatchInfo(
-                CodingWorkspaceAccess.Display(workspace, result.Path),
+                CodingWorkspacePathAccess.Display(workspace, result.Path),
                 checked((int)result.Line),
                 ShortenLine(result.LineText),
                 result.ContextLines
@@ -260,7 +260,7 @@ public partial class CodingToolHarness
                         await workspace.Files.GetInfoAsync(
                             file).ConfigureAwait(false);
                     fileCandidates.Add((
-                        CodingWorkspaceAccess.Display(workspace, file),
+                        CodingWorkspacePathAccess.Display(workspace, file),
                         info?.Version.ModifiedAt ??
                             DateTimeOffset.MinValue));
                 }
@@ -301,7 +301,7 @@ public partial class CodingToolHarness
                 (string Path, int Count)[] counts = search.Counts
                     .Select(count => (
                         Path:
-                        CodingWorkspaceAccess.Display(
+                        CodingWorkspacePathAccess.Display(
                             workspace,
                             count.Path),
                         Count: checked((int)count.Count)))

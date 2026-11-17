@@ -18,6 +18,7 @@ export function createStudioPageRuntime(snapshot: StudioBootstrapSnapshot, route
   acquireFreshAuthentication: (request: Readonly<{requestIdentity:string;commandId:string;targetToken:string;previewChecksum:string}>, signal:AbortSignal) => Promise<import('./authentication.ts').StudioFreshAuthenticationResult>): StudioPageRuntime {
   const observations = route.page.observationMethodIds.map(id => requiredJson(runtime, id, 'page', route.page.moduleId, route.page.pageId));
   const controller = createStudioRefreshController<PageValue>({ read: async signal => {
+    try {
     const resolved = route.page.initialResource === null
       ? await resolveRoute(snapshot, route, runtime, signal)
       : Object.freeze({ resource: validateStudioOutwardResource(route.page.initialResource), links: Object.freeze([]) });
@@ -35,6 +36,10 @@ export function createStudioPageRuntime(snapshot: StudioBootstrapSnapshot, route
     return Object.freeze({ kind: 'value' as const, value: Object.freeze({ resource: resolved.resource, links: Object.freeze(links.length === 0 ? [...resolved.links] : links),
       views: Object.freeze(Object.fromEntries(entries)) }), authority: Object.freeze({ coherence: snapshot.authority.checksum,
       authorizedThroughUtc: snapshot.authority.authorizedThroughUtc }) });
+    } catch (error) {
+      console.error(`HPD Studio page '${route.page.pageId}' observation failed.`, error);
+      throw error;
+    }
   } });
   const navigation: StudioNavigationHandle = Object.freeze({ async navigate(target: Parameters<StudioNavigationHandle['navigate']>[0]): Promise<void> {
     const link = validateLink(target.link, snapshot.applicationId); const source = currentResource(controller.snapshot());

@@ -5,6 +5,7 @@ using HPD.Agent.Serialization;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.DependencyInjection;
 using HPD.Agent.Providers;
+using HPD.Agent.Validation;
 using HostingAgentFactory = HPD.Agent.Hosting.Configuration.IAgentFactory;
 
 namespace HPD.Agent.AspNetCore.Lifecycle;
@@ -58,6 +59,10 @@ internal class AspNetCoreAgentManager : AgentManager
         if (stored?.Config is null)
             throw new KeyNotFoundException($"Agent definition '{agentId}' was not found.");
 
+        AgentConfigValidator.ValidateAndThrow(
+            stored.Config,
+            opts.ValidationLimits);
+
         var builder = providerComposition is null
             ? new AgentBuilder(stored.Config)
             : new AgentBuilder(stored.Config, providerComposition);
@@ -103,6 +108,8 @@ internal class AspNetCoreAgentManager : AgentManager
         config = CloneConfig(config, providerComposition);
         if (config.Name == new AgentConfig().Name)
             config.Name = agentId;
+
+        AgentConfigValidator.ValidateAndThrow(config, opts.ValidationLimits);
 
         var now = DateTime.UtcNow;
         await AgentStore.SaveAsync(new StoredAgent

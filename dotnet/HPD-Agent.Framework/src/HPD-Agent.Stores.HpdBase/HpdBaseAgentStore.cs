@@ -59,17 +59,7 @@ public sealed class HpdBaseAgentStore : IAgentStore
         ArgumentNullException.ThrowIfNull(agent);
         ArgumentException.ThrowIfNullOrWhiteSpace(agent.Id);
 
-        string payload = JsonSerializer.Serialize(
-            agent,
-            HPDJsonContext.Default.StoredAgent);
-        HpdBaseAgentDefinition definition = new()
-        {
-            AgentId = agent.Id,
-            Name = agent.Config.Name,
-            Payload = payload,
-            CreatedAt = new DateTimeOffset(agent.CreatedAt, TimeSpan.Zero),
-            UpdatedAt = new DateTimeOffset(agent.UpdatedAt, TimeSpan.Zero),
-        };
+        HpdBaseAgentDefinition definition = ToDefinition(agent);
 
         await _session
             .Collection(HpdBaseAgentDefinition.Collection)
@@ -79,6 +69,58 @@ public sealed class HpdBaseAgentStore : IAgentStore
                 definition,
                 cancellationToken: ct)
             .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> SaveIfUnchangedAsync(
+        StoredAgent agent,
+        StoredAgent expected,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(agent);
+        ArgumentNullException.ThrowIfNull(expected);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agent.Id);
+        if (!StringComparer.Ordinal.Equals(agent.Id, expected.Id))
+            return false;
+
+        BaseCollectionSession<HpdBaseAgentDefinition> collection =
+            _session.Collection(HpdBaseAgentDefinition.Collection);
+        RecordId id = RecordId.Create(RecordKey(agent.Id));
+        BaseResult<BaseRecord<HpdBaseAgentDefinition>> loaded =
+            await collection.GetAsync(id, ct).ConfigureAwait(false);
+        if (loaded is BaseFailure<BaseRecord<HpdBaseAgentDefinition>> failure &&
+            failure.Status == OperationStatus.NotFound)
+            return false;
+
+        BaseRecord<HpdBaseAgentDefinition> currentRecord = loaded.RequireValue();
+        if (currentRecord.Redacted)
+            throw new InvalidOperationException(
+                $"Stored agent definition '{agent.Id}' was redacted by Base policy.");
+        StoredAgent current = Deserialize(currentRecord.Value.Payload, agent.Id);
+        if (!StringComparer.Ordinal.Equals(
+                AgentDefinitionRevision.Compute(current),
+                AgentDefinitionRevision.Compute(expected)))
+            return false;
+        if (currentRecord.Revision is not { } expectedRevision)
+            throw new InvalidOperationException(
+                $"Stored agent definition '{agent.Id}' has no Base revision authority.");
+
+        HpdBaseAgentDefinition definition = ToDefinition(agent);
+        BaseResult<BaseUpsertResult<HpdBaseAgentDefinition>> saved =
+            await collection.UpsertAsync(
+                id,
+                definition,
+                definition,
+                RecordUpsertExistenceCondition.UpdateOnly,
+                expectedRevision,
+                ct).ConfigureAwait(false);
+        if (saved is BaseSuccess<BaseUpsertResult<HpdBaseAgentDefinition>>)
+            return true;
+        if (saved is BaseFailure<BaseUpsertResult<HpdBaseAgentDefinition>> writeFailure &&
+            writeFailure.Status is OperationStatus.Conflict or OperationStatus.NotFound)
+            return false;
+        saved.RequireValue();
+        return true;
     }
 
     /// <inheritdoc />
@@ -148,4 +190,13 @@ public sealed class HpdBaseAgentStore : IAgentStore
         "agent_" + Convert.ToHexString(
             SHA256.HashData(Encoding.UTF8.GetBytes(agentId)))
             .ToLowerInvariant();
+
+    private static HpdBaseAgentDefinition ToDefinition(StoredAgent agent) => new()
+    {
+        AgentId = agent.Id,
+        Name = agent.Config.Name,
+        Payload = JsonSerializer.Serialize(agent, HPDJsonContext.Default.StoredAgent),
+        CreatedAt = new DateTimeOffset(agent.CreatedAt, TimeSpan.Zero),
+        UpdatedAt = new DateTimeOffset(agent.UpdatedAt, TimeSpan.Zero),
+    };
 }

@@ -10,7 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace HPD.Gateway.ControlPlane;
 
 /// <summary>Executes the generated Gateway Admin contract through the sealed Studio endpoint surface.</summary>
-internal sealed class GatewayStudioEndpointSurface : IBaseStudioFrameworkEndpointSurface
+internal sealed class GatewayStudioEndpointSurface : IStudioFrameworkEndpointSurface
 {
     private const long MaximumResponseBytes = 8_388_608;
     private readonly IServiceProvider _services;
@@ -24,13 +24,13 @@ internal sealed class GatewayStudioEndpointSurface : IBaseStudioFrameworkEndpoin
     /// <inheritdoc />
     public string EndpointSurfaceId => "gateway.admin.v1";
     /// <inheritdoc />
-    public BaseStudioSha256 OperationInventoryChecksum => GatewayStudioModuleRegistry.OperationInventoryChecksum;
+    public StudioSha256 OperationInventoryChecksum => GatewayStudioModuleRegistry.OperationInventoryChecksum;
     /// <inheritdoc />
-    public ImmutableArray<BaseStudioFrameworkSurfaceOperation> Operations { get; } = CreateOperations();
+    public ImmutableArray<StudioFrameworkSurfaceOperation> Operations { get; } = CreateOperations();
 
     /// <inheritdoc />
-    public async ValueTask<BaseStudioFrameworkSurfaceResponse?> ExecuteAsync(
-        BaseStudioFrameworkSurfaceRequest request, CancellationToken cancellationToken)
+    public async ValueTask<StudioFrameworkSurfaceResponse?> ExecuteAsync(
+        StudioFrameworkSurfaceRequest request, CancellationToken cancellationToken)
     {
         GatewayAdminEndpointDescriptor? endpoint = GatewayAdminEndpointLedger.V1.SingleOrDefault(
             value => StringComparer.Ordinal.Equals(value.Operation, request.OperationId));
@@ -69,34 +69,34 @@ internal sealed class GatewayStudioEndpointSurface : IBaseStudioFrameworkEndpoin
 
         await GatewayAdminEndpointMapper.ExecuteHandlerAsync(context, handler).ConfigureAwait(false);
         byte[] response = responseBody.ToArray();
-        return BaseStudioFrameworkSurfaceResponse.Create(context.Response.StatusCode,
+        return StudioFrameworkSurfaceResponse.Create(context.Response.StatusCode,
             context.Response.ContentType ?? "application/json", response, MaximumResponseBytes,
             context.Response.Headers.Where(static header => !StringComparer.OrdinalIgnoreCase.Equals(header.Key, "Content-Type") &&
                 !StringComparer.OrdinalIgnoreCase.Equals(header.Key, "Content-Length"))
                 .Select(static header => KeyValuePair.Create(header.Key, header.Value.ToString())));
     }
 
-    internal static ImmutableArray<BaseStudioFrameworkSurfaceOperation> CreateOperations() =>
+    internal static ImmutableArray<StudioFrameworkSurfaceOperation> CreateOperations() =>
         [.. GatewayAdminEndpointLedger.V1.OrderBy(static value => value.Operation, StringComparer.Ordinal).Select(endpoint =>
         {
             GatewayAdminClientOperationSemantics semantics = GatewayAdminClientSemanticLedger.For(endpoint.Operation);
             string[] headers = semantics.ParameterConstraints
                 .Where(static value => value.Location == GatewayAdminClientParameterLocation.Header)
                 .Select(static value => value.Name).Order(StringComparer.OrdinalIgnoreCase).ToArray();
-            BaseStudioTransportPurpose purpose = endpoint.Mutation ? BaseStudioTransportPurpose.CommandExecution :
-                endpoint.Method == "POST" ? BaseStudioTransportPurpose.CommandPreview : BaseStudioTransportPurpose.Observation;
+            StudioTransportPurpose purpose = endpoint.Mutation ? StudioTransportPurpose.CommandExecution :
+                endpoint.Method == "POST" ? StudioTransportPurpose.CommandPreview : StudioTransportPurpose.Observation;
             string path = endpoint.Pattern.TrimStart('/');
             string[] requestMedia = semantics.RequestBodyPresence == GatewayAdminClientRequestBodyPresence.None
                 ? [] : ["application/json"];
-            return BaseStudioFrameworkSurfaceOperation.Create(endpoint.Operation, TransportMethod(endpoint.Method), path, purpose,
+            return StudioFrameworkSurfaceOperation.Create(endpoint.Operation, TransportMethod(endpoint.Method), path, purpose,
                 endpoint.Capability, semantics.MaximumRequestBodyUtf8Bytes ?? 0, MaximumResponseBytes,
                 TimeSpan.FromSeconds(30), requestMedia, ["application/json", "application/json; charset=utf-8"], headers, []);
         })];
 
-    private static BaseStudioTransportMethod TransportMethod(string method) => method switch
-    { "GET" => BaseStudioTransportMethod.Get, "POST" => BaseStudioTransportMethod.Post, _ => throw new InvalidOperationException("Unsupported Gateway Admin method.") };
-    private static string Method(BaseStudioTransportMethod method) => method switch
-    { BaseStudioTransportMethod.Get => "GET", BaseStudioTransportMethod.Post => "POST", _ => throw new InvalidOperationException("Unsupported Gateway Studio method.") };
+    private static StudioTransportMethod TransportMethod(string method) => method switch
+    { "GET" => StudioTransportMethod.Get, "POST" => StudioTransportMethod.Post, _ => throw new InvalidOperationException("Unsupported Gateway Admin method.") };
+    private static string Method(StudioTransportMethod method) => method switch
+    { StudioTransportMethod.Get => "GET", StudioTransportMethod.Post => "POST", _ => throw new InvalidOperationException("Unsupported Gateway Studio method.") };
 
     private static bool TryMatch(string pattern, string relativePath, out RouteValueDictionary values)
     {
@@ -121,7 +121,7 @@ internal sealed class GatewayStudioEndpointSurface : IBaseStudioFrameworkEndpoin
         return true;
     }
 
-    private static BaseStudioFrameworkSurfaceResponse Error(int status, string code, string title) =>
-        BaseStudioFrameworkSurfaceResponse.Create(status, "application/json",
+    private static StudioFrameworkSurfaceResponse Error(int status, string code, string title) =>
+        StudioFrameworkSurfaceResponse.Create(status, "application/json",
             JsonSerializer.SerializeToUtf8Bytes(new GatewayAdminError(code, title), GatewayAdminJsonContext.Default.GatewayAdminError), MaximumResponseBytes);
 }

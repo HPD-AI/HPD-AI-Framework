@@ -79,12 +79,12 @@ public sealed class DebugRuntimeBindingTests
         {
             Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>
             {
-                [AgentWorkspace.ContextKey] = new AgentWorkspace(
+                [CodingWorkspace.ContextKey] = new CodingWorkspace(
                     "a",
                     first,
                     [
-                        new AgentWorkspaceRoot("a", first, AgentWorkspaceAccess.ReadWrite),
-                        new AgentWorkspaceRoot("b", second, AgentWorkspaceAccess.ReadWrite)
+                        new CodingWorkspaceRoot("a", first, CodingWorkspaceAccess.ReadWrite),
+                        new CodingWorkspaceRoot("b", second, CodingWorkspaceAccess.ReadWrite)
                     ])
             } }
         };
@@ -496,9 +496,9 @@ public sealed class DebugRuntimeBindingTests
         agentContext.RuntimeCapabilities.Set(manager);
         agentContext.RuntimeCapabilities.Set(new DebugRuntimeBindingState());
         HPD.Agent.Sandbox.RuntimeWorkspaceBinding workspace =
-            AgentWorkspace.TryFrom(
+            CodingWorkspace.TryFrom(
                 runConfig,
-                out AgentWorkspace configured,
+                out CodingWorkspace configured,
                 out _)
                 ? TestRuntimeWorkspace.FromAgentWorkspace(configured)
                 : TestRuntimeWorkspace.Create(Path.GetTempPath());

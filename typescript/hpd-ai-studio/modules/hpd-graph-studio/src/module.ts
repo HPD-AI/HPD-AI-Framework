@@ -1,4 +1,5 @@
 import GraphRegisteredPage from './GraphRegisteredPage.svelte';
+import { mount, unmount } from 'svelte';
 import {
   computeStudioFrontendAbiChecksum,
   defineStudioModuleDescriptor,
@@ -12,7 +13,8 @@ import {
   type StudioModuleActivationContext,
   type StudioFrameworkClientHostContext,
   type StudioPageComponentBinding,
-  type StudioPageId
+  type StudioPageId,
+  type StudioPageMounter
 } from '@hpd-research/hpd-studio-core';
 
 const runtimeAbiChecksum = studioSha256('75e580b84bd3267ad7177ace62def3be7c611a9df94f6bab2f95d69e729d8304');
@@ -36,10 +38,30 @@ const pageComponents = Object.freeze(Object.fromEntries(pageIds.map(id => {
   const binding: StudioPageComponentBinding = Object.freeze({
     componentExportId: `component.${id}`,
     componentAbiChecksum,
-    component: GraphRegisteredPage
+    component: GraphRegisteredPage,
+    mount: mountGraphPage
   });
   return [pageId, binding] as const;
 }))) as Readonly<Record<StudioPageId, StudioPageComponentBinding>>;
+
+function mountGraphPage(context: Parameters<StudioPageMounter>[0]): ReturnType<StudioPageMounter> {
+  let dispose = render(context.props);
+  return Object.freeze({
+    update(props: Parameters<StudioPageMounter>[0]['props']): void {
+      dispose();
+      dispose = render(props);
+    },
+    destroy(): void {
+      dispose();
+      dispose = (): void => {};
+    }
+  });
+
+  function render(props: Parameters<StudioPageMounter>[0]['props']): () => void {
+    const instance = mount(GraphRegisteredPage, { target: context.target, props });
+    return () => { void unmount(instance); };
+  }
+}
 
 const clientSlots = Object.freeze([Object.freeze({
   clientId: studioClientId('graph.control-plane'),
@@ -62,7 +84,8 @@ export const studioFrameworkClientActivators = Object.freeze([Object.freeze({
   clientId: studioClientId('graph.control-plane'), version: 1, runtimeAbiChecksum, generatedContractChecksum, operationInventoryChecksum,
   async create(context: StudioFrameworkClientHostContext) {
     const get = async (operation: string, path: string, signal = context.signal): Promise<unknown> => {
-      const response = await context.transport.execute({ operation, method: 'GET', relativePathAndQuery: path,
+      const relativePathAndQuery = path.startsWith('/') ? path : `/${path}`;
+      const response = await context.transport.execute({ operation, method: 'GET', relativePathAndQuery,
         headers: Object.freeze({}), body: undefined, maximumResponseBytes: context.limits.maximumResponseBytes,
         purpose: 'observation', deadlineMilliseconds: context.limits.operationDeadlineMilliseconds, signal });
       if (!response.ok) throw new TypeError('Graph Studio observation is unavailable.');

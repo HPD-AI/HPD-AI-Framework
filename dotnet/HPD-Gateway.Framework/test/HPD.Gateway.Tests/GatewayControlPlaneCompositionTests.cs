@@ -74,12 +74,12 @@ public sealed class GatewayControlPlaneCompositionTests
         GatewayControlPlaneRegistration registration = provider.GetRequiredService<GatewayControlPlaneRegistration>();
         registration.AdminOptions!.RoutePrefix.Should().Be("/management/custom");
         registration.StudioConfigured.Should().BeTrue();
-        IBaseStudioFrameworkEndpointSurface surface = provider
-            .GetServices<IBaseStudioFrameworkEndpointSurface>().Should().ContainSingle().Subject;
+        IStudioFrameworkEndpointSurface surface = provider
+            .GetServices<IStudioFrameworkEndpointSurface>().Should().ContainSingle().Subject;
         surface.EndpointSurfaceId.Should().Be("gateway.admin.v1");
         surface.Operations.Should().HaveCount(23).And.BeInAscendingOrder(static operation => operation.OperationId);
-        BaseStudioSha256.FixedTimeEquals(surface.OperationInventoryChecksum,
-            BaseStudioFrameworkSurfaceOperation.ComputeInventoryChecksum(surface.EndpointSurfaceId, surface.Operations)).Should().BeTrue();
+        StudioSha256.FixedTimeEquals(surface.OperationInventoryChecksum,
+            StudioFrameworkSurfaceOperation.ComputeInventoryChecksum(surface.EndpointSurfaceId, surface.Operations)).Should().BeTrue();
     }
 
     [Fact]

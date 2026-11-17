@@ -629,7 +629,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                 out var workspace))
         {
             WorkspacePath logical =
-                CodingWorkspaceAccess.Resolve(workspace, path);
+                CodingWorkspacePathAccess.Resolve(workspace, path);
             return new LanguageServerPathMap(
                 logical,
                 workspace.Paths.ToExecutionPath(logical).Value,

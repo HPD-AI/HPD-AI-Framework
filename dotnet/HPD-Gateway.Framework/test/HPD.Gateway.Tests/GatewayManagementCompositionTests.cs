@@ -743,6 +743,12 @@ public sealed class GatewayManagementCompositionTests
         BaseRecord<GatewayDeliveryOutboxItem> item = (await session
             .Collection(GatewayDeliveryOutboxItem.Collection).Query()
             .Take(1).ToArrayAsync(1)).RequireValue().Single();
+        BaseRecord<GatewayDeliveryOutboxItem>[] immediateStateMatches = (await session
+            .Collection(GatewayDeliveryOutboxItem.Collection).Query()
+            .Where(GatewayDeliveryOutboxItem.Fields.State, GatewayDeliveryState.Immediate)
+            .Take(1).ToArrayAsync(1)).RequireValue();
+        immediateStateMatches.Should().ContainSingle(
+            "closed-enum filters use the generated wire literal rather than the CLR member name");
         (await session.Collection(GatewayDeliveryOutboxItem.Collection).ReplaceAsync(
             item.Id, item.Value with { AttemptCount = 1 }, item.Revision)).RequireValue();
 

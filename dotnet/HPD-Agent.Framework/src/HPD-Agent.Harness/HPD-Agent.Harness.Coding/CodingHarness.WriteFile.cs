@@ -29,7 +29,7 @@ public partial class CodingToolHarness
             if (argumentError != null)
                 return FormatWriteError(WriteFileErrorKind.InvalidArguments, path, argumentError);
 
-            if (!CodingWorkspaceAccess.TryGet(context, out var workspace))
+            if (!CodingWorkspacePathAccess.TryGet(context, out var workspace))
             {
                 return FormatWriteError(
                     WriteFileErrorKind.InvalidArguments,
@@ -81,11 +81,11 @@ public partial class CodingToolHarness
         FunctionExecutionContext context)
     {
         WorkspacePath logical =
-            CodingWorkspaceAccess.Resolve(workspace, path);
+            CodingWorkspacePathAccess.Resolve(workspace, path);
         string displayPath =
-            CodingWorkspaceAccess.Display(workspace, logical);
+            CodingWorkspacePathAccess.Display(workspace, logical);
         WorkspaceRootBinding root =
-            CodingWorkspaceAccess.GetRoot(workspace, logical);
+            CodingWorkspacePathAccess.GetRoot(workspace, logical);
         if (root.Access == AccessMode.ReadOnly)
         {
             return FormatWriteError(

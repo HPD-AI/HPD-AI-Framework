@@ -270,10 +270,10 @@ public sealed class DebugExecutionPlanningV3Tests
                 extension == ".slnx"
                     ? "<Solution><Project Path=\"App.csproj\" /></Solution>"
                     : "Project(\"{00000000-0000-0000-0000-000000000000}\") = \"App\", \"App.csproj\", \"{00000000-0000-0000-0000-000000000001}\"");
-            var workspace = new AgentWorkspace(
+            var workspace = new CodingWorkspace(
                 "root",
                 root,
-                [new("root", root, AgentWorkspaceAccess.ReadWrite)]);
+                [new("root", root, CodingWorkspaceAccess.ReadWrite)]);
             var context = Context() with
             {
                 Target = new ApplicationProjectDebugTarget(root),
@@ -321,12 +321,12 @@ public sealed class DebugExecutionPlanningV3Tests
             File.WriteAllText(
                 solution,
                 "<Solution><Project Path=\"../project/App.csproj\" /></Solution>");
-            var workspace = new AgentWorkspace(
+            var workspace = new CodingWorkspace(
                 "solution",
                 solutionRoot,
                 [
-                    new("solution", solutionRoot, AgentWorkspaceAccess.ReadWrite),
-                    new("project", projectRoot, AgentWorkspaceAccess.ReadWrite)
+                    new("solution", solutionRoot, CodingWorkspaceAccess.ReadWrite),
+                    new("project", projectRoot, CodingWorkspaceAccess.ReadWrite)
                 ]);
             var context = Context() with
             {
@@ -370,10 +370,10 @@ public sealed class DebugExecutionPlanningV3Tests
             var second = Path.Combine(root, "Two.csproj");
             File.WriteAllText(first, "<Project />");
             File.WriteAllText(second, "<Project />");
-            var workspace = new AgentWorkspace(
+            var workspace = new CodingWorkspace(
                 "root",
                 root,
-                [new("root", root, AgentWorkspaceAccess.ReadWrite)]);
+                [new("root", root, CodingWorkspaceAccess.ReadWrite)]);
             var context = Context() with
             {
                 Target = new ApplicationProjectDebugTarget(root),
@@ -419,10 +419,10 @@ public sealed class DebugExecutionPlanningV3Tests
             var unrelated = Path.Combine(root, "Unrelated.csproj");
             File.WriteAllText(exact, "<Project />");
             File.WriteAllText(unrelated, "<Project />");
-            var workspace = new AgentWorkspace(
+            var workspace = new CodingWorkspace(
                 "root",
                 root,
-                [new("root", root, AgentWorkspaceAccess.ReadWrite)]);
+                [new("root", root, CodingWorkspaceAccess.ReadWrite)]);
             var context = Context() with
             {
                 Target = new TestDebugTarget(exact),
@@ -473,10 +473,10 @@ public sealed class DebugExecutionPlanningV3Tests
                         System.Environment.NewLine,
                         Enumerable.Range(0, 10_002).Select(index =>
                             $"Project(\"{{0}}\") = \"P{index}\", \"P{index}.csproj\", \"{{1}}\"")));
-            var workspace = new AgentWorkspace(
+            var workspace = new CodingWorkspace(
                 "root",
                 root,
-                [new("root", root, AgentWorkspaceAccess.ReadWrite)]);
+                [new("root", root, CodingWorkspaceAccess.ReadWrite)]);
             var context = Context() with
             {
                 Target = new ApplicationProjectDebugTarget(root),
@@ -1020,10 +1020,10 @@ public sealed class DebugExecutionPlanningV3Tests
                     TargetHandleLifetime.LiveCapability,
                     TargetHandleAuthority.Control | TargetHandleAuthority.Observe)
             };
-            var workspace = new AgentWorkspace(
+            var workspace = new CodingWorkspace(
                 "root",
                 Root,
-                [new("root", Root, AgentWorkspaceAccess.ReadWrite)]);
+                [new("root", Root, CodingWorkspaceAccess.ReadWrite)]);
             Context = new()
             {
                 Operation = new LaunchDebugOperation(target),

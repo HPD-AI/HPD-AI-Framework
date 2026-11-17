@@ -20,22 +20,22 @@ public sealed class ComposedStudioBootstrapTests
         services.AddHPDBase(ConfigureBase);
         HPDAIPlatformBuilder platform = services.AddHPDAIPlatform()
             .AddStudioAuthentication(static _ => new Authentication())
-            .AddBaseStudio(static _ => new PrincipalResolver());
+            .AddHPDBaseStudio(static _ => new PrincipalResolver());
         GatewayStudioComposition.AddGatewayStudioCore(platform);
         platform.AddGraphStudio();
         await using ServiceProvider provider = services.BuildServiceProvider();
-        BaseStudioApplicationGraph graph = provider.GetRequiredService<BaseStudioApplicationGraphProvider>().GetRequiredGraph();
-        BaseStudioModuleRegistration baseModule = graph.Modules.Single(static value => value.Identity.ModuleId == "base");
-        BaseStudioFrameworkClientRegistration baseClient = baseModule.Clients.Single();
+        StudioApplicationGraph graph = provider.GetRequiredService<StudioApplicationGraphProvider>().GetRequiredGraph();
+        StudioModuleRegistration baseModule = graph.Modules.Single(static value => value.Identity.ModuleId == "base");
+        StudioFrameworkClientRegistration baseClient = baseModule.Clients.Single();
         DateTimeOffset now = DateTimeOffset.UtcNow;
-        BaseStudioSessionObservation session = BaseStudioSessionObservation.Create(1, Digest(1), "control-plane", Digest(2),
+        StudioSessionObservation session = StudioSessionObservation.Create(1, Digest(1), "control-plane", Digest(2),
             now, now.AddMinutes(5), Digest(3));
-        BaseStudioBootstrapSnapshot? snapshot = await provider.GetRequiredService<IBaseStudioBootstrapRuntime>().CreateAsync(
-            new BaseStudioBootstrapInvocation(new DefaultHttpContext(), graph,
-                BaseStudioTransportAuthorization.Create(session, BaseStudioTransportPurpose.Bootstrap, now.AddMinutes(1)),
-                BaseStudioBootstrapRequest.Create(BaseStudioShellContract.Current.Checksum,
-                    provider.GetRequiredService<BaseStudioEditionAssetCatalogProvider>().GetRequiredChecksum(BaseStudioShellContract.Current),
-                    baseClient.StaticRuntimeAbiChecksum, "en-US", [BaseStudioBrowserCapability.History])), CancellationToken.None);
+        StudioBootstrapSnapshot? snapshot = await provider.GetRequiredService<IStudioBootstrapRuntime>().CreateAsync(
+            new StudioBootstrapInvocation(new DefaultHttpContext(), graph,
+                StudioTransportAuthorization.Create(session, StudioTransportPurpose.Bootstrap, now.AddMinutes(1)),
+                StudioBootstrapRequest.Create(StudioShellContract.Current.Checksum,
+                    provider.GetRequiredService<StudioEditionAssetCatalogProvider>().GetRequiredChecksum(StudioShellContract.Current),
+                    baseClient.StaticRuntimeAbiChecksum, "en-US", [StudioBrowserCapability.History])), CancellationToken.None);
 
         Assert.NotNull(snapshot);
         Assert.Equal(["base", "gateway", "graph"], snapshot.Modules.Select(static value => value.ModuleId));
@@ -43,7 +43,7 @@ public sealed class ComposedStudioBootstrapTests
         Assert.Contains(snapshot.Pages, static value => value.PageId == "base.data");
         Assert.Contains(snapshot.Pages, static value => value.PageId == "base.module.detail");
         Assert.Contains(snapshot.Pages, static value => value.PageId == "base.collection.records");
-        BaseStudioVisiblePage operations = Assert.Single(snapshot.Pages.Where(static value => value.PageId == "base.operations"));
+        StudioVisiblePage operations = Assert.Single(snapshot.Pages.Where(static value => value.PageId == "base.operations"));
         Assert.Equal(6, operations.Views.Length);
         Assert.Contains(operations.ObservationMethodIds,
             static value => value == "base.studio.view.base.operations.definitions.registeredReads.list");
@@ -89,67 +89,67 @@ public sealed class ComposedStudioBootstrapTests
                 Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime }, Effect = GrantEffect.Allow });
     }
 
-    private sealed class PrincipalResolver : IBaseStudioPrincipalContextResolver
+    private sealed class PrincipalResolver : IStudioPrincipalContextResolver
     {
-        public ValueTask<PrincipalContext?> ResolveAsync(HttpContext httpContext, BaseStudioSessionObservation session,
+        public ValueTask<PrincipalContext?> ResolveAsync(HttpContext httpContext, StudioSessionObservation session,
             CancellationToken cancellationToken) => ValueTask.FromResult<PrincipalContext?>(new PrincipalContext
             { AuthenticationState = PrincipalAuthenticationState.Authenticated, SubjectKind = AccessSubjectKind.User, SubjectId = "operator" });
-        public ValueTask<BaseOwnedSubjectScopeEvidence?> ResolveScopeAsync(HttpContext httpContext, BaseStudioSessionObservation session,
+        public ValueTask<BaseOwnedSubjectScopeEvidence?> ResolveScopeAsync(HttpContext httpContext, StudioSessionObservation session,
             CancellationToken cancellationToken) => ValueTask.FromResult<BaseOwnedSubjectScopeEvidence?>(new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global });
     }
 
-    private sealed class Authentication : IBaseStudioAuthenticationIntegration
+    private sealed class Authentication : IStudioAuthenticationIntegration
     {
-        public BaseStudioAuthenticationDescriptor Descriptor { get; } = BaseStudioAuthenticationDescriptor.Create(
-            "studio.test-auth", 1, BaseStudioAuthenticationKind.Bearer,
+        public StudioAuthenticationDescriptor Descriptor { get; } = StudioAuthenticationDescriptor.Create(
+            "studio.test-auth", 1, StudioAuthenticationKind.Bearer,
             "/auth/login", "/auth/callback", "/auth/logout", "/auth/session",
             ["https://studio.example/"], null, null, TimeSpan.FromHours(1), false, []);
 
-        public ValueTask<BaseStudioAuthenticationResult<BaseStudioSessionObservation>> ObserveSessionAsync(
+        public ValueTask<StudioAuthenticationResult<StudioSessionObservation>> ObserveSessionAsync(
             HttpContext context, CancellationToken token)
-            => ValueTask.FromResult(BaseStudioAuthenticationResult<BaseStudioSessionObservation>.Success(Session()));
+            => ValueTask.FromResult(StudioAuthenticationResult<StudioSessionObservation>.Success(Session()));
 
-        public ValueTask<BaseStudioAuthenticationResult<BaseStudioProtectedReturnTarget>> ProtectReturnTargetAsync(
+        public ValueTask<StudioAuthenticationResult<StudioProtectedReturnTarget>> ProtectReturnTargetAsync(
             HttpContext context, string? target, CancellationToken token)
-            => ValueTask.FromResult(BaseStudioAuthenticationResult<BaseStudioProtectedReturnTarget>.Success(
-                new BaseStudioProtectedReturnTarget(new byte[32])));
+            => ValueTask.FromResult(StudioAuthenticationResult<StudioProtectedReturnTarget>.Success(
+                new StudioProtectedReturnTarget(new byte[32])));
 
-        public ValueTask BeginSignInAsync(HttpContext context, BaseStudioProtectedReturnTarget target, CancellationToken token)
+        public ValueTask BeginSignInAsync(HttpContext context, StudioProtectedReturnTarget target, CancellationToken token)
             => ValueTask.CompletedTask;
         public ValueTask CompleteCallbackAsync(HttpContext context, CancellationToken token) => ValueTask.CompletedTask;
         public ValueTask BeginSignOutAsync(HttpContext context, CancellationToken token) => ValueTask.CompletedTask;
 
-        public ValueTask<BaseStudioAuthenticationResult<BaseStudioTransportAuthorization>> AuthorizeRequestAsync(
-            HttpContext context, BaseStudioTransportPurpose purpose, CancellationToken token)
+        public ValueTask<StudioAuthenticationResult<StudioTransportAuthorization>> AuthorizeRequestAsync(
+            HttpContext context, StudioTransportPurpose purpose, CancellationToken token)
         {
-            BaseStudioSessionObservation session = Session();
-            return ValueTask.FromResult(BaseStudioAuthenticationResult<BaseStudioTransportAuthorization>.Success(
-                BaseStudioTransportAuthorization.Create(session, purpose, session.IssuedAtUtc.AddMinutes(1))));
+            StudioSessionObservation session = Session();
+            return ValueTask.FromResult(StudioAuthenticationResult<StudioTransportAuthorization>.Success(
+                StudioTransportAuthorization.Create(session, purpose, session.IssuedAtUtc.AddMinutes(1))));
         }
 
-        public async ValueTask<BaseStudioAuthenticationResult<BaseStudioBrowserAuthorization>> AcquireBrowserAuthorizationAsync(
-            HttpContext context, BaseStudioTransportPurpose purpose, CancellationToken token)
+        public async ValueTask<StudioAuthenticationResult<StudioBrowserAuthorization>> AcquireBrowserAuthorizationAsync(
+            HttpContext context, StudioTransportPurpose purpose, CancellationToken token)
         {
-            BaseStudioAuthenticationResult<BaseStudioTransportAuthorization> result =
+            StudioAuthenticationResult<StudioTransportAuthorization> result =
                 await AuthorizeRequestAsync(context, purpose, token);
-            return BaseStudioAuthenticationResult<BaseStudioBrowserAuthorization>.Success(
-                BaseStudioBrowserAuthorization.Create("X-HPD-Studio-Test", "opaque-test-authority", result.Value!));
+            return StudioAuthenticationResult<StudioBrowserAuthorization>.Success(
+                StudioBrowserAuthorization.Create("X-HPD-Studio-Test", "opaque-test-authority", result.Value!));
         }
 
-        public ValueTask<BaseStudioAuthenticationResult<BaseStudioFreshAuthenticationResult>> AcquireFreshAuthenticationAsync(
-            HttpContext context, BaseStudioFreshAuthenticationRequest request, CancellationToken token)
-            => ValueTask.FromResult(BaseStudioAuthenticationResult<BaseStudioFreshAuthenticationResult>.Success(
-                new BaseStudioFreshAuthenticationResult.Unsupported()));
+        public ValueTask<StudioAuthenticationResult<StudioFreshAuthenticationResult>> AcquireFreshAuthenticationAsync(
+            HttpContext context, StudioFreshAuthenticationRequest request, CancellationToken token)
+            => ValueTask.FromResult(StudioAuthenticationResult<StudioFreshAuthenticationResult>.Success(
+                new StudioFreshAuthenticationResult.Unsupported()));
 
-        public ValueTask<BaseStudioAuthenticationResult<BaseStudioFreshAuthenticationResult>> CompleteFreshAuthenticationAsync(
-            HttpContext context, BaseStudioFreshAuthenticationContinuation continuation, CancellationToken token)
-            => ValueTask.FromResult(BaseStudioAuthenticationResult<BaseStudioFreshAuthenticationResult>.Success(
-                new BaseStudioFreshAuthenticationResult.Unsupported()));
+        public ValueTask<StudioAuthenticationResult<StudioFreshAuthenticationResult>> CompleteFreshAuthenticationAsync(
+            HttpContext context, StudioFreshAuthenticationContinuation continuation, CancellationToken token)
+            => ValueTask.FromResult(StudioAuthenticationResult<StudioFreshAuthenticationResult>.Success(
+                new StudioFreshAuthenticationResult.Unsupported()));
 
-        private static BaseStudioSessionObservation Session()
+        private static StudioSessionObservation Session()
         {
             DateTimeOffset now = DateTimeOffset.UtcNow;
-            return BaseStudioSessionObservation.Create(1, Digest(1), "control-plane", Digest(2),
+            return StudioSessionObservation.Create(1, Digest(1), "control-plane", Digest(2),
                 now, now.AddMinutes(5), Digest(3));
         }
     }
@@ -160,5 +160,5 @@ public sealed class ComposedStudioBootstrapTests
             CancellationToken cancellationToken = default) => ValueTask.FromResult(PolicyDecision.Allow());
     }
 
-    private static BaseStudioSha256 Digest(byte value) => BaseStudioSha256.FromDigest(Enumerable.Repeat(value, 32).Select(static x => (byte)x).ToArray());
+    private static StudioSha256 Digest(byte value) => StudioSha256.FromDigest(Enumerable.Repeat(value, 32).Select(static x => (byte)x).ToArray());
 }

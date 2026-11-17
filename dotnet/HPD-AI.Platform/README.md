@@ -6,7 +6,7 @@ Composable Svelte-based Studio shell for HPD AI framework modules.
 
 ```csharp
 builder.Services.AddHPDAIPlatform()
-    .AddBaseStudio()
+    .AddHPDBaseStudio(principalResolver)
     .AddGraphStudio();
 
 app.MapHPDAIPlatform(options =>

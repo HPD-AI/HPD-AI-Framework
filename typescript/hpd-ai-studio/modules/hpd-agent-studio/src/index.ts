@@ -1,3 +1,2 @@
-export { agentStudioModule } from './module';
-export { createAgentApi } from './api/agentApi';
-export type { AgentStudioApiConfig } from './api/agentApi';
+export { activateStudioModule, studioFrameworkClientActivators, studioModuleDescriptor } from './module.ts';
+export type { AgentStudioClient, AgentStudioRuntimeContext } from './runtime-context.ts';

@@ -267,6 +267,16 @@ public static class HPDAIFunctionFactory
         /// <summary>Gets the immutable normalized closed-action contract snapshot.</summary>
         public AIFunctionOperationContract? OperationContract => HPDOptions.OperationContract;
 
+        /// <summary>Gets the immutable function-level invocation-mode policy snapshot.</summary>
+        public AgentInvocationModePolicy InvocationModePolicy => HPDOptions.InvocationModePolicy;
+
+        /// <summary>Gets the immutable function-level invocation handling snapshot.</summary>
+        public AgentInvocationModeHandling InvocationModeHandling => HPDOptions.InvocationModeHandling;
+
+        /// <summary>Gets bounded parameter descriptions declared by the function.</summary>
+        public IReadOnlyDictionary<string, string> ParameterDescriptions =>
+            HPDOptions.ParameterDescriptions ?? new Dictionary<string, string>();
+
         /// <summary>Gets the deferred generated final argument binder, when one is installed.</summary>
         public Func<JsonElement, AIFunctionBindingResult>? ArgumentBinder => HPDOptions.ArgumentBinder;
         public override string Name { get; }
@@ -537,7 +547,7 @@ public static class AIFunctionArgumentsExtensions
     internal const string JsonKey = "__raw_json__";
     internal const string JsonSerializerOptionsKey = "__json_serializer_options__";
     internal const string BoundArgumentsKey = "__hpd_bound_arguments__";
-    
+
     /// <summary>
     /// Gets the raw JSON element from the arguments.
     /// </summary>
@@ -549,7 +559,7 @@ public static class AIFunctionArgumentsExtensions
         }
         return default;
     }
-    
+
     /// <summary>
     /// Sets the raw JSON element in the arguments.
     /// </summary>

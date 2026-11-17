@@ -23,10 +23,10 @@ internal static class CodingMode
             return;
         }
 
-        var workspace = new AgentWorkspace(
+        var workspace = new CodingWorkspace(
             "default",
             workspacePath,
-            [new AgentWorkspaceRoot("default", workspacePath, AgentWorkspaceAccess.ReadWrite, Path.GetFileName(workspacePath))]);
+            [new CodingWorkspaceRoot("default", workspacePath, CodingWorkspaceAccess.ReadWrite, Path.GetFileName(workspacePath))]);
         var providers = ConsoleProviderContext.Create();
 
         var agent = await providers.CreateAgentBuilder()
@@ -81,7 +81,7 @@ internal static class CodingMode
                     var runConfig = providers.ModelSelection.ToRunConfig() ?? new AgentRunConfig();
                     runConfig.Context ??= new AgentContextRunConfig();
                     runConfig.Context.Properties ??= new Dictionary<string, object>();
-                    runConfig.Context.Properties[AgentWorkspace.ContextKey] = workspace;
+                    runConfig.Context.Properties[CodingWorkspace.ContextKey] = workspace;
                     return new AgentTuiInputRunConfig(runConfig);
                 })
                 .AddConsoleProviderCommands(providers)

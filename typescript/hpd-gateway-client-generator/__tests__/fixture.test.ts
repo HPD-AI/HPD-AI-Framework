@@ -129,7 +129,7 @@ describe("real Gateway snapshot", () => {
     rehash(presentation);
     const parsed = parse(presentation);
     expect((parsed.openApi.info as Record<string, unknown>).title).toBe(decomposed);
-    expect(parsed.sourceSha256).toBe("8c9b541f9012fb7f849da02811523500ac0f157d96e46eaea5e983fb58a48148");
+    expect(parsed.sourceSha256).toBe("45a43ac1a2fe162a3f1631692d6bdb1f0da37877255cb31ad407331eac8311ba");
 
     const semantic = clone();
     semantic.manifest.operations[0].capability = "gate\u0301way.capability";

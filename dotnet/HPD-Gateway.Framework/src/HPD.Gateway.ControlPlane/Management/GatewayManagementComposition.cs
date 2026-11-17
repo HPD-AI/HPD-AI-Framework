@@ -236,6 +236,7 @@ public static class GatewayControlPlaneServiceCollectionExtensions
                 configureBase(builder);
         });
         services.AddSingleton(new GatewayManagementRuntimeOptions(options));
+        services.TryAddSingleton<GatewayManagementMutationGate>();
         services.TryAddSingleton<GatewayAuthorityRuntime>();
         services.TryAddSingleton<IGatewayAuthorityRuntime>(static provider =>
             provider.GetRequiredService<GatewayAuthorityRuntime>());

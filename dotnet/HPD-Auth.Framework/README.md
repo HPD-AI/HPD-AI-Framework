@@ -84,6 +84,33 @@ When JWT authentication is enabled, `Auth:Jwt:Secret` must be a strong random
 secret of at least 32 UTF-8 bytes. Leave `Jwt.Secret` empty only for intentional
 cookie-only hosts.
 
+### HPD AI Platform Studio
+
+Hosts using the shared Studio can install the HPD.Auth session adapter instead
+of implementing a second login or authorization path:
+
+```csharp
+builder.Services.AddHPDAIPlatform()
+    .AddHPDAuthStudioAuthentication(options =>
+    {
+        options.AllowedOrigins = ["https://app.example"];
+        options.AuthenticationScheme = "Cookies";
+        options.ProviderLoginRoute = "/auth/login";
+    })
+    .AddAgentStudio()
+    .AddHPDBaseStudioHosting(services =>
+        services.GetRequiredService<IStudioPrincipalContextResolver>());
+
+app.MapHPDAuthEndpoints();
+app.MapHPDAuthStudioFreshAuthentication();
+```
+
+The adapter projects the current HPD.Auth-backed ASP.NET principal into Studio,
+issues purpose-bound same-origin transport authority, protects sign-in return
+targets, and binds fresh password or MFA evidence to the exact reviewed command.
+The host supplies the HPD.Auth login/step-up UI at the configured routes; Agent
+Studio never implements an Auth administration dashboard.
+
 ### Storage and Data Protection
 
 HPD.Auth requires a finalized HPD Base application graph and an explicit certified
@@ -136,6 +163,7 @@ Install only what you need:
 | `HPD.Auth.Admin` | Admin endpoints: user management, ban, roles, claims, audit log |
 | `HPD.Auth.Authorization` | Built-in policies, rate limiting, feature flags |
 | `HPD.Auth.Audit` | Event publishing + audit log persistence |
+| `HPD.Auth.Studio` | Hosted HPD AI Platform Studio session, transport, and fresh-auth adapter |
 
 ## Why not just use ASP.NET Identity?
 
@@ -205,6 +233,7 @@ src/
 ├── HPD.Auth.Authentication/ JWT + Cookie + PolicyScheme
 ├── HPD.Auth.Admin/          Admin endpoints (10 groups, 25+ endpoints)
 ├── HPD.Auth.Audit/          Event publishing + audit log
+├── HPD.Auth.Studio/         HPD AI Platform Studio host integration
 ├── HPD.Auth.TwoFactor/      TOTP + passkeys (Identity 10 APIs)
 ├── HPD.Auth.OAuth/          Google/GitHub/Microsoft
 └── HPD.Auth.Authorization/  5 requirements, 5 handlers, 10 built-in policies

@@ -124,14 +124,14 @@ internal sealed class TestCodingHarness(
             {
                 Properties = new Dictionary<string, object>
                 {
-                    [AgentWorkspace.ContextKey] = new AgentWorkspace(
+                    [CodingWorkspace.ContextKey] = new CodingWorkspace(
                         "default",
                         cwd,
                         [
-                            new AgentWorkspaceRoot(
+                            new CodingWorkspaceRoot(
                                 "default",
                                 cwd,
-                                AgentWorkspaceAccess.ReadWrite),
+                                CodingWorkspaceAccess.ReadWrite),
                         ]),
                 },
             },

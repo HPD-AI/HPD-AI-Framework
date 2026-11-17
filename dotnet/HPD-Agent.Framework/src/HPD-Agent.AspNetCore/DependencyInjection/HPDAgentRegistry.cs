@@ -92,7 +92,7 @@ internal sealed class HPDAgentRegistry
             new AgentThreadService(sessionManager, agentManager),
             new AgentThreadExecutionService(sessionManager, agentManager),
             new AgentContentService(sessionManager, contentStore),
-            new AgentDefinitionService(agentManager),
+            new AgentDefinitionService(agentManager, options.ValidationLimits),
             new AgentMiddlewareResponseService(sessionManager, agentManager),
             new AgentStreamingService(sessionManager, agentManager, inputComposition: inputComposition));
 

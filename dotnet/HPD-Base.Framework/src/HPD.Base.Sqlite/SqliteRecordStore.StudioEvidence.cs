@@ -6,19 +6,19 @@ using Microsoft.Data.Sqlite;
 
 namespace HPD.Base.Sqlite;
 
-public sealed partial class SqliteRecordStore : IBaseStudioEvidenceStore
+public sealed partial class SqliteRecordStore : IStudioEvidenceStore
 {
     /// <inheritdoc />
-    public BaseStudioEvidenceCapability EvidenceCapability { get; } = BaseStudioEvidenceContract.RecordMutationCapability();
+    public StudioEvidenceCapability EvidenceCapability { get; } = StudioEvidenceContract.RecordMutationCapability();
     /// <inheritdoc />
     public async ValueTask<OperationResult<BaseCapturedStudioEvidenceAuthority>> CaptureAuthorityAsync(
-        BaseStudioEvidenceRequirement request, BaseOwnedScopeSeekAuthority scope, CancellationToken cancellationToken = default)
+        StudioEvidenceRequirement request, BaseOwnedScopeSeekAuthority scope, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request); ArgumentNullException.ThrowIfNull(scope);
-        if (!BaseStudioEvidenceContract.Valid(request) || scope.Kind != request.Scope.Kind || scope.ProtectedIndexDigest.Length != 32 ||
+        if (!StudioEvidenceContract.Valid(request) || scope.Kind != request.Scope.Kind || scope.ProtectedIndexDigest.Length != 32 ||
             !CryptographicOperations.FixedTimeEquals(scope.ProtectedIndexDigest.AsSpan(), request.ProtectedScopeSeekChecksum.AsSpan()))
             return Failure<BaseCapturedStudioEvidenceAuthority>("base.studio.authorityMismatch", ErrorCategory.Authorization);
-        if (request.Kind != BaseStudioEvidenceKind.RecordMutation || request.Limits.MaximumItems > EvidenceCapability.MaximumItems ||
+        if (request.Kind != StudioEvidenceKind.RecordMutation || request.Limits.MaximumItems > EvidenceCapability.MaximumItems ||
             request.Limits.MaximumRowsRead > EvidenceCapability.MaximumRowsRead || request.Limits.MaximumIntervals > EvidenceCapability.MaximumIntervals ||
             request.Limits.MaximumEvidenceBytes > EvidenceCapability.MaximumEvidenceBytes || request.Limits.MaximumTransientBytes > EvidenceCapability.MaximumTransientBytes)
             return OperationResults.Unsupported<BaseCapturedStudioEvidenceAuthority>(Error("base.studio.evidence.unsupported", ErrorCategory.Unsupported));
@@ -36,20 +36,20 @@ public sealed partial class SqliteRecordStore : IBaseStudioEvidenceStore
             high.CommandText = $"SELECT COALESCE(MAX(position),0) FROM {_names.MutationJournal};";
             generation = Convert.ToInt64(await high.ExecuteScalarAsync(deadline.Token).ConfigureAwait(false), CultureInfo.InvariantCulture);
         }
-        var receipt = new BaseStudioEvidenceCaptureReceipt { ApplicationId = new string(request.ApplicationId.AsSpan()), Kind = request.Kind,
+        var receipt = new StudioEvidenceCaptureReceipt { ApplicationId = new string(request.ApplicationId.AsSpan()), Kind = request.Kind,
             StoreIdentity = new string(_options.StoreId.AsSpan()), RestoreEpoch = restore, IndexGeneration = generation,
-            LogicalAccessPathId = BaseStudioEvidenceContract.RecordMutationPath, ProtectedScopeSeekChecksum = [.. request.ProtectedScopeSeekChecksum],
-            AuthorityChecksum = BaseStudioEvidenceContract.AuthorityChecksum(request, _options.StoreId, restore, generation, BaseStudioEvidenceContract.RecordMutationPath) };
-        return OperationResults.Ok<BaseCapturedStudioEvidenceAuthority>(new Authority(this, BaseStudioEvidenceContract.Freeze(request), receipt));
+            LogicalAccessPathId = StudioEvidenceContract.RecordMutationPath, ProtectedScopeSeekChecksum = [.. request.ProtectedScopeSeekChecksum],
+            AuthorityChecksum = StudioEvidenceContract.AuthorityChecksum(request, _options.StoreId, restore, generation, StudioEvidenceContract.RecordMutationPath) };
+        return OperationResults.Ok<BaseCapturedStudioEvidenceAuthority>(new Authority(this, StudioEvidenceContract.Freeze(request), receipt));
     }
 
     /// <inheritdoc />
-    public async ValueTask<OperationResult<IBaseStudioEvidenceSession>> OpenSessionAsync(BaseCapturedStudioEvidenceAuthority authority,
+    public async ValueTask<OperationResult<IStudioEvidenceSession>> OpenSessionAsync(BaseCapturedStudioEvidenceAuthority authority,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (authority is not Authority captured || !ReferenceEquals(captured.Owner, this) || !captured.TryOpen())
-            return Failure<IBaseStudioEvidenceSession>("base.studio.authorityMismatch", ErrorCategory.Authorization);
+            return Failure<IStudioEvidenceSession>("base.studio.authorityMismatch", ErrorCategory.Authorization);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken); deadline.CancelAfter(captured.Request.Limits.SessionDeadline);
         SqliteConnection? connection = null; SqliteTransaction? transaction = null;
         try
@@ -59,7 +59,7 @@ public sealed partial class SqliteRecordStore : IBaseStudioEvidenceStore
             await using SqliteCommand pin = connection.CreateCommand(); pin.Transaction = transaction;
             pin.CommandText = $"SELECT COALESCE(MAX(position),0) FROM {_names.MutationJournal};";
             _ = await pin.ExecuteScalarAsync(deadline.Token).ConfigureAwait(false);
-            return OperationResults.Ok<IBaseStudioEvidenceSession>(new Session(this, captured, connection, transaction));
+            return OperationResults.Ok<IStudioEvidenceSession>(new Session(this, captured, connection, transaction));
         }
         catch
         {
@@ -69,26 +69,26 @@ public sealed partial class SqliteRecordStore : IBaseStudioEvidenceStore
         }
     }
 
-    private sealed class Authority(SqliteRecordStore owner, BaseStudioEvidenceRequirement request, BaseStudioEvidenceCaptureReceipt receipt)
+    private sealed class Authority(SqliteRecordStore owner, StudioEvidenceRequirement request, StudioEvidenceCaptureReceipt receipt)
         : BaseCapturedStudioEvidenceAuthority(receipt)
     {
         private int _opened;
         internal SqliteRecordStore Owner { get; } = owner;
-        internal BaseStudioEvidenceRequirement Request { get; } = request;
+        internal StudioEvidenceRequirement Request { get; } = request;
         internal bool TryOpen() => Interlocked.CompareExchange(ref _opened, 1, 0) == 0;
     }
 
-    private sealed class Session(SqliteRecordStore owner, Authority authority, SqliteConnection connection, SqliteTransaction transaction) : IBaseStudioEvidenceSession
+    private sealed class Session(SqliteRecordStore owner, Authority authority, SqliteConnection connection, SqliteTransaction transaction) : IStudioEvidenceSession
     {
         private int _disposed;
         private readonly CancellationTokenSource _lifetime = new(authority.Request.Limits.SessionDeadline);
-        public async ValueTask<OperationResult<BaseStudioEvidencePage>> ReadPageAsync(BaseStudioEvidencePageRequest request,
+        public async ValueTask<OperationResult<StudioEvidencePage>> ReadPageAsync(StudioEvidencePageRequest request,
             CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(request);
             if (Volatile.Read(ref _disposed) != 0 || request.Take < 1 || request.Take > authority.Request.Limits.MaximumItems ||
-                !BaseStudioEvidenceContract.Position(request.After, out long after))
-                return Failure<BaseStudioEvidencePage>("base.studio.evidence.authorityMismatch", ErrorCategory.Authorization);
+                !StudioEvidenceContract.Position(request.After, out long after))
+                return Failure<StudioEvidencePage>("base.studio.evidence.authorityMismatch", ErrorCategory.Authorization);
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token); deadline.CancelAfter(authority.Request.Limits.PageDeadline);
             long restore;
             await using (SqliteCommand epoch = connection.CreateCommand())
@@ -98,10 +98,10 @@ public sealed partial class SqliteRecordStore : IBaseStudioEvidenceStore
                 restore = Convert.ToInt64(await epoch.ExecuteScalarAsync(deadline.Token).ConfigureAwait(false), CultureInfo.InvariantCulture);
             }
             if (restore != authority.Receipt.RestoreEpoch)
-                return Failure<BaseStudioEvidencePage>("base.studio.authorityMismatch", ErrorCategory.Authorization);
+                return Failure<StudioEvidencePage>("base.studio.authorityMismatch", ErrorCategory.Authorization);
             await using SqliteCommand command = connection.CreateCommand();
             command.Transaction = transaction;
-            bool isRecord = authority.Request.Parent is BaseStudioRecordEvidenceSubject;
+            bool isRecord = authority.Request.Parent is StudioRecordEvidenceSubject;
             string parent = isRecord ? " AND record_id=$record" : "";
             string accessIndex = isRecord ? $" INDEXED BY {owner._names.MutationJournalScopeIndex}" : string.Empty;
             string scoped = authority.Request.Scope.Kind == BaseSubjectScopeKind.Global ? " AND tenant_id IS NULL" : " AND tenant_id=$scopeValue";
@@ -110,37 +110,37 @@ public sealed partial class SqliteRecordStore : IBaseStudioEvidenceStore
             command.Parameters.AddWithValue("$after", after); command.Parameters.AddWithValue("$through", authority.Receipt.IndexGeneration);
             command.Parameters.AddWithValue("$collection", Collection(authority.Request.Parent));
             if (authority.Request.Scope.Kind != BaseSubjectScopeKind.Global) command.Parameters.AddWithValue("$scopeValue", authority.Request.Scope.Value!);
-            if (authority.Request.Parent is BaseStudioRecordEvidenceSubject record) command.Parameters.AddWithValue("$record", record.RecordId.Value);
+            if (authority.Request.Parent is StudioRecordEvidenceSubject record) command.Parameters.AddWithValue("$record", record.RecordId.Value);
             command.Parameters.AddWithValue("$limit", checked(request.Take + 1));
-            var items = new List<BaseStudioEvidenceItem>(request.Take + 1);
+            var items = new List<StudioEvidenceItem>(request.Take + 1);
             await using SqliteDataReader reader = await command.ExecuteReaderAsync(deadline.Token).ConfigureAwait(false);
             while (await reader.ReadAsync(deadline.Token).ConfigureAwait(false))
             {
                 long position = reader.GetInt64(0); string eventId = reader.IsDBNull(1) ? "" : reader.GetString(1);
                 DateTimeOffset observed = reader.IsDBNull(2) ? DateTimeOffset.UnixEpoch : DateTimeOffset.Parse(reader.GetString(2), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
                 int operation = reader.IsDBNull(3) ? -1 : reader.GetInt32(3); string collection = reader.GetString(4); string recordId = reader.GetString(5);
-                var item = new BaseStudioRecordMutationEvidenceItem { Kind = BaseStudioEvidenceKind.RecordMutation,
-                    OrderingTuple = BaseStudioEvidenceContract.Tuple(position), ObservedAtUtc = observed.ToUniversalTime(),
-                    SemanticKind = Enum.IsDefined(typeof(BaseOperationKind), operation) ? Semantic((BaseOperationKind)operation) : BaseStudioEvidenceSemanticKind.Transition,
+                var item = new StudioRecordMutationEvidenceItem { Kind = StudioEvidenceKind.RecordMutation,
+                    OrderingTuple = StudioEvidenceContract.Tuple(position), ObservedAtUtc = observed.ToUniversalTime(),
+                    SemanticKind = Enum.IsDefined(typeof(BaseOperationKind), operation) ? Semantic((BaseOperationKind)operation) : StudioEvidenceSemanticKind.Transition,
                     CollectionId = collection, RecordId = RecordId.Create(recordId), Revision = null, EvidenceId = eventId, EvidenceChecksum = [] };
-                items.Add(item with { EvidenceChecksum = BaseStudioEvidenceContract.ItemChecksum(item) });
+                items.Add(item with { EvidenceChecksum = StudioEvidenceContract.ItemChecksum(item) });
             }
             long rowsRead = items.Count; if (rowsRead > authority.Request.Limits.MaximumRowsRead)
-                return Failure<BaseStudioEvidencePage>("base.studio.evidence.budgetExceeded", ErrorCategory.Validation);
+                return Failure<StudioEvidencePage>("base.studio.evidence.budgetExceeded", ErrorCategory.Validation);
             bool more = items.Count > request.Take; if (more) items.RemoveAt(items.Count - 1);
-            ImmutableArray<BaseStudioEvidenceItem> frozen = [.. items]; long bytes = frozen.Sum(BaseStudioEvidenceContract.Measure);
+            ImmutableArray<StudioEvidenceItem> frozen = [.. items]; long bytes = frozen.Sum(StudioEvidenceContract.Measure);
             if (bytes > authority.Request.Limits.MaximumEvidenceBytes || bytes > authority.Request.Limits.MaximumTransientBytes)
-                return Failure<BaseStudioEvidencePage>("base.studio.evidence.budgetExceeded", ErrorCategory.Validation);
-            BaseStudioEvidenceBoundary? next = more && frozen.Length > 0 ? BaseStudioEvidenceContract.Boundary(authority.Request.Kind, frozen[^1].OrderingTuple) : null;
-            ImmutableArray<byte> lower = request.After?.CanonicalTuple ?? BaseStudioEvidenceContract.Tuple(after);
-            ImmutableArray<byte> upper = BaseStudioEvidenceContract.Tuple(authority.Receipt.IndexGeneration == long.MaxValue ? long.MaxValue : authority.Receipt.IndexGeneration + 1);
-            ImmutableArray<BaseStudioEvidenceReadInterval> intervals = [new() { LogicalAccessPathId = BaseStudioEvidenceContract.RecordMutationPath,
+                return Failure<StudioEvidencePage>("base.studio.evidence.budgetExceeded", ErrorCategory.Validation);
+            StudioEvidenceBoundary? next = more && frozen.Length > 0 ? StudioEvidenceContract.Boundary(authority.Request.Kind, frozen[^1].OrderingTuple) : null;
+            ImmutableArray<byte> lower = request.After?.CanonicalTuple ?? StudioEvidenceContract.Tuple(after);
+            ImmutableArray<byte> upper = StudioEvidenceContract.Tuple(authority.Receipt.IndexGeneration == long.MaxValue ? long.MaxValue : authority.Receipt.IndexGeneration + 1);
+            ImmutableArray<StudioEvidenceReadInterval> intervals = [new() { LogicalAccessPathId = StudioEvidenceContract.RecordMutationPath,
                 ProtectedScopeSeekChecksum = [.. authority.Request.ProtectedScopeSeekChecksum],
                 LowerInclusive = lower, UpperExclusive = upper,
-                Checksum = BaseStudioEvidenceContract.IntervalChecksum(BaseStudioEvidenceContract.RecordMutationPath, authority.Request.ProtectedScopeSeekChecksum, lower, upper) }];
-            var accounting = new BaseStudioEvidenceProviderAccounting { RowsRead = rowsRead, Intervals = 1, EvidenceBytes = bytes, TransientBytes = bytes };
-            var page = new BaseStudioEvidencePage { Items = frozen, Next = next, IndexGeneration = authority.Receipt.IndexGeneration, Intervals = intervals,
-                Accounting = accounting, PageChecksum = BaseStudioEvidenceContract.PageChecksum(frozen, authority.Receipt.IndexGeneration, next, intervals, accounting) };
+                Checksum = StudioEvidenceContract.IntervalChecksum(StudioEvidenceContract.RecordMutationPath, authority.Request.ProtectedScopeSeekChecksum, lower, upper) }];
+            var accounting = new StudioEvidenceProviderAccounting { RowsRead = rowsRead, Intervals = 1, EvidenceBytes = bytes, TransientBytes = bytes };
+            var page = new StudioEvidencePage { Items = frozen, Next = next, IndexGeneration = authority.Receipt.IndexGeneration, Intervals = intervals,
+                Accounting = accounting, PageChecksum = StudioEvidenceContract.PageChecksum(frozen, authority.Receipt.IndexGeneration, next, intervals, accounting) };
             return OperationResults.Ok(page);
         }
         public async ValueTask DisposeAsync()
@@ -150,13 +150,13 @@ public sealed partial class SqliteRecordStore : IBaseStudioEvidenceStore
         }
     }
 
-    private static string Collection(BaseStudioEvidenceSubject subject) => subject switch
-    { BaseStudioCollectionEvidenceSubject value => value.CollectionId, BaseStudioRecordEvidenceSubject value => value.CollectionId, _ => throw new InvalidOperationException() };
+    private static string Collection(StudioEvidenceSubject subject) => subject switch
+    { StudioCollectionEvidenceSubject value => value.CollectionId, StudioRecordEvidenceSubject value => value.CollectionId, _ => throw new InvalidOperationException() };
     private static BaseError Error(string code, ErrorCategory category) => new() { Code = code, Message = "The durable evidence operation could not be completed.", Category = category };
     private static OperationResult<T> Failure<T>(string code, ErrorCategory category) => category switch
     { ErrorCategory.Authorization => OperationResults.PolicyDenied<T>(Error(code, category)), ErrorCategory.Store => OperationResults.StoreError<T>(Error(code, category)), _ => OperationResults.ValidationFailed<T>(Error(code, category)) };
-    private static BaseStudioEvidenceSemanticKind Semantic(BaseOperationKind value) => value switch
-    { BaseOperationKind.Create => BaseStudioEvidenceSemanticKind.Created, BaseOperationKind.Patch => BaseStudioEvidenceSemanticKind.Patched,
-      BaseOperationKind.Replace => BaseStudioEvidenceSemanticKind.Replaced, BaseOperationKind.Delete => BaseStudioEvidenceSemanticKind.Deleted,
-      _ => BaseStudioEvidenceSemanticKind.Transition };
+    private static StudioEvidenceSemanticKind Semantic(BaseOperationKind value) => value switch
+    { BaseOperationKind.Create => StudioEvidenceSemanticKind.Created, BaseOperationKind.Patch => StudioEvidenceSemanticKind.Patched,
+      BaseOperationKind.Replace => StudioEvidenceSemanticKind.Replaced, BaseOperationKind.Delete => StudioEvidenceSemanticKind.Deleted,
+      _ => StudioEvidenceSemanticKind.Transition };
 }

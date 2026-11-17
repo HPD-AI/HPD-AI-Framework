@@ -12,12 +12,12 @@ using HPDOS.ToolHarnesses.Middleware;
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     WriteIndented = false)]
-[JsonSerializable(typeof(AgentWorkspace))]
-[JsonSerializable(typeof(AgentWorkspaceRoot))]
+[JsonSerializable(typeof(CodingWorkspace))]
+[JsonSerializable(typeof(CodingWorkspaceRoot))]
 [JsonSerializable(typeof(LanguageServerOptions))]
 [JsonSerializable(typeof(EnvironmentContextConfig))]
-[JsonSerializable(typeof(IReadOnlyList<AgentWorkspaceRoot>), TypeInfoPropertyName = "AgentWorkspaceRootReadOnlyList")]
-[JsonSerializable(typeof(List<AgentWorkspaceRoot>), TypeInfoPropertyName = "AgentWorkspaceRootList")]
+[JsonSerializable(typeof(IReadOnlyList<CodingWorkspaceRoot>), TypeInfoPropertyName = "CodingWorkspaceRootReadOnlyList")]
+[JsonSerializable(typeof(List<CodingWorkspaceRoot>), TypeInfoPropertyName = "CodingWorkspaceRootList")]
 
 [JsonSerializable(typeof(ContentAddress))]
 [JsonSerializable(typeof(ExecuteCommandPermissionPlan))]

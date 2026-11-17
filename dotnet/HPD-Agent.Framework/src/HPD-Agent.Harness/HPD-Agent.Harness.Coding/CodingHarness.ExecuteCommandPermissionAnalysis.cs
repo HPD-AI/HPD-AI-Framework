@@ -516,7 +516,7 @@ internal static class ExecuteCommandPermissionRuleValidator
         ExecuteCommandPermissionRule rule,
         AgentRunConfig runConfig)
     {
-        var workspace = AgentWorkspace.From(runConfig);
+        var workspace = CodingWorkspace.From(runConfig);
         var root = workspace.Roots.FirstOrDefault(candidate =>
             string.Equals(candidate.Id, rule.Workspace.RootId, StringComparison.Ordinal));
         if (root is null)
@@ -538,10 +538,10 @@ internal static class ExecuteCommandPermissionRuleValidator
             {
                 Properties = new Dictionary<string, object>
                 {
-                    [AgentWorkspace.ContextKey] = new AgentWorkspace(
+                    [CodingWorkspace.ContextKey] = new CodingWorkspace(
                         rule.Workspace.RootId,
                         rule.Workspace.RootPath,
-                        [new AgentWorkspaceRoot(rule.Workspace.RootId, rule.Workspace.RootPath, AgentWorkspaceAccess.ReadWrite)]),
+                        [new CodingWorkspaceRoot(rule.Workspace.RootId, rule.Workspace.RootPath, CodingWorkspaceAccess.ReadWrite)]),
                 }
             }
         };
@@ -1071,7 +1071,7 @@ public sealed record ExecuteCommandPermissionWorkspaceScope
 
     public static ExecuteCommandPermissionWorkspaceScope From(AgentRunConfig runConfig, string? workingDirectory)
     {
-        var workspace = AgentWorkspace.From(runConfig);
+        var workspace = CodingWorkspace.From(runConfig);
         var root = workspace.Roots.FirstOrDefault();
         var rootPath = root?.Path ?? Directory.GetCurrentDirectory();
         var relative = workingDirectory is null ? null : Path.GetRelativePath(rootPath, workingDirectory);
@@ -3405,7 +3405,7 @@ internal static class ExecuteCommandPathAnalyzer
             : Path.GetFullPath(Path.Combine(workingDirectory, path));
 
     private static bool IsWithinWorkspace(string path, string workspaceRoot)
-        => AgentWorkspace.IsPathUnderDirectory(workspaceRoot, path);
+        => CodingWorkspace.IsPathUnderDirectory(workspaceRoot, path);
 
     private static bool IsCoveredBySandbox(
         string path,
@@ -3431,7 +3431,7 @@ internal static class ExecuteCommandPathAnalyzer
                     or ExecuteCommandFilesystemOperation.Delete,
                 _ => false
             };
-            return operationCovered && AgentWorkspace.IsPathUnderDirectory(grantPath, path);
+            return operationCovered && CodingWorkspace.IsPathUnderDirectory(grantPath, path);
         });
     }
 

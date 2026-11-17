@@ -41,7 +41,7 @@ concurrent use is supported, and must not store mutable per-node permissions or
 scratch state in it. Captures preserve its identity and copy the sharing declaration.
 They do not dispose borrowed services.
 
-An `AgentWorkspace` implements the snapshot contract and copies its root collection.
+An `CodingWorkspace` implements the snapshot contract and copies its root collection.
 This isolates configuration data; workspace authorization and physical filesystem
 enforcement remain separate contracts.
 

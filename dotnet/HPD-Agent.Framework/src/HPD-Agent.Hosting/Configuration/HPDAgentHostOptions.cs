@@ -1,5 +1,6 @@
 using HPD.Agent;
 using HPD.Agent.Serialization;
+using HPD.Agent.Validation;
 
 namespace HPD.Agent.Hosting.Configuration;
 
@@ -95,6 +96,16 @@ public class HPDAgentHostOptions
     /// Defaults to <see cref="InMemoryAgentStore"/> if not set.
     /// </summary>
     public IAgentStore? AgentStore { get; set; }
+
+    /// <summary>
+    /// Gets or sets optional host-owned upper limits applied to stored agent definitions.
+    /// </summary>
+    /// <remarks>
+    /// Omit this policy to let portable agent definitions own their operating limits. Hosts
+    /// that protect shared compute, billing, or availability can supply explicit ceilings here.
+    /// The limits are enforced when definitions are created, updated, materialized, or built.
+    /// </remarks>
+    public AgentConfigValidationLimits? ValidationLimits { get; set; }
 
     /// <summary>
     /// Callback invoked for each agent instance built by this host profile.

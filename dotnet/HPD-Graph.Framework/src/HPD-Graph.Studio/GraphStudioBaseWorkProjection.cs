@@ -10,12 +10,12 @@ namespace HPD.Graph.Studio;
 public interface IGraphStudioBaseWorkProjection
 {
     /// <summary>Returns the authoritative BASE schedule associated with a graph definition, when disclosed.</summary>
-    ValueTask<BaseStudioScheduleResource?> ResolveScheduleAsync(
-        BaseStudioGraphDefinitionResource definition,
+    ValueTask<StudioScheduleResource?> ResolveScheduleAsync(
+        StudioGraphDefinitionResource definition,
         CancellationToken cancellationToken);
 
     /// <summary>Returns the authoritative BASE activation associated with a graph execution, when disclosed.</summary>
-    ValueTask<BaseStudioActivationResource?> ResolveActivationAsync(
-        BaseStudioGraphExecutionResource execution,
+    ValueTask<StudioActivationResource?> ResolveActivationAsync(
+        StudioGraphExecutionResource execution,
         CancellationToken cancellationToken);
 }

@@ -81,6 +81,10 @@ public delegate ToolHarnessMiddlewareActivation ToolHarnessMiddlewareFactory(Too
 public sealed record ToolHarnessMiddlewareDescriptor
 {
     public bool UsesHarnessConfiguration { get; init; }
+    /// <summary>Gets which component owns deterministic middleware disposal.</summary>
+    public ToolHarnessMiddlewareOwnership Ownership { get; init; } = ToolHarnessMiddlewareOwnership.Execution;
+    /// <summary>Gets whether activation requires the canonical workspace identity.</summary>
+    public bool RequiresCanonicalWorkspaceIdentity { get; init; }
     /// <summary>Gets the exact declared middleware type.</summary>
     public required Type MiddlewareType { get; init; }
 

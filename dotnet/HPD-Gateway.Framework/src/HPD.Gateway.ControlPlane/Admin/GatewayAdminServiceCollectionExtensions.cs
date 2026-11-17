@@ -115,7 +115,12 @@ internal static class GatewayAdminSchemaReferenceIds
 
     private static string StableContractName(Type type)
     {
-        string source = type.FullName ?? throw new InvalidOperationException("Gateway OpenAPI type has no stable full name.");
+        string qualified = type.FullName ?? throw new InvalidOperationException("Gateway OpenAPI type has no stable full name.");
+        string source = System.Text.RegularExpressions.Regex.Replace(
+            qualified,
+            @", [^,\[\]]+, Version=[^,\]]+, Culture=[^,\]]+, PublicKeyToken=[^,\]]+",
+            string.Empty,
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
         if (type.Assembly == typeof(GatewayAdminApiOptions).Assembly && type.Namespace == "HPD.Gateway.ControlPlane")
             return source.Replace(
                 "HPD.Gateway.ControlPlane",

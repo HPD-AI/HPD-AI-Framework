@@ -622,6 +622,198 @@ public sealed partial class Agent : IAsyncDisposable
     /// <summary>Gets the currently published complete capability epoch.</summary>
     public long CapabilityEpoch => _capabilityCatalog?.CurrentEpoch ?? -1;
 
+    /// <summary>Projects the exact currently published capability graph without creating another catalog or store.</summary>
+    /// <param name="cancellationToken">Cancels deferred source loading and projection.</param>
+    /// <returns>The immutable capability projection for the current Agent runtime.</returns>
+    public async ValueTask<AgentCapabilityInspectionSnapshot> InspectCapabilitiesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfShutdownStarted();
+        if (_capabilityCatalog is null)
+            return new AgentCapabilityInspectionSnapshot { Epoch = 0, Functions = [] };
+
+        await _capabilityCatalog.EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
+        await using AgentCapabilityLease lease = _capabilityCatalog.Acquire();
+        var functions = lease.Snapshot.Functions
+            .Select(ProjectCapability)
+            .OrderBy(static value => value.OwnerHarnessIdentity ?? "", StringComparer.Ordinal)
+            .ThenBy(static value => value.Name, StringComparer.Ordinal)
+            .ThenBy(static value => value.Id.Value, StringComparer.Ordinal)
+            .ToArray();
+        return new AgentCapabilityInspectionSnapshot
+        {
+            Epoch = lease.Snapshot.Epoch,
+            Functions = functions
+        };
+    }
+
+    private static AgentCapabilityInspection ProjectCapability(AIFunction function)
+    {
+        var typed = function as HPDAIFunctionFactory.HPDAIFunction;
+        var contract = typed?.OperationContract;
+        HPDCapabilityMetadata? metadata =
+            function.AdditionalProperties?.TryGetValue(
+                HPDCapabilityMetadata.AdditionalPropertiesKey,
+                out var metadataValue) == true &&
+            metadataValue is HPDCapabilityMetadata typedMetadata
+                ? typedMetadata
+                : null;
+        string? ParentHarness() =>
+            function.AdditionalProperties?.TryGetValue("ParentToolHarness", out var value) == true
+                ? value?.ToString()
+                : null;
+        bool HasProperty(string name) =>
+            function.AdditionalProperties?.TryGetValue(name, out var value) == true &&
+            value is true;
+        string? StringProperty(string name) =>
+            function.AdditionalProperties?.TryGetValue(name, out var value) == true
+                ? value?.ToString()
+                : null;
+
+        var actions = contract is null
+            ? []
+            : contract.Actions
+                .OrderBy(static pair => pair.Key, StringComparer.Ordinal)
+                .Select(pair => new AgentFunctionActionInspection
+                {
+                    Name = pair.Key,
+                    Description = ActionDescription(function.JsonSchema, contract, pair.Key),
+                    InputSchema = ExtractActionSchema(function.JsonSchema, contract, pair.Key),
+                    InvocationModePolicy = pair.Value.InvocationModePolicy,
+                    InvocationModeHandling = pair.Value.InvocationModeHandling,
+                    ReplayPolicy = pair.Value.Replay,
+                    Permission = pair.Value.Permission
+                })
+                .ToArray();
+
+        return new AgentCapabilityInspection
+        {
+            Id = metadata?.Id ?? CapabilityId.Create($"runtime:{ParentHarness() ?? "agent"}:{function.Name}"),
+            Kind = metadata?.Kind ?? HPDCapabilityKind.Function,
+            Name = function.Name,
+            Description = function.Description,
+            InputSchema = function.JsonSchema.Clone(),
+            ReturnSchema = function.ReturnJsonSchema?.Clone(),
+            SchemaFingerprint = typed?.ContractDescriptor?.CanonicalSchemaFingerprint,
+            InvocationModePolicy = typed?.InvocationModePolicy ?? AgentInvocationModePolicy.SynchronousOnly,
+            InvocationModeHandling = typed?.InvocationModeHandling ?? AgentInvocationModeHandling.Runtime,
+            ReplayPolicy = typed?.Replay ?? ReplayPolicy.Never,
+            Permission = typed?.PermissionDeclaration,
+            ActionArgumentName = contract?.ActionArgumentName,
+            ActionDiscriminator = contract?.Discriminator,
+            Actions = actions,
+            OwnerHarnessIdentity = metadata?.OwnerHarnessIdentity ?? ParentHarness(),
+            DeclaringHarnessIdentity = metadata?.DeclaringHarnessIdentity,
+            DeclarationMemberName = metadata?.DeclarationMemberName,
+            ImplementationIdentity = metadata?.ImplementationIdentity,
+            ParentContainerIds = metadata?.ParentContainerIds ?? [],
+            RevealedCapabilityIds = metadata?.Reveals ?? [],
+            ParameterDescriptions = typed?.ParameterDescriptions ?? new Dictionary<string, string>(),
+            IsSubAgent = HasProperty("IsSubAgent"),
+            ExecutionModel = StringProperty("ExecutionModel")
+        };
+    }
+
+    private static string ActionDescription(
+        JsonElement schema,
+        AIFunctionOperationContract contract,
+        string action)
+    {
+        JsonElement branch = FindActionBranch(schema, contract, action);
+        return branch.ValueKind == JsonValueKind.Object &&
+               branch.TryGetProperty("description", out var description) &&
+               description.ValueKind == JsonValueKind.String
+            ? description.GetString() ?? ""
+            : "";
+    }
+
+    private static JsonElement ExtractActionSchema(
+        JsonElement schema,
+        AIFunctionOperationContract contract,
+        string action)
+    {
+        JsonElement branch = FindActionBranch(schema, contract, action);
+        if (branch.ValueKind != JsonValueKind.Object) return default;
+
+        using var document = JsonDocument.Parse(schema.GetRawText());
+        JsonElement root = document.RootElement;
+        using var branchDocument = JsonDocument.Parse(branch.GetRawText());
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            foreach (string definitionsName in new[] { "$defs", "definitions" })
+            {
+                if (!root.TryGetProperty(definitionsName, out var definitions)) continue;
+                writer.WritePropertyName(definitionsName);
+                definitions.WriteTo(writer);
+            }
+            foreach (var property in branchDocument.RootElement.EnumerateObject())
+            {
+                if (property.NameEquals("$defs") || property.NameEquals("definitions")) continue;
+                writer.WritePropertyName(property.Name);
+                property.Value.WriteTo(writer);
+            }
+            writer.WriteEndObject();
+        }
+        using var result = JsonDocument.Parse(stream.ToArray());
+        return result.RootElement.Clone();
+    }
+
+    private static JsonElement FindActionBranch(
+        JsonElement schema,
+        AIFunctionOperationContract contract,
+        string action)
+    {
+        if (schema.ValueKind != JsonValueKind.Object ||
+            !schema.TryGetProperty("properties", out var properties) ||
+            !properties.TryGetProperty(contract.ActionArgumentName, out var actionSchema))
+            return default;
+        actionSchema = ResolveLocalReference(schema, actionSchema);
+        if (actionSchema.ValueKind != JsonValueKind.Object ||
+            !actionSchema.TryGetProperty("oneOf", out var branches) ||
+            branches.ValueKind != JsonValueKind.Array)
+            return default;
+        foreach (JsonElement candidate in branches.EnumerateArray())
+        {
+            JsonElement branch = ResolveLocalReference(schema, candidate);
+            if (branch.ValueKind != JsonValueKind.Object ||
+                !branch.TryGetProperty("properties", out var branchProperties) ||
+                !branchProperties.TryGetProperty(contract.Discriminator, out var discriminator) ||
+                discriminator.ValueKind != JsonValueKind.Object ||
+                !discriminator.TryGetProperty("const", out var constant) ||
+                constant.ValueKind != JsonValueKind.String ||
+                !StringComparer.Ordinal.Equals(constant.GetString(), action))
+                continue;
+            return branch;
+        }
+        return default;
+    }
+
+    private static JsonElement ResolveLocalReference(JsonElement root, JsonElement candidate)
+    {
+        for (var depth = 0; depth < 16; depth++)
+        {
+            if (candidate.ValueKind != JsonValueKind.Object ||
+                !candidate.TryGetProperty("$ref", out var reference) ||
+                reference.ValueKind != JsonValueKind.String)
+                return candidate;
+            string pointer = reference.GetString() ?? "";
+            if (!pointer.StartsWith("#/", StringComparison.Ordinal)) return candidate;
+            JsonElement current = root;
+            foreach (string encodedPart in pointer[2..].Split('/'))
+            {
+                string part = encodedPart.Replace("~1", "/", StringComparison.Ordinal)
+                    .Replace("~0", "~", StringComparison.Ordinal);
+                if (current.ValueKind != JsonValueKind.Object ||
+                    !current.TryGetProperty(part, out current))
+                    return candidate;
+            }
+            candidate = current;
+        }
+        return candidate;
+    }
+
     /// <summary>
     /// Gets whether this agent currently has a continuous runtime input loop.
     /// </summary>

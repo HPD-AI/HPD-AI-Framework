@@ -8,12 +8,12 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 namespace HPD.Gateway.ControlPlane;
 
 /// <summary>Contributes Gateway's immutable L52 Studio registration.</summary>
-public sealed class GatewayStudioModuleContribution : IBaseStudioModuleContribution
+public sealed class GatewayStudioModuleContribution : IStudioModuleContribution
 {
     /// <inheritdoc />
     public string ModuleId => "gateway";
     /// <inheritdoc />
-    public BaseStudioModuleRegistration Create(IServiceProvider services)
+    public StudioModuleRegistration Create(IServiceProvider services)
     {
         ArgumentNullException.ThrowIfNull(services);
         return GatewayStudioModuleRegistry.Create(
@@ -27,7 +27,7 @@ internal static class GatewayStudioComposition
     {
         ArgumentNullException.ThrowIfNull(builder);
         builder.AddStudioEditionModuleAsset(GatewayStudioModuleRegistry.CreateEditionAssetContribution());
-        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseStudioFrameworkEndpointSurface, GatewayStudioEndpointSurface>());
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IStudioFrameworkEndpointSurface, GatewayStudioEndpointSurface>());
         return builder.AddStudioModule<GatewayStudioModuleContribution>();
     }
 }
@@ -35,102 +35,102 @@ internal static class GatewayStudioComposition
 internal static class GatewayStudioModuleRegistry
 {
     private const string ClientId = "gateway.admin";
-    private static readonly BaseStudioSha256 RuntimeAbi = Digest("hpd.gateway.client.studio-runtime-abi.v1");
-    private static readonly BaseStudioSha256 ClientContract = BaseStudioSha256.FromDigest(
+    private static readonly StudioSha256 RuntimeAbi = Digest("hpd.gateway.client.studio-runtime-abi.v1");
+    private static readonly StudioSha256 ClientContract = StudioSha256.FromDigest(
         Convert.FromHexString("02c406f8c49752d24278f14e4db91694c8e84bf8ff2ef37b2e3feed81cdb21f7"));
-    internal static readonly BaseStudioSha256 OperationInventoryChecksum =
-        BaseStudioFrameworkSurfaceOperation.ComputeInventoryChecksum("gateway.admin.v1", GatewayStudioEndpointSurface.CreateOperations());
-    private static readonly BaseStudioSha256 ComponentAbi = Digest("base.studio.page-component-abi.v1");
+    internal static readonly StudioSha256 OperationInventoryChecksum =
+        StudioFrameworkSurfaceOperation.ComputeInventoryChecksum("gateway.admin.v1", GatewayStudioEndpointSurface.CreateOperations());
+    private static readonly StudioSha256 ComponentAbi = Digest("base.studio.page-component-abi.v1");
 
-    internal static BaseStudioEditionModuleAssetContribution CreateEditionAssetContribution()
+    internal static StudioEditionModuleAssetContribution CreateEditionAssetContribution()
     {
-        BaseStudioFrontendExport frontend = CreateFrontend();
-        return BaseStudioEditionModuleAssetContribution.Create("gateway", 1, frontend.FrontendAbiChecksum, CreateAsset());
+        StudioFrontendExport frontend = CreateFrontend();
+        return StudioEditionModuleAssetContribution.Create("gateway", 1, frontend.FrontendAbiChecksum, CreateAsset());
     }
 
-    internal static BaseStudioModuleRegistration Create(HPDBaseStudioAuthoritySnapshot authority)
+    internal static StudioModuleRegistration Create(HPDBaseStudioAuthoritySnapshot authority)
     {
         ArgumentNullException.ThrowIfNull(authority);
-        BaseStudioPageRegistration[] pages = PageDefinitions
+        StudioPageRegistration[] pages = PageDefinitions
             .OrderBy(static value => value.Id, StringComparer.Ordinal)
             .Select(CreatePage).ToArray();
-        return BaseStudioModuleRegistration.CreateFramework(
+        return StudioModuleRegistration.CreateFramework(
             "gateway", 1, authority.ApplicationId, "gateway", "studio.module.gateway",
             CreateAsset(), CreateFrontend(), pages, [], [], [], [],
             [CreateClientRegistration(pages.Select(static page => page.PageId))],
-            [], BaseStudioModuleLimits.Create(4, 1, 1, 0, 0, 1));
+            [], StudioModuleLimits.Create(4, 1, 1, 0, 0, 1));
     }
 
-    private static BaseStudioPageRegistration CreatePage(PageDefinition definition)
+    private static StudioPageRegistration CreatePage(PageDefinition definition)
     {
-        var presentation = BaseStudioPagePresentationRegistration.Create(
-            definition.Id, 1, BaseStudioNavigationRole.Contextual, BaseStudioWorkspaceKind.Detail,
-            [BaseStudioSectionRegistration.Create("summary", "studio.section.summary", 0,
-                BaseStudioSectionKind.Summary, [], [])], null, null,
+        var presentation = StudioPagePresentationRegistration.Create(
+            definition.Id, 1, StudioNavigationRole.Contextual, StudioWorkspaceKind.Detail,
+            [StudioSectionRegistration.Create("summary", "studio.section.summary", 0,
+                StudioSectionKind.Summary, [], [])], null, null,
             definition.Id == "gateway.configure"
-                ? BaseStudioDraftRetentionClass.CurrentDocumentNavigation
-                : BaseStudioDraftRetentionClass.None);
-        return BaseStudioPageRegistration.Create(
+                ? StudioDraftRetentionClass.CurrentDocumentNavigation
+                : StudioDraftRetentionClass.None);
+        return StudioPageRegistration.Create(
             definition.Id, 1, definition.Area, definition.Label,
-            BaseStudioRouteTemplate.Create(definition.Id + ".route",
-                definition.Route.Select(BaseStudioRouteSegment.Literal)),
+            StudioRouteTemplate.Create(definition.Id + ".route",
+                definition.Route.Select(StudioRouteSegment.Literal)),
             definition.Kind, presentation, [], definition.Endpoints, [],
-            BaseStudioDisclosureClass.ProtectedValue);
+            StudioDisclosureClass.ProtectedValue);
     }
 
-    private static BaseStudioFrontendExport CreateFrontend()
-        => BaseStudioFrontendExport.Create("gateway", 1,
-            [BaseStudioFrontendClientSlot.Create(ClientId, 1,
-                BaseStudioFrameworkClientProtocol.FrameworkGeneratedContractV1, RuntimeAbi, ClientContract,
-                OperationInventoryChecksum, "gateway.admin.v1", BaseStudioFrameworkClientTransportClass.SameOriginShellAuthenticated,
+    private static StudioFrontendExport CreateFrontend()
+        => StudioFrontendExport.Create("gateway", 1,
+            [StudioFrontendClientSlot.Create(ClientId, 1,
+                StudioFrameworkClientProtocol.FrameworkGeneratedContractV1, RuntimeAbi, ClientContract,
+                OperationInventoryChecksum, "gateway.admin.v1", StudioFrameworkClientTransportClass.SameOriginShellAuthenticated,
                 PageDefinitions.Select(static value => value.Id).Order(StringComparer.Ordinal), ClientLimits())],
             PageDefinitions.OrderBy(static value => value.Id, StringComparer.Ordinal)
-                .Select(static value => BaseStudioPageComponentBinding.Create(
+                .Select(static value => StudioPageComponentBinding.Create(
                     value.Id, "component." + value.Id, ComponentAbi)));
 
-    private static BaseStudioFrameworkClientLimits ClientLimits() => BaseStudioFrameworkClientLimits.Create(
+    private static StudioFrameworkClientLimits ClientLimits() => StudioFrameworkClientLimits.Create(
         23, 8_388_608, 8_388_608, 8, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(5));
 
-    internal static BaseStudioFrameworkClientRegistration CreateClientRegistration(IEnumerable<string> pageIds)
-        => BaseStudioFrameworkClientRegistration.Create(ClientId, 1, BaseStudioContractNecessity.Required,
-            BaseStudioFrameworkClientProtocol.FrameworkGeneratedContractV1, RuntimeAbi, ClientContract, OperationInventoryChecksum,
-            "gateway.admin.v1", BaseStudioFrameworkClientTransportClass.SameOriginShellAuthenticated,
+    internal static StudioFrameworkClientRegistration CreateClientRegistration(IEnumerable<string> pageIds)
+        => StudioFrameworkClientRegistration.Create(ClientId, 1, StudioContractNecessity.Required,
+            StudioFrameworkClientProtocol.FrameworkGeneratedContractV1, RuntimeAbi, ClientContract, OperationInventoryChecksum,
+            "gateway.admin.v1", StudioFrameworkClientTransportClass.SameOriginShellAuthenticated,
             pageIds, ClientLimits());
 
-    private static BaseStudioAssetManifest CreateAsset()
+    private static StudioAssetManifest CreateAsset()
     {
-        const string path = "gateway/a13ef264b30b9e72b2f77eb000dee656edf8ae8452047bc0b6d409fefb410a85.js";
+        const string path = "gateway/a5c79b82643f4d311cade5cbfb3614d84e63aeef61dd555396c27a5174aaa47f.js";
         using Stream stream = typeof(GatewayStudioModuleRegistry).Assembly
             .GetManifestResourceStream("HPD.Gateway.ControlPlane.Studio.Assets.gateway.js")
             ?? throw new InvalidOperationException("The prebuilt Gateway Studio module asset is absent.");
         using var content = new MemoryStream();
         stream.CopyTo(content);
-        return BaseStudioAssetManifest.Create(path, BaseStudioModuleNecessity.Optional,
-            BaseStudioShellContract.Current,
-            [BaseStudioAssetSource.Create(path, BaseStudioAssetMediaType.JavaScriptModule,
+        return StudioAssetManifest.Create(path, StudioModuleNecessity.Optional,
+            StudioShellContract.Current,
+            [StudioAssetSource.Create(path, StudioAssetMediaType.JavaScriptModule,
                 content.GetBuffer().AsSpan(0, checked((int)content.Length)))]);
     }
 
-    private static BaseStudioSha256 Digest(string value)
-        => BaseStudioSha256.FromDigest(System.Security.Cryptography.SHA256.HashData(
+    private static StudioSha256 Digest(string value)
+        => StudioSha256.FromDigest(System.Security.Cryptography.SHA256.HashData(
             System.Text.Encoding.UTF8.GetBytes(value)));
 
     private static readonly ImmutableArray<PageDefinition> PageDefinitions =
     [
-        new("gateway.configure", BaseStudioArea.Infrastructure, "studio.page.gateway.configure",
-            ["gateway", "configure"], BaseStudioPageKind.Action,
+        new("gateway.configure", StudioArea.Infrastructure, "studio.page.gateway.configure",
+            ["gateway", "configure"], StudioPageKind.Action,
             ["gateway.admin.hostCapabilities", "gateway.admin.validate"]),
-        new("gateway.diagnose", BaseStudioArea.Diagnostics, "studio.page.gateway.diagnose",
-            ["gateway", "diagnose"], BaseStudioPageKind.Diagnostics,
+        new("gateway.diagnose", StudioArea.Diagnostics, "studio.page.gateway.diagnose",
+            ["gateway", "diagnose"], StudioPageKind.Diagnostics,
             ["gateway.admin.audit", "gateway.admin.effective", "gateway.admin.status"]),
-        new("gateway.operate", BaseStudioArea.Infrastructure, "studio.page.gateway.operate",
-            ["gateway", "operate"], BaseStudioPageKind.Action,
+        new("gateway.operate", StudioArea.Infrastructure, "studio.page.gateway.operate",
+            ["gateway", "operate"], StudioPageKind.Action,
             ["gateway.admin.activate", "gateway.admin.activations", "gateway.admin.operation", "gateway.admin.revisions"]),
-        new("gateway.overview", BaseStudioArea.Overview, "studio.page.gateway.overview",
-            ["gateway"], BaseStudioPageKind.Overview,
+        new("gateway.overview", StudioArea.Overview, "studio.page.gateway.overview",
+            ["gateway"], StudioPageKind.Overview,
             ["gateway.admin.capabilities", "gateway.admin.desired", "gateway.admin.effective", "gateway.admin.hostCapabilities", "gateway.admin.status"]),
     ];
 
-    private sealed record PageDefinition(string Id, BaseStudioArea Area, string Label,
-        ImmutableArray<string> Route, BaseStudioPageKind Kind, ImmutableArray<string> Endpoints);
+    private sealed record PageDefinition(string Id, StudioArea Area, string Label,
+        ImmutableArray<string> Route, StudioPageKind Kind, ImmutableArray<string> Endpoints);
 }

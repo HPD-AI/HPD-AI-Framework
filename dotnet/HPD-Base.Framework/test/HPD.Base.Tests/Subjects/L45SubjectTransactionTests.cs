@@ -2354,7 +2354,7 @@ public sealed class L45SubjectTransactionTests
             Allow(cancellationToken);
         public ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateWriteAsync(BasePolicyRequest request, CancellationToken cancellationToken = default) =>
             Allow(cancellationToken);
-        public ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateStudioAsync(BaseStudioPolicyRequest request, CancellationToken cancellationToken = default) =>
+        public ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateStudioAsync(StudioPolicyRequest request, CancellationToken cancellationToken = default) =>
             Allow(cancellationToken);
         private static ValueTask<OperationResult<BasePolicyEvaluation>> Allow(CancellationToken cancellationToken)
         {

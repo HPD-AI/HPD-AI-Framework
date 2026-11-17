@@ -484,10 +484,10 @@ public sealed class WriteFileTests : IDisposable
         {
             Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>()
             {
-                [AgentWorkspace.ContextKey] = new AgentWorkspace(
+                [CodingWorkspace.ContextKey] = new CodingWorkspace(
                     "default",
                     cwd,
-                    [new AgentWorkspaceRoot("default", cwd, AgentWorkspaceAccess.ReadWrite)])
+                    [new CodingWorkspaceRoot("default", cwd, CodingWorkspaceAccess.ReadWrite)])
             } }
         };
     }

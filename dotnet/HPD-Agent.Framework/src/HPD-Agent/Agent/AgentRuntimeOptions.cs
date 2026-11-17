@@ -113,8 +113,6 @@ internal sealed class AgentPolicyExtensionRegistry
     internal static string ValidateName(string name)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        if (name.Length > 128)
-            throw new ArgumentException("Policy extension names must be at most 128 characters.", nameof(name));
         if (name.Any(char.IsControl))
             throw new ArgumentException("Policy extension names cannot contain control characters.", nameof(name));
         return name;

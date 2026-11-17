@@ -16,17 +16,17 @@ public sealed class SqliteStudioInfrastructureInventoryTests
             await using var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = database, StoreId = "infra" });
             _ = await store.CaptureInfrastructureAuthorityAsync(Requirement());
             await store.PublishInfrastructureMaintenanceAsync("vectorRebuild", "collection:index:2",
-                BaseStudioInfrastructureState.Completed, 10_000, CancellationToken.None);
-            BaseStudioInfrastructureInventoryRequirement requirement = Requirement() with
-            { Kind = BaseStudioInfrastructureInventoryKind.Maintenance };
+                StudioInfrastructureState.Completed, 10_000, CancellationToken.None);
+            StudioInfrastructureInventoryRequirement requirement = Requirement() with
+            { Kind = StudioInfrastructureInventoryKind.Maintenance };
             OperationResult<BaseCapturedStudioInfrastructureAuthority> captured = await store.CaptureInfrastructureAuthorityAsync(requirement);
             captured.IsSuccess().Should().BeTrue(captured.Error?.Code);
-            OperationResult<IBaseStudioInfrastructureInventorySession> opened = await store.OpenInfrastructureSessionAsync(captured.Value!);
-            await using IBaseStudioInfrastructureInventorySession session = opened.Value!;
-            BaseStudioInfrastructurePage page = (await session.ReadPageAsync(new() { Take = 1 })).Value!;
-            BaseStudioMaintenanceItem item = page.Items.Should().ContainSingle().Which.Should().BeOfType<BaseStudioMaintenanceItem>().Subject;
+            OperationResult<IStudioInfrastructureInventorySession> opened = await store.OpenInfrastructureSessionAsync(captured.Value!);
+            await using IStudioInfrastructureInventorySession session = opened.Value!;
+            StudioInfrastructurePage page = (await session.ReadPageAsync(new() { Take = 1 })).Value!;
+            StudioMaintenanceItem item = page.Items.Should().ContainSingle().Which.Should().BeOfType<StudioMaintenanceItem>().Subject;
             item.MaintenanceKind.Should().Be("vectorRebuild"); item.OperationIdentity.Should().Be("collection:index:2");
-            item.State.Should().Be(BaseStudioInfrastructureState.Completed); item.ProgressBasisPoints.Should().Be(10_000);
+            item.State.Should().Be(StudioInfrastructureState.Completed); item.ProgressBasisPoints.Should().Be(10_000);
         }
         finally { File.Delete(database); }
     }
@@ -40,16 +40,16 @@ public sealed class SqliteStudioInfrastructureInventoryTests
             await using var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = database, StoreId = "infra" });
             OperationResult<BaseCapturedStudioInfrastructureAuthority> captured = await store.CaptureInfrastructureAuthorityAsync(Requirement());
             captured.IsSuccess().Should().BeTrue(captured.Error?.Code);
-            OperationResult<IBaseStudioInfrastructureInventorySession> opened = await store.OpenInfrastructureSessionAsync(captured.Value!);
-            await using IBaseStudioInfrastructureInventorySession session = opened.Value!;
-            OperationResult<BaseStudioInfrastructurePage> page = await session.ReadPageAsync(new() { Take = 1 });
+            OperationResult<IStudioInfrastructureInventorySession> opened = await store.OpenInfrastructureSessionAsync(captured.Value!);
+            await using IStudioInfrastructureInventorySession session = opened.Value!;
+            OperationResult<StudioInfrastructurePage> page = await session.ReadPageAsync(new() { Take = 1 });
             page.IsSuccess().Should().BeTrue();
-            page.Value!.Items.Should().ContainSingle().Which.Should().BeOfType<BaseStudioSchemaGenerationItem>();
+            page.Value!.Items.Should().ContainSingle().Which.Should().BeOfType<StudioSchemaGenerationItem>();
 
-            OperationResult<BaseStudioInfrastructurePage> hostile = await session.ReadPageAsync(new()
+            OperationResult<StudioInfrastructurePage> hostile = await session.ReadPageAsync(new()
             {
                 Take = 1,
-                After = new BaseStudioInfrastructureBoundary { Kind = BaseStudioInfrastructureInventoryKind.Backup, Sequence = 1, Checksum = ImmutableArray.CreateRange(new byte[32]) },
+                After = new StudioInfrastructureBoundary { Kind = StudioInfrastructureInventoryKind.Backup, Sequence = 1, Checksum = ImmutableArray.CreateRange(new byte[32]) },
             });
             hostile.Status.Should().Be(OperationStatus.PolicyDenied);
 
@@ -79,23 +79,23 @@ VALUES('app',1,'baseline','0123456789abcdef0123456789abcdef0123456789abcdef01234
 """;
                 _ = await command.ExecuteNonQueryAsync();
             }
-            BaseStudioInfrastructureInventoryRequirement requirement = Requirement() with { Kind = BaseStudioInfrastructureInventoryKind.Migration, SchemaGeneration = 0 };
+            StudioInfrastructureInventoryRequirement requirement = Requirement() with { Kind = StudioInfrastructureInventoryKind.Migration, SchemaGeneration = 0 };
             OperationResult<BaseCapturedStudioInfrastructureAuthority> captured = await store.CaptureInfrastructureAuthorityAsync(requirement);
             captured.IsSuccess().Should().BeTrue(captured.Error?.Code);
-            OperationResult<IBaseStudioInfrastructureInventorySession> opened = await store.OpenInfrastructureSessionAsync(captured.Value!);
-            await using IBaseStudioInfrastructureInventorySession session = opened.Value!;
-            BaseStudioMigrationItem item = (await session.ReadPageAsync(new() { Take = 1 })).Value!.Items.Should().ContainSingle()
-                .Which.Should().BeOfType<BaseStudioMigrationItem>().Subject;
+            OperationResult<IStudioInfrastructureInventorySession> opened = await store.OpenInfrastructureSessionAsync(captured.Value!);
+            await using IStudioInfrastructureInventorySession session = opened.Value!;
+            StudioMigrationItem item = (await session.ReadPageAsync(new() { Take = 1 })).Value!.Items.Should().ContainSingle()
+                .Which.Should().BeOfType<StudioMigrationItem>().Subject;
             item.PlanChecksum.Should().Equal(Convert.FromHexString("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"));
         }
         finally { File.Delete(database); }
     }
 
-    private static BaseStudioInfrastructureInventoryRequirement Requirement() => new()
+    private static StudioInfrastructureInventoryRequirement Requirement() => new()
     {
         ApplicationId = "app", StoreId = "infra", StoreInstanceId = "infra", RestoreEpoch = 0, SchemaGeneration = 0,
-        Kind = BaseStudioInfrastructureInventoryKind.SchemaGeneration,
-        Limits = new BaseStudioInfrastructureInventoryLimits
+        Kind = StudioInfrastructureInventoryKind.SchemaGeneration,
+        Limits = new StudioInfrastructureInventoryLimits
         {
             MaximumItems = 1, MaximumRowsRead = 2, MaximumEvidenceBytes = 4096, MaximumTransientBytes = 4096,
             AcquisitionDeadline = TimeSpan.FromSeconds(2), SessionDeadline = TimeSpan.FromSeconds(4), PageDeadline = TimeSpan.FromSeconds(2),

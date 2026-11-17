@@ -1,4 +1,5 @@
 import type { GatewayClient } from '@hpd/gateway-client';
+import { mount, unmount } from 'svelte';
 import { gatewayOperationInventoryChecksum, gatewayOperations } from '@hpd/gateway-client';
 import { createGatewayStudioClient, type GatewayStudioClientHostContext } from '@hpd/gateway-client/studio-host';
 import {
@@ -13,7 +14,9 @@ import {
   type StudioModuleActivation,
   type StudioModuleActivationContext,
   type StudioPageComponentBinding,
-  type StudioPageId
+  type StudioPageId,
+  type StudioPageComponent,
+  type StudioPageMounter
 } from '@hpd-research/hpd-studio-core';
 import GatewayOverview from './GatewayOverview.svelte';
 import GatewayConfigure from './GatewayConfigure.svelte';
@@ -41,10 +44,32 @@ const pageComponents = Object.freeze(Object.fromEntries(pageDefinitions.map(([id
   const binding: StudioPageComponentBinding = Object.freeze({
     componentExportId: exportId as string,
     componentAbiChecksum,
-    component: component as unknown as StudioPageComponentBinding['component']
+    component: component as unknown as StudioPageComponentBinding['component'],
+    mount: createPageMounter(component as unknown as StudioPageComponent)
   });
   return [studioPageId(id as string), binding] as const;
 }))) as Readonly<Record<StudioPageId, StudioPageComponentBinding>>;
+
+function createPageMounter(component: StudioPageComponent): StudioPageMounter {
+  return context => {
+    let dispose = render(context.props);
+    return Object.freeze({
+      update(props: Parameters<StudioPageMounter>[0]['props']): void {
+        dispose();
+        dispose = render(props);
+      },
+      destroy(): void {
+        dispose();
+        dispose = (): void => {};
+      }
+    });
+
+    function render(props: Parameters<StudioPageMounter>[0]['props']): () => void {
+      const instance = mount(component, { target: context.target, props });
+      return () => { void unmount(instance); };
+    }
+  };
+}
 const clientSlots = Object.freeze([Object.freeze({ clientId, version: 1, staticRuntimeAbiChecksum: runtimeAbiChecksum,
   protocol: 'frameworkGeneratedContractV1' as const, generatedContractChecksum, operationInventoryChecksum,
   endpointSurfaceId: 'gateway.admin.v1', transportClass: 'sameOriginShellAuthenticated' as const,

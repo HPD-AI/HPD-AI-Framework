@@ -2,13 +2,15 @@
   import type { Snippet } from 'svelte';
   import type { StudioShellRuntime, StudioShellState } from '../shell-runtime.ts';
   import Sidebar from './Sidebar.svelte';
-  let { runtime, state, main }: { runtime: StudioShellRuntime; state: StudioShellState; main?: Snippet } = $props();
+  let { runtime, state, main }: { runtime: StudioShellRuntime; state: StudioShellState; main?: Snippet<[StudioShellState]> } = $props();
 </script>
 
 <div class="studio-shell-layout bg-studio-bg text-studio-ink">
   <a class="studio-skip-link" href="#studio-main">Skip to workspace</a>
   {#if state.kind === 'ready'}<Sidebar {runtime} {state} />{/if}
-  <section id="studio-main" tabindex="-1" class="studio-shell-main">{@render main?.()}</section>
+  <section id="studio-main" tabindex="-1" class="studio-shell-main"
+    data-module-id={state.route?.route.page.moduleId ?? ''}
+    data-page-id={state.route?.route.page.pageId ?? ''}>{@render main?.(state)}</section>
 </div>
 
 <style>

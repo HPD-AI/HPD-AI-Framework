@@ -108,6 +108,21 @@ public class AgentManagerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task UpdateDefinitionIfUnchangedAsync_RejectsAValidatedStaleDefinition()
+    {
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("Original"));
+        var validated = await _manager.GetDefinitionAsync(stored.Id);
+        validated.Should().NotBeNull();
+        await _manager.UpdateDefinitionAsync(stored.Id, MakeConfig("Competitor"));
+
+        Func<Task> stale = () => _manager.UpdateDefinitionIfUnchangedAsync(
+            stored.Id, validated, MakeConfig("Stale Studio Draft"));
+
+        await stale.Should().ThrowAsync<AgentStoreConcurrencyException>();
+        (await _store.LoadAsync(stored.Id))!.Config.Name.Should().Be("Competitor");
+    }
+
+    [Fact]
     public async Task DeleteDefinitionAsync_RemovesFromStore_AndEvictsCache()
     {
         var stored = await _manager.CreateDefinitionAsync(MakeConfig("D"));
@@ -300,6 +315,38 @@ public class AgentManagerTests : IAsyncLifetime
         await _manager.GetOrBuildAgentAsync(stored.Id);
 
         _manager.GetRuntimeAgent(stored.Id, "session-1", "thread-1").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GlobalEventInbox_ReceivesEventsFromThreadRuntime()
+    {
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("Global events"));
+        Agent runtime = await _manager.GetOrBuildAgentRuntimeAsync(
+            stored.Id, "session-global", "thread-global");
+        var inbox = _manager.CreateGlobalEventInbox(HPD.Events.EventInboxOptions.Deterministic(64));
+        await using (inbox)
+        {
+            await runtime.EventCoordinator.EmitAsync(new MessageTurnStartedEvent(
+                "message-global", "session-global", stored.Id, stored.Config.Name)
+            {
+                TraceId = "0123456789abcdef0123456789abcdef",
+                SpanId = "0123456789abcdef",
+                SessionId = "session-global",
+                ThreadId = "thread-global"
+            });
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            AgentEvent? observed = null;
+            while (observed is null &&
+                   await inbox.Reader.WaitToReadAsync(timeout.Token))
+            {
+                if (inbox.Reader.TryRead(out AgentEvent? next))
+                    observed = next;
+            }
+
+            observed.Should().NotBeNull();
+            observed!.Should().BeOfType<MessageTurnStartedEvent>();
+            observed.TraceId.Should().Be("0123456789abcdef0123456789abcdef");
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────────
