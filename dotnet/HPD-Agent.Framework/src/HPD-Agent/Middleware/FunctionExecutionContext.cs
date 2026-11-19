@@ -275,7 +275,14 @@ public sealed class FunctionExecutionContext : IHarnessConfigurationContext
     internal AgentConfig? ParentConfig => _parentConfig;
     internal ToolHarnessExecutionScope? ToolHarnessExecutionScope => _toolHarnessExecutionScope;
 
-    internal T? GetAgentResource<T>() where T : class =>
+    /// <summary>
+    /// Gets an agent-owned resource registered for the built agent, or null when absent.
+    /// </summary>
+    /// <remarks>
+    /// Resources are shared across executions of the agent and are disposed with it.
+    /// The caller must not dispose the returned resource.
+    /// </remarks>
+    public T? GetAgentResource<T>() where T : class =>
         _agentResources.TryGetValue(typeof(T), out var resource) ? (T)resource : null;
     internal ContentRetrievalBudget ContentRetrievalBudget => _contentRetrievalBudget;
 

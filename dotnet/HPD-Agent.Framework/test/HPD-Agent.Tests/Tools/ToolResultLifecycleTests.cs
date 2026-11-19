@@ -158,6 +158,75 @@ public sealed class ToolResultLifecycleTests : AgentTestBase
             document.RootElement.GetProperty("parts").GetProperty("stdout").GetString());
     }
 
+    [Fact]
+    public async Task ConditionalCapture_InlinesShortTextAndMakesLongTextRetrievable()
+    {
+        var client = new FakeChatClient();
+        client.EnqueueToolCall("ConditionalCapture", "call-short");
+        client.EnqueueTextResponse("short done");
+        client.EnqueueToolCall("ConditionalCapture", "call-long");
+        client.EnqueueTextResponse("long done");
+        var store = new InMemoryContentStore();
+        FunctionExecutionContext? capturedContext = null;
+        var count = 0;
+        var options = new JsonSerializerOptions(
+            HPD.Agent.Serialization.HpdAgentJsonUtilities.CreateDefaultOptions());
+        options.TypeInfoResolverChain.Insert(0, ToolResultLifecycleJsonContext.Default);
+        options.MakeReadOnly();
+        var tool = HPDAIFunctionFactory.Create(
+            async (_, context, cancellationToken) =>
+            {
+                capturedContext = context;
+                if (count++ == 0)
+                    return new ConditionalCaptureResult("short body", null);
+                var part = context.Outputs.CreatePart("body", "text/plain");
+                await part.WriteAsync(System.Text.Encoding.UTF8.GetBytes("complete long body"), cancellationToken);
+                return new ConditionalCaptureResult("preview", part);
+            },
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = "ConditionalCapture",
+                ResultType = typeof(ConditionalCaptureResult),
+                SerializerOptions = options,
+                ContentProjectionPlan = new(
+                    typeof(ConditionalCaptureResult),
+                    [new("/body", "body", ContentSensitivity.Internal, StreamingCapture: true)])
+            });
+
+        await using var agent = await new AgentBuilder(new AgentConfig { Name = "conditional-capture" })
+            .WithEventComposition(HPD.Agent.Serialization.CoreAgentEventComposition.Instance)
+            .WithChatClient(new IdentifiedClient(client))
+            .WithContentStore(store)
+            .WithNativeFunction(tool)
+            .BuildAsync();
+        await agent.CreateSessionAsync("conditional-session");
+        for (var index = 0; index < 2; index++)
+        {
+            await agent.RunAsync(new UserMessagesInputEvent
+            {
+                SessionId = "conditional-session",
+                ThreadId = "main",
+                Messages = [new(ChatRole.User, "run")]
+            });
+        }
+
+        JsonElement ResultFor(string callId) => Assert.IsType<JsonElement>(
+            client.CapturedRequests.SelectMany(static messages => messages)
+                .SelectMany(static message => message.Contents)
+                .OfType<FunctionResultContent>()
+                .First(content => content.CallId == callId).Result);
+        var shortResult = ResultFor("call-short");
+        Assert.Equal("short body", shortResult.GetProperty("preview").GetString());
+        Assert.True(!shortResult.TryGetProperty("body", out var shortBody) || shortBody.ValueKind == JsonValueKind.Null);
+        var reference = ResultFor("call-long").GetProperty("body");
+        var contentId = reference.GetProperty("contentId").GetString();
+        var partName = reference.GetProperty("parts")[0].GetProperty("name").GetString();
+        var read = Assert.IsType<ContentToolReadResult>(await new ContentToolHarness().ContentAsync(
+            new ContentReadOperation(contentId!, Part: partName), capturedContext!));
+        Assert.Equal("complete long body", read.Text);
+        Assert.Single(await store.QueryAsync(ContentScope.Create("conditional-session")));
+    }
+
     private sealed class ResultCaptureMiddleware : IAgentMiddleware
     {
         internal object? OriginalResult { get; private set; }
@@ -188,8 +257,11 @@ public sealed record OffloadResult(string Summary, string Evidence);
 
 public sealed record CaptureResult(string Summary, ContentCapturePart Output);
 
+public sealed record ConditionalCaptureResult(string Preview, ContentCapturePart? Body);
+
 [System.Text.Json.Serialization.JsonSourceGenerationOptions(
     PropertyNamingPolicy = System.Text.Json.Serialization.JsonKnownNamingPolicy.CamelCase)]
 [System.Text.Json.Serialization.JsonSerializable(typeof(OffloadResult))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(CaptureResult))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(ConditionalCaptureResult))]
 internal partial class ToolResultLifecycleJsonContext : System.Text.Json.Serialization.JsonSerializerContext;
