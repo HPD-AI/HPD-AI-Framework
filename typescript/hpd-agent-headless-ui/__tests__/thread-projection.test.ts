@@ -319,6 +319,77 @@ describe('createThreadProjection', () => {
     }]);
   });
 
+  it('projects durable user-message events during rehydration', () => {
+    const projection = createThreadProjection();
+
+    projection.rehydrate({
+      events: [{
+        type: EventTypes.USER_MESSAGE,
+        messageId: 'user-1',
+        text: 'reload this message',
+        threadSequenceNumber: 1,
+        threadExecutionId: 'run-1',
+        timestamp: '2026-01-01T00:00:00.000Z',
+      }],
+      observedCursor: { generation: 1, sequenceNumber: 1 },
+    });
+
+    const snapshot = projection.getSnapshot();
+    expect(snapshot.transcriptMessages).toMatchObject([{
+      id: 'user-1',
+      role: 'user',
+      content: 'reload this message',
+      placement: 'transcript',
+      source: 'UserInput',
+      visibility: 'Transcript',
+      persistence: 'ThreadHistory',
+      streaming: false,
+    }]);
+    expect(snapshot.timeline).toMatchObject([{
+      type: 'message',
+      id: 'message:user-1',
+    }]);
+  });
+
+  it('replaces an optimistic user row with its durable user-message event', () => {
+    const projection = createThreadProjection();
+
+    projection.project({
+      type: EventTypes.TEXT_MESSAGE_START,
+      messageId: 'optimistic:user:1',
+      role: 'user',
+      source: 'UserInput',
+      visibility: 'Transcript',
+      clientInputId: 'client-1',
+      optimistic: true,
+    });
+    projection.project({
+      type: EventTypes.TEXT_DELTA,
+      messageId: 'optimistic:user:1',
+      text: 'send this once',
+    });
+    projection.project({
+      type: EventTypes.TEXT_MESSAGE_END,
+      messageId: 'optimistic:user:1',
+    });
+    projection.project({
+      type: EventTypes.USER_MESSAGE,
+      messageId: 'durable-user-1',
+      text: 'send this once',
+      threadSequenceNumber: 2,
+    });
+
+    const snapshot = projection.getSnapshot();
+    expect(snapshot.transcriptMessages).toMatchObject([{
+      id: 'durable-user-1',
+      role: 'user',
+      content: 'send this once',
+      clientInputId: 'client-1',
+      placement: 'transcript',
+    }]);
+    expect(snapshot.timeline).toHaveLength(1);
+  });
+
   it('reconciles an optimistic user row when durable input admission events arrive', () => {
     const projection = createThreadProjection();
 
@@ -966,6 +1037,29 @@ describe('createThreadProjection', () => {
     const snapshot = projection.getSnapshot();
     expect(snapshot.threadExecution?.status).toBe('interrupted');
     expect(snapshot.activity.streaming).toBe(false);
+    expect(snapshot.canSend).toBe(true);
+  });
+
+  it('allows a new message after the user cancels an active execution', () => {
+    const projection = createThreadProjection();
+
+    projection.project({
+      type: EventTypes.THREAD_EXECUTION_STARTED,
+      threadExecutionId: 'run1',
+      agentId: 'agent',
+      startedAt: '2026-01-01T00:00:00.000Z',
+    });
+    projection.project({
+      type: EventTypes.THREAD_EXECUTION_FINISHED,
+      threadExecutionId: 'run1',
+      agentId: 'agent',
+      outcome: 'Cancelled',
+      finishedAt: '2026-01-01T00:00:01.000Z',
+    });
+
+    const snapshot = projection.getSnapshot();
+    expect(snapshot.threadExecution?.status).toBe('cancelled');
+    expect(snapshot.activity.status).toBe('cancelled');
     expect(snapshot.canSend).toBe(true);
   });
 

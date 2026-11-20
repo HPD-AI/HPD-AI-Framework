@@ -82,8 +82,8 @@ internal class OpenAIProvider :
         var openAIConfig = ReadConfig(context.EffectiveConfig);
         var openAIClient = CreateOpenAIClient(context);
         client = openAIConfig?.ChatApi == OpenAIChatApi.ChatCompletions
-            ? openAIClient.GetChatClient(modelName).AsIChatClient()
-            : openAIClient.GetResponsesClient().AsIChatClient(modelName);
+            ? new ImageToolResultChatClient(openAIClient.GetChatClient(modelName).AsIChatClient(), supportsImages: false)
+            : new ImageToolResultChatClient(openAIClient.GetResponsesClient().AsIChatClient(modelName));
 
         return Construct(client);
     }
@@ -350,8 +350,8 @@ internal class AzureOpenAIProvider :
         var openAIConfig = ReadConfig(context.EffectiveConfig);
         var azureClient = CreateAzureOpenAIClient(context);
         IChatClient client = openAIConfig?.ChatApi == OpenAIChatApi.ChatCompletions
-            ? azureClient.GetChatClient(modelName).AsIChatClient()
-            : azureClient.GetResponsesClient().AsIChatClient(modelName);
+            ? new ImageToolResultChatClient(azureClient.GetChatClient(modelName).AsIChatClient(), supportsImages: false)
+            : new ImageToolResultChatClient(azureClient.GetResponsesClient().AsIChatClient(modelName));
 
         return Construct(client);
     }

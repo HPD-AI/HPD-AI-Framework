@@ -503,7 +503,10 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             clientToolOperations: clientToolOperations);
 
         var permissionMiddleware = _middlewarePipeline.Middlewares.OfType<PermissionMiddleware>().SingleOrDefault();
-        var resolvedFunction = permissionMiddleware?.ResolveFunction(function!, resolvedInvocation, runConfig);
+        var resolvedFunction = function is null ||
+            PermissionBindingResolver.IsPermissionExemptContainer(function)
+            ? null
+            : permissionMiddleware?.ResolveFunction(function, resolvedInvocation, runConfig);
         if (resolvedFunction?.Permission is not null && permissionMiddleware is null)
             throw new InvalidOperationException("PermissionMiddlewareMissing: governed call has no framework gate.");
         if (resolvedFunction is not null)

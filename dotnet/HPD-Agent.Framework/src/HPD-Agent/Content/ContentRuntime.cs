@@ -3,6 +3,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using HPD.Agent.Middleware;
+using HPD.Agent.Serialization;
+using Microsoft.Extensions.AI;
 
 namespace HPD.Agent;
 
@@ -229,10 +231,17 @@ internal static class ContentRuntime
             null => 0,
             string text => Encoding.UTF8.GetByteCount(text),
             JsonElement json => Encoding.UTF8.GetByteCount(json.GetRawText()),
+            AIContent content => AIContentSize(content),
+            IEnumerable<AIContent> contents => contents.Aggregate(2L, (size, content) =>
+                size + AIContentSize(content) + 1),
             _ => Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(
                 model, HPDJsonContext.Default.Options.GetTypeInfo(model.GetType())!))
         };
     }
+
+    private static long AIContentSize(AIContent content) =>
+        JsonSerializer.SerializeToUtf8Bytes(content,
+            AgentEventJsonContext.Default.MicrosoftExtensionsAiAIContent).LongLength;
 
     private static NormalizedToolResult Failure(string code, string message) =>
         new([new NormalizedToolErrorPart(code, message)], typeof(ToolResultError).FullName);

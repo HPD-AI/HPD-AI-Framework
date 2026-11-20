@@ -67,7 +67,7 @@ internal class AnthropicProvider : IProvider, IProviderClientFactory<IChatClient
         var chatClient = anthropicClient.AsIChatClient(modelName, maxTokens);
 
         IChatClient configured = new AnthropicConfiguredChatClient(
-            chatClient,
+            new ImageToolResultChatClient(chatClient),
             modelName,
             maxTokens);
         return ValueTask.FromResult(new ProviderClientConstruction<IChatClient>

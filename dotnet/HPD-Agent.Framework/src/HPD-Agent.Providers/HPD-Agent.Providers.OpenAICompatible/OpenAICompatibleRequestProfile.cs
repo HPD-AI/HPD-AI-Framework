@@ -78,6 +78,9 @@ public sealed class OpenAICompatibleRequestProfile
     /// <summary>Gets or initializes whether OpenAI-shaped image parts are supported.</summary>
     public bool Vision { get; init; }
 
+    /// <summary>Gets or initializes whether tool messages accept image parts.</summary>
+    public bool ToolResultVision { get; init; }
+
     /// <summary>
     /// Gets or initializes the provider-specific reasoning translator.
     /// </summary>

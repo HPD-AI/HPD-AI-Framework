@@ -534,7 +534,9 @@ internal sealed class OpenRouterChatClient : IChatClient
                         {
                             Role = "tool",
                             ToolCallId = frc.CallId,
-                            Content = frc.Result?.ToString() ?? string.Empty
+                            Content = ImageToolResultChatClient.ReadImageParts(frc.Result) is { } imageParts
+                                ? ImageToolResultChatClient.DescribeImageParts(imageParts)
+                                : frc.Result?.ToString() ?? string.Empty
                         });
                     }
                 }

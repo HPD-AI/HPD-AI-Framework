@@ -506,6 +506,84 @@ public sealed class McpAgentConfigurationTests
     }
 
     [Fact]
+    public async Task AgentBuilder_CollapsedMcp_HiddenRecoveryWithPermissions_InvokesNormalizedFunction()
+    {
+        var handler = new DeclarativeMcpHandler();
+        using var http = new HttpClient(handler);
+        var chat = new FakeChatClient();
+        var config = new AgentConfig
+        {
+            Mcp = new AgentMcpConfig
+            {
+                Servers =
+                [
+                    new McpServerConfig
+                    {
+                        Name = "inline",
+                        Transport = "http",
+                        Endpoint = new Uri("https://inline.test/mcp"),
+                        EnableCollapsing = true
+                    }
+                ]
+            }
+        };
+        chat.EnqueueToolCalls(("inline_echo", "invoke", new Dictionary<string, object?>()));
+        chat.EnqueueToolCalls(("inline_echo", "invoke", new Dictionary<string, object?>()));
+        chat.EnqueueTextResponse("Completed.");
+
+        await using var agent = await Builder(config)
+            .WithChatClient(chat)
+            .WithPermissions(AuthorizationMode.Bypass)
+            .WithMcpOptions(options => options.HttpClientFactory = _ => http)
+            .BuildAsync();
+
+        var result = await agent.RunAsync("Use the hidden inline tool.");
+
+        Assert.Equal("Completed.", result.Text);
+        Assert.Single(handler.InvokedTools);
+        Assert.Contains("https://inline.test/mcp:inline_echo", handler.InvokedTools);
+    }
+
+    [Fact]
+    public async Task AgentBuilder_CollapsedMcp_ContainerActivationIsExemptFromPermissionResolution()
+    {
+        var handler = new DeclarativeMcpHandler();
+        using var http = new HttpClient(handler);
+        var chat = new FakeChatClient();
+        var config = new AgentConfig
+        {
+            Mcp = new AgentMcpConfig
+            {
+                Servers =
+                [
+                    new McpServerConfig
+                    {
+                        Name = "inline",
+                        Transport = "http",
+                        Endpoint = new Uri("https://inline.test/mcp"),
+                        EnableCollapsing = true
+                    }
+                ]
+            }
+        };
+        chat.EnqueueToolCalls(("MCP_inline", "expand", new Dictionary<string, object?>()));
+        chat.EnqueueToolCalls(("inline_echo", "invoke", new Dictionary<string, object?>()));
+        chat.EnqueueTextResponse("Completed.");
+
+        await using var agent = await Builder(config)
+            .WithChatClient(chat)
+            .WithPermissions(AuthorizationMode.Bypass)
+            .WithMcpOptions(options => options.HttpClientFactory = _ => http)
+            .BuildAsync();
+
+        var result = await agent.RunAsync("Expand the container and invoke its tool.");
+
+        Assert.Equal("Completed.", result.Text);
+        Assert.Single(handler.InvokedTools);
+        Assert.Contains("https://inline.test/mcp:inline_echo", handler.InvokedTools);
+    }
+
+    [Fact]
     public async Task AgentBuilder_LoadsAndInvokesInlineAndManifestServers()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"hpd-mcp-e2e-{Guid.NewGuid():N}");

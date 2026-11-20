@@ -136,7 +136,7 @@ internal sealed class OpenAICodexProvider :
         };
         var sdk = new OpenAIClient(new System.ClientModel.ApiKeyCredential("hpd-experimental-unused"), options);
         var responsesClient = sdk.GetResponsesClient().AsIChatClient(model);
-        var client = new OpenAICodexChatClient(responsesClient, model, ReadModelPolicy(context.EffectiveConfig));
+        var client = new OpenAICodexChatClient(new ImageToolResultChatClient(responsesClient), model, ReadModelPolicy(context.EffectiveConfig));
         return ValueTask.FromResult(new ProviderClientConstruction<IChatClient>
         {
             Client = client,

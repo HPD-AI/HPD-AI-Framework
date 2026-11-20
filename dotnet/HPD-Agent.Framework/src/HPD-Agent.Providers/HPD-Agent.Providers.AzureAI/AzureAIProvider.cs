@@ -126,6 +126,8 @@ internal class AzureAIProvider : IProvider, IProviderClientFactory<IChatClient>,
             else throw new InvalidOperationException("Azure AI requires API-key or external-identity authentication.");
         }
 
+        chatClient = new ImageToolResultChatClient(chatClient, supportsImages: false);
+
         return ValueTask.FromResult(new ProviderClientConstruction<IChatClient>
         {
             Client = chatClient,

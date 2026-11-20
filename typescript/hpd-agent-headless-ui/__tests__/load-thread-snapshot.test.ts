@@ -1,6 +1,6 @@
 import { installResources } from './sdk-client-fixture.js';
 import { describe, expect, it, vi } from 'vitest';
-import type { AgentClient } from '@hpd-research/hpd-agent-client';
+import { EventTypes, type AgentClient } from '@hpd-research/hpd-agent-client';
 import { loadThreadSnapshot } from '../src/index.js';
 
 function fakeClient(): AgentClient {
@@ -61,5 +61,50 @@ describe('loadThreadSnapshot', () => {
 
     expect(client.getThreadState).toHaveBeenCalledWith('agent', 's1', 'main');
     expect(client.getThreadExecutions).toHaveBeenCalledWith('agent', 's1', 'main');
+  });
+
+  it('replays committed events through the journal head before connecting live', async () => {
+    const event = {
+      type: EventTypes.USER_MESSAGE,
+      messageId: 'user-1',
+      text: 'restore this message',
+      threadSequenceNumber: 2,
+      sessionId: 's1',
+      threadId: 'main',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    };
+    const client = installResources({
+      getThread: vi.fn(async () => ({ id: 'main', sessionId: 's1' })),
+      getThreadState: vi.fn(async () => ({
+        observedCursor: { generation: 3, sequenceNumber: 2 },
+        activeExecution: null,
+        pendingRequests: [],
+      })),
+      getThreadExecutions: vi.fn(async () => []),
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      onAny: vi.fn((handler: (event: typeof event) => void) => {
+        handler(event);
+        return { dispose: vi.fn() };
+      }),
+    }) as unknown as AgentClient;
+
+    const snapshot = await loadThreadSnapshot({
+      client,
+      agentId: 'agent',
+      sessionId: 's1',
+      threadId: 'main',
+    });
+
+    expect(client.start).toHaveBeenCalledWith({
+      agentId: 'agent',
+      sessionId: 's1',
+      threadId: 'main',
+      after: { generation: 3, sequenceNumber: 0 },
+      signal: undefined,
+    });
+    expect(client.stop).toHaveBeenCalled();
+    expect(snapshot.events).toEqual([event]);
+    expect(snapshot.observedCursor).toEqual({ generation: 3, sequenceNumber: 2 });
   });
 });

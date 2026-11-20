@@ -44,6 +44,8 @@ public sealed class PermissionMiddleware : IAgentMiddleware
         var cache = _batches.GetValue(context.Base, static _ => new(StringComparer.Ordinal));
         foreach (var call in context.ParallelFunctions)
         {
+            if (PermissionBindingResolver.IsPermissionExemptContainer(call.Function))
+                continue;
             var result = await AuthorizeCallAsync(context, call.ResolvedFunction
                 ?? throw new InvalidOperationException("Permission binding was not resolved before batch admission."), call.CallId, call.Arguments,
                 call.ResolvedInvocation, context.RunConfig, cancellationToken).ConfigureAwait(false);
@@ -55,7 +57,12 @@ public sealed class PermissionMiddleware : IAgentMiddleware
 
     public async Task BeforeFunctionAsync(BeforeFunctionContext context, CancellationToken cancellationToken)
     {
-        if (context.Function is null) return;
+        if (context.Function is null ||
+            PermissionBindingResolver.IsPermissionExemptContainer(context.Function))
+        {
+            context.PermissionRequired = false;
+            return;
+        }
         CallDisposition result;
         if (_batches.TryGetValue(context.Base, out var cache) && cache.TryRemove(context.FunctionCallId, out var prepared))
         {

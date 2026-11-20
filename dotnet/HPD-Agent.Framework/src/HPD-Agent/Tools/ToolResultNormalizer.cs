@@ -34,6 +34,8 @@ internal sealed record NormalizedToolResult(
                 NormalizedTextPart text => text.Text,
                 NormalizedJsonPart json => json.Json.Clone(),
                 NormalizedAIContentPart ai => ai.Content,
+                NormalizedClientContentPart { Content: ClientTools.BinaryContent { Data: { Length: > 0 } } binary }
+                    when binary.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) => ToAIContent(binary),
                 NormalizedClientContentPart client => client.Content,
                 NormalizedToolErrorPart error => SerializeError(error),
                 _ => throw Unsupported(Parts[0])

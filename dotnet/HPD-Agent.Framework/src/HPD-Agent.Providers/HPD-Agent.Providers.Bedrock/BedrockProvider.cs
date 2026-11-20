@@ -107,7 +107,8 @@ internal class BedrockProvider : IProvider, IProviderClientFactory<IChatClient>,
         IAmazonBedrockRuntime bedrockRuntime = CreateBedrockRuntimeClient(region, bedrockConfig, credentials);
 
         // Convert to IChatClient using the MEAI extension
-        IChatClient chatClient = bedrockRuntime.AsIChatClient(modelName);
+        IChatClient chatClient = new ImageToolResultChatClient(
+            bedrockRuntime.AsIChatClient(modelName), SupportsImageToolResults(modelName));
 
         return ValueTask.FromResult(new ProviderClientConstruction<IChatClient>
         {
@@ -251,6 +252,14 @@ internal class BedrockProvider : IProvider, IProviderClientFactory<IChatClient>,
 
         return new AmazonBedrockRuntimeClient(credentials, clientConfig);
     }
+
+    internal static bool SupportsImageToolResults(string modelName) =>
+        modelName.Contains("anthropic.claude-3", StringComparison.Ordinal) ||
+        modelName.Contains("anthropic.claude-haiku-4", StringComparison.Ordinal) ||
+        modelName.Contains("anthropic.claude-sonnet-4", StringComparison.Ordinal) ||
+        modelName.Contains("anthropic.claude-opus-4", StringComparison.Ordinal) ||
+        (modelName.Contains("amazon.nova-", StringComparison.Ordinal) &&
+            !modelName.Contains("amazon.nova-micro", StringComparison.Ordinal));
 
     public IProviderErrorHandler CreateErrorHandler()
     {

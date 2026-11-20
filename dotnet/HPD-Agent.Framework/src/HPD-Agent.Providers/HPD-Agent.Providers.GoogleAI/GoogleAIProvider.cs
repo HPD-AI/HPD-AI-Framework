@@ -69,19 +69,15 @@ internal class GoogleAIProvider : IProvider, IProviderClientFactory<IChatClient>
             throw new InvalidOperationException("For Google AI, the ModelName must be configured.");
         }
 
-        var chatClient = new GenerativeAIChatClient(
-            new GoogleAIPlatformAdapter(
-                apiKey,
-                apiVersion: googleConfig.ApiVersion ?? ApiVersions.v1Beta,
-                validateAccessToken: googleConfig.ValidateAccessToken),
-            modelName,
-            autoCallFunction: true);
+        var platform = new GoogleImageToolResultPlatformAdapter(
+            apiKey, googleConfig.ApiVersion ?? ApiVersions.v1Beta, googleConfig.ValidateAccessToken, modelName);
+        var chatClient = new GenerativeAIChatClient(platform, modelName, autoCallFunction: true);
 
-        IChatClient finalClient = chatClient;
+        IChatClient finalClient = new ImageToolResultChatClient(chatClient, formatImageResult: platform.FormatImageResult);
         return ValueTask.FromResult(new ProviderClientConstruction<IChatClient>
         {
             Client = finalClient,
-            Owner = ProviderClientConstructionUtilities.Own(finalClient, chatClient)
+            Owner = ProviderClientConstructionUtilities.Own(finalClient)
         });
     }
 

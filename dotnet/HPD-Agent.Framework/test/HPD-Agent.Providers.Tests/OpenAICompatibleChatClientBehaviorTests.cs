@@ -99,6 +99,52 @@ public sealed class OpenAICompatibleChatClientBehaviorTests
         request.ResponseFormat.Should().BeNull();
     }
 
+    [Fact]
+    public void DeepSeekProfile_WritesMcpScreenshotAsImageAndPreservesToolCallId()
+    {
+        using var client = CreateInspectableClient(DeepSeekProvider.ChatRequestProfile);
+        using var screenshot = JsonDocument.Parse("""
+            {
+              "content": [
+                {"type":"text","text":"Saved screenshot.png"},
+                {"type":"image","mimeType":"image/png","data":"aW1hZ2U="}
+              ],
+              "structuredContent":{"path":"screenshot.png"},
+              "isError":false
+            }
+            """);
+        var request = client.Build(
+        [
+            new ChatMessage(ChatRole.Tool,
+            [
+                new FunctionResultContent("screenshot-call", screenshot.RootElement),
+                new FunctionResultContent("attribute-call", "true")
+            ])
+        ]);
+
+        var imageResult = request.Messages.Single(message => message.ToolCallId == "screenshot-call");
+        imageResult.Role.Should().Be("tool");
+        imageResult.Content!.Value[0].GetProperty("text").GetString().Should().Be("Saved screenshot.png");
+        imageResult.Content!.Value[1].GetProperty("type").GetString().Should().Be("image_url");
+        imageResult.Content!.Value[1].GetProperty("image_url").GetProperty("url").GetString()
+            .Should().Be("data:image/png;base64,aW1hZ2U=");
+        request.Messages.Single(message => message.ToolCallId == "attribute-call")
+            .Content!.Value.GetString().Should().Be("true");
+    }
+
+    [Fact]
+    public void ProfileWithoutImageToolResults_SendsReadableTextWithoutBase64()
+    {
+        using var client = CreateInspectableClient(new OpenAICompatibleRequestProfile { Vision = true });
+        using var image = JsonDocument.Parse("""
+            {"content":[{"type":"text","text":"Saved screenshot.png"},{"type":"image","mimeType":"image/png","data":"aW1hZ2U="}]}
+            """);
+        var request = client.Build(
+            [new ChatMessage(ChatRole.Tool, [new FunctionResultContent("screenshot-call", image.RootElement)])]);
+        var result = request.Messages.Single().Content!.Value.GetString();
+        result.Should().Contain("Saved screenshot.png").And.Contain("text-only").And.NotContain("aW1hZ2U=");
+    }
+
     [Theory]
     [InlineData(Microsoft.Extensions.AI.ReasoningEffort.None, null, "disabled")]
     [InlineData(Microsoft.Extensions.AI.ReasoningEffort.Low, "high", "enabled")]

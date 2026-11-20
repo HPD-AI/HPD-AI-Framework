@@ -102,6 +102,7 @@ function fakeClient(): AgentClient & { emit(event: AgentEvent): Promise<void> } 
       role: 'user',
       source: 'UserInput',
       visibility: 'Transcript',
+      threadSequenceNumber: 1,
       timestamp: '2026-01-01T00:00:00.000Z',
       sessionId: 's1',
       threadId: 'main',
@@ -110,6 +111,7 @@ function fakeClient(): AgentClient & { emit(event: AgentEvent): Promise<void> } 
       type: EventTypes.TEXT_DELTA,
       messageId: 'u1',
       text: 'hello',
+      threadSequenceNumber: 2,
       timestamp: '2026-01-01T00:00:00.000Z',
       sessionId: 's1',
       threadId: 'main',
@@ -117,6 +119,7 @@ function fakeClient(): AgentClient & { emit(event: AgentEvent): Promise<void> } 
     {
       type: EventTypes.TEXT_MESSAGE_END,
       messageId: 'u1',
+      threadSequenceNumber: 3,
       timestamp: '2026-01-01T00:00:00.000Z',
       sessionId: 's1',
       threadId: 'main',

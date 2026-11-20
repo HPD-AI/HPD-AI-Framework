@@ -6,6 +6,23 @@ namespace HPD.Agent.Permissions;
 /// <summary>Resolves static and host overrides before middleware admission.</summary>
 internal static class PermissionBindingResolver
 {
+    internal static bool IsPermissionExemptContainer(AIFunction? function)
+    {
+        if (function?.AdditionalProperties?.TryGetValue(
+                HPDCapabilityMetadata.AdditionalPropertiesKey,
+                out var typedValue) == true &&
+            typedValue is HPDCapabilityMetadata metadata)
+        {
+            return metadata.Kind is
+                HPDCapabilityKind.FunctionActivation or
+                HPDCapabilityKind.ToolHarnessActivation or
+                HPDCapabilityKind.SkillActivation;
+        }
+
+        return function?.AdditionalProperties?.TryGetValue("IsContainer", out var value) == true &&
+            value is true;
+    }
+
     internal static ResolvedFunction Resolve(AIFunction function, ResolvedFunctionInvocation? invocation, AgentRunConfig runConfig, PermissionOverrideRegistry? overrides)
     {
         if (function is not HPDAIFunctionFactory.HPDAIFunction hpd)

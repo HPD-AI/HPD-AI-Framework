@@ -31,6 +31,8 @@ internal sealed class DeepSeekProvider : OpenAICompatibleChatProviderBase<DeepSe
         RequiredToolChoice = true,
         NamedToolChoice = true,
         StreamingUsage = true,
+        Vision = true,
+        ToolResultVision = true,
         ApplyReasoning = ApplyReasoning
     };
 

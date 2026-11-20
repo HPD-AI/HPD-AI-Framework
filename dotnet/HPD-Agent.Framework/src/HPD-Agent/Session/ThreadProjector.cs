@@ -488,6 +488,40 @@ internal static class ThreadProjector
         if (payload.Json is { } json)
             return json.Clone();
 
+        if (payload.Content is { Count: > 0 } content &&
+            content.Any(part => part is ClientTools.BinaryContent { Data: not null } binary &&
+                binary.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)))
+        {
+            var parts = new List<AIContent>(content.Count);
+            foreach (var part in content)
+            {
+                switch (part)
+                {
+                    case ClientTools.TextContent text:
+                        parts.Add(new TextContent(text.Text));
+                        break;
+                    case ClientTools.BinaryContent { Data: not null } binary
+                        when binary.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase):
+                        try
+                        {
+                            parts.Add(new DataContent(Convert.FromBase64String(binary.Data), binary.MimeType)
+                            {
+                                Name = binary.Filename
+                            });
+                        }
+                        catch (FormatException)
+                        {
+                            return payload.Text;
+                        }
+                        break;
+                    default:
+                        return payload.Text;
+                }
+            }
+
+            return parts;
+        }
+
         return payload.Text;
     }
 

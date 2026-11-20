@@ -192,8 +192,10 @@ public class ThreadEventStoreTests : AgentTestBase
             "hpd.messageTurnId"]);
     }
 
-    [Fact]
-    public void ThreadProjector_ProjectsSelfContainedToolCallEndIntoMeaiHistory()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ThreadProjector_ProjectsSelfContainedToolCallEndIntoMeaiHistory(bool includeImage)
     {
         var thread = new Thread("session-1", "main", "test-agent");
         var assistant = new ChatMessage(ChatRole.Assistant, []) { MessageId = "assistant-1" };
@@ -228,7 +230,10 @@ public class ThreadEventStoreTests : AgentTestBase
                     "turn-1",
                     "call-1",
                     "tool-1",
-                    new ToolResultPayload(Text: "workspace files"),
+                    new ToolResultPayload(Text: "workspace files", Content: includeImage
+                        ? [new HPD.Agent.ClientTools.TextContent("workspace files"),
+                           new HPD.Agent.ClientTools.BinaryContent("image/png", Data: "aW1hZ2U=")]
+                        : null),
                     null,
                     null,
                     0,
@@ -246,6 +251,19 @@ public class ThreadEventStoreTests : AgentTestBase
         var toolMessage = Assert.Single(projected.Messages.Where(m => m.Role == ChatRole.Tool));
         var result = Assert.Single(toolMessage.Contents.OfType<FunctionResultContent>());
         Assert.Equal("call-1", result.CallId);
+        if (includeImage)
+        {
+            var parts = Assert.IsAssignableFrom<IEnumerable<AIContent>>(result.Result).ToArray();
+            Assert.Equal("workspace files", Assert.IsType<TextContent>(parts[0]).Text);
+            var image = Assert.IsType<DataContent>(parts[1]);
+            Assert.Equal("image/png", image.MediaType);
+            Assert.Equal(Convert.FromBase64String("aW1hZ2U="), image.Data.ToArray());
+        }
+        else
+        {
+            Assert.Equal("workspace files", result.Result);
+        }
+
         AssertNoOrphanFunctionResults(projected.Messages);
     }
 

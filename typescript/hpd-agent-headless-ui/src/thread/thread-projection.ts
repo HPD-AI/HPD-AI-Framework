@@ -142,6 +142,9 @@ class ThreadProjectionImpl implements ThreadProjection {
       case EventTypes.CONTENT_ADDED:
         this.onContentAdded(known, known.messageId, known.content);
         break;
+      case EventTypes.USER_MESSAGE:
+        this.onUserMessage(known, known.messageId, known.text);
+        break;
       case EventTypes.TEXT_MESSAGE_START:
         this.onTextMessageStart(known, known.messageId, known.role);
         break;
@@ -595,6 +598,24 @@ class ThreadProjectionImpl implements ThreadProjection {
       this.snapshot = refreshSnapshot({ ...this.snapshot, error: null });
     }
     this.emit();
+  }
+
+  private onUserMessage(event: AgentEvent, messageId: string, text: string): void {
+    const optimistic = this.snapshot.transcriptMessages.find(message =>
+      message.placement === 'optimistic'
+      && message.role === 'user'
+      && message.content === text);
+    const durableEvent = {
+      ...event,
+      role: 'user',
+      source: 'UserInput',
+      visibility: 'Transcript',
+      persistence: 'ThreadHistory',
+      clientInputId: optimistic?.clientInputId ?? null,
+    };
+    this.startMessageFromEvent(durableEvent, messageId, 'user');
+    this.appendMessageText(messageId, text);
+    this.onTextMessageEnd(messageId);
   }
 
   private onContentAdded(event: AgentEvent, messageId: string, content: unknown): void {
@@ -1085,7 +1106,8 @@ function refreshSnapshot(snapshot: ThreadProjectionSnapshot): ThreadProjectionSn
   return {
     ...snapshot,
     activity,
-    canSend: activity.status === 'idle' && snapshot.error === null,
+    canSend: (activity.status === 'idle' || activity.status === 'cancelled') &&
+      snapshot.error === null,
   };
 }
 

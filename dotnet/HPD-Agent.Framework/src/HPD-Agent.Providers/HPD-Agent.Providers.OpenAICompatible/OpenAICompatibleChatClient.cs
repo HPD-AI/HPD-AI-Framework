@@ -362,7 +362,7 @@ public class OpenAICompatibleChatClient : IChatClient
                     {
                         Role = "tool",
                         ToolCallId = result.CallId,
-                        Content = CreateStringJsonElement(SerializeFunctionResult(result.Result))
+                        Content = CreateToolResultContent(result.Result)
                     });
                 }
                 return;
@@ -394,10 +394,34 @@ public class OpenAICompatibleChatClient : IChatClient
         requestMessages.Add(requestMessage);
     }
 
+    private JsonElement CreateToolResultContent(object? result)
+    {
+        if (ImageToolResultChatClient.ReadImageParts(result) is { } imageParts)
+        {
+            return _options.RequestProfile.ToolResultVision
+                ? CreateMessageContent(new ChatMessage(ChatRole.Tool, imageParts.ToList()))
+                : CreateStringJsonElement(ImageToolResultChatClient.DescribeImageParts(imageParts));
+        }
+
+        if (_options.RequestProfile.ToolResultVision)
+        {
+            if (result is IEnumerable<AIContent> contents)
+                return CreateMessageContent(new ChatMessage(ChatRole.Tool, contents.ToList()));
+
+            if (result is AIContent content)
+                return CreateMessageContent(new ChatMessage(ChatRole.Tool, [content]));
+        }
+
+        return CreateStringJsonElement(SerializeFunctionResult(result));
+    }
+
     private JsonElement CreateMessageContent(ChatMessage message)
     {
         var parts = new List<OpenAICompatibleRequestContentPart>();
         var hasNonTextContent = false;
+        var supportsImages = message.Role == ChatRole.Tool
+            ? _options.RequestProfile.ToolResultVision
+            : _options.RequestProfile.Vision;
 
         foreach (var content in message.Contents)
         {
@@ -412,7 +436,7 @@ public class OpenAICompatibleChatClient : IChatClient
                     break;
 
                 case UriContent uriContent when
-                    _options.RequestProfile.Vision &&
+                    supportsImages &&
                     uriContent.HasTopLevelMediaType("image"):
                     hasNonTextContent = true;
                     parts.Add(new OpenAICompatibleRequestContentPart
@@ -427,7 +451,7 @@ public class OpenAICompatibleChatClient : IChatClient
                     break;
 
                 case DataContent dataContent when
-                    _options.RequestProfile.Vision &&
+                    supportsImages &&
                     dataContent.HasTopLevelMediaType("image"):
                     hasNonTextContent = true;
                     parts.Add(new OpenAICompatibleRequestContentPart
