@@ -37,7 +37,12 @@ public sealed class CodingAgentShutdownTests
             .WithSandbox(new HostProcessProviderModule(), new SandboxSessionRequest
             {
                 Workspaces = [SandboxWorkspaceRequest.HostDirectory(Path.GetTempPath())],
-                Isolation = ProcessIsolationPolicy.Default with { Mode = ProcessIsolationMode.Disabled },
+                Isolation = ProcessIsolationPolicy.Default with
+                {
+                    Mode = OperatingSystem.IsWindows()
+                        ? ProcessIsolationMode.ProviderDefault
+                        : ProcessIsolationMode.Disabled,
+                },
             })
             .WithToolHarness<CodingToolHarness>()
             .WithPermissions();

@@ -199,15 +199,23 @@ public sealed class WorkspaceRootMarkerResolver : IWorkspaceRootMarkerResolver
         string root,
         string path)
     {
-        string normalizedRoot = root.TrimEnd('/');
-        if (path.StartsWith(
-                normalizedRoot + "/",
+        string relative = Path.GetRelativePath(root, path);
+        if (Path.IsPathRooted(relative) ||
+            relative == ".." ||
+            relative.StartsWith(
+                ".." + Path.DirectorySeparatorChar,
+                StringComparison.Ordinal) ||
+            relative.StartsWith(
+                ".." + Path.AltDirectorySeparatorChar,
                 StringComparison.Ordinal))
         {
-            return path[(normalizedRoot.Length + 1)..];
+            throw new UnauthorizedAccessException(
+                "Workspace marker evidence is outside its owning root.");
         }
-        throw new UnauthorizedAccessException(
-            "Workspace marker evidence is outside its owning root.");
+
+        return relative
+            .Replace(Path.DirectorySeparatorChar, '/')
+            .Replace(Path.AltDirectorySeparatorChar, '/');
     }
 
 

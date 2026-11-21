@@ -106,7 +106,7 @@ public class CodingToolHarnessAgentBuilderTests
             await File.WriteAllTextAsync(Path.Combine(root.FullName, "selection.txt"), "registered-workspace-content");
             var reference = new AgentWorkspaceReference("selected");
             var request = HostProcessSandbox.ForDirectory(root.FullName);
-            if (!OperatingSystem.IsMacOS())
+            if (OperatingSystem.IsLinux())
                 request = request with { Isolation = ProcessIsolationPolicy.Default with { Mode = ProcessIsolationMode.Disabled } };
             await using var agent = await new AgentBuilder(CreateTestConfig(), new TestProviderRegistry(chatClient))
                 .WithEventComposition(CodingEventTestCodec.Composition)
