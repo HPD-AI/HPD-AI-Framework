@@ -24,8 +24,18 @@ workspace that file tools and sandboxed processes can read.
 - macOS uses Seatbelt through `sandbox-exec` when dependency checks pass.
 - Linux uses bubblewrap, namespaces, seccomp, and provider-mediated networking
   when the required kernel and executable features are available.
-- Windows is not registered as a sandbox backend. It fails closed until an
-  accepted filesystem and network enforcement mechanism is implemented.
+- Windows supports a restricted AppContainer command profile when the requested
+  policy can be enforced: network egress must be blocked, filesystem rules and
+  authority bindings must be empty, TLS interception and interactive features
+  must be disabled, and the process violation action must be `ObserveOnly`.
+  Unsupported policies fail capability admission unless provider-degraded
+  execution is explicitly allowed; degraded execution has no OS filesystem,
+  network, or process-tree confinement.
+- Windows workspace access is currently limited. The provider can provision
+  live, disjoint host-directory roots with read-only or read/write ACL grants
+  for an AppContainer profile, but the current capability refinement does not
+  admit sessions that require workspace bindings. Such requests fail closed.
+  Workspace grants are released when the provider session is disposed.
 - Agent permissions remain a separate decision layer. This provider enforces
   the compiled Environment isolation plan and does not inspect Agent prompts,
   tools, or conversation state.
