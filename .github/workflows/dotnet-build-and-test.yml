@@ -100,12 +100,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Primary: Linux with all frameworks
-          - { targetFramework: "net10.0", os: "ubuntu-latest", configuration: Release, collect-coverage: true }
-          - { targetFramework: "net11.0", os: "ubuntu-latest", configuration: Release }
-          # Cross-platform: Windows and macOS on latest framework
-          - { targetFramework: "net10.0", os: "windows-latest", configuration: Release }
-          - { targetFramework: "net10.0", os: "macos-latest", configuration: Release }
+          # Run both frameworks on one runner per OS.
+          - { os: "ubuntu-latest", configuration: Release, collect-coverage: true }
+          - { os: "windows-latest", configuration: Release, collect-coverage: false }
+          - { os: "macos-latest", configuration: Release, collect-coverage: false }
 
     runs-on: ${{ matrix.os }}
 
@@ -180,7 +178,7 @@ jobs:
       run: dotnet build dotnet/HPD-Agent.Framework/HPD-Agent.slnx -c ${{ matrix.configuration }} --no-restore
 
     - name: Verify API surfaces
-      if: matrix.targetFramework == 'net10.0' && (matrix.os != 'macos-latest' || !inputs.skip_macos_verification) && (matrix.os != 'windows-latest' || !inputs.skip_windows_verification)
+      if: (matrix.os != 'macos-latest' || !inputs.skip_macos_verification) && (matrix.os != 'windows-latest' || !inputs.skip_windows_verification)
       run: >
         dotnet run
         --project dotnet/HPD-Agent.Framework/test/HPD-Agent.DxAudit/HPD-Agent.DxAudit.csproj
@@ -192,7 +190,7 @@ jobs:
         --strict
 
     - name: Smoke-test audio application composition
-      if: matrix.targetFramework == 'net10.0' && (matrix.os != 'macos-latest' || !inputs.skip_macos_verification) && (matrix.os != 'windows-latest' || !inputs.skip_windows_verification)
+      if: (matrix.os != 'macos-latest' || !inputs.skip_macos_verification) && (matrix.os != 'windows-latest' || !inputs.skip_windows_verification)
       run: >
         dotnet run
         --project dotnet/HPD-Agent.Framework/test/HPD-Agent.AudioCli/HPD-Agent.AudioCli.csproj
@@ -217,32 +215,39 @@ jobs:
       if: ${{ matrix.collect-coverage && !inputs.skip_tests }}
       run: |
         bash dotnet/HPD-Agent.Framework/eng/test-agent-suite.sh \
-          ${{ matrix.targetFramework }} \
+          net10.0 \
           --logger "trx" \
           --collect:"XPlat Code Coverage" \
-          --results-directory:"TestResults/Coverage/"
+          --results-directory:"TestResults/net10.0/Coverage/"
 
-    - name: Run tests (without coverage)
+    - name: Run tests (.NET 10, without coverage)
       if: ${{ !matrix.collect-coverage && !inputs.skip_tests }}
       shell: bash
       run: |
-        CONFIGURATION="${{ matrix.configuration }}"
         bash dotnet/HPD-Agent.Framework/eng/test-agent-suite.sh \
-          ${{ matrix.targetFramework }} \
-          --logger "trx;LogFileName=test-results.trx"
+          net10.0 \
+          --logger "trx;LogFileName=test-results-net10.trx"
+
+    - name: Run tests (.NET 11)
+      if: ${{ !inputs.skip_tests }}
+      shell: bash
+      run: |
+        bash dotnet/HPD-Agent.Framework/eng/test-agent-suite.sh \
+          net11.0 \
+          --logger "trx;LogFileName=test-results-net11.trx"
 
     - name: Upload test results
       if: ${{ always() && !inputs.skip_tests }}
       uses: actions/upload-artifact@v4
       with:
-        name: test-results-${{ matrix.os }}-${{ matrix.targetFramework }}
+        name: test-results-${{ matrix.os }}
         path: '**/*.trx'
 
     - name: Generate coverage report
       if: ${{ matrix.collect-coverage && !inputs.skip_tests }}
       uses: danielpalme/ReportGenerator-GitHub-Action@5.5.1
       with:
-        reports: "./TestResults/Coverage/**/coverage.cobertura.xml"
+        reports: "./TestResults/net10.0/Coverage/**/coverage.cobertura.xml"
         targetdir: "./TestResults/Reports"
         reporttypes: "HtmlInline;JsonSummary;Cobertura"
 

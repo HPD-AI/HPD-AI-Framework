@@ -193,11 +193,14 @@ public sealed class FileAgentStudioTelemetryStore : IAgentStudioTelemetryStore
             Directory.CreateDirectory(_directory);
             byte[] payload = JsonSerializer.SerializeToUtf8Bytes(
                 span, AgentStudioTelemetryJsonContext.Default.AgentStudioTelemetrySpan);
-            using var stream = new FileStream(
-                _filePath, FileMode.Append, FileAccess.Write, FileShare.Read,
-                bufferSize: 16_384, FileOptions.WriteThrough);
-            stream.Write(payload);
-            stream.WriteByte((byte)'\n');
+            using (var stream = new FileStream(
+                       _filePath, FileMode.Append, FileAccess.Write, FileShare.Read,
+                       bufferSize: 16_384, FileOptions.WriteThrough))
+            {
+                stream.Write(payload);
+                stream.WriteByte((byte)'\n');
+            }
+
             _appendedSinceCompaction++;
             if (_appendedSinceCompaction >= Math.Max(64, _capacity))
                 Compact();
