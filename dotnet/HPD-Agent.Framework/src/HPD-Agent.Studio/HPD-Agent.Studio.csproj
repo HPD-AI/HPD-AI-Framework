@@ -39,12 +39,10 @@
     <InternalsVisibleTo Include="HPD-Agent.Studio.Tests" />
   </ItemGroup>
 
-  <Target Name="BuildStudioAgentModule"
+  <Target Name="RequireStudioAgentAssetBeforeBuild"
           BeforeTargets="PrepareForBuild"
           Condition="!Exists('$(StudioAgentModuleRoot)dist\agent.js')">
-    <Message Importance="high" Text="Building the HPD Agent Studio TypeScript module because dist/agent.js is missing." />
-    <Exec Command="npm ci" WorkingDirectory="$(StudioAgentModuleRoot)" />
-    <Exec Command="npm run build" WorkingDirectory="$(StudioAgentModuleRoot)" />
+    <Error Text="HPD.Agent.Studio requires dist/agent.js. Run dotnet/eng/build-studio-assets.sh before building." />
   </Target>
 
 </Project>

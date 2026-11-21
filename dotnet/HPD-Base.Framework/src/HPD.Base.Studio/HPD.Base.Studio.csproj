@@ -33,12 +33,10 @@
           PackagePath="studio-assets\base\6c6d65420bde4c64faaaea95ec0a74b36c719d66c0edd2eec1aa7d7f461873e5.js" />
   </ItemGroup>
 
-  <Target Name="BuildStudioBaseModule"
+  <Target Name="RequireStudioBaseAssetBeforeBuild"
           BeforeTargets="PrepareForBuild"
           Condition="!Exists('$(StudioBaseModuleRoot)dist\base.js')">
-    <Message Importance="high" Text="Building the HPD Base Studio TypeScript module because dist/base.js is missing." />
-    <Exec Command="npm ci" WorkingDirectory="$(StudioBaseModuleRoot)" />
-    <Exec Command="npm run build" WorkingDirectory="$(StudioBaseModuleRoot)" />
+    <Error Text="HPD.Base.Studio requires dist/base.js. Run dotnet/eng/build-studio-assets.sh before building." />
   </Target>
 
   <Target Name="RequireStudioBaseAssetBeforePack"

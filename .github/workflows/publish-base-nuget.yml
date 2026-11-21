@@ -85,6 +85,13 @@ jobs:
             10.0.x
             11.0.x
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Build Studio frontend assets
+        run: bash dotnet/eng/build-studio-assets.sh
+
       - name: Verify HPD Base
         run: |
           set -euo pipefail
