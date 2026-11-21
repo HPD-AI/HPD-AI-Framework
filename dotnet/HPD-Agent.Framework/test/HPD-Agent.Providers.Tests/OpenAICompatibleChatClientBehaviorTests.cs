@@ -258,6 +258,42 @@ public sealed class OpenAICompatibleChatClientBehaviorTests
     }
 
     [Fact]
+    public async Task GetResponseAsync_PreservesToolSchemaWithoutProperties()
+    {
+        var handler = new CapturingHandler("""
+            {"id":"chatcmpl-1","model":"test","choices":[{"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}]}
+            """);
+        using var client = CreateClient(handler);
+        using var schema = JsonDocument.Parse("""
+            {"type":"object","additionalProperties":{"type":"string"},"minProperties":1}
+            """);
+
+        await client.GetResponseAsync(
+            [new ChatMessage(ChatRole.User, "hello")],
+            new ChatOptions { Tools = [new SchemaFunction(schema.RootElement.Clone())] });
+
+        using var request = JsonDocument.Parse(handler.RequestBody);
+        var parameters = request.RootElement.GetProperty("tools")[0].GetProperty("function").GetProperty("parameters");
+        parameters.GetProperty("additionalProperties").GetProperty("type").GetString().Should().Be("string");
+        parameters.GetProperty("minProperties").GetInt32().Should().Be(1);
+        parameters.TryGetProperty("properties", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void BuildRequest_RejectsNonObjectToolSchema()
+    {
+        using var client = CreateInspectableClient(OpenAICompatibleRequestProfile.All);
+        using var schema = JsonDocument.Parse("[]");
+
+        var build = () => client.Build(
+            [new ChatMessage(ChatRole.User, "hello")],
+            new ChatOptions { Tools = [new SchemaFunction(schema.RootElement.Clone())] });
+
+        build.Should().Throw<InvalidOperationException>()
+            .WithMessage("*JSON object tool schema*");
+    }
+
+    [Fact]
     public async Task GetResponseAsync_WithDetailedChatCompletionsUsage_MapsMeaiUsageDetails()
     {
         var handler = new CapturingHandler("""
@@ -585,6 +621,13 @@ public sealed class OpenAICompatibleChatClientBehaviorTests
         public override string Name { get; } = name;
         public override string Description { get; } = description;
         public override JsonElement JsonSchema { get; } = JsonDocument.Parse("""{"type":"object","properties":{"q":{"type":"string"}}}""").RootElement;
+    }
+
+    private sealed class SchemaFunction(JsonElement schema) : AIFunctionDeclaration
+    {
+        public override string Name => "schema_tool";
+        public override string Description => "Tests schema projection";
+        public override JsonElement JsonSchema => schema;
     }
 
     private sealed class TestProvider(CapturingHandler handler)

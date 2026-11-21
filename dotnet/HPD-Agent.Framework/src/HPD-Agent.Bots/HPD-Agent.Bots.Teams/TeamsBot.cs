@@ -296,6 +296,9 @@ public sealed class TeamsBot(
         if (permission.Arguments is { ValueKind: not System.Text.Json.JsonValueKind.Undefined } arguments)
             body.Add(new TeamsTextBlock(
                 $"Arguments: {Truncate(arguments.GetRawText(), 500)}", Wrap: true));
+        if (permission.Invocation is { } invocation)
+            body.Add(new TeamsTextBlock(
+                $"Mode: {invocation.Mode} | Input checks: {invocation.Validation} | Input origin: {invocation.IngressProvenance}", Wrap: true));
         if (permission.PersistenceUnavailableReason is { } unavailable)
             body.Add(new TeamsTextBlock($"Reusable approval unavailable: {unavailable}", Wrap: true));
         return new TeamsAdaptiveCard(Body: body, Actions: permission.Choices.Select(choice => new TeamsSubmitAction(

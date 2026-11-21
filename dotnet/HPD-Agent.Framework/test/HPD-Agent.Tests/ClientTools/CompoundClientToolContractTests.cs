@@ -1,6 +1,7 @@
 using System.Text.Json;
 using HPD.Agent.ClientTools;
 using HPD.Agent.Permissions;
+using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Tests.ClientTools;
 
@@ -65,7 +66,7 @@ public sealed class CompoundClientToolContractTests
     }
 
     [Fact]
-    public void InvocationSchema_AddsModeOnlyToEligibleClosedBranch()
+    public void InvocationSchema_SeparatesModeFromClosedBranches()
     {
         var schema = JsonDocument.Parse(
             """
@@ -88,22 +89,73 @@ public sealed class CompoundClientToolContractTests
             }
             """).RootElement.Clone();
 
-        var transformed = AgentInvocationModes.CreateSchema(
-            schema,
-            AgentInvocationModePolicy.ModelChoice,
-            "action",
-            new HashSet<string>(StringComparer.Ordinal) { "export" });
-        var branches = transformed.GetProperty("oneOf");
+        var transformed = FunctionInvocationEnvelope.CreateSchema(schema);
+        var properties = transformed.GetProperty("properties");
+        var branches = properties.GetProperty("arguments").GetProperty("oneOf");
 
-        Assert.False(branches[0].GetProperty("properties").TryGetProperty(
-            "invocationMode",
-            out _));
-        Assert.True(branches[1].GetProperty("properties").TryGetProperty(
-            "invocationMode",
-            out var invocationMode));
-        Assert.Equal("background", invocationMode.GetProperty("enum")[1].GetString());
+        Assert.False(branches[0].GetProperty("properties").TryGetProperty("invocationMode", out _));
+        Assert.False(branches[1].GetProperty("properties").TryGetProperty("invocationMode", out _));
+        Assert.Equal("background", properties.GetProperty("invocation").GetProperty("properties")
+            .GetProperty("mode").GetProperty("enum")[1].GetString());
         Assert.False(branches[1].GetProperty("additionalProperties").GetBoolean());
-        Assert.False(transformed.TryGetProperty("properties", out _));
+    }
+
+    [Theory]
+    [InlineData("export", "background", false)]
+    [InlineData("inspect", "background", true)]
+    [InlineData("inspect", null, false)]
+    public async Task ClientToolPreparation_UsesSelectedActionPolicyAndPreservesDomainMode(
+        string action, string? requestedMode, bool rejected)
+    {
+        using var schema = JsonDocument.Parse("""
+            {"type":"object","oneOf":[
+              {"type":"object","properties":{"action":{"const":"inspect"},"invocationMode":{"type":"string"}},"required":["action","invocationMode"],"additionalProperties":false},
+              {"type":"object","properties":{"action":{"const":"export"},"invocationMode":{"type":"string"}},"required":["action","invocationMode"],"additionalProperties":false}
+            ]}
+            """);
+        var definition = new ClientToolDefinition
+        {
+            Name = "canvas", Description = "Client canvas", ParametersSchema = schema.RootElement.Clone(),
+            OperationContract = new ClientToolOperationContract
+            {
+                Discriminator = "action",
+                Actions = new Dictionary<string, ClientToolPolicy>
+                {
+                    ["inspect"] = new() { InvocationModePolicy = AgentInvocationModePolicy.SynchronousOnly },
+                    ["export"] = new() { InvocationModePolicy = AgentInvocationModePolicy.ModelChoice }
+                }
+            }
+        };
+        definition.Validate();
+        var function = ClientToolMiddleware.ConvertToolToAIFunction(definition, "canvas", null);
+        var payload = requestedMode is null
+            ? "{\"arguments\":{\"action\":\"" + action + "\",\"invocationMode\":\"domain\"}}"
+            : "{\"arguments\":{\"action\":\"" + action + "\",\"invocationMode\":\"domain\"},\"invocation\":{\"mode\":\"" + requestedMode + "\"}}";
+        using var json = JsonDocument.Parse(payload);
+        var arguments = new AIFunctionArguments();
+        arguments.SetJson(json.RootElement.Clone());
+        var state = AgentLoopState.InitialSafe([], "run", "conversation", "AgentA");
+        var context = new global::HPD.Agent.Middleware.AgentContext("AgentA", "conversation", state,
+            new global::HPD.Events.Core.EventCoordinator(), null, null, CancellationToken.None);
+        var core = new FunctionExecutionCore(new global::HPD.Agent.Middleware.AgentMiddlewarePipeline([]));
+
+        var preparation = await core.PrepareFunctionAsync(new FunctionCallContent("call", function.Name, arguments),
+            new ChatOptions { Tools = [function] }, new AgentRunConfig(), context, null, CancellationToken.None, admit: false);
+
+        if (rejected)
+        {
+            Assert.NotNull(preparation.ImmediateOutcome);
+            return;
+        }
+        Assert.Null(preparation.ImmediateOutcome);
+        Assert.Equal(action, preparation.ResolvedInvocation!.Action);
+        Assert.Equal(requestedMode == "background" ? AgentInvocationMode.Background : AgentInvocationMode.Synchronous,
+            preparation.ResolvedInvocation.Mode);
+        Assert.Equal("domain", ((JsonElement)preparation.Arguments["invocationMode"]!).GetString());
+        arguments["invocationMode"] = "changed after preparation";
+        Assert.Equal("domain", ((JsonElement)preparation.Arguments["invocationMode"]!).GetString());
+        var frozen = Assert.IsAssignableFrom<IDictionary<string, object?>>(preparation.Arguments);
+        Assert.Throws<NotSupportedException>(() => frozen["invocationMode"] = "changed");
     }
 
     private static ClientToolDefinition CreateDefinition() =>

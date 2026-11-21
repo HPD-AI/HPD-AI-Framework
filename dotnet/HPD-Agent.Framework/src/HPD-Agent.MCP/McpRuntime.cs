@@ -10,6 +10,8 @@ using HPD.Environment.Contracts;
 using System.Collections;
 using System.Collections.Immutable;
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Buffers;
 using HPD.Agent.Middleware;
 
 
@@ -20,6 +22,8 @@ namespace HPD.Agent.MCP;
 /// </summary>
 internal sealed class McpRuntime : IAsyncDisposable
 {
+    private sealed class McpToolContractException(string message, Exception inner) : Exception(message, inner);
+
     private readonly Dictionary<string, McpClient> _clients = new();
     private readonly Dictionary<string, McpServerConfig> _serverConfigs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _oauthClientSecrets = new(StringComparer.Ordinal);
@@ -196,6 +200,10 @@ internal sealed class McpRuntime : IAsyncDisposable
             {
                 throw;
             }
+            catch (McpToolContractException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to load tools from server '{ServerName}': {Error}",
@@ -278,6 +286,10 @@ internal sealed class McpRuntime : IAsyncDisposable
                 }
             }
             catch (McpPermissionConfigurationException)
+            {
+                throw;
+            }
+            catch (McpToolContractException)
             {
                 throw;
             }
@@ -467,14 +479,13 @@ internal sealed class McpRuntime : IAsyncDisposable
                         serverConfig,
                         originalAIFunction.Name,
                         permissionSource),
-                    // MCP tools don't have validation since they're external - just pass through
-                    Validator = (_, _) => new List<ValidationError>(),
-                    // Copy schema from original MCP tool for proper parameter handling
-                    SchemaProvider = () => CreateMcpToolSchema(
-                        originalAIFunction.JsonSchema,
-                        McpToolInvocationRuntime.ResolveInvocationModePolicy(
-                            serverConfig,
-                            originalAIFunction.Name)),
+                    InputContractKind = FunctionInputContractKind.ExternalOwned,
+                    PermissionSourceRevision = CreateConnectionRevision(serverConfig),
+                    SchemaProvider = () => originalAIFunction.JsonSchema.Clone(),
+                    ReturnJsonSchema = originalAIFunction.ReturnJsonSchema?.Clone(),
+                    SerializerOptions = originalAIFunction.JsonSerializerOptions,
+                    InvocationModePolicy = McpToolInvocationRuntime.ResolveInvocationModePolicy(serverConfig, originalAIFunction.Name),
+                    InvocationModeHandling = AgentInvocationModeHandling.ToolBody,
                     AdditionalProperties = CreateCapabilityMetadata(
                         serverConfig.Name, originalAIFunction.Name, client)
                 };
@@ -491,15 +502,14 @@ internal sealed class McpRuntime : IAsyncDisposable
             {
                 throw;
             }
+            catch (McpToolContractException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to adapt MCP tool from server '{ServerName}': {Error}", serverConfig.Name, ex.Message);
-                // A projected tool with any permission binding may never fall back to the
-                // SDK function because that route would bypass the HPD declaration.
-                if (serverConfig.Permission is null && tool is AIFunction fallback)
-                {
-                    adaptedTools.Add(fallback);
-                }
+                throw new McpToolContractException(
+                    $"Failed to register MCP tool '{tool.Name}' from server '{serverConfig.Name}'.", ex);
             }
         }
 
@@ -820,6 +830,40 @@ internal sealed class McpRuntime : IAsyncDisposable
             [HPDCapabilityMetadata.AdditionalPropertiesKey] = CreateTypedMetadata(
                 serverName, "resource", operation)
         };
+    }
+
+    private static string CreateConnectionRevision(McpServerConfig config)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("transport", config.Transport);
+            writer.WriteString("endpoint", config.Endpoint?.AbsoluteUri);
+            writer.WriteString("command", config.Command);
+            writer.WriteString("workingDirectory", config.WorkingDirectory);
+            writer.WriteBoolean("inheritEnvironment", config.InheritEnvironmentVariables);
+            writer.WriteBoolean("defaultEnvironment", config.UseDefaultEnvironmentVariables);
+            writer.WriteString("protocol", config.ExactVersion);
+            writer.WriteStartArray("arguments");
+            foreach (var argument in config.Arguments) writer.WriteStringValue(argument);
+            writer.WriteEndArray();
+            WriteEntries(writer, "environment", config.Environment);
+            WriteEntries(writer, "environmentSecretKeys", config.EnvironmentSecretKeys);
+            WriteEntries(writer, "headers", config.Headers);
+            WriteEntries(writer, "headerSecretKeys", config.HeaderSecretKeys);
+            writer.WriteEndObject();
+        }
+        return Convert.ToHexString(SHA256.HashData(buffer.WrittenSpan)).ToLowerInvariant();
+    }
+
+    private static void WriteEntries<T>(Utf8JsonWriter writer, string name, IEnumerable<KeyValuePair<string, T>>? entries)
+    {
+        if (entries is null) { writer.WriteNull(name); return; }
+        writer.WriteStartObject(name);
+        foreach (var (key, value) in entries.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+            writer.WriteString(key, value?.ToString());
+        writer.WriteEndObject();
     }
 
     private static Dictionary<string, object?> CreateCapabilityMetadata(
@@ -1238,11 +1282,6 @@ internal sealed class McpRuntime : IAsyncDisposable
         using var document = JsonDocument.Parse(schemaJson);
         return document.RootElement.Clone();
     }
-
-    internal static JsonElement CreateMcpToolSchema(
-        JsonElement originalSchema,
-        AgentInvocationModePolicy invocationModePolicy)
-        => AgentInvocationModes.CreateSchema(originalSchema, invocationModePolicy);
 
     private static string SanitizeFunctionNamePart(string value)
     {

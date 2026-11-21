@@ -190,7 +190,17 @@ public sealed class PermissionDescriptorCatalogGenerator : IIncrementalGenerator
                         "IPermissionPolicy"));
                     return;
                 }
-                var initializer = CreatePolicyDescriptor(id!, type);
+                var semanticVersion = policyAttribute.NamedArguments
+                    .FirstOrDefault(pair => pair.Key == "SemanticVersion").Value.Value as string;
+                if (semanticVersion is not null &&
+                    (string.IsNullOrWhiteSpace(semanticVersion) || semanticVersion != semanticVersion.Trim() ||
+                     semanticVersion.Any(char.IsControl) || Encoding.UTF8.GetByteCount(semanticVersion) > 128))
+                {
+                    diagnostics.Add(Diagnostic.Create(PermissionCatalogDiagnostics.InvalidId,
+                        location, semanticVersion, type.ToDisplayString()));
+                    return;
+                }
+                var initializer = CreatePolicyDescriptor(id!, semanticVersion, type);
                 descriptors.Add(new(id!, type, location, initializer));
                 return;
             }
@@ -199,13 +209,13 @@ public sealed class PermissionDescriptorCatalogGenerator : IIncrementalGenerator
         }
     }
 
-    private static string CreatePolicyDescriptor(string id, INamedTypeSymbol type)
+    private static string CreatePolicyDescriptor(string id, string? semanticVersion, INamedTypeSymbol type)
     {
         var factory = CreateFactory("PolicyFactory", type);
 
         return
             "new global::HPD.Agent.Permissions.AIFunctionPermissionDescriptor { " +
-            $"DescriptorId = {Literal(id)}, {factory}" +
+            $"DescriptorId = {Literal(id)}, SemanticVersion = {(semanticVersion is null ? "null" : Literal(semanticVersion))}, {factory}" +
             " }";
     }
 

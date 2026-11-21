@@ -72,6 +72,28 @@ public class OpenApiDocumentParserTests
     }
 
     [Fact]
+    public async Task ParseAsync_PreservesSourceBeforeVersionNormalization()
+    {
+        const string json = """
+            {
+              "openapi": "3.1.0",
+              "info": { "title": "Example", "version": "1.0" },
+              "paths": {},
+              "components": { "schemas": { "Choice": { "anyOf": [
+                { "type": "string" }, { "type": "number" }
+              ] } } }
+            }
+            """;
+        using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(json));
+
+        var spec = await _parser.ParseAsync(stream, new OpenApiCoreConfig());
+
+        spec.SourceDocument.GetProperty("openapi").GetString().Should().Be("3.1.0");
+        spec.SourceDocument.GetProperty("components").GetProperty("schemas")
+            .GetProperty("Choice").GetProperty("anyOf").GetArrayLength().Should().Be(2);
+    }
+
+    [Fact]
     public async Task ParseFromFile_PetstoreSpec_ExtractsInfo()
     {
         var spec = await _parser.ParseFromFileAsync(PetstoreSpecPath, new OpenApiCoreConfig());

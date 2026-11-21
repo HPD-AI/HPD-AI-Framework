@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi;
 
@@ -16,7 +17,14 @@ internal sealed class HPDAgentOpenApiSchemaTransformer : IOpenApiSchemaTransform
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (context.JsonTypeInfo?.Type is { } schemaType)
+        {
             HPDAgentOpenApiPortableSchema.ApplyAuthenticationDiscriminator(schema, schemaType);
+            if (schemaType == typeof(AgentInvocationMode))
+            {
+                schema.Type = JsonSchemaType.String;
+                schema.Enum = [JsonValue.Create("synchronous"), JsonValue.Create("background")];
+            }
+        }
 
         var property = context.JsonPropertyInfo;
         if (property is null)

@@ -75,11 +75,9 @@ internal static class FunctionInvocationRuntime
         }
         else try
         {
-            sanitizedArguments = AgentInvocationModes.CreateSanitizedArguments(
-                request.Arguments, out var requestedMode);
             mode = AgentInvocationModes.Resolve(
                 request.InvocationModePolicy,
-                requestedMode);
+                requestedMode: null);
         }
         catch (InvalidOperationException ex)
         {

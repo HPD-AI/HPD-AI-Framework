@@ -15,6 +15,18 @@ namespace HPD.Agent.Tests.ClientTools;
 /// </summary>
 public class ClientToolMiddlewareTests
 {
+    [Fact]
+    public void ClientToolRequest_ExposesResolvedModeToClient()
+    {
+        var request = new ClientToolInvokeRequestEvent("request", "tool", "call",
+            new Dictionary<string, object?> { ["invocationMode"] = "domain" }, AgentInvocationMode.Background);
+
+        var json = JsonSerializer.SerializeToElement(request);
+
+        Assert.Equal("background", json.GetProperty("ResolvedInvocationMode").GetString());
+        Assert.Equal("domain", json.GetProperty("Arguments").GetProperty("invocationMode").GetString());
+    }
+
     // ============================================
     // BeforeMessageTurnAsync - ToolHarness Registration Tests
     // ============================================

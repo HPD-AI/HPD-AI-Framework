@@ -20,7 +20,22 @@ public sealed record PermissionDecisionKey(
     string AgentId,
     string Authority,
     string? Action,
-    string PolicyDescriptorId);
+    string PolicyDescriptorId)
+{
+    /// <summary>Gets the exact capability, contract, mode and provenance approved for reuse.</summary>
+    public PermissionDecisionScope? Scope { get; init; }
+}
+
+/// <summary>Identifies the specific execution contract covered by a reusable approval.</summary>
+public sealed record PermissionDecisionScope(
+    string SourceIdentity,
+    string FunctionIdentity,
+    string ContractFingerprint,
+    string PolicyVersion,
+    [property: JsonConverter(typeof(AgentInvocationModeJsonConverter))] AgentInvocationMode Mode,
+    [property: JsonConverter(typeof(JsonStringEnumConverter<FunctionInputContractKind>))] FunctionInputContractKind InputContractKind,
+    [property: JsonConverter(typeof(JsonStringEnumConverter<PermissionInputValidation>))] PermissionInputValidation InputValidation,
+    [property: JsonConverter(typeof(JsonStringEnumConverter<FunctionArgumentIngressProvenance>))] FunctionArgumentIngressProvenance IngressProvenance);
 
 /// <summary>An explicit user approval eligible for reuse after policy validation.</summary>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

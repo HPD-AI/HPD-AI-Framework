@@ -2,11 +2,11 @@
 
 - Generator: `0.1.0`
 - IR: `1.0`
-- OpenAPI SHA-256: `sha256:7fcf25c19b5b2c4df174379fa48d2cda318454317892dc1f0c61613752f4f5e9`
+- OpenAPI SHA-256: `sha256:425fa0df2396ddcb092ad13924f2acf377563342b1e9611cbe4cc2d24741d9f6`
 - Input digest: `sha256:be4f985d04fabf388ad5fb7410ef875025d1c5cb0038dfb1a05ff0abe38a7cf3`
-- IR SHA-256: `sha256:eb4f45062095c937f35e7a5e1df04dbc090bbe1d03dbe7c0f6f32ae892908006`
+- IR SHA-256: `sha256:4edc93cc5f85e68e603b8e67245c4b1715543116a7de6da2841a0c286e182b9f`
 - Operations: 74
-- Models: 3445
+- Models: 3446
 - Events: 144
 - Public inputs: 7
 - Supported capabilities: agents, audio, collapsing, content, evaluations, executions, forking, goals, interactions, json, middleware, multimodal-content, provider-authentication, runtime-extensions, server-sent-events, sessions, threads, unknown-events

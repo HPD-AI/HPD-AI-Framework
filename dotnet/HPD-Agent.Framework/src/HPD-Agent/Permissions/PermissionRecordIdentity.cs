@@ -8,13 +8,26 @@ namespace HPD.Agent.Permissions;
 /// <summary>Versioned, deterministic encoding independent of JSON property order.</summary>
 internal static class PermissionRecordIdentity
 {
-    private const string Version = "hpd.permission.record.v1";
+    private const string Version = "hpd.permission.record.v2";
     private static readonly JsonWriterOptions Options = new()
     {
         Encoder = JavaScriptEncoder.Default,
         Indented = false,
         SkipValidation = false
     };
+
+    internal static string SourceIdentity(string identity, string revision)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartArray();
+            writer.WriteStringValue(identity);
+            writer.WriteStringValue(revision);
+            writer.WriteEndArray();
+        }
+        return "source:" + Convert.ToHexString(SHA256.HashData(buffer.WrittenSpan)).ToLowerInvariant();
+    }
 
     internal static byte[] Canonicalize(JsonElement value)
     {
@@ -24,6 +37,9 @@ internal static class PermissionRecordIdentity
         return buffer.WrittenSpan.ToArray();
     }
 
+    internal static bool CanonicalEquals(JsonElement left, JsonElement right) =>
+        Canonicalize(left).AsSpan().SequenceEqual(Canonicalize(right));
+
     internal static string Create(PermissionDecisionKey key, PermissionPersistenceKind kind,
         string? ruleTypeId = null, JsonElement? rule = null)
     {
@@ -31,6 +47,14 @@ internal static class PermissionRecordIdentity
         ArgumentException.ThrowIfNullOrWhiteSpace(key.AgentId);
         ArgumentException.ThrowIfNullOrWhiteSpace(key.Authority);
         ArgumentException.ThrowIfNullOrWhiteSpace(key.PolicyDescriptorId);
+        var scope = key.Scope ?? throw new InvalidOperationException("PermissionDecisionStateInvalid: missing approval scope.");
+        ValidateScopeText(scope.SourceIdentity, 512);
+        ValidateScopeText(scope.FunctionIdentity, 512);
+        ValidateScopeText(scope.ContractFingerprint, 128);
+        ValidateScopeText(scope.PolicyVersion, 128);
+        if (!Enum.IsDefined(scope.Mode) || !Enum.IsDefined(scope.InputContractKind) ||
+            !Enum.IsDefined(scope.InputValidation) || !Enum.IsDefined(scope.IngressProvenance))
+            throw new InvalidOperationException("PermissionDecisionStateInvalid: invalid approval scope.");
         if (kind is not (PermissionPersistenceKind.Session or PermissionPersistenceKind.ValidatedRule))
             throw new InvalidOperationException("PermissionChoicePersistenceInvalid: unsupported persistence kind.");
         if (kind == PermissionPersistenceKind.Session && (ruleTypeId is not null || rule is not null))
@@ -45,6 +69,14 @@ internal static class PermissionRecordIdentity
             writer.WriteStringValue(key.Authority);
             writer.WriteStringValue(key.Action);
             writer.WriteStringValue(key.PolicyDescriptorId);
+            writer.WriteStringValue(scope.SourceIdentity);
+            writer.WriteStringValue(scope.FunctionIdentity);
+            writer.WriteStringValue(scope.ContractFingerprint);
+            writer.WriteStringValue(scope.PolicyVersion);
+            writer.WriteStringValue(scope.Mode.ToString());
+            writer.WriteStringValue(scope.InputContractKind.ToString());
+            writer.WriteStringValue(scope.InputValidation.ToString());
+            writer.WriteStringValue(scope.IngressProvenance.ToString());
             if (kind == PermissionPersistenceKind.ValidatedRule)
             {
                 ArgumentException.ThrowIfNullOrWhiteSpace(ruleTypeId);
@@ -56,6 +88,13 @@ internal static class PermissionRecordIdentity
             writer.WriteEndArray();
         }
         return Hash(buffer.WrittenSpan);
+    }
+
+    private static void ValidateScopeText(string value, int maximumBytes)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value != value.Trim() ||
+            value.Any(char.IsControl) || System.Text.Encoding.UTF8.GetByteCount(value) > maximumBytes)
+            throw new InvalidOperationException("PermissionDecisionStateInvalid: invalid approval scope identity.");
     }
 
     private static string Hash(ReadOnlySpan<byte> bytes) =>

@@ -1567,6 +1567,7 @@ export interface HPDAgentClientToolsClientToolInvokeRequestEvent {
   toolName: string;
   callId: string;
   arguments: InlineHPDAgentClientToolsClientToolInvokeRequestEventArguments;
+  resolvedInvocationMode: "synchronous" | "background";
   description?: string | null;
   channel?: number | null;
   kind?: number | null;
@@ -3009,12 +3010,13 @@ export interface HPDAgentPermissionRequestEvent {
   risk?: "Low" | "Medium" | "High" | "Critical" | null;
   choices: Array<InlineHPDAgentPermissionRequestEventChoicesItem>;
   evidence?: InlineHPDAgentPermissionRequestEventEvidence | null;
-  persistenceUnavailableReason?: "NoStableAgentId" | "NoSessionStore" | null;
+  persistenceUnavailableReason?: "NoStableAgentId" | "NoSessionStore" | "NoPolicyVersion" | "NoContractIdentity" | null;
   functionName?: string | null;
   arguments?: unknown;
   channel?: number | null;
   kind?: number | null;
   requestId?: string | null;
+  invocation?: InlineHPDAgentPermissionRequestEventInvocation | null;
   eventId?: string | null;
   threadSequenceNumber?: number | null;
   sessionId?: string | null;
@@ -3996,7 +3998,7 @@ export interface HPDAgentSubAgentInvocationStartedEvent {
   childThreadId: string;
   roleName: string;
   contextPolicy: number;
-  mode: unknown;
+  mode: "synchronous" | "background";
   kind?: number | null;
   channel?: number | null;
   eventId?: string | null;
@@ -9865,7 +9867,7 @@ export interface InlineHPDAgentFunctionInvocationAuditedEventInvocation {
   functionCallId: string;
   action?: string | null;
   requestedMode?: unknown;
-  resolvedMode: unknown;
+  resolvedMode: "synchronous" | "background";
   policy: unknown;
   handling: number;
   ingressProvenance: number;
@@ -11133,6 +11135,13 @@ export interface InlineHPDAgentPermissionRequestEventEvidence {
   kind: string;
   schemaVersion: string;
   payload: unknown;
+}
+
+export interface InlineHPDAgentPermissionRequestEventInvocation {
+  mode: "synchronous" | "background";
+  inputContractKind: "HpdOwned" | "ExternalOwned" | "ProjectedSpecification";
+  validation: "None" | "HpdCanonical" | "StructuralOnly";
+  ingressProvenance: "Original" | "Canonicalized";
 }
 
 export interface InlineHPDAgentPermissionRequestEventPermissionResource {
@@ -21113,7 +21122,7 @@ export interface InlineHPDAgentToolBodyOperationCommittedFailureEventInvocation 
   functionCallId: string;
   action?: string | null;
   requestedMode?: unknown;
-  resolvedMode: unknown;
+  resolvedMode: "synchronous" | "background";
   policy: unknown;
   handling: number;
   ingressProvenance: number;

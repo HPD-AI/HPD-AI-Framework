@@ -7,6 +7,7 @@ using HPD.Agent.Tests.Middleware.V2;
 using HPD.Events;
 using HPD.Serialization;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -503,6 +504,204 @@ public sealed class McpAgentConfigurationTests
             Assert.Contains("inline_echo", chat.CapturedRequestSnapshots[0].ToolNames);
         Assert.Single(handler.InvokedTools);
         Assert.Contains("https://inline.test/mcp:inline_echo", handler.InvokedTools);
+    }
+
+    [Fact]
+    public async Task McpSourceRevision_ChangesWhenEndpointChangesAndStaysStableForSameConnection()
+    {
+        var handler = new DeclarativeMcpHandler();
+        using var http = new HttpClient(handler);
+        async Task<string?> LoadRevision(string endpoint)
+        {
+            var factory = McpCapabilitySourceFactory.FromServers("mcp.test:revision",
+                [new McpServerConfig { Name = "inline", Transport = "http", Endpoint = new Uri(endpoint) }],
+                new McpOptions { HttpClientFactory = _ => http });
+            await using var source = await factory.CreateAsync(null, default);
+            var loaded = await source.LoadAsync(new CapabilityLoadContext(1, null), default);
+            await using var owner = loaded.Owner;
+            var function = Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(
+                Assert.Single(owner.Snapshot.Functions.Where(f => f.Name == "inline_echo")));
+            return function.HPDOptions.PermissionSourceRevision;
+        }
+
+        var first = await LoadRevision("https://inline.test/mcp");
+        var same = await LoadRevision("https://inline.test/mcp");
+        var changed = await LoadRevision("https://inline.test/other");
+
+        Assert.False(string.IsNullOrWhiteSpace(first));
+        Assert.Equal(first, same);
+        Assert.NotEqual(first, changed);
+        Assert.DoesNotContain("inline.test", first, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GovernedMcp_PolicyAndServerSeeSameSourceArguments()
+    {
+        var policy = new RecordingMcpPolicy();
+        PermissionDescriptorComposition.Register(new RecordingMcpPolicyPackage());
+        var handler = new DeclarativeMcpHandler
+        {
+            InputSchema = """{"type":"object","properties":{"invocationMode":{"type":"string"},"__raw_json__":{"type":"string"}},"additionalProperties":true}"""
+        };
+        using var http = new HttpClient(handler);
+        using var services = new ServiceCollection().AddSingleton(policy).BuildServiceProvider();
+        var chat = new FakeChatClient();
+        chat.EnqueueToolCalls(("inline_echo", "invoke", new Dictionary<string, object?>
+        {
+            ["invocationMode"] = "domain",
+            ["__raw_json__"] = "source-value",
+            ["nested"] = JsonSerializer.SerializeToElement(new { value = 7, optional = (string?)null })
+        }));
+        chat.EnqueueTextResponse("Completed.");
+        var config = new AgentConfig
+        {
+            Mcp = new AgentMcpConfig { Servers = [new McpServerConfig
+            {
+                Name = "inline", Transport = "http", Endpoint = new Uri("https://inline.test/mcp"),
+                Permission = new McpPermissionConfig { Policy = RecordingMcpPolicyPackage.Id }
+            }] }
+        };
+        await using var agent = await Builder(config).WithChatClient(chat).WithServiceProvider(services)
+            .WithSessionStore(new InMemorySessionStore(TestEventComposition.Current.Codec))
+            .WithPermissions().WithMcpOptions(options => options.HttpClientFactory = _ => http).BuildAsync();
+        await agent.CreateSessionAsync("mcp-policy-test");
+        await agent.StartAsync();
+
+        await agent.RunAsync(new UserMessagesInputEvent
+        {
+            Messages = [new ChatMessage(ChatRole.User, "Use the inline server.")],
+            SessionId = "mcp-policy-test", ThreadId = "main"
+        }, CancellationToken.None);
+
+        using var request = JsonDocument.Parse(Assert.Single(handler.ToolCallBodies));
+        var actual = request.RootElement.GetProperty("params").GetProperty("arguments");
+        Assert.True(JsonElement.DeepEquals(policy.Arguments, actual));
+        Assert.Equal("domain", actual.GetProperty("invocationMode").GetString());
+        Assert.Equal("source-value", actual.GetProperty("__raw_json__").GetString());
+        Assert.Equal(JsonValueKind.Null, actual.GetProperty("nested").GetProperty("optional").ValueKind);
+        Assert.Equal(PermissionInputValidation.StructuralOnly, policy.Validation);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task GovernedMcp_BackgroundPreservesApprovedArguments(bool modelChoice, bool remoteTask)
+    {
+        var policy = new RecordingMcpPolicy();
+        PermissionDescriptorComposition.Register(new RecordingMcpPolicyPackage());
+        var handler = new DeclarativeMcpHandler
+        {
+            SupportsTasks = remoteTask,
+            InputSchema = """{"type":"object","properties":{"invocationMode":{"type":"string"}},"additionalProperties":true}"""
+        };
+        using var http = new HttpClient(handler);
+        using var services = new ServiceCollection().AddSingleton(policy).BuildServiceProvider();
+        var chat = new FakeChatClient();
+        var domain = new Dictionary<string, object?> { ["invocationMode"] = "domain", ["value"] = 42 };
+        var input = modelChoice
+            ? new Dictionary<string, object?> { ["arguments"] = domain,
+                ["invocation"] = new Dictionary<string, object?> { ["mode"] = "background" } }
+            : domain;
+        chat.EnqueueToolCalls(("inline_echo", "invoke", input));
+        chat.EnqueueTextResponse("Completed.");
+        var config = new AgentConfig
+        {
+            Mcp = new AgentMcpConfig { Servers = [new McpServerConfig
+            {
+                Name = "inline", Transport = "http", Endpoint = new Uri("https://inline.test/mcp"),
+                InvocationModePolicy = modelChoice ? AgentInvocationModePolicy.ModelChoice : AgentInvocationModePolicy.BackgroundOnly,
+                Permission = new McpPermissionConfig { Policy = RecordingMcpPolicyPackage.Id }
+            }] }
+        };
+        await using var agent = await Builder(config).WithChatClient(chat).WithServiceProvider(services)
+            .WithSessionStore(new InMemorySessionStore(TestEventComposition.Current.Codec))
+            .WithPermissions().WithMcpOptions(options =>
+            {
+                options.HttpClientFactory = _ => http;
+                if (remoteTask) options.AddTasksExtension();
+            }).BuildAsync();
+        await agent.CreateSessionAsync("mcp-background-test");
+        await agent.StartAsync();
+
+        await agent.RunAsync(new UserMessagesInputEvent
+        {
+            Messages = [new ChatMessage(ChatRole.User, "Use the inline server.")],
+            SessionId = "mcp-background-test", ThreadId = "main"
+        }, CancellationToken.None);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (handler.ToolCallBodies.Count == 0)
+            await Task.Delay(20, timeout.Token);
+
+        using var request = JsonDocument.Parse(Assert.Single(handler.ToolCallBodies));
+        var actual = request.RootElement.GetProperty("params").GetProperty("arguments");
+        Assert.Equal(AgentInvocationMode.Background, policy.Mode);
+        Assert.True(JsonElement.DeepEquals(policy.Arguments, actual));
+        Assert.Equal("domain", actual.GetProperty("invocationMode").GetString());
+        Assert.False(actual.TryGetProperty("invocation", out _));
+        var operation = Assert.Single(agent.ListOperations());
+        Assert.Equal(remoteTask ? AgentOperationSourceKind.McpTask : AgentOperationSourceKind.LocalTool, operation.SourceKind);
+    }
+
+    private sealed class RecordingMcpPolicy : IPermissionPolicy
+    {
+        public JsonElement Arguments { get; private set; }
+        public PermissionInputValidation Validation { get; private set; }
+        public AgentInvocationMode Mode { get; private set; }
+        public ValueTask<PermissionPolicyResult> EvaluateAsync(PreparedPermissionInput input,
+            PermissionEvaluationContext context, CancellationToken cancellationToken)
+        {
+            Arguments = input.EffectiveArguments.Clone();
+            Validation = input.Validation;
+            Mode = input.Invocation.Mode;
+            return ValueTask.FromResult(new PermissionPolicyResult { Outcome = new PermissionAllow() });
+        }
+    }
+
+    private sealed class RecordingMcpPolicyPackage : IPermissionDescriptorPackage
+    {
+        public const string Id = "test.mcp.argument-capture";
+        public IReadOnlyDictionary<string, AIFunctionPermissionDescriptor> Descriptors { get; } =
+            new Dictionary<string, AIFunctionPermissionDescriptor>
+            {
+                [Id] = new() { DescriptorId = Id, SemanticVersion = "1", PolicyFactory = services => services.GetRequiredService<RecordingMcpPolicy>() }
+            };
+    }
+
+    [Fact]
+    public async Task AgentBuilder_McpPreservesExternalSchemaAndDomainArguments()
+    {
+        var handler = new DeclarativeMcpHandler
+        {
+            InputSchema = """{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"invocationMode":{"type":"string","pattern":"^domain$"},"__raw_json__":{"type":"string"}},"additionalProperties":true}"""
+        };
+        using var http = new HttpClient(handler);
+        var chat = new FakeChatClient();
+        chat.EnqueueToolCalls(("inline_echo", "invoke", new Dictionary<string, object?>
+        {
+            ["invocationMode"] = "domain",
+            ["__raw_json__"] = "source-value",
+            ["extra"] = "preserved"
+        }));
+        chat.EnqueueTextResponse("Completed.");
+        var config = new AgentConfig
+        {
+            Mcp = new AgentMcpConfig
+            {
+                Servers = [new McpServerConfig { Name = "inline", Transport = "http",
+                    Endpoint = new Uri("https://inline.test/mcp") }]
+            }
+        };
+        await using var agent = await Builder(config).WithChatClient(chat)
+            .WithMcpOptions(options => options.HttpClientFactory = _ => http).BuildAsync();
+
+        await agent.RunAsync("Use the inline server.");
+
+        using var request = JsonDocument.Parse(Assert.Single(handler.ToolCallBodies));
+        var arguments = request.RootElement.GetProperty("params").GetProperty("arguments");
+        Assert.Equal("domain", arguments.GetProperty("invocationMode").GetString());
+        Assert.Equal("source-value", arguments.GetProperty("__raw_json__").GetString());
+        Assert.Equal("preserved", arguments.GetProperty("extra").GetString());
     }
 
     [Fact]
@@ -1041,6 +1240,8 @@ public sealed class McpAgentConfigurationTests
     private sealed class DeclarativeMcpHandler(bool sameToolName = false) : HttpMessageHandler
     {
         internal bool ReturnTools { get; set; } = true;
+        internal bool SupportsTasks { get; set; }
+        internal string InputSchema { get; set; } = """{"type":"object","properties":{}}""";
         private readonly object _gate = new();
         private readonly List<string> _invokedTools = [];
         private readonly List<string> _toolCallBodies = [];
@@ -1074,9 +1275,12 @@ public sealed class McpAgentConfigurationTests
                     root,
                     """
                     {"resultType":"complete","supportedVersions":["2026-07-28"],"capabilities":{"tools":{}},"_meta":{"io.modelcontextprotocol/serverInfo":{"name":"__SERVER__","version":"1"}},"ttlMs":0,"cacheScope":"private"}
-                    """.Replace("__SERVER__", serverName, StringComparison.Ordinal)),
+                    """.Replace("__SERVER__", serverName, StringComparison.Ordinal)
+                       .Replace("\"tools\":{}", SupportsTasks ? "\"tools\":{},\"extensions\":{\"io.modelcontextprotocol/tasks\":{}}" : "\"tools\":{}", StringComparison.Ordinal)),
                 "tools/list" => ListTools(root, toolName),
                 "tools/call" => InvokeTool(root, request.RequestUri, toolName, body),
+                "tasks/get" when SupportsTasks => JsonResponse(root, TaskResponse),
+                "tasks/cancel" when SupportsTasks => JsonResponse(root, "{}"),
                 _ => throw new InvalidOperationException($"Unexpected MCP method '{method}'.")
             };
         }
@@ -1089,9 +1293,12 @@ public sealed class McpAgentConfigurationTests
             return JsonResponse(
                 root,
                 """
-                {"resultType":"complete","tools":[{"name":"__TOOL__","description":"__TOOL__","inputSchema":{"type":"object","properties":{}}}],"ttlMs":0,"cacheScope":"private"}
-                """.Replace("__TOOL__", toolName, StringComparison.Ordinal));
+                {"resultType":"complete","tools":[{"name":"__TOOL__","description":"__TOOL__","inputSchema":__SCHEMA__}],"ttlMs":0,"cacheScope":"private"}
+                """.Replace("__TOOL__", toolName, StringComparison.Ordinal)
+                   .Replace("__SCHEMA__", InputSchema, StringComparison.Ordinal));
         }
+
+        private const string TaskResponse = """{"resultType":"task","taskId":"task-1","status":"working","createdAt":"2026-08-26T12:00:00Z","lastUpdatedAt":"2026-08-26T12:00:01Z","pollIntervalMs":1000}""";
 
         private HttpResponseMessage InvokeTool(
             JsonElement root,
@@ -1106,6 +1313,8 @@ public sealed class McpAgentConfigurationTests
                 _invokedTools.Add($"{endpoint}:{actualTool}");
                 _toolCallBodies.Add(body);
             }
+            if (SupportsTasks)
+                return JsonResponse(root, TaskResponse);
             return JsonResponse(
                 root,
                 """

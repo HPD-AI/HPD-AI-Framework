@@ -165,6 +165,34 @@ public class OpenApiOperationRunnerTests
     }
 
     [Fact]
+    public async Task Run_JsonElementArrayQuery_UsesIndividualItems()
+    {
+        var op = GetOperation(parameters: [QueryParam("tag")]);
+        var (runner, captured) = MakeRunner();
+        using var json = JsonDocument.Parse("""["red","blue sky"]""");
+
+        await runner.RunAsync(op, new Dictionary<string, object?> { ["tag"] = json.RootElement.Clone() }, null, default);
+
+        captured[0].RequestUri!.Query.Should().Be("?tag=red%2Cblue%20sky");
+    }
+
+    [Fact]
+    public async Task Run_ExplicitNullBodyProperty_IsNotOmitted()
+    {
+        var op = GetOperation(method: HttpMethod.Post, payload: new RestApiPayload
+        {
+            MediaType = "application/json",
+            Properties = [new RestApiPayloadProperty { Name = "tag", Type = "string" }]
+        });
+        var (runner, bodies, _) = MakeBodyCapturingRunner();
+
+        await runner.RunAsync(op, new Dictionary<string, object?> { ["tag"] = null }, null, default);
+
+        using var body = JsonDocument.Parse(bodies[0]!);
+        body.RootElement.GetProperty("tag").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
     public async Task Run_ServerUrlOverride_TakesPrecedenceOverOperationServerUrl()
     {
         var op = GetOperation(serverUrl: "https://original.example.com");
@@ -248,6 +276,82 @@ public class OpenApiOperationRunnerTests
             null, default);
 
         bodies[0].Should().Be("""{"name":"Rex"}""");
+    }
+
+    [Fact]
+    public async Task Run_ServerVariableAcceptsModelOriginatedJsonString()
+    {
+        var op = new RestApiOperation
+        {
+            Id = "list", Path = "/pets", Method = HttpMethod.Get,
+            ServerUrl = "https://{region}.example.com",
+            ServerVariables = new Dictionary<string, RestApiServerVariable>
+            {
+                ["region"] = new() { Default = "us", Enum = ["us", "eu"] }
+            }
+        };
+        var (runner, captured) = MakeRunner();
+        using var input = JsonDocument.Parse("\"eu\"");
+
+        await runner.RunAsync(op, new Dictionary<string, object?> { ["region"] = input.RootElement }, null, default);
+
+        captured[0].RequestUri!.Host.Should().Be("eu.example.com");
+    }
+
+    [Fact]
+    public async Task Run_RawPayloadAcceptsModelOriginatedJsonString()
+    {
+        var op = GetOperation(method: HttpMethod.Post, payload: new RestApiPayload
+        {
+            MediaType = "application/json", Properties = []
+        });
+        var (runner, bodies, _) = MakeBodyCapturingRunner(enableDynamicPayload: false);
+        using var input = JsonDocument.Parse("\"{\\\"name\\\":\\\"Rex\\\"}\"");
+
+        await runner.RunAsync(op, new Dictionary<string, object?> { ["payload"] = input.RootElement }, null, default);
+
+        bodies[0].Should().Be("""{"name":"Rex"}""");
+    }
+
+    [Fact]
+    public async Task Run_MissingOptionalObjectDoesNotRequireItsChildren()
+    {
+        var op = GetOperation(method: HttpMethod.Post, payload: new RestApiPayload
+        {
+            MediaType = "application/json",
+            Properties = [new RestApiPayloadProperty
+            {
+                Name = "profile", Type = "object", IsRequired = false,
+                Properties = [new RestApiPayloadProperty { Name = "name", Type = "string", IsRequired = true }]
+            }]
+        });
+        var (runner, bodies, _) = MakeBodyCapturingRunner();
+
+        await runner.RunAsync(op, new Dictionary<string, object?>(), null, default);
+
+        using var body = JsonDocument.Parse(bodies[0]!);
+        body.RootElement.TryGetProperty("profile", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Run_DynamicPayloadPreservesModelOriginatedNestedObject()
+    {
+        var op = GetOperation(method: HttpMethod.Post, payload: new RestApiPayload
+        {
+            MediaType = "application/json",
+            Properties = [new RestApiPayloadProperty
+            {
+                Name = "profile", Type = "object", IsRequired = true,
+                Properties = [new RestApiPayloadProperty { Name = "name", Type = "string", IsRequired = true }]
+            }]
+        });
+        var (runner, bodies, _) = MakeBodyCapturingRunner();
+        using var input = JsonDocument.Parse("""{"name":"Rex"}""");
+
+        await runner.RunAsync(op, new Dictionary<string, object?> { ["profile"] = input.RootElement }, null, default);
+
+        using var body = JsonDocument.Parse(bodies[0]!);
+        body.RootElement.GetProperty("profile").GetProperty("name").GetString().Should().Be("Rex");
     }
 
     [Fact]

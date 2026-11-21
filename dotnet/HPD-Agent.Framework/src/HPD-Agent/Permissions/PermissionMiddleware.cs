@@ -67,7 +67,7 @@ public sealed class PermissionMiddleware : IAgentMiddleware
         if (_batches.TryGetValue(context.Base, out var cache) && cache.TryRemove(context.FunctionCallId, out var prepared))
         {
             if (!ReferenceEquals(prepared.Function, context.Function) ||
-                !JsonElement.DeepEquals(prepared.Arguments, Canonicalize(context.Arguments)))
+                !PermissionRecordIdentity.CanonicalEquals(prepared.Arguments, Canonicalize(context.Arguments)))
                 throw new InvalidOperationException("permission_authority_drift: prepared invocation changed.");
             result = prepared.Disposition;
         }
@@ -110,17 +110,38 @@ public sealed class PermissionMiddleware : IAgentMiddleware
         var permissionId = Guid.NewGuid().ToString("N");
         PermissionValidation.Text(permissionId, 128, "PermissionRequestInvalid", required: true);
         PermissionValidation.Text(callId, 256, "PermissionRequestInvalid", required: true);
-        var key = new PermissionDecisionKey(_agentId, binding.Authority, invocation?.Action, binding.PolicyDescriptorId!);
+        var policyVersion = binding.PolicyDescriptorId == DefaultPolicyId
+            ? "1"
+            : _catalog.TryGet(binding.PolicyDescriptorId!, out var registeredDescriptor)
+                ? registeredDescriptor.SemanticVersion : null;
+        var contractFingerprint = function.ContractDescriptor?.CanonicalSchemaFingerprint;
+        var sourceIdentity = function.AdditionalProperties.TryGetValue(
+                HPDCapabilityMetadata.AdditionalPropertiesKey, out var capability) &&
+            capability is HPDCapabilityMetadata capabilityMetadata && !string.IsNullOrWhiteSpace(capabilityMetadata.Id.Value)
+                ? capabilityMetadata.Id.Value : "function";
+        if (function.HPDOptions.PermissionSourceRevision is { Length: > 0 } revision)
+            sourceIdentity = PermissionRecordIdentity.SourceIdentity(sourceIdentity, revision);
+        var functionIdentity = function.Name;
+        var preparedInvocation = invocation ?? new ResolvedFunctionInvocation
+        {
+            Mode = AgentInvocationMode.Synchronous, Policy = AgentInvocationModePolicy.SynchronousOnly,
+            Handling = AgentInvocationModeHandling.Runtime,
+            InputContractKind = function.HPDOptions.InputContractKind,
+            IngressProvenance = FunctionArgumentIngressProvenance.Canonicalized
+        };
+        var scope = !string.IsNullOrWhiteSpace(policyVersion) && !string.IsNullOrWhiteSpace(contractFingerprint)
+            ? new PermissionDecisionScope(sourceIdentity, functionIdentity, contractFingerprint, policyVersion,
+                preparedInvocation.Mode, preparedInvocation.InputContractKind,
+                preparedInvocation.InputValidation, preparedInvocation.IngressProvenance)
+            : null;
+        var key = new PermissionDecisionKey(_agentId, binding.Authority, invocation?.Action, binding.PolicyDescriptorId!)
+        { Scope = scope };
         var canonical = Canonicalize(arguments);
         var source = PermissionGrantSource.PolicyDecision;
         PermissionPolicyResult evaluation;
         IPermissionPolicy? policy = null;
         PermissionEvaluationContext? evaluationContext = null;
-        var input = new ValidatedPermissionInput(canonical, invocation ?? new ResolvedFunctionInvocation
-        {
-            Mode = AgentInvocationMode.Synchronous, Policy = AgentInvocationModePolicy.SynchronousOnly,
-            Handling = AgentInvocationModeHandling.Runtime
-        });
+        var input = new PreparedPermissionInput(canonical, preparedInvocation);
         if (_mode == AuthorizationMode.Bypass)
         {
             evaluation = new() { Outcome = new PermissionAllow() };
@@ -160,7 +181,7 @@ public sealed class PermissionMiddleware : IAgentMiddleware
         if (evaluation.Outcome is PermissionAllow)
             return await Resolve(PermissionDecisionKind.Allow, null, source).ConfigureAwait(false);
         var ask = (PermissionAsk)evaluation.Outcome;
-        if (_stableAgentId is not null)
+        if (_stableAgentId is not null && scope is not null)
         {
             var available = ReadState(context);
             foreach (var record in available.Decisions.Where(record => record.Key == key))
@@ -176,13 +197,15 @@ public sealed class PermissionMiddleware : IAgentMiddleware
         }
         var choices = ask.Choices.ToList();
         PersistenceUnavailableReason? unavailable = _stableAgentId is null ? PersistenceUnavailableReason.NoStableAgentId
-            : context.Session?.Store is null ? PersistenceUnavailableReason.NoSessionStore : null;
+            : context.Session?.Store is null ? PersistenceUnavailableReason.NoSessionStore
+            : string.IsNullOrWhiteSpace(policyVersion) ? PersistenceUnavailableReason.NoPolicyVersion
+            : scope is null ? PersistenceUnavailableReason.NoContractIdentity : null;
         var candidates = new Dictionary<string, PermissionDecisionRecord>(StringComparer.Ordinal);
         foreach (var choice in ask.Choices)
         {
             if (evaluation.PersistenceByChoice is null ||
                 !evaluation.PersistenceByChoice.TryGetValue(choice.Id, out var persistence)) continue;
-            if (unavailable is PersistenceUnavailableReason.NoStableAgentId or PersistenceUnavailableReason.NoSessionStore)
+            if (unavailable is not null)
             { choices.Remove(choice); continue; }
             var candidate = new PermissionDecisionRecord
             {
@@ -209,7 +232,12 @@ public sealed class PermissionMiddleware : IAgentMiddleware
             var response = await context.Base.RequestAsync<PermissionRequestEvent, PermissionResponseEvent>(new(
                 permissionId, callId, _source, PermissionDomains.ToolExecution, key.Authority, key.Action,
                 ask.Resource, ask.Reason, ask.Risk, choices, evaluation.Evidence, unavailable,
-                function.Name, canonical.Clone())).ConfigureAwait(false);
+                function.Name, canonical.Clone())
+            {
+                Invocation = new PermissionInvocationFacts(preparedInvocation.Mode,
+                    preparedInvocation.InputContractKind, preparedInvocation.InputValidation,
+                    preparedInvocation.IngressProvenance)
+            }).ConfigureAwait(false);
             if (response.PermissionId != permissionId || response.SourceName != _source)
                 throw new InvalidOperationException("PermissionResponseUnbound: response does not own this request.");
             selected = choices.SingleOrDefault(choice => choice.Id == response.ChoiceId)
@@ -252,7 +280,14 @@ public sealed class PermissionMiddleware : IAgentMiddleware
                 {
                     PermissionId = permissionId, FunctionCallId = callId, FunctionName = function.Name,
                     Action = key.Action, Key = key, ChoiceId = choiceId, Source = decisionSource, GrantedAt = DateTimeOffset.UtcNow,
-                    Authority = new() { CanonicalArguments = canonical, Declaration = originalDeclaration, PolicyDescriptorId = key.PolicyDescriptorId }
+                    Authority = new()
+                    {
+                        CanonicalArguments = canonical, Declaration = originalDeclaration,
+                        PolicyDescriptorId = key.PolicyDescriptorId,
+                        Mode = input.Invocation.Mode, InvocationPolicy = input.Invocation.Policy,
+                        InvocationHandling = input.Invocation.Handling,
+                        ContractFingerprint = function.ContractDescriptor?.CanonicalSchemaFingerprint
+                    }
                 });
             var result = reason ?? "Permission denied by user.";
             var reasonCode = decisionSource == PermissionGrantSource.FrameworkDecision

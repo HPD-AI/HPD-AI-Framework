@@ -309,7 +309,7 @@ public sealed record SmokePermissionEvidence(string Message);
 [PermissionPolicyDefinition("hpd.smoke.inline-policy.v1")]
 public sealed class SmokeInlinePermissionPolicy : IPermissionPolicy
 {
-    public ValueTask<PermissionPolicyResult> EvaluateAsync(ValidatedPermissionInput input,
+    public ValueTask<PermissionPolicyResult> EvaluateAsync(PreparedPermissionInput input,
         PermissionEvaluationContext context, CancellationToken cancellationToken) =>
         ValueTask.FromResult(new PermissionPolicyResult { Outcome = new PermissionAllow() });
 }
@@ -317,7 +317,7 @@ public sealed class SmokeInlinePermissionPolicy : IPermissionPolicy
 [PermissionPolicyDefinition("hpd.smoke.confirm-policy.v1")]
 public sealed class SmokeConfirmPermissionPolicy : IPermissionPolicy
 {
-    public ValueTask<PermissionPolicyResult> EvaluateAsync(ValidatedPermissionInput input,
+    public ValueTask<PermissionPolicyResult> EvaluateAsync(PreparedPermissionInput input,
         PermissionEvaluationContext context, CancellationToken cancellationToken) =>
         ValueTask.FromResult(new PermissionPolicyResult
         {

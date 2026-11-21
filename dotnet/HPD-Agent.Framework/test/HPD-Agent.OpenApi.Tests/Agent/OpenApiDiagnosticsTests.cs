@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using HPD.Agent.OpenApi;
 using HPD.OpenApi.Core;
 using HPD.OpenApi.Core.Model;
@@ -96,6 +97,30 @@ public sealed class OpenApiDiagnosticsTests
         Assert.Contains("brokenOperation", warning.Message, StringComparison.Ordinal);
         Assert.Contains("GET", warning.Message, StringComparison.Ordinal);
         Assert.Contains("/broken", warning.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnsupportedSourceParameter_IsNotRegisteredAndExplainsWhy()
+    {
+        using var source = JsonDocument.Parse("""
+            {"paths":{"/broken":{"get":{"parameters":[{"name":"session","in":"cookie","schema":{"type":"string"}}]}}}}
+            """);
+        var operation = new RestApiOperation
+        {
+            Id = "brokenOperation", Path = "/broken", Method = HttpMethod.Get,
+            ServerUrl = "https://api.example.com"
+        };
+        var logger = new CaptureLogger();
+
+        var functions = OpenApiFunctionFactory.CreateFunctions(
+            new ParsedOpenApiSpec { SourceDocument = source.RootElement.Clone(), Operations = [operation] },
+            new OpenApiConfig(), new OpenApiOperationRunner(new HttpClient(new EmptyResponseHandler())),
+            namePrefix: "example", logger: logger);
+
+        Assert.Empty(functions);
+        var warning = Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Warning);
+        Assert.Contains("brokenOperation", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("Cookie", warning.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class EmptyResponseHandler : HttpMessageHandler

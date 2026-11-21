@@ -1,6 +1,6 @@
 {
   "Version": "1.0",
-  "Digest": "feb077dbb5841d8d592baecff47b296e3538b52abf57c199b48e415a6eddb6ac",
+  "Digest": "a5fcd7906c249058050726987dbf9847a68f65967c9660aebfb01bb2b3f9ecee",
   "BehaviorDigest": "a8f47ebc846d8b09f9e42e42af0468a21ed674cd4d332a02e8e6861abfb755d2",
   "EventCount": 144,
   "Events": [
@@ -125,7 +125,7 @@
     },
     {
       "Discriminator": "CLIENT_TOOL_INVOKE_REQUEST",
-      "ContractDigest": "a6afd140143d342b2ec9094aac14ca6ef67f9684d2fd6dca7252f79b40b58ec2",
+      "ContractDigest": "352f34d3ed63faa28fca141b53e1aca5d8bdf06d6d649a3c4f26e065f4215aba",
       "Durability": "Durable",
       "RequiresDurable": true,
       "ModuleId": "hpd.agent.core"
@@ -524,7 +524,7 @@
     },
     {
       "Discriminator": "PERMISSION_REQUEST",
-      "ContractDigest": "03ba9addb7ae46d0811d71081e6d8a21a835e11ba9e9d51c0d7fbdd931e76602",
+      "ContractDigest": "4e0ef4cdd9c70e59fa068cbafa902774316373480dbe4e50f04885d46ac16cb9",
       "Durability": "Durable",
       "RequiresDurable": true,
       "ModuleId": "hpd.agent.core"

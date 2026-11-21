@@ -15,7 +15,7 @@ public sealed record ExecuteCommandPermissionEvidence(
 /// <summary>
 /// Evaluates ExecuteCommand's semantic command plan while the framework owns mediation and grants.
 /// </summary>
-[PermissionPolicyDefinition("hpd.coding.execute-command.v2")]
+[PermissionPolicyDefinition("hpd.coding.execute-command.v2", SemanticVersion = "2")]
 public sealed class ExecuteCommandPermissionPolicy :
     IPermissionPolicy,
     IValidatedPermissionRulePolicy
@@ -30,7 +30,7 @@ public sealed class ExecuteCommandPermissionPolicy :
 
     /// <inheritdoc />
     public ValueTask<PermissionPolicyResult> EvaluateAsync(
-        ValidatedPermissionInput input,
+        PreparedPermissionInput input,
         PermissionEvaluationContext context,
         CancellationToken cancellationToken)
     {
@@ -63,7 +63,7 @@ public sealed class ExecuteCommandPermissionPolicy :
         });
     }
 
-    public bool MatchesStoredDecision(ValidatedPermissionInput input,
+    public bool MatchesStoredDecision(PreparedPermissionInput input,
         PermissionEvaluationContext context, PermissionDecisionRecord record)
     {
         if (record.RuleTypeId != RuleTypeId || record.CanonicalRule is not { } rule) return false;
@@ -81,7 +81,7 @@ public sealed class ExecuteCommandPermissionPolicy :
     }
 
     private static ExecuteCommandPermissionPlan Analyze(
-        ValidatedPermissionInput input,
+        PreparedPermissionInput input,
         PermissionEvaluationContext context)
     {
         var (workspace, process) = GetRuntime(context);

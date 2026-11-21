@@ -1327,6 +1327,8 @@ public sealed record PermissionRequestEvent(
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
     public string RequestId => PermissionId;
+    /// <summary>Gets function execution and input-preparation facts, when the request governs a function.</summary>
+    public PermissionInvocationFacts? Invocation { get; init; }
 }
 [HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("PERMISSION_RESPONSE")]

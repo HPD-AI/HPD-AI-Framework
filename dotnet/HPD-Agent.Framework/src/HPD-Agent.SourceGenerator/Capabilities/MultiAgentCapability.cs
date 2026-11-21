@@ -82,7 +82,7 @@ internal class MultiAgentCapability : BaseCapability
         sb.AppendLine("        var input = jsonArgs.TryGetProperty(\"input\", out var inputProp)");
         sb.AppendLine("            ? inputProp.GetString() ?? string.Empty");
         sb.AppendLine("            : string.Empty;");
-        sb.AppendLine("        var requestedMode = global::HPD.Agent.AgentInvocationModes.ReadRequestedMode(jsonArgs);");
+        sb.AppendLine("        var requestedMode = functionContext.ResolvedInvocationMode;");
         sb.AppendLine();
         sb.AppendLine("        var result = await global::HPD.Agent.MultiAgentRuntime.InvokeAsync(");
         sb.AppendLine("            new global::HPD.Agent.MultiAgentRuntime.MultiAgentInvocationRequest");
@@ -106,12 +106,12 @@ internal class MultiAgentCapability : BaseCapability
         sb.AppendLine($"        Description = \"{EscapeString(Description)}\",");
         if (RequiresPermission)
             sb.AppendLine($"        FunctionPermission = new global::HPD.Agent.AIFunctionPermissionDeclaration {{ RequiresPermission = true, Authority = \"function/{Uri.EscapeDataString(Name)}\", Source = global::HPD.Agent.PermissionDeclarationSource.FrameworkDefault }},");
+        sb.AppendLine($"        InvocationModePolicy = global::HPD.Agent.AgentInvocationModePolicy.{InvocationModePolicy},");
+        sb.AppendLine("        InvocationModeHandling = global::HPD.Agent.AgentInvocationModeHandling.ToolBody,");
         sb.AppendLine("        SchemaProvider = () =>");
         sb.AppendLine("        {");
-        var multiAgentSchema = InvocationModePolicy == "ModelChoice"
-            ? "{\\\"type\\\":\\\"object\\\",\\\"properties\\\":{\\\"input\\\":{\\\"type\\\":\\\"string\\\"},\\\"invocationMode\\\":{\\\"type\\\":[\\\"string\\\",\\\"null\\\"]}},\\\"additionalProperties\\\":false}"
-            : "{\\\"type\\\":\\\"object\\\",\\\"properties\\\":{\\\"input\\\":{\\\"type\\\":\\\"string\\\"}},\\\"additionalProperties\\\":false}";
-        sb.AppendLine($"            using var schemaDocument = global::System.Text.Json.JsonDocument.Parse(\"{multiAgentSchema}\");");
+        var multiAgentSchema = "{\"type\":\"object\",\"properties\":{\"input\":{\"type\":\"string\"}},\"additionalProperties\":false}";
+        sb.AppendLine($"            using var schemaDocument = global::System.Text.Json.JsonDocument.Parse(\"{EscapeString(multiAgentSchema)}\");");
         sb.AppendLine("            return schemaDocument.RootElement.Clone();");
         sb.AppendLine("        },");
         sb.AppendLine("        AdditionalProperties = new System.Collections.Generic.Dictionary<string, object>");

@@ -614,9 +614,14 @@ public class OpenAICompatibleChatClient : IChatClient
 
     private static JsonElement EnsureObjectSchema(JsonElement schema)
     {
-        if (schema.ValueKind == JsonValueKind.Object && schema.TryGetProperty("properties", out _))
+        if (schema.ValueKind == JsonValueKind.Object)
         {
             return schema;
+        }
+
+        if (schema.ValueKind != JsonValueKind.Undefined)
+        {
+            throw new InvalidOperationException("The provider requires a JSON object tool schema.");
         }
 
         using var stream = new MemoryStream();

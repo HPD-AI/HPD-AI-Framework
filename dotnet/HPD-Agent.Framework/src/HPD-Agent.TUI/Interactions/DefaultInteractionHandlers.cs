@@ -106,6 +106,9 @@ internal sealed class PermissionRequestInteractionHandler :
             lines.Add($"Arguments: {Truncate(arguments.GetRawText(), 500)}");
         }
 
+        if (request.Invocation is { } invocation)
+            lines.Add($"Mode: {invocation.Mode} | Input checks: {invocation.Validation} | Input origin: {invocation.IngressProvenance}");
+
         if (request.Risk is PermissionRisk.High or PermissionRisk.Critical)
             lines.Add($"Risk: {request.Risk}");
         if (request.PersistenceUnavailableReason is { } unavailable)

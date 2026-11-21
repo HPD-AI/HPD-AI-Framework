@@ -251,6 +251,12 @@ public sealed class McpProtocolConformanceTests
             Function = function,
             CallId = "call-1",
             Arguments = new Dictionary<string, object?>(),
+            InvocationMode = new ResolvedFunctionInvocation
+            {
+                Mode = AgentInvocationMode.Synchronous,
+                Policy = AgentInvocationModePolicy.SynchronousOnly,
+                Handling = AgentInvocationModeHandling.ToolBody
+            },
             State = state,
             ResultMetadata = new ToolResultMetadata(),
             EventCoordinator = agentContext.EventCoordinator

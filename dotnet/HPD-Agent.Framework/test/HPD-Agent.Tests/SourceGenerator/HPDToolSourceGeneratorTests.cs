@@ -275,7 +275,7 @@ namespace TestToolHarnesses
         Assert.Contains("VerifiedAIFunctionActionComposition", generatedCode);
         Assert.DoesNotContain("OperationContractSchemaComposed", generatedCode);
         Assert.Contains("AIFunctionOperationContract", generatedCode);
-        Assert.Contains("\\\"invocationMode\\\"", generatedCode);
+        Assert.DoesNotContain("\\\"invocationMode\\\"", generatedCode);
         Assert.Contains("Replay = global::ReplayPolicy.Idempotent", generatedCode);
     }
 

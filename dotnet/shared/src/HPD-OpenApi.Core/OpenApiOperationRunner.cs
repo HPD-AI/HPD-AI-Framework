@@ -50,7 +50,7 @@ public sealed class OpenApiOperationRunner
         Uri? serverUrlOverride,
         CancellationToken cancellationToken)
     {
-        var url = BuildOperationUrl(operation, arguments, serverUrlOverride);
+        var url = BuildOperationUrl(operation, arguments, arguments, arguments, serverUrlOverride);
         using var request = new HttpRequestMessage(operation.Method, url);
 
         foreach (var param in operation.Parameters
@@ -84,7 +84,7 @@ public sealed class OpenApiOperationRunner
         Uri? serverUrlOverride,
         CancellationToken cancellationToken)
     {
-        var url = BuildOperationUrl(operation, arguments, serverUrlOverride);
+        var url = BuildOperationUrl(operation, arguments, arguments, arguments, serverUrlOverride);
         // Note: request is NOT using 'using' here — caller owns disposal of response + request.
         var request = new HttpRequestMessage(operation.Method, url);
 
@@ -107,9 +107,55 @@ public sealed class OpenApiOperationRunner
         return await _httpClient.SendAsync(request, cancellationToken);
     }
 
+    /// <summary>Executes an operation using separate path, query, header, server and body values.</summary>
+    /// <param name="operation">The selected operation.</param>
+    /// <param name="pathArguments">Values substituted into path parameters.</param>
+    /// <param name="queryArguments">Values encoded as query parameters.</param>
+    /// <param name="headerArguments">Values encoded as headers.</param>
+    /// <param name="serverArguments">Values substituted into server variables.</param>
+    /// <param name="body">The body value, or an undefined element when omitted.</param>
+    /// <param name="rawBody">Whether the body value is a raw string.</param>
+    /// <param name="serverUrlOverride">The optional configured server URL.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The parsed operation response.</returns>
+    public async Task<object?> RunProjectedAsync(
+        RestApiOperation operation,
+        IDictionary<string, object?> pathArguments,
+        IDictionary<string, object?> queryArguments,
+        IDictionary<string, object?> headerArguments,
+        IDictionary<string, object?> serverArguments,
+        JsonElement body,
+        bool rawBody,
+        Uri? serverUrlOverride,
+        CancellationToken cancellationToken)
+    {
+        var url = BuildOperationUrl(operation, pathArguments, queryArguments, serverArguments, serverUrlOverride);
+        using var request = new HttpRequestMessage(operation.Method, url);
+        foreach (var parameter in operation.Parameters.Where(p => p.Location == RestApiParameterLocation.Header))
+            if (headerArguments.TryGetValue(parameter.Name, out var value) && value is not null)
+                request.Headers.TryAddWithoutValidation(parameter.Name, value.ToString());
+        if (operation.Payload is { } payload && body.ValueKind != JsonValueKind.Undefined)
+        {
+            var content = rawBody || payload.MediaType.StartsWith("text/plain", StringComparison.OrdinalIgnoreCase)
+                ? body.ValueKind == JsonValueKind.String ? body.GetString()! : throw new InvalidOperationException("The request body must be a string.")
+                : body.GetRawText();
+            request.Content = new StringContent(content, Encoding.UTF8, payload.MediaType);
+        }
+        else if (operation.Payload is { IsRequired: true })
+            throw new InvalidOperationException("The request body is required.");
+        if (_authCallback != null)
+            await _authCallback(request, cancellationToken);
+        if (!string.IsNullOrEmpty(_userAgent))
+            request.Headers.UserAgent.ParseAdd(_userAgent);
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        return await ProcessResponseAsync(response, operation, cancellationToken);
+    }
+
     private Uri BuildOperationUrl(
         RestApiOperation operation,
-        IDictionary<string, object?> arguments,
+        IDictionary<string, object?> pathArguments,
+        IDictionary<string, object?> queryArguments,
+        IDictionary<string, object?> serverArguments,
         Uri? serverUrlOverride)
     {
         var serverUrl = serverUrlOverride?.ToString()
@@ -128,15 +174,15 @@ public sealed class OpenApiOperationRunner
 
                 // 1. Try ArgumentName first
                 if (!string.IsNullOrEmpty(variable.ArgumentName)
-                    && arguments.TryGetValue(variable.ArgumentName!, out var argVal)
-                    && argVal is string argStr
+                    && serverArguments.TryGetValue(variable.ArgumentName!, out var argVal)
+                    && TryGetString(argVal, out var argStr)
                     && variable.IsValid(argStr))
                 {
                     resolved = argStr;
                 }
                 // 2. Try variable name
-                else if (arguments.TryGetValue(varName, out var varVal)
-                    && varVal is string varStr
+                else if (serverArguments.TryGetValue(varName, out var varVal)
+                    && TryGetString(varVal, out var varStr)
                     && variable.IsValid(varStr))
                 {
                     resolved = varStr;
@@ -162,7 +208,7 @@ public sealed class OpenApiOperationRunner
         foreach (var param in operation.Parameters
             .Where(p => p.Location == RestApiParameterLocation.Path))
         {
-            if (arguments.TryGetValue(param.Name, out var value))
+            if (pathArguments.TryGetValue(param.Name, out var value))
                 url = url.Replace($"{{{param.Name}}}",
                     Uri.EscapeDataString(value?.ToString() ?? ""));
         }
@@ -171,7 +217,7 @@ public sealed class OpenApiOperationRunner
         foreach (var param in operation.Parameters
             .Where(p => p.Location == RestApiParameterLocation.Query))
         {
-            if (!arguments.TryGetValue(param.Name, out var value) || value == null)
+            if (!queryArguments.TryGetValue(param.Name, out var value) || value == null)
                 continue;
 
             var encodedName = Uri.EscapeDataString(param.Name);
@@ -179,7 +225,20 @@ public sealed class OpenApiOperationRunner
             // Array values: serialize according to the Expand (explode) flag.
             // Expand=true  → repeated keys: status=available&status=pending
             // Expand=false → comma-delimited: tags=cat,dog
-            if (value is System.Collections.IEnumerable enumerable and not string)
+            if (value is JsonElement { ValueKind: JsonValueKind.Array } jsonArray)
+            {
+                var items = jsonArray.EnumerateArray()
+                    .Where(item => item.ValueKind != JsonValueKind.Null)
+                    .Select(item => Uri.EscapeDataString(item.ValueKind == JsonValueKind.String
+                        ? item.GetString()! : item.GetRawText()))
+                    .ToList();
+                if (items.Count == 0) continue;
+                if (param.Expand)
+                    queryParams.AddRange(items.Select(item => $"{encodedName}={item}"));
+                else
+                    queryParams.Add($"{encodedName}={string.Join("%2C", items)}");
+            }
+            else if (value is System.Collections.IEnumerable enumerable and not string)
             {
                 var items = enumerable.Cast<object?>()
                     .Where(v => v != null)
@@ -211,7 +270,7 @@ public sealed class OpenApiOperationRunner
 
         if (!_enableDynamicPayload)
         {
-            if (arguments.TryGetValue("payload", out var payloadArg) && payloadArg is string payloadStr)
+            if (arguments.TryGetValue("payload", out var payloadArg) && TryGetString(payloadArg, out var payloadStr))
                 return new StringContent(payloadStr, Encoding.UTF8, operation.Payload.MediaType);
             return null;
         }
@@ -224,7 +283,7 @@ public sealed class OpenApiOperationRunner
 
         if (operation.Payload.MediaType.StartsWith("text/plain", StringComparison.OrdinalIgnoreCase))
         {
-            if (arguments.TryGetValue("payload", out var val) && val is string text)
+            if (arguments.TryGetValue("payload", out var val) && TryGetString(val, out var text))
                 return new StringContent(text, Encoding.UTF8, "text/plain");
         }
 
@@ -243,15 +302,20 @@ public sealed class OpenApiOperationRunner
                 ? $"{propertyNamespace}.{prop.Name}"
                 : prop.Name;
 
-            if (prop.Type == "object")
+            if (arguments.TryGetValue(argName, out var value))
             {
-                result.Add(prop.Name, BuildJsonPayload(prop.Properties, arguments, argName));
+                result.Add(prop.Name, value is null ? null : CreateJsonNode(value));
                 continue;
             }
 
-            if (arguments.TryGetValue(argName, out var value) && value != null)
+            if (prop.Type == "object")
             {
-                result.Add(prop.Name, CreateJsonNode(value));
+                if (!prop.IsRequired && !HasPayloadArgument(prop.Properties, arguments, argName))
+                    continue;
+
+                var nested = BuildJsonPayload(prop.Properties, arguments, argName);
+                if (nested.Count > 0 || prop.IsRequired)
+                    result.Add(prop.Name, nested);
                 continue;
             }
 
@@ -260,6 +324,36 @@ public sealed class OpenApiOperationRunner
                     $"Required payload property '{prop.Name}' is missing.");
         }
         return result;
+    }
+
+    private bool HasPayloadArgument(
+        IList<RestApiPayloadProperty> properties,
+        IDictionary<string, object?> arguments,
+        string? propertyNamespace)
+    {
+        foreach (var property in properties)
+        {
+            var name = _enablePayloadNamespacing && !string.IsNullOrEmpty(propertyNamespace)
+                ? $"{propertyNamespace}.{property.Name}"
+                : property.Name;
+            if (arguments.ContainsKey(name) ||
+                (property.Type == "object" && HasPayloadArgument(property.Properties, arguments, name)))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryGetString(object? value, out string result)
+    {
+        var text = value switch
+        {
+            string s => s,
+            JsonElement { ValueKind: JsonValueKind.String } json => json.GetString(),
+            _ => null
+        };
+        result = text ?? string.Empty;
+        return text is not null;
     }
 
     private static JsonNode? CreateJsonNode(object value)

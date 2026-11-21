@@ -302,7 +302,7 @@ internal static class ReflectionToolFactory
                 var input = jsonArgs.TryGetProperty("input", out var inputProperty)
                     ? inputProperty.GetString() ?? string.Empty
                     : string.Empty;
-                var requestedMode = AgentInvocationModes.ReadRequestedMode(jsonArgs);
+                var requestedMode = functionContext.ResolvedInvocationMode;
 
                 var result = await MultiAgentRuntime.InvokeAsync(
                     new MultiAgentRuntime.MultiAgentInvocationRequest
@@ -336,8 +336,9 @@ internal static class ReflectionToolFactory
                 },
                 SerializerOptions = serializerOptions,
                 ResultType = typeof(object),
-                SchemaProvider = () => CreateInputSchema(
-                    invocationModePolicy == AgentInvocationModePolicy.ModelChoice),
+                InvocationModePolicy = invocationModePolicy,
+                InvocationModeHandling = AgentInvocationModeHandling.ToolBody,
+                SchemaProvider = CreateInputSchema,
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["CapabilityType"] = "MultiAgent",
@@ -1116,16 +1117,13 @@ internal static class ReflectionToolFactory
         return document.RootElement.Clone();
     }
 
-    private static JsonElement CreateInputSchema(bool includeInvocationMode = false)
+    private static JsonElement CreateInputSchema()
     {
-        var schema = includeInvocationMode
-            ? """
-              {"type":"object","properties":{"input":{"type":"string","description":"The user's request for the workflow."},"invocationMode":{"type":"string","enum":["synchronous","background"],"description":"Whether to wait for the workflow result now or run it in the background. Use synchronous unless the workflow can continue independently."}},"required":["input"],"additionalProperties":false}
-              """
-            : """
-              {"type":"object","properties":{"input":{"type":"string","description":"The user's request for the workflow."}},"required":["input"],"additionalProperties":false}
-              """;
-        using var document = JsonDocument.Parse(schema);
+        using var document = JsonDocument.Parse(
+            """
+            {"type":"object","properties":{"input":{"type":"string","description":"The user's request for the workflow."}},"required":["input"],"additionalProperties":false}
+            """);
         return document.RootElement.Clone();
     }
+
 }

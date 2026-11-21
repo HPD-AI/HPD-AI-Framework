@@ -96,6 +96,16 @@ public sealed class HPDAgentOpenApiDocumentTests
             document.Components!.Schemas!["HPD.Agent.PermissionRequestEvent"]);
         Assert.DoesNotContain("risk", permissionRequest.Required!);
         Assert.Contains("choices", permissionRequest.Required);
+        var invocation = Assert.IsType<OpenApiSchema>(permissionRequest.Properties!["invocation"]);
+        var permissionMode = Assert.IsType<OpenApiSchema>(invocation.Properties!["mode"]);
+        Assert.Equal(JsonSchemaType.String, permissionMode.Type);
+        Assert.Equal(["synchronous", "background"], permissionMode.Enum!.Select(value => value!.GetValue<string>()));
+
+        var clientRequest = Assert.IsType<OpenApiSchema>(
+            document.Components.Schemas["HPD.Agent.ClientTools.ClientToolInvokeRequestEvent"]);
+        var clientMode = Assert.IsType<OpenApiSchema>(clientRequest.Properties!["resolvedInvocationMode"]);
+        Assert.Equal(JsonSchemaType.String, clientMode.Type);
+        Assert.Equal(["synchronous", "background"], clientMode.Enum!.Select(value => value!.GetValue<string>()));
 
         var upload = document.Paths["/sessions/{sessionId}/threads/{threadId}/content"]
             .Operations[HttpMethod.Post];

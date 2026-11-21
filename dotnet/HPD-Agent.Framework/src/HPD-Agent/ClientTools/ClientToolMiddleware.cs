@@ -515,23 +515,16 @@ public class ClientToolMiddleware : IAgentMiddleware
     /// Converts a ClientToolDefinition to an AIFunction.
     /// The resulting function is intercepted by BeforeFunctionAsync.
     /// </summary>
-    private static AIFunction ConvertToolToAIFunction(
+    internal static AIFunction ConvertToolToAIFunction(
         ClientToolDefinition tool,
         string toolName,
         ClientToolProviderToolBinding? providerBinding)
     {
         var defaultPolicy = ClientToolPolicy.Resolve(tool.DefaultPolicy);
-        var modelInvocationPolicy = tool.OperationContract?.Actions.Values
-            .Select(policy => ClientToolPolicy.Resolve(tool.DefaultPolicy, policy).InvocationModePolicy)
-            .Any(policy => policy != AgentInvocationModePolicy.SynchronousOnly) == true
-                ? AgentInvocationModePolicy.ModelChoice
-                : defaultPolicy.InvocationModePolicy!.Value;
-        var modelChoiceActions = tool.OperationContract?.Actions
-            .Where(pair => ClientToolPolicy.Resolve(
-                tool.DefaultPolicy,
-                pair.Value).InvocationModePolicy == AgentInvocationModePolicy.ModelChoice)
-            .Select(static pair => pair.Key)
-            .ToHashSet(StringComparer.Ordinal);
+        var modelInvocationPolicy = tool.OperationContract is { } contract
+            ? contract.Actions.Values.Any(policy => ClientToolPolicy.Resolve(tool.DefaultPolicy, policy).InvocationModePolicy == AgentInvocationModePolicy.ModelChoice)
+                ? AgentInvocationModePolicy.ModelChoice : AgentInvocationModePolicy.SynchronousOnly
+            : defaultPolicy.InvocationModePolicy!.Value;
         var additionalProperties = new Dictionary<string, object?>
         {
             ["IsClientTool"] = true,
@@ -556,12 +549,10 @@ public class ClientToolMiddleware : IAgentMiddleware
                 Name = tool.Name,
                 Description = tool.Description,
                 FunctionPermission = defaultPolicy.Permission,
-                Validator = (_, _) => new List<ValidationError>(),
-                SchemaProvider = () => AgentInvocationModes.CreateSchema(
-                    tool.ParametersSchema,
-                    modelInvocationPolicy,
-                    tool.OperationContract?.Discriminator,
-                    modelChoiceActions),
+                InputContractKind = FunctionInputContractKind.ExternalOwned,
+                InvocationModePolicy = modelInvocationPolicy,
+                InvocationModeHandling = AgentInvocationModeHandling.ToolBody,
+                SchemaProvider = () => tool.ParametersSchema.Clone(),
                 AdditionalProperties = additionalProperties
             });
     }
@@ -664,7 +655,10 @@ public class ClientToolMiddleware : IAgentMiddleware
         var requestId = Guid.NewGuid().ToString();
         var toolName = context.Function.Name;
         var tool = ReadClientToolDefinition(context);
-        var sanitizedArguments = AgentInvocationModes.CreateSanitizedArgumentDictionary(context.Arguments, out var requestedMode);
+        var sanitizedArguments = context.Arguments;
+        var invocation = context.InvocationMode
+            ?? throw new InvalidOperationException("Client tool invocation requires prepared execution facts.");
+        var requestedMode = invocation.RequestedMode;
         ClientToolResolvedOperation? operation;
         try
         {
@@ -677,8 +671,11 @@ public class ClientToolMiddleware : IAgentMiddleware
             return;
         }
         var effectivePolicy = operation?.Policy ?? ClientToolPolicy.Resolve(tool?.DefaultPolicy);
-        var invocationModePolicy = effectivePolicy.InvocationModePolicy!.Value;
-        var resolvedMode = AgentInvocationModes.Resolve(invocationModePolicy, requestedMode);
+        if (!string.Equals(invocation.Action, operation?.Action, StringComparison.Ordinal) ||
+            invocation.Policy != effectivePolicy.InvocationModePolicy!.Value)
+            throw new InvalidOperationException("Client tool operation policy changed after preparation.");
+        var resolvedMode = invocation.Mode;
+        var invocationModePolicy = invocation.Policy;
 
         ClientToolInvokeOutcomeEvent outcome;
         var providerBinding = ReadProviderBinding(context);
@@ -707,6 +704,7 @@ public class ClientToolMiddleware : IAgentMiddleware
                         ToolName: toolName,
                         CallId: context.FunctionCallId ?? string.Empty,
                         Arguments: sanitizedArguments,
+                        ResolvedInvocationMode: resolvedMode,
                         Description: context.Function.Description),
                     _config.InvokeTimeout);
             }

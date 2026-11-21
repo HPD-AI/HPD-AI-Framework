@@ -65,24 +65,9 @@ internal static class McpToolInvocationRuntime
         ArgumentNullException.ThrowIfNull(request.Arguments);
         ArgumentNullException.ThrowIfNull(request.InvokeToolAsync);
 
-        var sanitizedArguments = AgentInvocationModes.CreateSanitizedArguments(
-            request.Arguments,
-            out var requestedMode);
-        AgentInvocationMode mode;
-        try
-        {
-            mode = AgentInvocationModes.Resolve(
-                ResolveInvocationModePolicy(request.ServerConfig, request.ToolName),
-                requestedMode);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return AgentInvocationModes.CreateFailureResult(
-                request.ToolName,
-                AgentOperationSourceKind.McpTask,
-                ex.Message,
-                "invalid_invocation_mode");
-        }
+        var sanitizedArguments = request.Arguments;
+        var mode = request.ParentContext?.InvocationMode?.Mode
+            ?? throw new InvalidOperationException("MCP invocation requires prepared execution mode.");
 
         if (mode == AgentInvocationMode.Background)
         {
@@ -189,10 +174,6 @@ internal static class McpToolInvocationRuntime
         var external = new AIFunctionArguments();
         foreach (var (key, value) in arguments)
         {
-            if (key is AIFunctionArgumentsExtensions.JsonKey or
-                AIFunctionArgumentsExtensions.JsonSerializerOptionsKey or
-                AIFunctionArgumentsExtensions.BoundArgumentsKey)
-                continue;
             external[key] = value;
         }
         return external;

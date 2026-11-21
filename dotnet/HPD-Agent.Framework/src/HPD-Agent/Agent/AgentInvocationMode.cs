@@ -57,7 +57,7 @@ public enum AgentInvocationModeHandling
     Runtime,
 
     /// <summary>
-    /// HPD resolves and sanitizes invocation mode, then the function body handles the resolved mode
+    /// HPD resolves invocation mode, then the function body handles the resolved mode
     /// through <see cref="FunctionExecutionContext.ResolvedInvocationMode"/>.
     /// </summary>
     ToolBody
@@ -158,6 +158,12 @@ public sealed record ResolvedFunctionInvocation
 
     /// <summary>Gets how the authoritative argument document entered HPD.</summary>
     public FunctionArgumentIngressProvenance IngressProvenance { get; init; }
+
+    /// <summary>Gets the authority that owns the function's input contract.</summary>
+    public FunctionInputContractKind InputContractKind { get; init; } = FunctionInputContractKind.HpdOwned;
+
+    /// <summary>Gets the validation actually completed for these effective arguments.</summary>
+    public HPD.Agent.Permissions.PermissionInputValidation InputValidation { get; init; }
 }
 
 /// <summary>Identifies whether function JSON was preserved or canonically reconstructed.</summary>
@@ -370,19 +376,19 @@ public sealed record AgentInvocationResult
 [EditorBrowsable(EditorBrowsableState.Never)]
 public static class AgentInvocationModes
 {
-    private const string RawJsonArgumentKey = "__raw_json__";
-    private const string JsonSerializerOptionsArgumentKey = "__json_serializer_options__";
-
-    /// <summary>Resolves and removes the nested invocation control for a compound function.</summary>
+    /// <summary>Resolves a compound action and its separately supplied invocation mode.</summary>
     /// <param name="arguments">The authoritative function arguments.</param>
     /// <param name="contract">The compound-function contract.</param>
-    /// <param name="sanitizedArguments">Receives arguments with the framework control removed.</param>
+    /// <param name="sanitizedArguments">Receives the unchanged domain arguments.</param>
+    /// <param name="ingressProvenance">Identifies how the argument JSON entered the runtime.</param>
+    /// <param name="requestedMode">The mode selected outside the domain arguments, if any.</param>
     /// <returns>The immutable resolved invocation facts.</returns>
     public static ResolvedFunctionInvocation ResolveAction(
         AIFunctionArguments arguments,
         AIFunctionOperationContract contract,
         out AIFunctionArguments sanitizedArguments,
-        FunctionArgumentIngressProvenance ingressProvenance = FunctionArgumentIngressProvenance.Original)
+        FunctionArgumentIngressProvenance ingressProvenance = FunctionArgumentIngressProvenance.Original,
+        AgentInvocationMode? requestedMode = null)
     {
         ArgumentNullException.ThrowIfNull(arguments);
         ArgumentNullException.ThrowIfNull(contract);
@@ -403,13 +409,12 @@ public static class AgentInvocationModes
         if (!contract.Actions.TryGetValue(action, out var policy))
             throw new InvalidOperationException($"Unknown function action '{action}'.");
 
-        var requestedElement = GetSingleProperty(actionObject, "invocationMode", required: false);
-        AgentInvocationMode? requested = requestedElement.ValueKind == JsonValueKind.Undefined
-            ? null
-            : ReadRequestedModeFromValue(requestedElement);
+        if (requestedMode is not null && policy.InvocationModePolicy != AgentInvocationModePolicy.ModelChoice)
+            throw new InvalidOperationException("This action does not allow model-selected invocation mode.");
+        var requested = requestedMode;
         var mode = Resolve(policy.InvocationModePolicy, requested);
-        sanitizedArguments = CloneWithNestedControlRemoved(arguments, root, contract.ActionArgumentName);
-        var sanitizedAction = sanitizedArguments.GetJson().GetProperty(contract.ActionArgumentName);
+        sanitizedArguments = arguments;
+        var sanitizedAction = actionObject;
         return new ResolvedFunctionInvocation
         {
             Action = action,
@@ -441,55 +446,6 @@ public static class AgentInvocationModes
         return found;
     }
 
-    private static AgentInvocationMode ReadRequestedModeFromValue(JsonElement value)
-    {
-        if (value.ValueKind != JsonValueKind.String)
-            throw new InvalidOperationException("invocationMode must be either 'synchronous' or 'background'.");
-        return value.GetString() switch
-        {
-            "synchronous" => AgentInvocationMode.Synchronous,
-            "background" => AgentInvocationMode.Background,
-            _ => throw new InvalidOperationException("invocationMode must be either 'synchronous' or 'background'.")
-        };
-    }
-
-    private static AIFunctionArguments CloneWithNestedControlRemoved(
-        AIFunctionArguments arguments, JsonElement root, string actionArgumentName)
-    {
-        using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream))
-        {
-            writer.WriteStartObject();
-            foreach (var property in root.EnumerateObject())
-            {
-                writer.WritePropertyName(property.Name);
-                if (!string.Equals(property.Name, actionArgumentName, StringComparison.Ordinal))
-                {
-                    property.Value.WriteTo(writer);
-                    continue;
-                }
-                writer.WriteStartObject();
-                foreach (var member in property.Value.EnumerateObject())
-                    if (!string.Equals(member.Name, "invocationMode", StringComparison.Ordinal)) member.WriteTo(writer);
-                writer.WriteEndObject();
-            }
-            writer.WriteEndObject();
-        }
-        using var document = JsonDocument.Parse(stream.ToArray());
-        var sanitizedJson = document.RootElement.Clone();
-        var sanitized = new AIFunctionArguments();
-        foreach (var (key, value) in arguments)
-        {
-            if (key is RawJsonArgumentKey or JsonSerializerOptionsArgumentKey) continue;
-            sanitized[key] = string.Equals(key, actionArgumentName, StringComparison.Ordinal)
-                ? sanitizedJson.GetProperty(actionArgumentName).Clone()
-                : value;
-        }
-        sanitized.SetJsonSerializerOptions(arguments.GetJsonSerializerOptions());
-        sanitized.SetJson(sanitizedJson);
-        return sanitized;
-    }
-
     /// <summary>
     /// Resolves the effective invocation mode for a policy and optional caller request.
     /// </summary>
@@ -512,107 +468,6 @@ public static class AgentInvocationModes
             _ => AgentInvocationMode.Synchronous
         };
 
-    /// <summary>
-    /// Reads the optional model-facing <c>invocationMode</c> argument from a JSON object.
-    /// </summary>
-    /// <param name="json">The model-provided JSON arguments.</param>
-    /// <returns>The parsed invocation mode, or <see langword="null"/> when none was supplied.</returns>
-    public static AgentInvocationMode? ReadRequestedMode(JsonElement json)
-    {
-        if (json.ValueKind != JsonValueKind.Object)
-            throw new InvalidOperationException("Function arguments must be a JSON object.");
-
-        JsonElement property = default;
-        var occurrences = 0;
-        foreach (var candidate in json.EnumerateObject())
-        {
-            if (!string.Equals(candidate.Name, "invocationMode", StringComparison.Ordinal))
-                continue;
-            occurrences++;
-            property = candidate.Value;
-        }
-
-        if (occurrences == 0)
-            return null;
-        if (occurrences > 1)
-            throw new InvalidOperationException("invocationMode must occur at most once.");
-
-        if (property.ValueKind != JsonValueKind.String)
-            throw new InvalidOperationException("invocationMode must be either 'synchronous' or 'background'.");
-
-        var value = property.GetString();
-        if (string.Equals(value, "synchronous", StringComparison.Ordinal))
-            return AgentInvocationMode.Synchronous;
-        if (string.Equals(value, "background", StringComparison.Ordinal))
-            return AgentInvocationMode.Background;
-
-        throw new InvalidOperationException("invocationMode must be either 'synchronous' or 'background'.");
-    }
-
-    /// <summary>
-    /// Copies arguments while removing the model-facing <c>invocationMode</c> control.
-    /// </summary>
-    /// <param name="arguments">The original tool arguments.</param>
-    /// <param name="requestedMode">The parsed invocation mode, when provided.</param>
-    /// <returns>Arguments safe to pass to the underlying tool implementation.</returns>
-    public static AIFunctionArguments CreateSanitizedArguments(
-        AIFunctionArguments arguments,
-        out AgentInvocationMode? requestedMode)
-    {
-        ArgumentNullException.ThrowIfNull(arguments);
-
-        var json = arguments.GetJson();
-        requestedMode = json.ValueKind == JsonValueKind.Undefined
-            ? null
-            : ReadRequestedMode(json);
-
-        var sanitized = new AIFunctionArguments();
-        foreach (var (key, value) in arguments)
-        {
-            if (string.Equals(key, "invocationMode", StringComparison.Ordinal) ||
-                string.Equals(key, RawJsonArgumentKey, StringComparison.Ordinal) ||
-                string.Equals(key, JsonSerializerOptionsArgumentKey, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            sanitized[key] = value;
-        }
-
-        sanitized.SetJsonSerializerOptions(arguments.GetJsonSerializerOptions());
-        if (json.ValueKind != JsonValueKind.Undefined)
-            sanitized.SetJson(RemoveInvocationMode(json));
-
-        return sanitized;
-    }
-
-    /// <summary>Copies a root argument dictionary while resolving and removing invocationMode.</summary>
-    /// <param name="arguments">The authoritative argument dictionary.</param>
-    /// <param name="requestedMode">Receives the optional requested mode.</param>
-    /// <returns>A detached dictionary containing only domain arguments.</returns>
-    public static IReadOnlyDictionary<string, object?> CreateSanitizedArgumentDictionary(
-        IReadOnlyDictionary<string, object?> arguments,
-        out AgentInvocationMode? requestedMode)
-    {
-        ArgumentNullException.ThrowIfNull(arguments);
-        requestedMode = null;
-        var sanitized = new Dictionary<string, object?>(StringComparer.Ordinal);
-        foreach (var (key, value) in arguments)
-        {
-            if (string.Equals(key, "invocationMode", StringComparison.Ordinal))
-            {
-                if (requestedMode is not null)
-                    throw new InvalidOperationException("invocationMode must occur at most once.");
-                requestedMode = ParseRequestedMode(value);
-            }
-            else
-            {
-                sanitized[key] = value;
-            }
-        }
-        return sanitized;
-    }
-
     /// <summary>Reads an exact string discriminator from an argument dictionary.</summary>
     /// <param name="arguments">The authoritative domain arguments.</param>
     /// <param name="discriminator">The exact discriminator property name.</param>
@@ -634,126 +489,10 @@ public static class AgentInvocationModes
         return value;
     }
 
-    private static AgentInvocationMode ParseRequestedMode(object? value)
-    {
-        if (value is AgentInvocationMode mode)
-            return mode;
-        var text = value switch
-        {
-            string candidate => candidate,
-            JsonElement { ValueKind: JsonValueKind.String } json => json.GetString(),
-            _ => null
-        };
-        return text?.ToLowerInvariant() switch
-        {
-            "synchronous" => AgentInvocationMode.Synchronous,
-            "background" => AgentInvocationMode.Background,
-            _ => throw new InvalidOperationException("invocationMode must be either 'synchronous' or 'background'.")
-        };
-    }
-
-    /// <summary>
-    /// Removes the model-facing <c>invocationMode</c> control from a JSON argument object.
-    /// </summary>
-    /// <param name="json">The original JSON arguments.</param>
-    /// <returns>A cloned JSON element without <c>invocationMode</c>.</returns>
-    public static JsonElement RemoveInvocationMode(JsonElement json)
-    {
-        if (json.ValueKind != JsonValueKind.Object ||
-            !json.TryGetProperty("invocationMode", out _))
-        {
-            return json.Clone();
-        }
-
-        using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream))
-        {
-            writer.WriteStartObject();
-            foreach (var property in json.EnumerateObject())
-            {
-                if (string.Equals(property.Name, "invocationMode", StringComparison.Ordinal))
-                    continue;
-
-                property.WriteTo(writer);
-            }
-            writer.WriteEndObject();
-        }
-
-        using var document = JsonDocument.Parse(stream.ToArray());
-        return document.RootElement.Clone();
-    }
-
-    /// <summary>
-    /// Adds the model-facing <c>invocationMode</c> argument to a tool schema when the policy allows model choice.
-    /// </summary>
-    /// <param name="originalSchema">The original tool JSON schema.</param>
-    /// <param name="invocationModePolicy">The invocation mode policy.</param>
-    /// <returns>The original schema or a cloned schema with <c>invocationMode</c>.</returns>
-    public static JsonElement CreateSchema(
-        JsonElement originalSchema,
-        AgentInvocationModePolicy invocationModePolicy,
-        string? discriminator = null,
-        IReadOnlySet<string>? modelChoiceActions = null)
-    {
-        if (originalSchema.ValueKind == JsonValueKind.Undefined)
-            return default;
-
-        if (invocationModePolicy != AgentInvocationModePolicy.ModelChoice)
-            return originalSchema.Clone();
-
-        JsonObject schema;
-        if (originalSchema.ValueKind == JsonValueKind.Object)
-        {
-            schema = JsonNode.Parse(originalSchema.GetRawText()) as JsonObject ?? new JsonObject();
-        }
-        else
-        {
-            schema = new JsonObject
-            {
-                ["type"] = "object"
-            };
-        }
-
-        schema["type"] ??= "object";
-
-        if (modelChoiceActions is not null &&
-            !string.IsNullOrWhiteSpace(discriminator) &&
-            schema["oneOf"] is JsonArray branches)
-        {
-            foreach (var branchNode in branches)
-            {
-                if (branchNode is not JsonObject branch ||
-                    branch["properties"] is not JsonObject branchProperties ||
-                    branchProperties[discriminator] is not JsonObject discriminatorSchema ||
-                    discriminatorSchema["const"]?.GetValue<string>() is not { } action ||
-                    !modelChoiceActions.Contains(action))
-                {
-                    continue;
-                }
-
-                branchProperties["invocationMode"] = CreateInvocationModeSchema();
-            }
-        }
-        else
-        {
-            if (schema["properties"] is not JsonObject properties)
-            {
-                properties = new JsonObject();
-                schema["properties"] = properties;
-            }
-
-            properties["invocationMode"] = CreateInvocationModeSchema();
-        }
-
-        return JsonSerializer.SerializeToElement(
-            schema,
-            HPDJsonContext.Default.JsonObject);
-    }
-
-    /// <summary>Composes action-scoped invocation controls into a direct union parameter schema.</summary>
+    /// <summary>Validates and expands a direct union domain schema for an action function.</summary>
     /// <param name="originalSchema">The unmodified function schema.</param>
     /// <param name="contract">The complete action contract.</param>
-    /// <returns>A cloned schema with controls only on model-choice branches.</returns>
+    /// <returns>A detached schema describing only the function's domain arguments.</returns>
     public static JsonElement CreateActionSchema(
         JsonElement originalSchema,
         AIFunctionOperationContract contract)
@@ -783,20 +522,13 @@ public static class AgentInvocationModes
                 discriminator["const"]?.GetValue<string>() is not { Length: > 0 } action ||
                 !contract.Actions.TryGetValue(action, out var policy) || !seen.Add(action))
                 throw new InvalidOperationException("Every action branch must have one unique declared discriminator.");
-            if (branchProperties.ContainsKey("invocationMode"))
-                throw new InvalidOperationException("Action branches cannot declare a domain property named 'invocationMode'.");
-            if (branch["required"] is JsonArray required &&
-                required.Any(item => item is JsonValue value && value.TryGetValue<string>(out var name) && name == "invocationMode"))
-                throw new InvalidOperationException($"Action '{action}' must keep invocationMode optional.");
-            if (policy.InvocationModePolicy == AgentInvocationModePolicy.ModelChoice)
-                branchProperties["invocationMode"] = CreateInvocationModeSchema();
         }
         if (seen.Count != contract.Actions.Count)
             throw new InvalidOperationException("The action schema and action contract contain different branches.");
         return JsonSerializer.SerializeToElement(root, HPDJsonContext.Default.JsonObject);
     }
 
-    /// <summary>Verifies that a precomposed generated schema exactly exposes its declared action controls.</summary>
+    /// <summary>Verifies that a generated domain schema matches its declared action branches.</summary>
     /// <param name="schema">The generated composed schema.</param>
     /// <param name="contract">The effective action contract.</param>
     public static void ValidateActionSchema(JsonElement schema, AIFunctionOperationContract contract)
@@ -822,18 +554,6 @@ public static class AgentInvocationModes
                 discriminator["const"]?.GetValue<string>() is not { Length: > 0 } action ||
                 !contract.Actions.TryGetValue(action, out var policy) || !seen.Add(action))
                 throw new InvalidOperationException("The generated action schema does not match its action contract.");
-            var control = branchProperties["invocationMode"] as JsonObject;
-            var exposesControl = control is not null;
-            if (exposesControl != (policy.InvocationModePolicy == AgentInvocationModePolicy.ModelChoice))
-                throw new InvalidOperationException($"Action '{action}' exposes an invocation control inconsistent with its policy.");
-            if (exposesControl && (control!["enum"] is not JsonArray values || values.Count != 2 ||
-                values[0] is not JsonValue synchronous || !synchronous.TryGetValue<string>(out var synchronousValue) || synchronousValue != "synchronous" ||
-                values[1] is not JsonValue background || !background.TryGetValue<string>(out var backgroundValue) || backgroundValue != "background" ||
-                control["type"]?.GetValue<string>() != "string"))
-                throw new InvalidOperationException($"Action '{action}' has an invalid invocation control.");
-            if (branch["required"] is JsonArray required &&
-                required.Any(item => item is JsonValue value && value.TryGetValue<string>(out var name) && name == "invocationMode"))
-                throw new InvalidOperationException($"Action '{action}' must keep invocationMode optional.");
             if (branch["required"] is not JsonArray requiredProperties ||
                 !requiredProperties.Any(item => item is JsonValue value && value.TryGetValue<string>(out var name) && name == contract.Discriminator))
                 throw new InvalidOperationException($"Action '{action}' must require discriminator '{contract.Discriminator}'.");
@@ -917,14 +637,6 @@ public static class AgentInvocationModes
         }
         return node?.DeepClone();
     }
-
-    private static JsonObject CreateInvocationModeSchema() =>
-        new()
-        {
-            ["type"] = "string",
-            ["enum"] = new JsonArray("synchronous", "background"),
-            ["description"] = "Whether to wait for the result now or run it in the background. Use synchronous unless the work can continue independently."
-        };
 
     /// <summary>
     /// Creates a model-facing receipt for a background invocation that could not be started.

@@ -428,7 +428,7 @@ public static partial class NativeExports
                 var argsDict = new Dictionary<string, object>();
                 foreach (var kvp in arguments)
                 {
-                    if (kvp.Key != "__raw_json__" && kvp.Value != null) // Skip internal keys and null values
+                    if (kvp.Value != null)
                     {
                         argsDict[kvp.Key] = kvp.Value;
                     }

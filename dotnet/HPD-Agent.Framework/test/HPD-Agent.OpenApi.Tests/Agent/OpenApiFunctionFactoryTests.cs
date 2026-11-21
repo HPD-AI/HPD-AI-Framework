@@ -97,6 +97,64 @@ public class OpenApiFunctionFactoryTests
             => Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(body) });
     }
 
+    private sealed class RequestCaptureHandler : HttpMessageHandler
+    {
+        public string? PathAndQuery { get; private set; }
+        public string? Host { get; private set; }
+        public string? Header { get; private set; }
+        public string? Body { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            PathAndQuery = request.RequestUri!.PathAndQuery;
+            Host = request.RequestUri.Host;
+            Header = request.Headers.GetValues("id").Single();
+            Body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") };
+        }
+    }
+
+    [Fact]
+    public async Task InvokedFunction_SeparatesSameNamedPathQueryHeaderAndBodyValues()
+    {
+        var operation = new RestApiOperation
+        {
+            Id = "update", Path = "/pets/{id}", Method = HttpMethod.Post,
+            ServerUrl = "https://api.example.com",
+            Parameters =
+            [
+                new RestApiParameter { Name = "id", Type = "string", IsRequired = true, Location = RestApiParameterLocation.Path },
+                new RestApiParameter { Name = "id", Type = "string", IsRequired = true, Location = RestApiParameterLocation.Query },
+                new RestApiParameter { Name = "id", Type = "string", IsRequired = true, Location = RestApiParameterLocation.Header }
+            ],
+            Payload = new RestApiPayload
+            {
+                MediaType = "application/json", IsRequired = true,
+                Properties = [new RestApiPayloadProperty { Name = "id", Type = "string", IsRequired = true }]
+            }
+        };
+        var handler = new RequestCaptureHandler();
+        var config = new OpenApiConfig();
+        var function = Assert.Single(OpenApiFunctionFactory.CreateFunctions(MakeSpec(operation), config,
+            new OpenApiOperationRunner(new HttpClient(handler))));
+        operation.Parameters.Clear();
+        operation.Payload!.Properties.Clear();
+        config.EnableDynamicPayload = false;
+        config.ServerUrlOverride = new Uri("https://changed.example.com");
+        using var input = JsonDocument.Parse("""{"path":{"id":"path value"},"query":{"id":"query value"},"headers":{"id":"header value"},"body":{"id":"body value"}}""");
+        var arguments = new AIFunctionArguments(input.RootElement.EnumerateObject()
+            .ToDictionary(property => property.Name, property => (object?)property.Value.Clone()));
+        arguments.SetJson(input.RootElement.Clone());
+
+        await InvokeFunctionAsync(function, arguments);
+
+        handler.Host.Should().Be("api.example.com");
+        handler.PathAndQuery.Should().Be("/pets/path%20value?id=query%20value");
+        handler.Header.Should().Be("header value");
+        using var body = JsonDocument.Parse(handler.Body!);
+        body.RootElement.GetProperty("id").GetString().Should().Be("body value");
+    }
+
     // ────────────────────────────────────────────────────────────
     // Function name generation
     // ────────────────────────────────────────────────────────────
@@ -371,8 +429,8 @@ public class OpenApiFunctionFactoryTests
         var functions = OpenApiFunctionFactory.CreateFunctions(spec, new OpenApiConfig(), MakeRunner());
 
         var schema = functions[0].JsonSchema;
-        schema.GetProperty("properties").TryGetProperty("petId", out _).Should().BeTrue();
-        schema.GetProperty("properties").TryGetProperty("limit", out _).Should().BeTrue();
+        schema.GetProperty("properties").GetProperty("path").GetProperty("properties").TryGetProperty("petId", out _).Should().BeTrue();
+        schema.GetProperty("properties").GetProperty("query").GetProperty("properties").TryGetProperty("limit", out _).Should().BeTrue();
     }
 
     [Fact]
@@ -385,7 +443,9 @@ public class OpenApiFunctionFactoryTests
         var functions = OpenApiFunctionFactory.CreateFunctions(spec, new OpenApiConfig(), MakeRunner());
 
         var required = functions[0].JsonSchema.GetProperty("required");
-        required.EnumerateArray().Select(e => e.GetString()).Should().Contain("petId");
+        required.EnumerateArray().Select(e => e.GetString()).Should().Contain("path");
+        functions[0].JsonSchema.GetProperty("properties").GetProperty("path").GetProperty("required")
+            .EnumerateArray().Select(e => e.GetString()).Should().Contain("petId");
     }
 
     [Fact]
@@ -422,8 +482,42 @@ public class OpenApiFunctionFactoryTests
         var functions = OpenApiFunctionFactory.CreateFunctions(spec, config, MakeRunner());
 
         var schema = functions[0].JsonSchema;
-        schema.GetProperty("properties").TryGetProperty("payload", out var payloadProp).Should().BeTrue();
+        schema.GetProperty("properties").TryGetProperty("body", out var payloadProp).Should().BeTrue();
         payloadProp.GetProperty("type").GetString().Should().Be("string");
+    }
+
+    [Fact]
+    public void CreateFunctions_SourceRevisionTracksOperationAndSourceChanges()
+    {
+        string Revision(RestApiOperation operation, string source, Uri? overrideUrl = null)
+        {
+            using var document = JsonDocument.Parse(source);
+            var spec = MakeSpec(operation);
+            spec = new ParsedOpenApiSpec { Operations = spec.Operations, SourceDocument = document.RootElement.Clone() };
+            var function = Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(Assert.Single(
+                OpenApiFunctionFactory.CreateFunctions(spec, new OpenApiConfig { ServerUrlOverride = overrideUrl }, MakeRunner())));
+            return Assert.IsType<string>(function.HPDOptions.PermissionSourceRevision);
+        }
+
+        const string firstSource = """{"paths":{"/items":{"get":{}}},"info":{"version":"1"}}""";
+        const string nextSource = """{"paths":{"/items":{"get":{}}},"info":{"version":"2"}}""";
+        var first = Revision(MakeOp(), firstSource);
+        Assert.Equal(first, Revision(MakeOp(), firstSource));
+        Assert.NotEqual(first, Revision(MakeOp(), nextSource));
+        Assert.NotEqual(first, Revision(MakeOp(), firstSource, new Uri("https://changed.example.com")));
+        Assert.NotEqual(first, Revision(MakeOp(parameters: [new RestApiParameter
+        {
+            Name = "limit", Type = "integer", Location = RestApiParameterLocation.Query
+        }]), firstSource));
+    }
+
+    [Fact]
+    public void CreateFunctions_IdentifiesInputAsSpecificationProjection()
+    {
+        var function = Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(
+            Assert.Single(OpenApiFunctionFactory.CreateFunctions(MakeSpec(MakeOp()), new OpenApiConfig(), MakeRunner())));
+
+        function.HPDOptions.InputContractKind.Should().Be(FunctionInputContractKind.ProjectedSpecification);
     }
 
     [Fact]

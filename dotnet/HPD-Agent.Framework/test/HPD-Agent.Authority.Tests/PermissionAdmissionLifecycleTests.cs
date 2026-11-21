@@ -21,6 +21,11 @@ public sealed class PermissionAdmissionLifecycleTests
         var request = await inbox.Reader.ReadAsync(timeout.Token);
         Assert.Contains(request.Choices, choice => choice.Id == "allow_session");
         Assert.Equal("write", request.FunctionName);
+        Assert.NotNull(request.Invocation);
+        Assert.Equal(AgentInvocationMode.Synchronous, request.Invocation.Mode);
+        Assert.Equal(PermissionInputValidation.None, request.Invocation.Validation);
+        Assert.Equal(FunctionArgumentIngressProvenance.Canonicalized, request.Invocation.IngressProvenance);
+        Assert.Equal(request.Invocation, request.GetPrompt().Invocation);
         Assert.Equal(System.Text.Json.JsonValueKind.Object,
             request.Arguments!.Value.ValueKind);
         var response = new PermissionResponseEvent(request.PermissionId, request.SourceName, "allow_session");
@@ -39,11 +44,64 @@ public sealed class PermissionAdmissionLifecycleTests
         var events = await fixture.Journal();
         var persistedRequest = Assert.Single(events.OfType<PermissionRequestEvent>());
         Assert.Equal("write", persistedRequest.FunctionName);
+        Assert.Equal(request.Invocation, persistedRequest.Invocation);
         Assert.Equal(System.Text.Json.JsonValueKind.Object,
             persistedRequest.Arguments!.Value.ValueKind);
         Assert.Single(events.OfType<PermissionResponseEvent>());
         Assert.Equal(2, events.OfType<PermissionResolvedEvent>().Count());
         Assert.Equal(2, events.OfType<PermissionEvaluatedEvent>().Count());
+    }
+
+    [Fact]
+    public async Task SessionApprovalForSynchronousCallDoesNotAuthorizeBackgroundCall()
+    {
+        await using var fixture = await Fixture.Create();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var inbox = fixture.Events.CreateInbox<PermissionRequestEvent>();
+        var first = fixture.Admit("first", timeout.Token);
+        var firstRequest = await inbox.Reader.ReadAsync(timeout.Token);
+        fixture.Events.Respond(new PermissionResponseEvent(firstRequest.PermissionId, firstRequest.SourceName, "allow_session"));
+        Assert.IsType<Invoke>(await first);
+        await PermissionStateCheckpoint.SaveAsync(fixture.Context, UnifiedPermissionModelTests.Factories(), timeout.Token);
+        var background = new ResolvedFunctionInvocation
+        {
+            Mode = AgentInvocationMode.Background, Policy = AgentInvocationModePolicy.ModelChoice,
+            Handling = AgentInvocationModeHandling.Runtime
+        };
+
+        var second = fixture.Admit("second", timeout.Token, invocation: background);
+        var secondRequest = await inbox.Reader.ReadAsync(timeout.Token);
+        fixture.Events.Respond(new PermissionResponseEvent(secondRequest.PermissionId, secondRequest.SourceName, "deny_once"));
+
+        Assert.IsType<Reject>(await second);
+        Assert.NotEqual(firstRequest.PermissionId, secondRequest.PermissionId);
+    }
+
+    [Fact]
+    public async Task SessionApprovalDoesNotCarryOverToChangedSourceRevision()
+    {
+        await using var fixture = await Fixture.Create();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var inbox = fixture.Events.CreateInbox<PermissionRequestEvent>();
+        static AIFunction CreateFunction(string revision) => HPDAIFunctionFactory.Create(
+            (_, _, _) => Task.FromResult<object?>("ok"), new()
+            {
+                Name = "write", PermissionSourceRevision = revision,
+                FunctionPermission = AIFunctionPermissionDeclaration.Required("write"),
+                SchemaProvider = () => JsonDocument.Parse("""{"type":"object","properties":{},"additionalProperties":false}""").RootElement.Clone()
+            });
+        fixture.Function = CreateFunction("endpoint-a");
+        var first = fixture.Admit("first", timeout.Token);
+        var firstRequest = await inbox.Reader.ReadAsync(timeout.Token);
+        fixture.Events.Respond(new PermissionResponseEvent(firstRequest.PermissionId, firstRequest.SourceName, "allow_session"));
+        Assert.IsType<Invoke>(await first);
+        await PermissionStateCheckpoint.SaveAsync(fixture.Context, UnifiedPermissionModelTests.Factories(), timeout.Token);
+
+        fixture.Function = CreateFunction("endpoint-b");
+        var second = fixture.Admit("second", timeout.Token);
+        var secondRequest = await inbox.Reader.ReadAsync(timeout.Token);
+        fixture.Events.Respond(new PermissionResponseEvent(secondRequest.PermissionId, secondRequest.SourceName, "deny_once"));
+        Assert.IsType<Reject>(await second);
     }
 
     [Fact]
@@ -53,7 +111,12 @@ public sealed class PermissionAdmissionLifecycleTests
         var state = new PermissionDecisionStateData();
         for (var index = 0; index < 300; index++)
         {
-            var key = new PermissionDecisionKey("coding", $"other/{index}", null, "v1");
+            var key = new PermissionDecisionKey("coding", $"other/{index}", null, "v1")
+            {
+                Scope = new("source", $"function/{index}", "schema-1", "1", AgentInvocationMode.Synchronous,
+                    FunctionInputContractKind.HpdOwned, PermissionInputValidation.HpdCanonical,
+                    FunctionArgumentIngressProvenance.Original)
+            };
             state = PermissionDecisionIndex.Apply(state, new PermissionDecisionRecord
             {
                 RecordId = PermissionRecordIdentity.Create(key, PermissionPersistenceKind.Session),
@@ -86,6 +149,30 @@ public sealed class PermissionAdmissionLifecycleTests
         Assert.Equal(301, fixture.Context.State.MiddlewareState
             .GetState<PermissionDecisionStateData>(PermissionDecisionIndex.StateKey)!
             .Decisions.Length);
+    }
+
+    [Fact]
+    public async Task UnversionedPolicyWithOnlyReusableAllowFailsClosed()
+    {
+        var policy = new PermissionPolicyResult
+        {
+            Outcome = new PermissionAsk("Confirm", null, null,
+            [
+                new PermissionChoice("allow_session", "Allow for session", PermissionDecisionKind.Allow),
+                new PermissionChoice("deny_once", "Deny", PermissionDecisionKind.Deny)
+            ]),
+            PersistenceByChoice = new Dictionary<string, PermissionPersistenceProposal>
+            {
+                ["allow_session"] = new() { Kind = PermissionPersistenceKind.Session }
+            }
+        };
+        await using var fixture = await Fixture.Create(policyResult: policy, semanticVersion: null);
+
+        var result = await fixture.Admit("unversioned", CancellationToken.None);
+
+        Assert.IsType<ContinueAfterFeedback>(result);
+        Assert.False(PermissionStateCheckpoint.IsPending(fixture.Context));
+        Assert.Empty((await fixture.Journal()).OfType<PermissionRequestEvent>());
     }
 
     [Fact]
@@ -151,7 +238,8 @@ public sealed class PermissionAdmissionLifecycleTests
             PermissionStateCheckpoint.EnsureSaved(fixture.Context);
             Interlocked.Increment(ref bodies);
             return Task.FromResult<object?>("ok");
-        }, new() { Name = "write", FunctionPermission = AIFunctionPermissionDeclaration.Required("write") });
+        }, new() { Name = "write", FunctionPermission = AIFunctionPermissionDeclaration.Required("write"),
+            SchemaProvider = () => JsonDocument.Parse("{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}").RootElement.Clone() });
         var pipeline = new AgentMiddlewarePipeline(new IAgentMiddleware[] { fixture.Middleware });
         var core = new FunctionExecutionCore(pipeline);
         var processor = new FunctionCallProcessor(fixture.Events, pipeline, core, 10,
@@ -176,7 +264,8 @@ public sealed class PermissionAdmissionLifecycleTests
         var bodies = 0;
         var function = HPDAIFunctionFactory.Create((_, _, _) =>
         { bodies++; return Task.FromResult<object?>("ok"); }, new()
-        { Name = "write", FunctionPermission = AIFunctionPermissionDeclaration.Required("write") });
+        { Name = "write", FunctionPermission = AIFunctionPermissionDeclaration.Required("write"),
+          SchemaProvider = () => JsonDocument.Parse("{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}").RootElement.Clone() });
         var pipeline = new AgentMiddlewarePipeline(new IAgentMiddleware[] { fixture.Middleware });
         var processor = new FunctionCallProcessor(fixture.Events, pipeline, new FunctionExecutionCore(pipeline), 10,
             stateFactories: UnifiedPermissionModelTests.Factories());
@@ -216,7 +305,8 @@ public sealed class PermissionAdmissionLifecycleTests
         var bodies = 0;
         var function = HPDAIFunctionFactory.Create((_, _, _) =>
         { bodies++; return Task.FromResult<object?>("ok"); }, new()
-        { Name = "write", FunctionPermission = AIFunctionPermissionDeclaration.Required("write") });
+        { Name = "write", FunctionPermission = AIFunctionPermissionDeclaration.Required("write"),
+          SchemaProvider = () => JsonDocument.Parse("{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}").RootElement.Clone() });
         var pipeline = new AgentMiddlewarePipeline(new IAgentMiddleware[] { fixture.Middleware });
         var processor = new FunctionCallProcessor(fixture.Events, pipeline, new FunctionExecutionCore(pipeline), 10,
             stateFactories: UnifiedPermissionModelTests.Factories());
@@ -262,9 +352,59 @@ public sealed class PermissionAdmissionLifecycleTests
         Assert.Empty(journal.OfType<PermissionRequestEvent>());
     }
 
+    [Fact]
+    public async Task PermissionGrantBindsExecutionModeAndFunctionContract()
+    {
+        await using var fixture = await Fixture.Create(mode: AuthorizationMode.Bypass);
+        var mode = new ResolvedFunctionInvocation
+        {
+            Mode = AgentInvocationMode.Background,
+            Policy = AgentInvocationModePolicy.ModelChoice,
+            Handling = AgentInvocationModeHandling.ToolBody
+        };
+        var config = new AgentRunConfig();
+        using var one = JsonDocument.Parse("1");
+        using var onePointZero = JsonDocument.Parse("1.0");
+        var arguments = new Dictionary<string, object?> { ["value"] = one.RootElement.Clone() };
+        var context = fixture.Context.AsBeforeFunction(fixture.Function, "mode-call", arguments, config);
+        var resolved = fixture.Middleware.ResolveFunction(fixture.Function, mode, config);
+        var admission = Assert.IsType<Invoke>(await fixture.Middleware.AuthorizeCallAsync(
+            context, resolved, "mode-call", arguments, mode, config, CancellationToken.None));
+        var stamp = admission.Grant!.Authority;
+
+        Assert.Equal(AgentInvocationMode.Background, stamp.Mode);
+        Assert.Equal(AgentInvocationModePolicy.ModelChoice, stamp.InvocationPolicy);
+        Assert.Equal(AgentInvocationModeHandling.ToolBody, stamp.InvocationHandling);
+        var function = Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(fixture.Function);
+        Assert.Equal(function.ContractDescriptor?.CanonicalSchemaFingerprint, stamp.ContractFingerprint);
+
+        context.PermissionGrant = admission.Grant;
+        context.PermissionRequired = true;
+        var call = new FunctionCallContent("mode-call", fixture.Function.Name, arguments);
+        var preparation = new FunctionExecutionPreparation(call, null, fixture.Function, arguments,
+            mode, null, context, null, null, null);
+        var request = new FunctionRequest
+        {
+            Function = fixture.Function, CallId = call.CallId, Arguments = arguments,
+            State = fixture.Context.State, PermissionGrant = admission.Grant,
+            PermissionRequired = true, InvocationMode = mode
+        };
+        FunctionExecutionCore.VerifyPreparedAuthority(preparation, request);
+        var altered = request with { InvocationMode = mode with { Mode = AgentInvocationMode.Synchronous } };
+        var error = Assert.Throws<InvalidOperationException>(
+            () => FunctionExecutionCore.VerifyPreparedAuthority(preparation, altered));
+        Assert.Contains("permission_authority_drift", error.Message);
+        var changedNumber = request with
+        {
+            Arguments = new Dictionary<string, object?> { ["value"] = onePointZero.RootElement.Clone() }
+        };
+        Assert.Throws<InvalidOperationException>(() =>
+            FunctionExecutionCore.VerifyPreparedAuthority(preparation, changedNumber));
+    }
+
     private sealed class ConstantPolicy(PermissionPolicyResult result) : IPermissionPolicy
     {
-        public ValueTask<PermissionPolicyResult> EvaluateAsync(ValidatedPermissionInput input,
+        public ValueTask<PermissionPolicyResult> EvaluateAsync(PreparedPermissionInput input,
             PermissionEvaluationContext context, CancellationToken token) => ValueTask.FromResult(result);
     }
     private sealed class EmptyServices : IServiceProvider { public object? GetService(Type type) => null; }
@@ -303,9 +443,10 @@ public sealed class PermissionAdmissionLifecycleTests
         internal required AIFunction Function;
         internal required AgentContext Context;
         internal ThreadKey Key => new(Session.Id, Thread.Id);
-        internal Task<CallDisposition> Admit(string call, CancellationToken token, AgentRunConfig? config = null) =>
-            Middleware.AuthorizeCallAsync(Context.AsBeforeFunction(Function, call, new Dictionary<string, object?>(), config ?? new()),
-                Middleware.ResolveFunction(Function, null, config ?? new()), call, new Dictionary<string, object?>(), null, config ?? new(), token).AsTask();
+        internal Task<CallDisposition> Admit(string call, CancellationToken token, AgentRunConfig? config = null,
+            ResolvedFunctionInvocation? invocation = null) =>
+            Middleware.AuthorizeCallAsync(Context.AsBeforeFunction(Function, call, new Dictionary<string, object?>(), config ?? new(), invocationMode: invocation),
+                Middleware.ResolveFunction(Function, invocation, config ?? new()), call, new Dictionary<string, object?>(), invocation, config ?? new(), token).AsTask();
         internal AgentContext NewContext() => new("coding", Session.Id,
             AgentLoopState.Initial([], Guid.NewGuid().ToString(), Session.Id, "coding"), Events, Session, Thread,
             CancellationToken.None, Publisher);
@@ -318,7 +459,7 @@ public sealed class PermissionAdmissionLifecycleTests
             return values;
         }
         internal static async Task<Fixture> Create(bool stableId = true, PermissionPolicyResult? policyResult = null,
-            AuthorizationMode mode = AuthorizationMode.Enforce)
+            AuthorizationMode mode = AuthorizationMode.Enforce, string? semanticVersion = "1")
         {
             Assert.True(AgentEventCompositionHost.TryComposeRegisteredModules(out var composition));
             var store = new CountingStore(new InMemorySessionStore(composition.Codec));
@@ -339,7 +480,7 @@ public sealed class PermissionAdmissionLifecycleTests
             return new() { Store = store, Session = session, Thread = thread, Events = events, Publisher = publisher,
                 Function = function, Context = context, Middleware = new(agentId: stableId ? "coding" : null, agentName: "coding",
                     descriptorCatalog: new PermissionDescriptorCatalog(policyResult is null ? [] :
-                    [new AIFunctionPermissionDescriptor { DescriptorId = "test.policy.v1", PolicyFactory = _ => new ConstantPolicy(policyResult) }]),
+                    [new AIFunctionPermissionDescriptor { DescriptorId = "test.policy.v1", SemanticVersion = semanticVersion, PolicyFactory = _ => new ConstantPolicy(policyResult) }]),
                     authorizationMode: mode) };
         }
         public ValueTask DisposeAsync() { Events.Dispose(); return ValueTask.CompletedTask; }

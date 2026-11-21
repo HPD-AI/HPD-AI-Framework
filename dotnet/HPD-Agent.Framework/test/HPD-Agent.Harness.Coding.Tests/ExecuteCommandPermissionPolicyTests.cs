@@ -100,7 +100,7 @@ public sealed class ExecuteCommandPermissionPolicyTests
             .Should().NotContain((int)ExecuteCommandUnsupportedShellFeature.OutputRedirection);
     }
 
-    private static (ValidatedPermissionInput Input, PermissionEvaluationContext Context) CreateInput(
+    private static (PreparedPermissionInput Input, PermissionEvaluationContext Context) CreateInput(
         string command, string? workspacePath = null)
     {
         var request = JsonSerializer.SerializeToElement(new
@@ -126,7 +126,7 @@ public sealed class ExecuteCommandPermissionPolicyTests
             },
             IngressProvenance = FunctionArgumentIngressProvenance.Canonicalized
         };
-        var input = new ValidatedPermissionInput(arguments, invocation);
+        var input = new PreparedPermissionInput(arguments, invocation);
         var registry = new RuntimeCapabilityRegistry();
         var runConfig = TestRuntimeWorkspace.RunConfig(TestRuntimeWorkspace.Create(workspacePath ?? Directory.GetCurrentDirectory()));
         ExecuteCommandTests.RegisterProcessExecution(registry, new ExecuteCommandTests.FakeProcessProvider(), runConfig);

@@ -172,7 +172,7 @@ public sealed class GeneratedPermissionArchitectureTests
     public void Validated_permission_input_reads_canonical_values_without_author_dto()
     {
         using var arguments = JsonDocument.Parse("""{"path":"/tmp/demo","recursive":true}""");
-        var input = new ValidatedPermissionInput(
+        var input = new PreparedPermissionInput(
             arguments.RootElement,
             new ResolvedFunctionInvocation
             {
@@ -189,7 +189,12 @@ public sealed class GeneratedPermissionArchitectureTests
     [Fact]
     public void Session_decisions_have_stable_agent_and_policy_scoped_identity()
     {
-        var first = new PermissionDecisionKey("agent-1", "files/write", null, "write.v1");
+        var first = new PermissionDecisionKey("agent-1", "files/write", null, "write.v1")
+        {
+            Scope = new("source", "function/write", "schema-1", "1", AgentInvocationMode.Synchronous,
+                FunctionInputContractKind.HpdOwned, PermissionInputValidation.HpdCanonical,
+                FunctionArgumentIngressProvenance.Original)
+        };
         var second = first with { AgentId = "agent-2" };
         Assert.NotEqual(PermissionRecordIdentity.Create(first, PermissionPersistenceKind.Session),
             PermissionRecordIdentity.Create(second, PermissionPersistenceKind.Session));

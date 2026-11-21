@@ -7,6 +7,10 @@ public sealed class ParsedOpenApiSpec
 {
     public RestApiInfo Info { get; init; } = new();
     public List<RestApiOperation> Operations { get; init; } = [];
+
+    /// <summary>Gets the detached source document before reader normalization and extraction.</summary>
+    /// <remarks>This document may contain sensitive specification values and must be handled as host configuration.</remarks>
+    public JsonElement SourceDocument { get; init; }
 }
 
 /// <summary>API metadata from the info block of the spec.</summary>
@@ -131,6 +135,8 @@ public enum RestApiParameterLocation
 public sealed class RestApiPayload
 {
     public required string MediaType { get; init; }
+    /// <summary>Gets whether the OpenAPI operation requires a request body.</summary>
+    public bool IsRequired { get; init; }
     public string? Description { get; init; }
     public List<RestApiPayloadProperty> Properties { get; init; } = [];
     public JsonElement? Schema { get; init; }

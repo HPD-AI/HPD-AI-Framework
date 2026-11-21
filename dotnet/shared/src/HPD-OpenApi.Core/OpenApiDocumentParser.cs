@@ -12,7 +12,7 @@ namespace HPD.OpenApi.Core;
 /// Adapted from Semantic Kernel's OpenApiDocumentParser.
 ///
 /// Supports JSON/YAML, OpenAPI 2.0/3.0/3.1. OpenAPI 3.1 documents are downgraded to 3.0.1
-/// for compatibility with Microsoft.OpenApi, which is safe for operation extraction purposes.
+/// for compatibility with Microsoft.OpenApi, while preserving the original source for fidelity checks.
 /// </summary>
 public sealed class OpenApiDocumentParser
 {
@@ -45,7 +45,10 @@ public sealed class OpenApiDocumentParser
         Uri? baseUri = null,
         CancellationToken cancellationToken = default)
     {
-        var jsonObject = await DowngradeVersionIfNeededAsync(stream, format, cancellationToken);
+        var jsonObject = await ReadDocumentAsync(stream, format, cancellationToken);
+        using var originalDocument = JsonDocument.Parse(jsonObject.ToJsonString());
+        var sourceDocument = originalDocument.RootElement.Clone();
+        PrepareVersionForReader(jsonObject);
         using var memoryStream = new MemoryStream(
             System.Text.Encoding.UTF8.GetBytes(jsonObject.ToJsonString(s_writeIndented)));
         var result = await OpenApiDocument.LoadAsync(memoryStream, cancellationToken: cancellationToken);
@@ -53,7 +56,8 @@ public sealed class OpenApiDocumentParser
         return new ParsedOpenApiSpec
         {
             Info = ExtractInfo(result.Document!),
-            Operations = ExtractOperations(result.Document!, config, baseUri)
+            Operations = ExtractOperations(result.Document!, config, baseUri),
+            SourceDocument = sourceDocument
         };
     }
 
@@ -80,11 +84,9 @@ public sealed class OpenApiDocumentParser
     }
 
     /// <summary>
-    /// Reads the config object and downgrades the openapi version field from 3.1.x to 3.0.1
-    /// if needed. Microsoft.OpenApi doesn't fully support 3.1; the downgrade is safe for
-    /// operation extraction.
+    /// Reads the source before reader-specific version normalization.
     /// </summary>
-    private static async Task<JsonObject> DowngradeVersionIfNeededAsync(
+    private static async Task<JsonObject> ReadDocumentAsync(
         Stream stream,
         HpdConfigFormat format,
         CancellationToken ct)
@@ -99,6 +101,11 @@ public sealed class OpenApiDocumentParser
         var jsonObject = node as JsonObject
             ?? throw new OpenApiParseException($"Failed to parse OpenAPI document as {format}.");
 
+        return jsonObject;
+    }
+
+    private static void PrepareVersionForReader(JsonObject jsonObject)
+    {
         if (jsonObject.TryGetPropertyValue("openapi", out var versionNode)
             && versionNode is JsonValue versionValue
             && Version.TryParse(versionValue.ToString(), out var version)
@@ -107,7 +114,6 @@ public sealed class OpenApiDocumentParser
             jsonObject["openapi"] = s_latestSupportedVersion.ToString();
         }
 
-        return jsonObject;
     }
 
     private static async Task<string> ReadAllTextAsync(Stream stream, CancellationToken ct)
@@ -335,6 +341,7 @@ public sealed class OpenApiDocumentParser
         return new RestApiPayload
         {
             MediaType = mediaType,
+            IsRequired = requestBody.Required,
             Description = requestBody.Description,
             Properties = GetPayloadProperties(operationId, mediaTypeMetadata.Schema),
             Schema = mediaTypeMetadata.Schema?.ToJsonSchema()

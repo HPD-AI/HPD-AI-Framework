@@ -6,14 +6,14 @@ namespace HPD.Agent.Permissions;
 /// <summary>Evaluates the exact validated invocation. The framework owns interaction and execution.</summary>
 public interface IPermissionPolicy
 {
-    ValueTask<PermissionPolicyResult> EvaluateAsync(ValidatedPermissionInput input,
+    ValueTask<PermissionPolicyResult> EvaluateAsync(PreparedPermissionInput input,
         PermissionEvaluationContext context, CancellationToken cancellationToken);
 }
 
 /// <summary>Revalidates a stored rule under the current versioned policy.</summary>
 public interface IValidatedPermissionRulePolicy
 {
-    bool MatchesStoredDecision(ValidatedPermissionInput input,
+    bool MatchesStoredDecision(PreparedPermissionInput input,
         PermissionEvaluationContext context, PermissionDecisionRecord record);
 }
 
@@ -21,6 +21,8 @@ public interface IValidatedPermissionRulePolicy
 public sealed record AIFunctionPermissionDescriptor
 {
     public required string DescriptorId { get; init; }
+    /// <summary>Gets the policy author's stable semantic version, required for reusable approvals.</summary>
+    public string? SemanticVersion { get; init; }
     public required Func<IServiceProvider, IPermissionPolicy> PolicyFactory { get; init; }
 }
 
@@ -59,7 +61,7 @@ public static class PermissionDomains
     public const string SandboxCapability = "SandboxCapability";
 }
 [JsonConverter(typeof(JsonStringEnumConverter<PersistenceUnavailableReason>))]
-public enum PersistenceUnavailableReason { NoStableAgentId, NoSessionStore }
+public enum PersistenceUnavailableReason { NoStableAgentId, NoSessionStore, NoPolicyVersion, NoContractIdentity }
 public enum PermissionGrantSource
 {
     PolicyDecision, StoredDecision, HostAutoApprove, HostBypass, UserDecision,
@@ -71,6 +73,17 @@ public enum PermissionBindingSource { Function, Action, Mcp, Builder, RunOverrid
 public sealed record AIFunctionPermissionBinding(string Authority, string? PolicyDescriptorId,
     PermissionBindingSource Source);
 
+/// <summary>Execution and input-preparation facts presented to a permission approver.</summary>
+/// <param name="Mode">The resolved execution mode.</param>
+/// <param name="InputContractKind">The owner of the input contract.</param>
+/// <param name="Validation">The checks completed before authorization.</param>
+/// <param name="IngressProvenance">Whether the original JSON was retained.</param>
+public sealed record PermissionInvocationFacts(
+    [property: JsonConverter(typeof(AgentInvocationModeJsonConverter))] AgentInvocationMode Mode,
+    [property: JsonConverter(typeof(JsonStringEnumConverter<FunctionInputContractKind>))] FunctionInputContractKind InputContractKind,
+    [property: JsonConverter(typeof(JsonStringEnumConverter<PermissionInputValidation>))] PermissionInputValidation Validation,
+    [property: JsonConverter(typeof(JsonStringEnumConverter<FunctionArgumentIngressProvenance>))] FunctionArgumentIngressProvenance IngressProvenance);
+
 /// <summary>The minimal permission prompt exposed to ordinary hosts.</summary>
 public sealed record PermissionPrompt(
     string PermissionId,
@@ -78,7 +91,8 @@ public sealed record PermissionPrompt(
     string FunctionName,
     string? Action,
     JsonElement Arguments,
-    string? Reason);
+    string? Reason,
+    PermissionInvocationFacts? Invocation);
 
 /// <summary>The minimal approval or rejection answer expected from ordinary hosts.</summary>
 public sealed record PermissionAnswer(
@@ -99,7 +113,8 @@ public static class PermissionPromptExtensions
             request.FunctionName ?? request.Authority ?? "unknown",
             request.Action,
             request.Arguments?.Clone() ?? JsonDocument.Parse("{}").RootElement.Clone(),
-            request.Reason);
+            request.Reason,
+            request.Invocation);
     }
 
     /// <summary>
@@ -139,20 +154,40 @@ public static class PermissionPromptExtensions
     }
 }
 
-/// <summary>Provides constructor-free access to the complete sanitized argument document.</summary>
-public sealed class ValidatedPermissionInput
+/// <summary>Describes the level of input checking performed before permission evaluation.</summary>
+public enum PermissionInputValidation
 {
-    internal ValidatedPermissionInput(
-        JsonElement canonicalArguments,
+    /// <summary>No input-validation guarantee was established.</summary>
+    None,
+    /// <summary>HPD validated the input against its canonical contract.</summary>
+    HpdCanonical,
+    /// <summary>HPD checked structural bounds without validating the source schema.</summary>
+    StructuralOnly
+}
+
+/// <summary>Provides a detached view of the effective arguments and their preparation provenance.</summary>
+public sealed class PreparedPermissionInput
+{
+    internal PreparedPermissionInput(
+        JsonElement effectiveArguments,
         ResolvedFunctionInvocation invocation)
     {
-        CanonicalArguments = canonicalArguments.Clone();
+        EffectiveArguments = effectiveArguments.Clone();
         Invocation = invocation ?? throw new ArgumentNullException(nameof(invocation));
         Action = invocation.ValidatedAction;
     }
 
-    /// <summary>Gets the detached canonical model-facing argument document.</summary>
-    public JsonElement CanonicalArguments { get; }
+    /// <summary>Gets the detached effective argument document presented for authorization.</summary>
+    public JsonElement EffectiveArguments { get; }
+
+    /// <summary>Gets the authority that owns the input contract.</summary>
+    public FunctionInputContractKind InputContractKind => Invocation.InputContractKind;
+
+    /// <summary>Gets the level of input validation completed before policy evaluation.</summary>
+    public PermissionInputValidation Validation => Invocation.InputValidation;
+
+    /// <summary>Gets whether arguments came from original JSON or an already-parsed representation.</summary>
+    public FunctionArgumentIngressProvenance IngressProvenance => Invocation.IngressProvenance;
 
     /// <summary>Gets the immutable resolved invocation facts.</summary>
     public ResolvedFunctionInvocation Invocation { get; }
@@ -178,12 +213,12 @@ public sealed class ValidatedPermissionInput
             : throw new InvalidOperationException($"Permission input '{jsonParameterName}' is not a Boolean.");
     }
 
-    /// <summary>Reads one required top-level canonical parameter value.</summary>
+    /// <summary>Reads one required top-level effective parameter value.</summary>
     public JsonElement GetRequiredValue(string jsonParameterName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(jsonParameterName);
-        if (CanonicalArguments.ValueKind != JsonValueKind.Object ||
-            !CanonicalArguments.TryGetProperty(jsonParameterName, out var value))
+        if (EffectiveArguments.ValueKind != JsonValueKind.Object ||
+            !EffectiveArguments.TryGetProperty(jsonParameterName, out var value))
             throw new InvalidOperationException($"Permission input '{jsonParameterName}' is missing.");
         return value.Clone();
     }
@@ -205,7 +240,7 @@ public sealed class PermissionEvaluationContext : IHarnessConfigurationContext
     /// <summary>Gets the effective permission authority.</summary>
     public required string Authority { get; init; }
     /// <summary>Gets the constructor-free validated input.</summary>
-    public required ValidatedPermissionInput Input { get; init; }
+    public required PreparedPermissionInput Input { get; init; }
     /// <summary>Gets the immutable run configuration.</summary>
     public required AgentRunConfig RunConfig { get; init; }
     /// <summary>Gets the capabilities resolved for the current turn.</summary>
@@ -233,6 +268,14 @@ public sealed record PermissionAuthorityStamp
     public required JsonElement CanonicalArguments { get; init; }
     public required AIFunctionPermissionDeclaration? Declaration { get; init; }
     public required string PolicyDescriptorId { get; init; }
+    /// <summary>Gets the execution mode authorized for this invocation.</summary>
+    public required AgentInvocationMode Mode { get; init; }
+    /// <summary>Gets the effective invocation policy authorized for this invocation.</summary>
+    public required AgentInvocationModePolicy InvocationPolicy { get; init; }
+    /// <summary>Gets the execution owner authorized for this invocation.</summary>
+    public required AgentInvocationModeHandling InvocationHandling { get; init; }
+    /// <summary>Gets the fingerprint of the registered function contract, when available.</summary>
+    public required string? ContractFingerprint { get; init; }
 }
 /// <summary>Authorization for one exact call, never a reusable permission record.</summary>
 public sealed record FunctionPermissionGrant

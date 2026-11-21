@@ -1585,13 +1585,6 @@ internal static class CapabilityAnalyzer
                     $"duplicate action discriminator '{unionCase.Discriminator}'"));
                 valid = false;
             }
-            if (unionCase.Contract.Properties.Any(property =>
-                    string.Equals(property.JsonName, "invocationMode", StringComparison.Ordinal)))
-            {
-                diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
-                    $"action '{unionCase.Discriminator}' declares reserved property 'invocationMode'"));
-                valid = false;
-            }
         }
         return valid;
     }

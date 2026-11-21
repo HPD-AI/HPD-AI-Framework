@@ -155,12 +155,6 @@ internal static class AICanonicalSchemaEmitter
                 hasDefault ? binding.ConstructorParameter!.ExplicitDefaultValue : null);
             wroteProperty = true;
         }
-        if (!contract.AcceptedFrameworkProperties.IsDefaultOrEmpty &&
-            contract.AcceptedFrameworkProperties.Contains("invocationMode", StringComparer.Ordinal))
-        {
-            if (wroteProperty) builder.Append(',');
-            builder.Append("\"invocationMode\":{\"type\":\"string\",\"enum\":[\"synchronous\",\"background\"],\"description\":\"Whether this action completes now or runs in the background.\"}");
-        }
         builder.Append('}');
 
         var wroteRequired = false;
@@ -210,9 +204,7 @@ internal static class AICanonicalSchemaEmitter
             }
             builder.Append('{');
             var unionCase = union.Cases[index];
-            var caseContract = string.Equals(unionCase.InvocationModePolicy, "ModelChoice", StringComparison.Ordinal)
-                ? unionCase.Contract with { AcceptedFrameworkProperties = ["invocationMode"] }
-                : unionCase.Contract;
+            var caseContract = unionCase.Contract;
             AppendObject(
                 builder,
                 caseContract,

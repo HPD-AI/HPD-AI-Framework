@@ -9,6 +9,9 @@ public sealed class PermissionPolicyDefinitionAttribute(string id) : Attribute
     /// <summary>Gets the stable policy descriptor ID.</summary>
     public string Id { get; } = ValidateId(id);
 
+    /// <summary>Gets or sets the policy's semantic version; reusable approval requires a non-empty value.</summary>
+    public string? SemanticVersion { get; set; }
+
     private static string ValidateId(string value)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(value);
@@ -56,6 +59,10 @@ public sealed class PermissionDescriptorCatalog : IPermissionDescriptorCatalog
         foreach (var descriptor in descriptors)
         {
             ArgumentNullException.ThrowIfNull(descriptor);
+            if (descriptor.SemanticVersion is { } version &&
+                (string.IsNullOrWhiteSpace(version) || version != version.Trim() ||
+                 version.Any(char.IsControl) || System.Text.Encoding.UTF8.GetByteCount(version) > 128))
+                throw new InvalidOperationException($"Permission policy '{descriptor.DescriptorId}' has an invalid semantic version.");
             if (!builder.TryAdd(descriptor.DescriptorId, descriptor))
                 throw new InvalidOperationException(
                     $"Permission descriptor ID '{descriptor.DescriptorId}' is registered more than once.");

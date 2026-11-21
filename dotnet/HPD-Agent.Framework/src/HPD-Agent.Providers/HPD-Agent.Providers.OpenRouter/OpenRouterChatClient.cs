@@ -361,8 +361,6 @@ internal sealed class OpenRouterChatClient : IChatClient
                         static json =>
                         {
                             var dict = JsonSerializer.Deserialize(json, AIJsonUtilities.DefaultOptions.GetTypeInfo(typeof(IDictionary<string, object?>))) as IDictionary<string, object?> ?? new Dictionary<string, object?>();
-                            // Remove __raw_json__ field that OpenRouter sometimes adds
-                            dict.Remove("__raw_json__");
                             return dict;
                         });
 
@@ -452,8 +450,6 @@ internal sealed class OpenRouterChatClient : IChatClient
                         static json =>
                         {
                             var dict = JsonSerializer.Deserialize(json, AIJsonUtilities.DefaultOptions.GetTypeInfo(typeof(IDictionary<string, object?>))) as IDictionary<string, object?> ?? new Dictionary<string, object?>();
-                            // Remove __raw_json__ field that OpenRouter sometimes adds
-                            dict.Remove("__raw_json__");
                             return dict;
                         });
 

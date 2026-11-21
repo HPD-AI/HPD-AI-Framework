@@ -101,7 +101,7 @@ public class PermissionMiddlewareRunConfigTests
     internal sealed class ImmediatePermissionPolicy : IPermissionPolicy
     {
         internal const string Id = "test.immediate-policy";
-        public ValueTask<PermissionPolicyResult> EvaluateAsync(ValidatedPermissionInput input,
+        public ValueTask<PermissionPolicyResult> EvaluateAsync(PreparedPermissionInput input,
             PermissionEvaluationContext context, CancellationToken cancellationToken) =>
             ValueTask.FromResult(new PermissionPolicyResult { Outcome = new PermissionAllow() });
     }

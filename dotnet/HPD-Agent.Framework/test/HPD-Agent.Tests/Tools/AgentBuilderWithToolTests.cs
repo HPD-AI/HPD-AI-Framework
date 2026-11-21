@@ -363,10 +363,13 @@ public class AgentBuilderWithToolTests
             "call-subagent",
             new Dictionary<string, object?>
             {
-                ["request"] = new Dictionary<string, object?>
+                ["arguments"] = new Dictionary<string, object?>
                 {
-                    ["action"] = "support_escalation",
-                    ["input"] = "help with this order"
+                    ["request"] = new Dictionary<string, object?>
+                    {
+                        ["action"] = "support_escalation",
+                        ["input"] = "help with this order"
+                    }
                 }
             });
         var childClient = new FakeChatClient();

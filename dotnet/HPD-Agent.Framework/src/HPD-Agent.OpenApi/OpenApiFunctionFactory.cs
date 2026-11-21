@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Buffers;
+using System.Security.Cryptography;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -49,8 +51,10 @@ internal static partial class OpenApiFunctionFactory
         {
             try
             {
+                OpenApiSourceInspection.Validate(spec.SourceDocument, operation);
                 functions.Add(CreateFunction(
                     operation,
+                    spec.SourceDocument,
                     runner,
                     config,
                     namePrefix,
@@ -104,6 +108,7 @@ internal static partial class OpenApiFunctionFactory
 
     private static AIFunction CreateFunction(
         RestApiOperation operation,
+        JsonElement sourceDocument,
         OpenApiOperationRunner runner,
         OpenApiConfig config,
         string? namePrefix,
@@ -111,12 +116,21 @@ internal static partial class OpenApiFunctionFactory
         bool collapseWithinToolHarness,
         CapabilityId? containerId)
     {
+        operation = SnapshotOperation(operation);
         var functionName = BuildFunctionName(operation, namePrefix);
         var schema = BuildParameterSchema(operation, config);
+        var rawBody = !config.EnableDynamicPayload;
+        var serverUrlOverride = config.ServerUrlOverride;
+        var responseOptimization = SnapshotResponseOptimization(config.ResponseOptimization);
 
         async Task<object?> InvokeAsync(AIFunctionArguments args, FunctionExecutionContext _, CancellationToken ct)
         {
-            var result = await runner.RunAsync(operation, args, config.ServerUrlOverride, ct);
+            var input = args.GetJson();
+            var result = await runner.RunProjectedAsync(operation,
+                ReadGroup(input, "path"), ReadGroup(input, "query"), ReadGroup(input, "headers"),
+                ReadGroup(input, "server"),
+                input.TryGetProperty("body", out var body) ? body : default,
+                rawBody, serverUrlOverride, ct);
 
             if (result is OpenApiErrorResponse error)
             {
@@ -127,7 +141,7 @@ internal static partial class OpenApiFunctionFactory
             }
 
             if (result is OpenApiOperationResponse response)
-                return OpenApiResponseFormatter.FormatSuccess(response, config.ResponseOptimization);
+                return OpenApiResponseFormatter.FormatSuccess(response, responseOptimization);
 
             return result?.ToString();
         }
@@ -156,6 +170,8 @@ internal static partial class OpenApiFunctionFactory
                     ? AIFunctionPermissionDeclaration.Required(functionName)
                     : null,
                 SchemaProvider = () => schema,
+                InputContractKind = FunctionInputContractKind.ProjectedSpecification,
+                PermissionSourceRevision = ComputeSourceRevision(operation, sourceDocument, schema, rawBody, serverUrlOverride),
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["ParentContainer"] = effectiveParent,
@@ -173,6 +189,98 @@ internal static partial class OpenApiFunctionFactory
                 }
             });
     }
+
+    private static string ComputeSourceRevision(
+        RestApiOperation operation, JsonElement sourceDocument, JsonElement schema, bool rawBody, Uri? serverUrlOverride)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("operationId", operation.Id);
+            writer.WriteString("method", operation.Method.Method);
+            writer.WriteString("path", operation.Path);
+            writer.WriteString("server", operation.ServerUrl);
+            writer.WriteString("serverOverride", serverUrlOverride?.ToString());
+            writer.WriteBoolean("rawBody", rawBody);
+            writer.WritePropertyName("projectedSchema");
+            schema.WriteTo(writer);
+            writer.WritePropertyName("source");
+            if (sourceDocument.ValueKind == JsonValueKind.Undefined) writer.WriteNullValue();
+            else sourceDocument.WriteTo(writer);
+            writer.WriteStartArray("parameters");
+            foreach (var parameter in operation.Parameters)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("name", parameter.Name);
+                writer.WriteString("location", parameter.Location.ToString());
+                writer.WriteBoolean("required", parameter.IsRequired);
+                writer.WriteBoolean("expand", parameter.Expand);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            writer.WriteStartObject("serverVariables");
+            foreach (var (name, variable) in operation.ServerVariables.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+            {
+                writer.WriteStartObject(name);
+                writer.WriteString("default", variable.Default);
+                writer.WriteString("argumentName", variable.ArgumentName);
+                writer.WriteStartArray("enum");
+                if (variable.Enum is not null)
+                    foreach (var value in variable.Enum) writer.WriteStringValue(value);
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+            }
+            writer.WriteEndObject();
+            writer.WriteString("bodyMediaType", operation.Payload?.MediaType);
+            writer.WriteBoolean("bodyRequired", operation.Payload?.IsRequired == true);
+            writer.WriteEndObject();
+        }
+        return Convert.ToHexString(SHA256.HashData(buffer.WrittenSpan)).ToLowerInvariant();
+    }
+
+    private static RestApiOperation SnapshotOperation(RestApiOperation operation) => new()
+    {
+        Id = operation.Id, Path = operation.Path, Method = operation.Method,
+        Description = operation.Description, ServerUrl = operation.ServerUrl,
+        Parameters = operation.Parameters.Select(parameter => new RestApiParameter
+        {
+            Name = parameter.Name, Type = parameter.Type, Format = parameter.Format,
+            IsRequired = parameter.IsRequired, Location = parameter.Location,
+            Description = parameter.Description, DefaultValue = parameter.DefaultValue,
+            Schema = parameter.Schema?.Clone(), ArrayItemType = parameter.ArrayItemType,
+            Expand = parameter.Expand
+        }).ToList(),
+        Payload = operation.Payload is { } payload ? new RestApiPayload
+        {
+            MediaType = payload.MediaType, IsRequired = payload.IsRequired,
+            Description = payload.Description, Schema = payload.Schema?.Clone(),
+            Properties = SnapshotPayloadProperties(payload.Properties)
+        } : null,
+        ServerVariables = operation.ServerVariables.ToDictionary(pair => pair.Key, pair => new RestApiServerVariable
+        {
+            Default = pair.Value.Default, Description = pair.Value.Description,
+            ArgumentName = pair.Value.ArgumentName, Enum = pair.Value.Enum?.ToArray()
+        }, StringComparer.Ordinal),
+        ResponseSchemas = operation.ResponseSchemas.ToDictionary(pair => pair.Key, pair => pair.Value.Clone(), StringComparer.OrdinalIgnoreCase)
+    };
+
+    private static List<RestApiPayloadProperty> SnapshotPayloadProperties(IEnumerable<RestApiPayloadProperty> properties) =>
+        properties.Select(property => new RestApiPayloadProperty
+        {
+            Name = property.Name, Type = property.Type, Format = property.Format,
+            IsRequired = property.IsRequired, Description = property.Description,
+            Schema = property.Schema?.Clone(), DefaultValue = property.DefaultValue,
+            Properties = SnapshotPayloadProperties(property.Properties)
+        }).ToList();
+
+    private static ResponseOptimizationConfig? SnapshotResponseOptimization(ResponseOptimizationConfig? options) =>
+        options is null ? null : new ResponseOptimizationConfig
+        {
+            DataField = options.DataField, MaxLength = options.MaxLength,
+            FieldsToInclude = options.FieldsToInclude?.ToArray(),
+            FieldsToExclude = options.FieldsToExclude?.ToArray()
+        };
 
     private static ImmutableArray<CapabilityId> CreateParentContainerIds(string? parentContainer) =>
         parentContainer is null
@@ -216,47 +324,69 @@ internal static partial class OpenApiFunctionFactory
     {
         var properties = new JsonObject();
         var required = new JsonArray();
-
-        foreach (var param in operation.Parameters.Where(p =>
-            p.Location is RestApiParameterLocation.Path
-                or RestApiParameterLocation.Query
-                or RestApiParameterLocation.Header))
+        foreach (var (name, location) in new[]
         {
-            var paramSchema = param.Schema.HasValue
-                ? JsonNode.Parse(param.Schema.Value.GetRawText())
-                : new JsonObject { ["type"] = param.Type ?? "string" };
-
-            if (paramSchema is JsonObject obj
-                && !string.IsNullOrEmpty(param.Description)
-                && !obj.ContainsKey("description"))
+            ("path", RestApiParameterLocation.Path),
+            ("query", RestApiParameterLocation.Query),
+            ("headers", RestApiParameterLocation.Header)
+        })
+        {
+            var groupProperties = new JsonObject();
+            var groupRequired = new JsonArray();
+            foreach (var parameter in operation.Parameters.Where(parameter => parameter.Location == location))
             {
-                obj["description"] = param.Description;
+                var parameterSchema = parameter.Schema.HasValue
+                    ? JsonNode.Parse(parameter.Schema.Value.GetRawText())
+                    : new JsonObject { ["type"] = parameter.Type ?? "string" };
+                if (parameterSchema is JsonObject obj && !string.IsNullOrEmpty(parameter.Description) && !obj.ContainsKey("description"))
+                    obj["description"] = parameter.Description;
+                groupProperties.Add(parameter.Name, parameterSchema);
+                if (parameter.IsRequired) groupRequired.Add(parameter.Name);
             }
-
-            properties.Add(param.Name, paramSchema);
-            if (param.IsRequired) required.Add((JsonNode?)JsonValue.Create(param.Name));
+            if (groupProperties.Count == 0) continue;
+            properties.Add(name, new JsonObject
+            {
+                ["type"] = "object", ["properties"] = groupProperties,
+                ["required"] = groupRequired, ["additionalProperties"] = false
+            });
+            if (groupRequired.Count != 0) required.Add(name);
         }
-
-        if (operation.Payload != null)
+        if (operation.ServerVariables.Count > 0)
         {
-            if (config.EnableDynamicPayload)
-                AddPayloadProperties(properties, required, operation.Payload.Properties);
+            var variables = new JsonObject();
+            foreach (var (name, variable) in operation.ServerVariables)
+            {
+                var variableSchema = new JsonObject { ["type"] = "string" };
+                if (variable.Enum is not null)
+                    variableSchema["enum"] = new JsonArray(variable.Enum.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray());
+                variables.Add(variable.ArgumentName ?? name, variableSchema);
+            }
+            properties.Add("server", new JsonObject
+            {
+                ["type"] = "object", ["properties"] = variables, ["additionalProperties"] = false
+            });
+        }
+        if (operation.Payload is { } payload)
+        {
+            JsonNode? bodySchema;
+            if (!config.EnableDynamicPayload || payload.MediaType.StartsWith("text/plain", StringComparison.OrdinalIgnoreCase))
+                bodySchema = new JsonObject { ["type"] = "string" };
+            else if (payload.Schema is { } sourceSchema)
+                bodySchema = JsonNode.Parse(sourceSchema.GetRawText());
             else
             {
-                properties.Add("payload", new JsonObject
-                {
-                    ["type"] = "string",
-                    ["description"] = operation.Payload.Description ?? "The request body as a JSON string"
-                });
-                required.Add((JsonNode?)JsonValue.Create("payload"));
+                var bodyProperties = new JsonObject();
+                var bodyRequired = new JsonArray();
+                AddPayloadProperties(bodyProperties, bodyRequired, payload.Properties);
+                bodySchema = new JsonObject { ["type"] = "object", ["properties"] = bodyProperties,
+                    ["required"] = bodyRequired, ["additionalProperties"] = false };
             }
+            properties.Add("body", bodySchema);
+            if (payload.IsRequired) required.Add("body");
         }
-
         JsonNode schema = new JsonObject
         {
-            ["type"] = "object",
-            ["properties"] = properties,
-            ["required"] = required,
+            ["type"] = "object", ["properties"] = properties, ["required"] = required,
             ["additionalProperties"] = false
         };
 
@@ -269,6 +399,16 @@ internal static partial class OpenApiFunctionFactory
         }
 
         return ParseJsonElement(schema);
+    }
+
+    private static IDictionary<string, object?> ReadGroup(JsonElement input, string name)
+    {
+        if (!input.TryGetProperty(name, out var group))
+            return new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (group.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException($"OpenAPI argument group '{name}' must be an object.");
+        return group.EnumerateObject().ToDictionary(
+            property => property.Name, property => (object?)property.Value.Clone(), StringComparer.Ordinal);
     }
 
     private static void AddPayloadProperties(

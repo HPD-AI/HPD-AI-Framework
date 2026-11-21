@@ -12,7 +12,13 @@ namespace HPD.Agent.Tests;
 public sealed class UnifiedPermissionModelTests
 {
     private static JsonElement Json(string value) => JsonDocument.Parse(value).RootElement.Clone();
-    private static PermissionDecisionKey Key(string agent = "coding", string policy = "write.v1") => new(agent, "files/write", null, policy);
+    private static PermissionDecisionKey Key(string agent = "coding", string policy = "write.v1") =>
+        new(agent, "files/write", null, policy)
+        {
+            Scope = new("source", "function/write", "schema-1", "1", AgentInvocationMode.Synchronous,
+                FunctionInputContractKind.HpdOwned, PermissionInputValidation.HpdCanonical,
+                FunctionArgumentIngressProvenance.Original)
+        };
     private static PermissionDecisionRecord Record(int index, JsonElement? rule = null, string? authority = null)
     {
         var key = Key(policy: $"write.v{index}") with { Authority = authority ?? "files/write" };
@@ -25,6 +31,26 @@ public sealed class UnifiedPermissionModelTests
             Persistence = rule is null ? PermissionPersistenceKind.Session : PermissionPersistenceKind.ValidatedRule,
             RuleTypeId = rule is null ? null : "rule.v1", CanonicalRule = rule, CreatedAt = DateTimeOffset.UtcNow
         };
+    }
+
+    [Fact]
+    public void PreparedPermissionInput_ReportsExternalStructuralProvenance()
+    {
+        var invocation = new ResolvedFunctionInvocation
+        {
+            Mode = AgentInvocationMode.Synchronous,
+            Policy = AgentInvocationModePolicy.SynchronousOnly,
+            Handling = AgentInvocationModeHandling.Runtime,
+            InputContractKind = FunctionInputContractKind.ExternalOwned,
+            InputValidation = PermissionInputValidation.StructuralOnly,
+            IngressProvenance = FunctionArgumentIngressProvenance.Canonicalized
+        };
+        var input = new PreparedPermissionInput(Json("{\"query\":\"value\"}"), invocation);
+
+        Assert.Equal(FunctionInputContractKind.ExternalOwned, input.InputContractKind);
+        Assert.Equal(PermissionInputValidation.StructuralOnly, input.Validation);
+        Assert.Equal(FunctionArgumentIngressProvenance.Canonicalized, input.IngressProvenance);
+        Assert.Equal("value", input.EffectiveArguments.GetProperty("query").GetString());
     }
 
     [Fact]
@@ -44,6 +70,27 @@ public sealed class UnifiedPermissionModelTests
         Assert.NotEqual(PermissionRecordIdentity.Create(Key("first"), PermissionPersistenceKind.Session),
             PermissionRecordIdentity.Create(Key("second"), PermissionPersistenceKind.Session));
         Assert.NotEqual(Record(1).RecordId, Record(2).RecordId);
+    }
+
+    [Fact]
+    public void ApprovalIdentitySeparatesToolModeContractAndProvenance()
+    {
+        var key = Key();
+        var scope = key.Scope!;
+        var baseline = PermissionRecordIdentity.Create(key, PermissionPersistenceKind.Session);
+        foreach (var other in new[]
+        {
+            scope with { SourceIdentity = "other-source" },
+            scope with { FunctionIdentity = "function/other" },
+            scope with { ContractFingerprint = "schema-2" },
+            scope with { PolicyVersion = "2" },
+            scope with { Mode = AgentInvocationMode.Background },
+            scope with { InputContractKind = FunctionInputContractKind.ExternalOwned },
+            scope with { InputValidation = PermissionInputValidation.StructuralOnly },
+            scope with { IngressProvenance = FunctionArgumentIngressProvenance.Canonicalized }
+        })
+            Assert.NotEqual(baseline, PermissionRecordIdentity.Create(key with { Scope = other }, PermissionPersistenceKind.Session));
+        Assert.Throws<InvalidOperationException>(() => PermissionRecordIdentity.Create(key with { Scope = null }, PermissionPersistenceKind.Session));
     }
 
     [Fact]

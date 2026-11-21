@@ -17,6 +17,7 @@ namespace HPD.Agent.ClientTools;
 /// <param name="ToolName">Name of the tool to invoke</param>
 /// <param name="CallId">The function call ID from the LLM</param>
 /// <param name="Arguments">Arguments to pass to the tool</param>
+/// <param name="ResolvedInvocationMode">The execution mode authorized for this call.</param>
 /// <param name="Description">Optional description of the tool (for debugging)</param>
 [HPD.Agent.Serialization.DurableEvent(Required = true)]
 [HPD.Agent.Serialization.EventType("CLIENT_TOOL_INVOKE_REQUEST")]
@@ -25,6 +26,7 @@ public record ClientToolInvokeRequestEvent(
     string ToolName,
     string CallId,
     IReadOnlyDictionary<string, object?> Arguments,
+    AgentInvocationMode ResolvedInvocationMode,
     string? Description = null
 ) : AgentEvent, IAgentRequestEvent<ClientToolInvokeOutcomeEvent>
 {

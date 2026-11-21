@@ -591,6 +591,10 @@ public partial class SlackBot(
             blocks.Add(new SlackSectionBlock(Text: new SlackMrkdwn(
                 $"Arguments: `{Truncate(arguments.GetRawText(), 500)}`")));
 
+        if (req.Invocation is { } invocation)
+            blocks.Add(new SlackSectionBlock(Text: new SlackMrkdwn(
+                $"Mode: {invocation.Mode} | Input checks: {invocation.Validation} | Input origin: {invocation.IngressProvenance}")));
+
         if (req.PersistenceUnavailableReason is { } unavailable)
             blocks.Add(new SlackSectionBlock(Text: new SlackMrkdwn($"Reusable approval unavailable: {unavailable}")));
         blocks.Add(new SlackActionsBlock(

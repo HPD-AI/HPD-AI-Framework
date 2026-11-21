@@ -44,6 +44,7 @@ internal static class PermissionDecisionIndex
         string.Equals(incoming.Key.AgentId, existing.Key.AgentId, StringComparison.Ordinal) &&
         string.Equals(incoming.Key.Authority, existing.Key.Authority, StringComparison.Ordinal) &&
         string.Equals(incoming.Key.Action, existing.Key.Action, StringComparison.Ordinal) &&
+        Equals(incoming.Key.Scope, existing.Key.Scope) &&
         !string.Equals(incoming.Key.PolicyDescriptorId, existing.Key.PolicyDescriptorId, StringComparison.Ordinal);
 
     internal static bool IsValid(PermissionDecisionRecord? record)

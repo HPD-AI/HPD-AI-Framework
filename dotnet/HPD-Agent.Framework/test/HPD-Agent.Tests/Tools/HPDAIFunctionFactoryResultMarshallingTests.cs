@@ -10,6 +10,93 @@ namespace HPD.Agent.Tests.Tools;
 public class HPDAIFunctionFactoryResultMarshallingTests
 {
     [Fact]
+    public void InvocationEnvelope_PreservesDomainInvocationMode()
+    {
+        using var document = JsonDocument.Parse("""{"arguments":{"invocationMode":"domain-value"},"invocation":{"mode":"background"}}""");
+        var source = new AIFunctionArguments();
+        source.SetJson(document.RootElement.Clone());
+
+        var arguments = FunctionInvocationEnvelope.Unwrap(source, out var mode);
+
+        Assert.Equal(AgentInvocationMode.Background, mode);
+        Assert.Equal("domain-value", ((JsonElement)arguments["invocationMode"]!).GetString());
+        Assert.Equal("domain-value", arguments.GetJson().GetProperty("invocationMode").GetString());
+    }
+
+    [Theory]
+    [InlineData("{\"arguments\":{},\"invocation\":{\"mode\":\"background\",\"mode\":\"synchronous\"}}")]
+    [InlineData("{\"arguments\":{},\"unexpected\":true}")]
+    [InlineData("{\"arguments\":{\"x\":1,\"x\":2}}")]
+    public void InvocationEnvelope_RejectsAmbiguousInputs(string input)
+    {
+        using var document = JsonDocument.Parse(input);
+        var source = new AIFunctionArguments();
+        source.SetJson(document.RootElement.Clone());
+        Assert.Throws<InvalidOperationException>(() => FunctionInvocationEnvelope.Unwrap(source, out _));
+    }
+
+    [Fact]
+    public void InvocationEnvelope_SchemaKeepsSourceArgumentsAndSeparatesMode()
+    {
+        using var source = JsonDocument.Parse("""{"type":"object","properties":{"invocationMode":{"type":"string"}},"additionalProperties":false}""");
+        var schema = FunctionInvocationEnvelope.CreateSchema(source.RootElement);
+        var properties = schema.GetProperty("properties");
+        Assert.True(properties.GetProperty("arguments").GetProperty("properties").TryGetProperty("invocationMode", out _));
+        Assert.Equal("background", properties.GetProperty("invocation").GetProperty("properties")
+            .GetProperty("mode").GetProperty("enum")[1].GetString());
+    }
+
+    [Fact]
+    public void InvocationEnvelope_RejectsSchemaReferencesUntilTheyCanBeRebased()
+    {
+        using var document = JsonDocument.Parse("""{"type":"object","$ref":"#/$defs/input"}""");
+        Assert.Throws<InvalidOperationException>(() => FunctionInvocationEnvelope.CreateSchema(document.RootElement));
+    }
+
+    [Theory]
+    [InlineData("[]", "external_arguments_not_object")]
+    [InlineData("{\"nested\":{\"x\":1,\"x\":2}}", "external_arguments_duplicate_property")]
+    public void ExternalInput_RejectsMalformedStructuralArguments(string input, string code)
+    {
+        using var json = JsonDocument.Parse(input);
+        var result = ExternalFunctionInput.Prepare(json.RootElement);
+        Assert.Equal(code, Assert.Single(result.Errors).ErrorCode);
+    }
+
+    [Fact]
+    public void ExternalInput_PreservesNestedValuesAndNullWithoutSchemaValidation()
+    {
+        using var json = JsonDocument.Parse("""{"nested":{"anything":null},"numbers":[1,1.0]}""");
+        var result = ExternalFunctionInput.Prepare(json.RootElement);
+        Assert.Empty(result.Errors);
+        Assert.Equal(JsonValueKind.Null, result.EffectiveJson.GetProperty("nested").GetProperty("anything").ValueKind);
+        Assert.Equal("1.0", result.EffectiveJson.GetProperty("numbers")[1].GetRawText());
+    }
+
+    [Fact]
+    public void InvocationMetadata_DoesNotOverwriteToolArgumentNames()
+    {
+        var arguments = new AIFunctionArguments
+        {
+            ["__raw_json__"] = "user-json",
+            ["__json_serializer_options__"] = "user-options",
+            ["__hpd_bound_arguments__"] = "user-binding"
+        };
+        using var json = JsonDocument.Parse("""{"__raw_json__":"user-json","__json_serializer_options__":"user-options","__hpd_bound_arguments__":"user-binding"}""");
+        var options = new JsonSerializerOptions();
+        arguments.SetJson(json.RootElement.Clone());
+        arguments.SetJsonSerializerOptions(options);
+        arguments.SetBoundInput(new AIFunctionBoundInput("bound", json.RootElement.Clone()));
+
+        Assert.Equal("user-json", arguments["__raw_json__"]);
+        Assert.Equal("user-options", arguments["__json_serializer_options__"]);
+        Assert.Equal("user-binding", arguments["__hpd_bound_arguments__"]);
+        Assert.Same(options, arguments.GetJsonSerializerOptions());
+        Assert.Equal("bound", arguments.GetBoundArguments<string>());
+        Assert.Equal("user-json", arguments.GetJson().GetProperty("__raw_json__").GetString());
+    }
+
+    [Fact]
     public async Task HPDAIFunction_GeneratedArgumentBinder_BindsOnceAndReusesValue()
     {
         var bindingCount = 0;

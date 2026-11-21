@@ -54,6 +54,7 @@ public static class HPDAIFunctionFactory
             Name = function.Name, Description = function.Description, SchemaProvider = () => importedSchema,
             ReturnJsonSchema = returnSchema, UnderlyingMethod = function.UnderlyingMethod,
             PreserveImportedMetadata = true, SerializerOptions = function.JsonSerializerOptions,
+            InputContractKind = FunctionInputContractKind.ExternalOwned,
             AdditionalProperties = properties,
             FunctionPermission = permission is null ? null : new()
             {
@@ -141,13 +142,25 @@ public static class HPDAIFunctionFactory
             HPDOptions = options;
 
             var methodSchema = options.SchemaProvider?.Invoke() ?? default;
-            JsonSchema = options.VerifiedActionComposition is { } composition
+            if (!Enum.IsDefined(options.InputContractKind))
+                throw new InvalidOperationException("Unsupported function input-contract ownership.");
+            if (options.InputContractKind == FunctionInputContractKind.ExternalOwned &&
+                (options.OperationContract is not null || options.VerifiedActionComposition is not null || options.ArgumentBinder is not null))
+                throw new InvalidOperationException("External input contracts cannot declare HPD-owned action or argument binders.");
+            var external = options.InputContractKind == FunctionInputContractKind.ExternalOwned;
+            var actionContract = options.OperationContract;
+            UsesInvocationEnvelope = actionContract is not null
+                ? actionContract.Actions.Values.Any(policy => policy.InvocationModePolicy == AgentInvocationModePolicy.ModelChoice)
+                : options.InvocationModePolicy == AgentInvocationModePolicy.ModelChoice;
+            var domainSchema = options.VerifiedActionComposition is { } composition
                 ? composition.JsonSchema
-                : options.OperationContract is { } operationContract
-                    ? AgentInvocationModes.CreateActionSchema(methodSchema, operationContract)
-                    : AgentInvocationModes.CreateSchema(methodSchema, options.InvocationModePolicy);
-            if (options.PreserveImportedMetadata) JsonSchema = methodSchema;
-            else JsonSchema = EnsureStrictObjectSchemas(JsonSchema);
+                : actionContract is not null
+                    ? AgentInvocationModes.CreateActionSchema(methodSchema, actionContract)
+                    : external ? methodSchema : EnsureStrictObjectSchemas(methodSchema);
+            JsonSchema = UsesInvocationEnvelope
+                ? FunctionInvocationEnvelope.CreateSchema(domainSchema)
+                : domainSchema;
+            if (!external && !options.PreserveImportedMetadata) JsonSchema = EnsureStrictObjectSchemas(JsonSchema);
             Name = options.Name ?? _method?.Name ?? "Unknown";
             Description = options.Description ?? "";
             ContractDescriptor = JsonSchema.ValueKind == JsonValueKind.Undefined
@@ -158,11 +171,12 @@ public static class HPDAIFunctionFactory
                     options.OperationContract,
                     options.FunctionPermission,
                     options.Replay);
-            CanonicalInputContract = options.VerifiedActionComposition?.InputContract ??
+            CanonicalInputContract = external ? null : options.VerifiedActionComposition?.InputContract ??
                 (JsonSchema.ValueKind == JsonValueKind.Undefined
                     ? null
-                    : CanonicalJsonInputContract.Create(options.PreserveImportedMetadata
-                        ? EnsureStrictObjectSchemas(JsonSchema) : JsonSchema));
+                    : CanonicalJsonInputContract.Create(UsesInvocationEnvelope
+                        ? domainSchema
+                        : options.PreserveImportedMetadata ? EnsureStrictObjectSchemas(JsonSchema) : JsonSchema));
         }
 
         private static JsonElement EnsureStrictObjectSchemas(JsonElement schema)
@@ -203,6 +217,8 @@ public static class HPDAIFunctionFactory
             ReturnJsonSchema = source.ReturnJsonSchema?.Clone(),
             UnderlyingMethod = source.UnderlyingMethod,
             PreserveImportedMetadata = source.PreserveImportedMetadata,
+            InputContractKind = source.InputContractKind,
+            PermissionSourceRevision = source.PermissionSourceRevision,
             Description = source.Description,
             ParameterDescriptions = source.ParameterDescriptions is null
                 ? null
@@ -289,6 +305,8 @@ public static class HPDAIFunctionFactory
         /// <summary>Gets the immutable composed contract published by this generated function.</summary>
         public AIFunctionContractDescriptor? ContractDescriptor { get; }
 
+        internal bool UsesInvocationEnvelope { get; }
+
         internal IAIInputContract? CanonicalInputContract { get; }
 
         public ValueTask<object?> InvokeAsync(
@@ -330,6 +348,11 @@ public static class HPDAIFunctionFactory
             bool normalizeResult,
             CancellationToken cancellationToken)
         {
+            var resolvedInvocation = functionContext.InvocationMode;
+            if (UsesInvocationEnvelope && resolvedInvocation is null)
+                throw new InvalidOperationException(
+                    "Model-choice functions require an invocation prepared by the agent execution pipeline.");
+
             // 1. Robustly get the JSON arguments for validation.
             JsonElement jsonArgs;
             var existingJson = arguments.GetJson();
@@ -349,9 +372,6 @@ public static class HPDAIFunctionFactory
 
                 // If no raw JSON is available, serialize the arguments dictionary.
                 var argumentsDict = arguments
-                    .Where(kvp => kvp.Key != AIFunctionArgumentsExtensions.JsonKey &&
-                        kvp.Key != AIFunctionArgumentsExtensions.JsonSerializerOptionsKey &&
-                        kvp.Key != AIFunctionArgumentsExtensions.BoundArgumentsKey)
                     .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
                 var jsonString = JsonSerializer.Serialize(argumentsDict, HPDJsonContext.Default.DictionaryStringObject);
                 jsonArgs = JsonDocument.Parse(jsonString).RootElement;
@@ -361,19 +381,12 @@ public static class HPDAIFunctionFactory
             arguments.SetJsonSerializerOptions(JsonSerializerOptions);
             var serializerOptions = JsonSerializerOptions;
             var runtimeHandlesInvocationMode =
-                (functionContext.InvocationMode?.Handling ?? HPDOptions.InvocationModeHandling) ==
+                (resolvedInvocation?.Handling ?? HPDOptions.InvocationModeHandling) ==
                 AgentInvocationModeHandling.Runtime;
             var validationJsonArgs = jsonArgs;
-            if (runtimeHandlesInvocationMode)
-            {
-                var sanitizedArguments = AgentInvocationModes.CreateSanitizedArguments(
-                    arguments,
-                    out _);
-                validationJsonArgs = sanitizedArguments.GetJson();
-            }
 
             // 2. Bind generated contracts once, or use the validator for external/manual functions.
-            arguments.Remove(AIFunctionArgumentsExtensions.BoundArgumentsKey);
+            arguments.ClearBoundInput();
             IReadOnlyList<ValidationError>? validationErrors;
             if (HPDOptions.ArgumentBinder is not null)
             {
@@ -422,7 +435,7 @@ public static class HPDAIFunctionFactory
                     Arguments = arguments,
                     ParentContext = functionContext,
                     InvocationModePolicy = HPDOptions.InvocationModePolicy,
-                    ResolvedInvocation = functionContext.InvocationMode,
+                    ResolvedInvocation = resolvedInvocation,
                     OperationNotification = HPDOptions.OperationNotification,
                     InvokeFunctionAsync = InvokeFunctionBodyAsync
                 },
@@ -522,87 +535,64 @@ public sealed record AIFunctionContractDescriptor
 /// </summary>
 public static class AIFunctionArgumentsExtensions
 {
-    private sealed class IngressHolder(FunctionArgumentIngressProvenance provenance)
+    private sealed class ArgumentMetadata
     {
-        internal FunctionArgumentIngressProvenance Provenance { get; } = provenance;
+        internal JsonElement Json;
+        internal JsonSerializerOptions? SerializerOptions;
+        internal AIFunctionBoundInput? BoundInput;
+        internal FunctionArgumentIngressProvenance Provenance = FunctionArgumentIngressProvenance.Original;
     }
 
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<AIFunctionArguments, IngressHolder>
-        IngressProvenance = new();
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<AIFunctionArguments, ArgumentMetadata>
+        Metadata = new();
 
     internal static void SetIngressProvenance(
         this AIFunctionArguments arguments,
-        FunctionArgumentIngressProvenance provenance)
-    {
-        IngressProvenance.Remove(arguments);
-        IngressProvenance.Add(arguments, new IngressHolder(provenance));
-    }
+        FunctionArgumentIngressProvenance provenance) => Metadata.GetOrCreateValue(arguments).Provenance = provenance;
 
-    internal static FunctionArgumentIngressProvenance GetIngressProvenance(
-        this AIFunctionArguments arguments) =>
-        IngressProvenance.TryGetValue(arguments, out var holder)
-            ? holder.Provenance
-            : FunctionArgumentIngressProvenance.Original;
+    internal static FunctionArgumentIngressProvenance GetIngressProvenance(this AIFunctionArguments arguments) =>
+        Metadata.TryGetValue(arguments, out var metadata) ? metadata.Provenance : FunctionArgumentIngressProvenance.Original;
 
-    internal const string JsonKey = "__raw_json__";
-    internal const string JsonSerializerOptionsKey = "__json_serializer_options__";
-    internal const string BoundArgumentsKey = "__hpd_bound_arguments__";
+    /// <summary>Gets the authoritative JSON associated with the arguments, when available.</summary>
+    public static JsonElement GetJson(this AIFunctionArguments arguments) =>
+        Metadata.TryGetValue(arguments, out var metadata) ? metadata.Json : default;
 
-    /// <summary>
-    /// Gets the raw JSON element from the arguments.
-    /// </summary>
-    public static JsonElement GetJson(this AIFunctionArguments arguments)
-    {
-        if (arguments.TryGetValue(JsonKey, out var value) && value is JsonElement element)
-        {
-            return element;
-        }
-        return default;
-    }
+    /// <summary>Associates authoritative JSON with the arguments without adding a tool argument.</summary>
+    public static void SetJson(this AIFunctionArguments arguments, JsonElement json) =>
+        Metadata.GetOrCreateValue(arguments).Json = json;
 
-    /// <summary>
-    /// Sets the raw JSON element in the arguments.
-    /// </summary>
-    public static void SetJson(this AIFunctionArguments arguments, JsonElement json)
-    {
-        arguments[JsonKey] = json;
-    }
+    /// <summary>Gets the serializer options associated with the arguments.</summary>
+    public static JsonSerializerOptions GetJsonSerializerOptions(this AIFunctionArguments arguments) =>
+        Metadata.TryGetValue(arguments, out var metadata) && metadata.SerializerOptions is { } options
+            ? options : HPDToolArgumentBinder.DefaultSerializerOptions;
 
-    public static JsonSerializerOptions GetJsonSerializerOptions(this AIFunctionArguments arguments)
-    {
-        if (arguments.TryGetValue(JsonSerializerOptionsKey, out var value) && value is JsonSerializerOptions options)
-        {
-            return options;
-        }
-
-        return HPDToolArgumentBinder.DefaultSerializerOptions;
-    }
-
-    public static void SetJsonSerializerOptions(this AIFunctionArguments arguments, JsonSerializerOptions options)
-    {
-        arguments[JsonSerializerOptionsKey] = options;
-    }
+    /// <summary>Associates serializer options without adding a tool argument.</summary>
+    public static void SetJsonSerializerOptions(this AIFunctionArguments arguments, JsonSerializerOptions options) =>
+        Metadata.GetOrCreateValue(arguments).SerializerOptions = options;
 
     /// <summary>Stores the complete one-shot result produced by an input binder.</summary>
     public static void SetBoundInput(this AIFunctionArguments arguments, AIFunctionBoundInput value) =>
-        arguments[BoundArgumentsKey] = value;
+        Metadata.GetOrCreateValue(arguments).BoundInput = value;
+
+    internal static void ClearBoundInput(this AIFunctionArguments arguments) =>
+        Metadata.GetOrCreateValue(arguments).BoundInput = null;
+
+    internal static void CopyBoundInputTo(this AIFunctionArguments source, AIFunctionArguments target)
+    {
+        if (Metadata.TryGetValue(source, out var metadata) && metadata.BoundInput is { } input)
+            target.SetBoundInput(input);
+    }
 
     /// <summary>Gets the complete one-shot bound input produced before invocation.</summary>
-    public static AIFunctionBoundInput GetBoundInput(this AIFunctionArguments arguments)
-    {
-        if (arguments.TryGetValue(BoundArgumentsKey, out var value) && value is AIFunctionBoundInput typed)
-            return typed;
-        throw new InvalidOperationException("AI-function arguments were not bound before invocation.");
-    }
+    public static AIFunctionBoundInput GetBoundInput(this AIFunctionArguments arguments) =>
+        Metadata.TryGetValue(arguments, out var metadata) && metadata.BoundInput is { } input
+            ? input : throw new InvalidOperationException("AI-function arguments were not bound before invocation.");
 
     /// <summary>Gets the one-shot result produced by a generated argument binder.</summary>
-    public static T GetBoundArguments<T>(this AIFunctionArguments arguments)
-    {
-        if (arguments.TryGetValue(BoundArgumentsKey, out var value) &&
-            value is AIFunctionBoundInput { Value: T typed })
-            return typed;
-        throw new InvalidOperationException("Generated AI-function arguments were not bound before invocation.");
-    }
+    public static T GetBoundArguments<T>(this AIFunctionArguments arguments) =>
+        Metadata.TryGetValue(arguments, out var metadata) && metadata.BoundInput is { Value: T typed }
+            ? typed : throw new InvalidOperationException("Generated AI-function arguments were not bound before invocation.");
+
 }
 
 /// <summary>Contains the CLR value and effective canonical JSON produced by successful input binding.</summary>
@@ -812,11 +802,27 @@ public sealed class HPDToolArgumentException : JsonException
         };
 }
 
+/// <summary>Identifies the authority that owns a function's input schema.</summary>
+public enum FunctionInputContractKind
+{
+    /// <summary>HPD owns and validates the function's canonical input contract.</summary>
+    HpdOwned,
+    /// <summary>The underlying external function owns the schema and validates its inputs.</summary>
+    ExternalOwned,
+    /// <summary>HPD projects the contract from an external specification.</summary>
+    ProjectedSpecification
+}
+
 public class HPDAIFunctionFactoryOptions
 {
     public JsonElement? ReturnJsonSchema { get; set; }
     public MethodInfo? UnderlyingMethod { get; set; }
     internal bool PreserveImportedMetadata { get; set; }
+    /// <summary>Gets or sets which source owns the function's input contract.</summary>
+    public FunctionInputContractKind InputContractKind { get; set; } = FunctionInputContractKind.HpdOwned;
+    /// <summary>Gets or sets a stable, non-secret revision identifying the registered source and connection.</summary>
+    /// <remarks>When supplied, remembered approvals are scoped to this revision.</remarks>
+    public string? PermissionSourceRevision { get; set; }
     public string? Name { get; set; }
     public string? Description { get; set; }
     public Dictionary<string, string>? ParameterDescriptions { get; set; }

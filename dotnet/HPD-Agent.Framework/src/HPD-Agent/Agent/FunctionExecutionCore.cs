@@ -399,6 +399,32 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 source = CreateInvocationArguments(arguments);
                 ingressProvenance = FunctionArgumentIngressProvenance.Canonicalized;
             }
+            AgentInvocationMode? envelopeMode = null;
+            if (hpdFunction.UsesInvocationEnvelope)
+            {
+                try
+                {
+                    source = FunctionInvocationEnvelope.Unwrap(source, out envelopeMode);
+                }
+                catch (InvalidOperationException exception)
+                {
+                    return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
+                        new ValidationError { ErrorCode = "invalid_invocation_envelope", ErrorMessage = exception.Message });
+                }
+            }
+            if (hpdFunction.HPDOptions.InputContractKind == FunctionInputContractKind.ExternalOwned)
+            {
+                var structural = ExternalFunctionInput.Prepare(source.GetJson());
+                if (structural.Errors.Count != 0)
+                    return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
+                        structural.Errors[0]);
+                var frozen = new AIFunctionArguments(structural.EffectiveJson.EnumerateObject()
+                    .ToDictionary(property => property.Name, property => (object?)property.Value.Clone(), StringComparer.Ordinal));
+                frozen.SetJson(structural.EffectiveJson);
+                frozen.SetJsonSerializerOptions(source.GetJsonSerializerOptions());
+                frozen.SetIngressProvenance(ingressProvenance);
+                source = frozen;
+            }
             if (hpdFunction.CanonicalInputContract is { } canonicalContract)
             {
                 var validation = canonicalContract.Bind(source.GetJson());
@@ -407,7 +433,9 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                     return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
                         validation.Errors[0]);
                 }
-                var canonical = new AIFunctionArguments(source);
+                var canonical = new AIFunctionArguments(validation.EffectiveJson.EnumerateObject()
+                    .ToDictionary(property => property.Name, property => (object?)property.Value.Clone(), StringComparer.Ordinal));
+                canonical.SetIngressProvenance(source.GetIngressProvenance());
                 canonical.SetJsonSerializerOptions(source.GetJsonSerializerOptions());
                 canonical.SetJson(validation.EffectiveJson);
                 source = canonical;
@@ -418,7 +446,12 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 try
                 {
                     resolvedInvocation = AgentInvocationModes.ResolveAction(
-                        source, operationContract, out sanitized, ingressProvenance);
+                        source, operationContract, out sanitized, ingressProvenance, envelopeMode) with
+                    {
+                        InputContractKind = hpdFunction.HPDOptions.InputContractKind,
+                        InputValidation = hpdFunction.CanonicalInputContract is not null
+                            ? PermissionInputValidation.HpdCanonical : PermissionInputValidation.None
+                    };
                 }
                 catch (InvalidOperationException exception)
                 {
@@ -429,11 +462,8 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                             ErrorMessage = exception.Message
                         });
                 }
-                arguments = sanitized
-                    .Where(pair => pair.Key != AIFunctionArgumentsExtensions.JsonKey &&
-                        pair.Key != AIFunctionArgumentsExtensions.JsonSerializerOptionsKey &&
-                        pair.Key != AIFunctionArgumentsExtensions.BoundArgumentsKey)
-                    .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+                arguments = new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(sanitized
+                    .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal));
                 authorityStamp = new FunctionAuthorityStamp(
                     function,
                     hpdFunction.ContractDescriptor?.CanonicalSchemaFingerprint
@@ -446,46 +476,48 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 AIFunctionArguments sanitized;
                 AgentInvocationMode? requested;
                 AgentInvocationMode mode;
-                try
-                {
-                    sanitized = AgentInvocationModes.CreateSanitizedArguments(source, out requested);
-                    mode = AgentInvocationModes.Resolve(hpdFunction.HPDOptions.InvocationModePolicy, requested);
-                }
-                catch (InvalidOperationException exception)
-                {
-                    return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
-                        new ValidationError
-                        {
-                            ErrorCode = "invalid_invocation_mode",
-                            ErrorMessage = exception.Message
-                        });
-                }
+                sanitized = source;
+                requested = envelopeMode;
                 ClientToolResolvedOperation? clientOperation = null;
+                var effectivePolicy = hpdFunction.HPDOptions.InvocationModePolicy;
                 try
                 {
                     if (hpdFunction.AdditionalProperties?.TryGetValue("ClientToolDefinition", out var metadata) == true &&
                         metadata is ClientToolDefinition clientTool)
+                    {
                         clientOperation = clientTool.ResolveOperation(sanitized);
+                        effectivePolicy = (clientOperation?.Policy ?? ClientToolPolicy.Resolve(clientTool.DefaultPolicy)).InvocationModePolicy!.Value;
+                        if (requested is not null && effectivePolicy != AgentInvocationModePolicy.ModelChoice)
+                            throw new ArgumentException("This client tool action does not allow model-selected invocation mode.");
+                    }
+                    mode = AgentInvocationModes.Resolve(effectivePolicy, requested);
                 }
                 catch (ArgumentException exception)
                 {
                     return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
                         new ValidationError { ErrorCode = "invalid_client_tool_action", ErrorMessage = exception.Message });
                 }
+                catch (InvalidOperationException exception)
+                {
+                    return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
+                        new ValidationError { ErrorCode = "invalid_invocation_mode", ErrorMessage = exception.Message });
+                }
                 resolvedInvocation = new ResolvedFunctionInvocation
                 {
                     Action = clientOperation?.Action,
                     RequestedMode = requested,
                     Mode = mode,
-                    Policy = hpdFunction.HPDOptions.InvocationModePolicy,
+                    Policy = effectivePolicy,
                     Handling = hpdFunction.HPDOptions.InvocationModeHandling,
+                    InputContractKind = hpdFunction.HPDOptions.InputContractKind,
+                    InputValidation = hpdFunction.HPDOptions.InputContractKind == FunctionInputContractKind.ExternalOwned
+                        ? PermissionInputValidation.StructuralOnly
+                        : hpdFunction.CanonicalInputContract is not null
+                            ? PermissionInputValidation.HpdCanonical : PermissionInputValidation.None,
                     IngressProvenance = ingressProvenance
                 };
-                arguments = sanitized
-                    .Where(pair => pair.Key != AIFunctionArgumentsExtensions.JsonKey &&
-                        pair.Key != AIFunctionArgumentsExtensions.JsonSerializerOptionsKey &&
-                        pair.Key != AIFunctionArgumentsExtensions.BoundArgumentsKey)
-                    .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+                var domainArguments = sanitized.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+                arguments = new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(domainArguments);
             }
         }
 
@@ -673,7 +705,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                             HPDJsonContext.Default.DictionaryStringObject);
                         if (backgroundCommitted)
                         {
-                            if (!JsonElement.DeepEquals(committedBackgroundRequest, canonicalRequest))
+                            if (!PermissionRecordIdentity.CanonicalEquals(committedBackgroundRequest, canonicalRequest))
                                 throw new InvalidOperationException("background_invocation_already_committed");
                             if (committedBackgroundException is not null)
                                 throw committedBackgroundException;
@@ -705,6 +737,8 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                             preparation.ResolvedInvocation is null
                                 ? functionCall.Arguments as AIFunctionArguments
                                 : null);
+                        if (preparation.ResolvedInvocation is { } preparedInvocation)
+                            args.SetIngressProvenance(preparedInvocation.IngressProvenance);
                         return effectiveRequest.Function is HPDAIFunctionFactory.HPDAIFunction hpdFunction
                             ? await hpdFunction.InvokeRawAsync(args, functionContext, effectiveRequest.CancellationToken ?? cancellationToken).ConfigureAwait(false)
                             : await effectiveRequest.Function.InvokeAsync(args, effectiveRequest.CancellationToken ?? cancellationToken).ConfigureAwait(false);
@@ -745,7 +779,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         }
     }
 
-    private static void VerifyPreparedAuthority(
+    internal static void VerifyPreparedAuthority(
         FunctionExecutionPreparation preparation,
         Middleware.FunctionRequest request)
     {
@@ -761,11 +795,20 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             var actualArguments = JsonSerializer.SerializeToElement(
                 request.Arguments.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal),
                 HPDJsonContext.Default.DictionaryStringObject);
-            if (!JsonElement.DeepEquals(grant.Authority.CanonicalArguments, actualArguments))
+            if (!PermissionRecordIdentity.CanonicalEquals(grant.Authority.CanonicalArguments, actualArguments))
                 throw new InvalidOperationException("permission_authority_drift: wrapping middleware changed protected arguments.");
             if (request.Function is not HPDAIFunctionFactory.HPDAIFunction grantedFunction ||
                 !Equals(ResolvePermissionDeclaration(grantedFunction, grant.Action), grant.Authority.Declaration))
                 throw new InvalidOperationException("permission_authority_drift: the effective permission declaration changed after approval.");
+            var mode = request.InvocationMode;
+            if (!string.Equals(mode?.Action, grant.Action, StringComparison.Ordinal) ||
+                !string.Equals(grant.Authority.PolicyDescriptorId, grant.Key.PolicyDescriptorId, StringComparison.Ordinal) ||
+                (mode?.Mode ?? AgentInvocationMode.Synchronous) != grant.Authority.Mode ||
+                (mode?.Policy ?? AgentInvocationModePolicy.SynchronousOnly) != grant.Authority.InvocationPolicy ||
+                (mode?.Handling ?? AgentInvocationModeHandling.Runtime) != grant.Authority.InvocationHandling ||
+                !string.Equals(grantedFunction.ContractDescriptor?.CanonicalSchemaFingerprint,
+                    grant.Authority.ContractFingerprint, StringComparison.Ordinal))
+                throw new InvalidOperationException("permission_authority_drift: invocation mode or function contract changed after approval.");
         }
         if (preparation.BeforeFunctionContext is { } permissionContext &&
             request.PermissionRequired != permissionContext.PermissionRequired)
@@ -787,8 +830,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             throw new InvalidOperationException("function_authority_drift: wrapping middleware removed the authorized action.");
         var expectedJson = stamp.CanonicalAction;
         var actualJson = ToCanonicalElement(actual);
-        if (!JsonElement.DeepEquals(expectedJson, actualJson) ||
-            ContainsExactProperty(actualJson, "invocationMode"))
+        if (!PermissionRecordIdentity.CanonicalEquals(expectedJson, actualJson))
             throw new InvalidOperationException("function_authority_drift: wrapping middleware changed the authorized action.");
     }
 
@@ -808,10 +850,6 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 ?? throw new InvalidOperationException(
                     $"No source-generated JSON metadata is available for '{value.GetType()}'."))
     };
-
-    private static bool ContainsExactProperty(JsonElement value, string name) =>
-        value.ValueKind == JsonValueKind.Object && value.EnumerateObject().Any(property =>
-            string.Equals(property.Name, name, StringComparison.Ordinal));
 
     internal static AIFunctionArguments CreateInvocationArguments(
         IReadOnlyDictionary<string, object?> arguments,

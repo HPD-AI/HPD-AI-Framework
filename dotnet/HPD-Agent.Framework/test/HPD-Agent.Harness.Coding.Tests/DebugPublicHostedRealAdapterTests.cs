@@ -1188,7 +1188,11 @@ public sealed class DebugPublicHostedRealAdapterTests
                         PolicyDescriptorId = "hpd.permission.default.v1",
                         Source = PermissionDeclarationSource.ActionOverride
                     },
-                    PolicyDescriptorId = "hpd.permission.default.v1"
+                    PolicyDescriptorId = "hpd.permission.default.v1",
+                Mode = AgentInvocationMode.Synchronous,
+                InvocationPolicy = AgentInvocationModePolicy.SynchronousOnly,
+                InvocationHandling = AgentInvocationModeHandling.Runtime,
+                ContractFingerprint = null
                 }
             };
             return new FunctionExecutionContext(before, new FunctionRequest

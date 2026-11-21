@@ -1256,6 +1256,7 @@ import type {
   InlineHPDAgentParentQuestionRequestEventQuestionsItemOptionsItem,
   InlineHPDAgentPermissionRequestEventChoicesItem,
   InlineHPDAgentPermissionRequestEventEvidence,
+  InlineHPDAgentPermissionRequestEventInvocation,
   InlineHPDAgentPermissionRequestEventPermissionResource,
   InlineHPDAgentPermissionResolvedEventPermissionResource,
   InlineHPDAgentPlanUpdatedEventPlan,

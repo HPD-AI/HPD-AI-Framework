@@ -6,7 +6,7 @@ namespace HPD.Agent.Tests.Tools;
 public sealed class ActionScopedFunctionInvocationTests
 {
     [Fact]
-    public void ResolveAction_UsesSelectedPolicyAndSanitizesNestedControl()
+    public void ResolveAction_UsesSelectedPolicyAndPreservesDomainControlName()
     {
         using var document = JsonDocument.Parse("""
             {"request":{"action":"run","invocationMode":"background","value":3}}
@@ -18,19 +18,19 @@ public sealed class ActionScopedFunctionInvocationTests
         arguments.SetJson(document.RootElement.Clone());
 
         var resolved = AgentInvocationModes.ResolveAction(
-            arguments, Contract(), out var sanitized);
+            arguments, Contract(), out var sanitized, requestedMode: AgentInvocationMode.Background);
 
         Assert.Equal("run", resolved.Action);
         Assert.Equal(AgentInvocationMode.Background, resolved.RequestedMode);
         Assert.Equal(AgentInvocationMode.Background, resolved.Mode);
         Assert.Equal(AgentInvocationModePolicy.ModelChoice, resolved.Policy);
         Assert.Equal(AgentInvocationModeHandling.ToolBody, resolved.Handling);
-        Assert.False(sanitized.GetJson().GetProperty("request").TryGetProperty("invocationMode", out _));
+        Assert.Equal("background", sanitized.GetJson().GetProperty("request").GetProperty("invocationMode").GetString());
         Assert.Equal(3, sanitized.GetJson().GetProperty("request").GetProperty("value").GetInt32());
     }
 
     [Fact]
-    public void CreateActionSchema_OffersChoiceOnlyOnModelChoiceBranch()
+    public void CreateActionSchema_PreservesActionDomainSchema()
     {
         using var document = JsonDocument.Parse("""
             {
@@ -48,7 +48,7 @@ public sealed class ActionScopedFunctionInvocationTests
         var branches = schema.GetProperty("properties").GetProperty("request").GetProperty("oneOf");
 
         Assert.False(branches[0].GetProperty("properties").TryGetProperty("invocationMode", out _));
-        Assert.True(branches[1].GetProperty("properties").TryGetProperty("invocationMode", out _));
+        Assert.False(branches[1].GetProperty("properties").TryGetProperty("invocationMode", out _));
     }
 
     [Fact]
@@ -71,7 +71,7 @@ public sealed class ActionScopedFunctionInvocationTests
 
         Assert.False(schema.TryGetProperty("$defs", out _));
         Assert.False(branches[0].GetProperty("properties").TryGetProperty("invocationMode", out _));
-        Assert.True(branches[1].GetProperty("properties").TryGetProperty("invocationMode", out _));
+        Assert.False(branches[1].GetProperty("properties").TryGetProperty("invocationMode", out _));
         AgentInvocationModes.ValidateActionSchema(schema, Contract());
     }
 
@@ -118,8 +118,102 @@ public sealed class ActionScopedFunctionInvocationTests
             }));
 
         Assert.False(function.JsonSchema.TryGetProperty("$defs", out _));
-        Assert.Contains("invocationMode", function.JsonSchema.GetRawText(), StringComparison.Ordinal);
+        Assert.True(function.JsonSchema.GetProperty("properties").GetProperty("invocation").GetProperty("properties").TryGetProperty("mode", out _));
         Assert.NotNull(function.CanonicalInputContract);
+    }
+
+    [Fact]
+    public async Task Preparation_UsesCanonicalValuesInsteadOfDivergentDictionary()
+    {
+        using var schema = JsonDocument.Parse("""{"type":"object","properties":{"value":{"type":"integer"},"label":{"type":"string","default":"defaulted"}},"required":["value"],"additionalProperties":false}""");
+        var function = HPDAIFunctionFactory.Create((_, _, _) => Task.FromResult<object?>("ok"),
+            new HPDAIFunctionFactoryOptions { Name = "canonical", SchemaProvider = () => schema.RootElement.Clone() });
+        var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
+        var context = new global::HPD.Agent.Middleware.AgentContext("AgentA", "conversation-1", state,
+            new global::HPD.Events.Core.EventCoordinator(), session: null, thread: null, CancellationToken.None);
+        var core = new FunctionExecutionCore(new global::HPD.Agent.Middleware.AgentMiddlewarePipeline([]));
+        using var json = JsonDocument.Parse("""{"value":1}""");
+        var args = new AIFunctionArguments { ["value"] = 9 };
+        args.SetJson(json.RootElement.Clone());
+
+        var preparation = await core.PrepareFunctionAsync(new FunctionCallContent("call-1", function.Name, args),
+            new ChatOptions { Tools = [function] }, new AgentRunConfig(), context, invocation: null,
+            CancellationToken.None, admit: false);
+
+        Assert.Null(preparation.ImmediateOutcome);
+        Assert.Equal(1, Assert.IsType<JsonElement>(preparation.Arguments["value"]).GetInt32());
+        Assert.Equal("defaulted", Assert.IsType<JsonElement>(preparation.Arguments["label"]).GetString());
+        Assert.Throws<NotSupportedException>(() => ((IDictionary<string, object?>)preparation.Arguments)["value"] = 3);
+    }
+
+    [Theory]
+    [InlineData("synchronous", AgentInvocationMode.Synchronous)]
+    [InlineData("background", AgentInvocationMode.Background)]
+    public async Task ModelChoiceEnvelope_PreparesDomainArgumentsAndResolvedMode(string mode, AgentInvocationMode expected)
+    {
+        using var schema = JsonDocument.Parse("""{"type":"object","properties":{"invocationMode":{"type":"string"}},"required":["invocationMode"],"additionalProperties":false}""");
+        var function = HPDAIFunctionFactory.Create((_, _, _) => Task.FromResult<object?>("ok"),
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = "choice", SchemaProvider = () => schema.RootElement.Clone(),
+                InvocationModePolicy = AgentInvocationModePolicy.ModelChoice,
+                InvocationModeHandling = AgentInvocationModeHandling.ToolBody
+            });
+        Assert.True(function.JsonSchema.GetProperty("properties").TryGetProperty("arguments", out _));
+        var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
+        var context = new global::HPD.Agent.Middleware.AgentContext("AgentA", "conversation-1", state,
+            new global::HPD.Events.Core.EventCoordinator(), session: null, thread: null, CancellationToken.None);
+        var core = new FunctionExecutionCore(new global::HPD.Agent.Middleware.AgentMiddlewarePipeline([]));
+        using var input = JsonDocument.Parse("{\"arguments\":{\"invocationMode\":\"domain\"},\"invocation\":{\"mode\":\"" + mode + "\"}}");
+        var args = new AIFunctionArguments();
+        args.SetJson(input.RootElement.Clone());
+        var call = new FunctionCallContent("call-1", function.Name, args);
+
+        var preparation = await core.PrepareFunctionAsync(call, new ChatOptions { Tools = [function] },
+            new AgentRunConfig(), context, invocation: null, CancellationToken.None, admit: false);
+
+        Assert.Null(preparation.ImmediateOutcome);
+        Assert.Equal(expected, preparation.ResolvedInvocation!.Mode);
+        Assert.Equal("domain", ((JsonElement)preparation.Arguments["invocationMode"]!).GetString());
+        Assert.False(preparation.Arguments.ContainsKey("invocation"));
+    }
+
+    [Theory]
+    [InlineData("run", "background", false)]
+    [InlineData("read", "background", true)]
+    [InlineData("read", null, false)]
+    public async Task ActionEnvelope_EnforcesSelectedBranchPolicy(string action, string? mode, bool rejected)
+    {
+        using var schema = JsonDocument.Parse("""
+            {"type":"object","properties":{"request":{"oneOf":[
+              {"type":"object","properties":{"action":{"type":"string","const":"read"},"invocationMode":{"type":"string"}},"required":["action","invocationMode"],"additionalProperties":false},
+              {"type":"object","properties":{"action":{"type":"string","const":"run"},"invocationMode":{"type":"string"}},"required":["action","invocationMode"],"additionalProperties":false}
+            ]}},"required":["request"],"additionalProperties":false}
+            """);
+        var function = HPDAIFunctionFactory.Create((_, _, _) => Task.FromResult<object?>("ok"),
+            new HPDAIFunctionFactoryOptions { Name = "action", SchemaProvider = () => schema.RootElement.Clone(), OperationContract = Contract() });
+        var payload = mode is null
+            ? "{\"arguments\":{\"request\":{\"action\":\"" + action + "\",\"invocationMode\":\"domain\"}}}"
+            : "{\"arguments\":{\"request\":{\"action\":\"" + action + "\",\"invocationMode\":\"domain\"}},\"invocation\":{\"mode\":\"" + mode + "\"}}";
+        var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
+        var context = new global::HPD.Agent.Middleware.AgentContext("AgentA", "conversation-1", state,
+            new global::HPD.Events.Core.EventCoordinator(), session: null, thread: null, CancellationToken.None);
+        var core = new FunctionExecutionCore(new global::HPD.Agent.Middleware.AgentMiddlewarePipeline([]));
+        var call = FunctionExecutionCore.NormalizeProviderFunctionCall(new FunctionCallContent("call-1", function.Name, ParsedArguments(payload)));
+
+        var preparation = await core.PrepareFunctionAsync(call, new ChatOptions { Tools = [function] },
+            new AgentRunConfig(), context, invocation: null, CancellationToken.None, admit: false);
+
+        if (rejected)
+        {
+            Assert.NotNull(preparation.ImmediateOutcome);
+            return;
+        }
+        Assert.Null(preparation.ImmediateOutcome);
+        Assert.Equal(action, preparation.ResolvedInvocation!.Action);
+        Assert.Equal(mode == "background" ? AgentInvocationMode.Background : AgentInvocationMode.Synchronous,
+            preparation.ResolvedInvocation.Mode);
+        Assert.Equal("domain", ((JsonElement)preparation.Arguments["request"]!).GetProperty("invocationMode").GetString());
     }
 
     [Fact]
@@ -162,7 +256,7 @@ public sealed class ActionScopedFunctionInvocationTests
         var call = FunctionExecutionCore.NormalizeProviderFunctionCall(new FunctionCallContent(
             "call-1",
             function.Name,
-            ParsedArguments("""{"request":{"action":"run","value":2}}""")));
+            ParsedArguments("""{"arguments":{"request":{"action":"run","value":2}}}""")));
 
         var preparation = await core.PrepareFunctionAsync(
             call,
@@ -277,25 +371,8 @@ public sealed class ActionScopedFunctionInvocationTests
             {"request":{"action":"read","invocationMode":"background"}}
             """);
         Assert.Throws<InvalidOperationException>(() =>
-            AgentInvocationModes.ResolveAction(Arguments(document), Contract(), out _));
-    }
-
-    [Fact]
-    public void SharedRootSanitizerMatchesNativeModeSemantics()
-    {
-        var source = new Dictionary<string, object?>
-        {
-            ["invocationMode"] = JsonSerializer.SerializeToElement("background"),
-            ["value"] = 4
-        };
-
-        var sanitized = AgentInvocationModes.CreateSanitizedArgumentDictionary(source, out var requested);
-
-        Assert.Equal(AgentInvocationMode.Background, requested);
-        Assert.False(sanitized.ContainsKey("invocationMode"));
-        Assert.Equal(4, sanitized["value"]);
-        Assert.Equal(AgentInvocationMode.Background,
-            AgentInvocationModes.Resolve(AgentInvocationModePolicy.ModelChoice, requested));
+            AgentInvocationModes.ResolveAction(Arguments(document), Contract(), out _,
+                requestedMode: AgentInvocationMode.Background));
     }
 
     [Fact]
@@ -350,7 +427,7 @@ public sealed class ActionScopedFunctionInvocationTests
     }
 
     [Fact]
-    public void ValidateActionSchema_RejectsRequiredInvocationControl()
+    public void ValidateActionSchema_AllowsRequiredDomainInvocationMode()
     {
         using var document = JsonDocument.Parse("""
             {"type":"object","properties":{"request":{"oneOf":[
@@ -358,8 +435,7 @@ public sealed class ActionScopedFunctionInvocationTests
               {"type":"object","properties":{"action":{"type":"string","const":"run"},"invocationMode":{"type":"string","enum":["synchronous","background"]}},"required":["action","invocationMode"],"additionalProperties":false}
             ]}},"required":["request"],"additionalProperties":false}
             """);
-        Assert.Throws<InvalidOperationException>(() =>
-            AgentInvocationModes.ValidateActionSchema(document.RootElement, Contract()));
+        AgentInvocationModes.ValidateActionSchema(document.RootElement, Contract());
     }
 
     [Fact]
