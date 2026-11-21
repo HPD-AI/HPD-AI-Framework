@@ -27,13 +27,19 @@
   <ItemGroup>
     <None Include="$(StudioBaseModuleRoot)**\*" Exclude="$(StudioBaseModuleRoot)node_modules\**\*;$(StudioBaseModuleRoot)dist\**\*;$(StudioBaseModuleRoot).DS_Store" Pack="true" PackagePath="clientapp-modules\hpd-base-studio\%(RecursiveDir)%(Filename)%(Extension)" />
     <EmbeddedResource Include="$(StudioBaseModuleRoot)dist\base.js"
-                      LogicalName="HPD.Base.Studio.Assets.base.js"
-                      Condition="Exists('$(StudioBaseModuleRoot)dist\base.js')" />
+                      LogicalName="HPD.Base.Studio.Assets.base.js" />
     <None Include="$(StudioBaseModuleRoot)dist\base.js"
           Pack="true"
-          PackagePath="studio-assets\base\6c6d65420bde4c64faaaea95ec0a74b36c719d66c0edd2eec1aa7d7f461873e5.js"
-          Condition="Exists('$(StudioBaseModuleRoot)dist\base.js')" />
+          PackagePath="studio-assets\base\6c6d65420bde4c64faaaea95ec0a74b36c719d66c0edd2eec1aa7d7f461873e5.js" />
   </ItemGroup>
+
+  <Target Name="BuildStudioBaseModule"
+          BeforeTargets="PrepareForBuild"
+          Condition="!Exists('$(StudioBaseModuleRoot)dist\base.js')">
+    <Message Importance="high" Text="Building the HPD Base Studio TypeScript module because dist/base.js is missing." />
+    <Exec Command="npm ci" WorkingDirectory="$(StudioBaseModuleRoot)" />
+    <Exec Command="npm run build" WorkingDirectory="$(StudioBaseModuleRoot)" />
+  </Target>
 
   <Target Name="RequireStudioBaseAssetBeforePack"
           BeforeTargets="Pack"
