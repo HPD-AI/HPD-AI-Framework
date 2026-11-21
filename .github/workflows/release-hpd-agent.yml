@@ -7,7 +7,7 @@ on:
         description: 'Version for every package in the HPD Agent release train'
         required: true
         type: string
-        default: '0.9.6'
+        default: '0.9.7'
 
 concurrency:
   group: hpd-agent-release

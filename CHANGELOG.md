@@ -2,7 +2,14 @@
 
 All notable changes to the HPD AI Framework are documented in this file.
 
-## Unreleased
+## HPD-Agent 0.9.7 - 2026-11-21
+
+### Highlights
+
+- Debugging is built into the coding harness, which now uses Environment sandbox bindings.
+- Preserve image tool results, restore thread history, and preserve external function input contracts.
+- Expose agent resources and add optional host-defined configuration validation limits.
+- Expand Agent Studio creation, inspection, lifecycle, and observability capabilities; Studio follows a separate release path.
 
 ### Agent sandbox package consolidation
 
