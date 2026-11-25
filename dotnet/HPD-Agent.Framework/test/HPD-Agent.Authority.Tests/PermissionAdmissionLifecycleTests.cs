@@ -16,6 +16,8 @@ public sealed class PermissionAdmissionLifecycleTests
     {
         await using var fixture = await Fixture.Create();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var stateFactories = AgentGeneratedRegistry.Snapshot().States
+            .ToDictionary(factory => factory.FullyQualifiedName, StringComparer.Ordinal);
         await using var inbox = fixture.Events.CreateInbox<PermissionRequestEvent>();
         var admission = fixture.Admit("first", timeout.Token);
         var request = await inbox.Reader.ReadAsync(timeout.Token);
@@ -35,7 +37,7 @@ public sealed class PermissionAdmissionLifecycleTests
         Assert.IsType<Invoke>(await admission);
         Assert.True(PermissionStateCheckpoint.IsPending(fixture.Context));
         Assert.Throws<InvalidOperationException>(() => PermissionStateCheckpoint.EnsureSaved(fixture.Context));
-        await PermissionStateCheckpoint.SaveAsync(fixture.Context, UnifiedPermissionModelTests.Factories(), timeout.Token);
+        await PermissionStateCheckpoint.SaveAsync(fixture.Context, stateFactories, timeout.Token);
         Assert.False(PermissionStateCheckpoint.IsPending(fixture.Context));
         Assert.Contains(PermissionDecisionIndex.StateKey, fixture.Session.MiddlewareState.Keys);
         var second = Assert.IsType<Invoke>(await fixture.Admit("second", timeout.Token));

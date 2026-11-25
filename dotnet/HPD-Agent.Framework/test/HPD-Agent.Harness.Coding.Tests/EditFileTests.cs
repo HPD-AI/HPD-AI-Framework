@@ -448,6 +448,136 @@ public sealed class EditFileTests : IDisposable
         File.ReadAllText("A.cs").Should().Be("ONE TWO\n");
     }
 
+    [Fact]
+    public async Task EditFile_BomFileStillChecksAllExactOccurrences()
+    {
+        await File.WriteAllTextAsync("bom-duplicates.txt", "target\nmiddle\ntarget\n", new UTF8Encoding(true));
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "bom-duplicates.txt");
+
+        var ambiguous = await EditFileTextAsync(context, harness, "bom-duplicates.txt", "target", "changed");
+        var replaceAll = await EditFileTextAsync(context, harness, "bom-duplicates.txt", "target", "changed", replaceAll: true);
+
+        ambiguous.Should().Contain("kind=\"ambiguous_match\"");
+        replaceAll.Should().Contain("replacements=\"2\"");
+        replaceAll.Should().Contain("kind=\"exact\"");
+        File.ReadAllText("bom-duplicates.txt").Should().Be("changed\nmiddle\nchanged\n");
+    }
+
+    [Fact]
+    public async Task EditFile_PartialReadTracksOriginalLinesAfterInsertion()
+    {
+        const string original = "before\nfirst\nsecond\nafter\n";
+        await File.WriteAllTextAsync("range.txt", original);
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "range.txt", offset: 2, limit: 2);
+
+        var result = await EditFileTextAsync(context, harness, "range.txt",
+        [
+            new FileEditReplacement("first", "first expanded\nextra"),
+            new FileEditReplacement("second", "SECOND")
+        ]);
+
+        result.Should().Contain("changed=\"true\"");
+        File.ReadAllText("range.txt").Should().Be("before\nfirst expanded\nextra\nSECOND\nafter\n");
+    }
+
+    [Fact]
+    public async Task EditFile_PartialReadDoesNotAllowUnreadLineAfterDeletion()
+    {
+        const string original = "before\nfirst\nsecond\nafter\n";
+        await File.WriteAllTextAsync("range.txt", original);
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "range.txt", offset: 2, limit: 2);
+
+        var result = await EditFileTextAsync(context, harness, "range.txt",
+        [
+            new FileEditReplacement("first\nsecond", "combined"),
+            new FileEditReplacement("after", "AFTER")
+        ]);
+
+        result.Should().Contain("kind=\"outside_read_range\"");
+        File.ReadAllText("range.txt").Should().Be(original);
+    }
+
+    [Fact]
+    public async Task EditFile_RejectsNullEditElementAsInvalidArguments()
+    {
+        var harness = CodingHarnessTestFactory.Create();
+        var result = await EditFileTextAsync(CreateAgentContext(), harness, "A.cs", [null!]);
+
+        result.Should().Contain("kind=\"invalid_arguments\"");
+        result.Should().Contain("edit 1");
+    }
+
+    [Fact]
+    public async Task EditFile_ReportsIndexOfEmptyOldStringInMultiEdit()
+    {
+        await File.WriteAllTextAsync("A.cs", "first\nsecond\n");
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        var result = await EditFileTextAsync(context, harness, "A.cs",
+        [
+            new FileEditReplacement("first", "FIRST"),
+            new FileEditReplacement("", "insert")
+        ]);
+
+        result.Should().Contain("kind=\"invalid_empty_old_string\"");
+        result.Should().Contain("edit 2");
+        File.ReadAllText("A.cs").Should().Be("first\nsecond\n");
+    }
+
+    [Fact]
+    public async Task EditFile_MixedQuoteRecoveryRejectsDifferentCandidateShapes()
+    {
+        await File.WriteAllTextAsync("quotes.txt", "var text = “hello”;\nvar text = ”hello“;\n");
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "quotes.txt");
+
+        var result = await EditFileTextAsync(context, harness, "quotes.txt", "var text = \"hello\";", "var text = \"goodbye\";", replaceAll: true);
+
+        result.Should().Contain("kind=\"recovery_semantic_difference\"");
+        File.ReadAllText("quotes.txt").Should().Be("var text = “hello”;\nvar text = ”hello“;\n");
+    }
+
+    [Fact]
+    public async Task EditFile_ConservativeOverlapRuleRejectsSeparateTarget()
+    {
+        await File.WriteAllTextAsync("overlap.txt", "first\nseparate } target\n");
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "overlap.txt");
+
+        var result = await EditFileTextAsync(context, harness, "overlap.txt",
+        [
+            new FileEditReplacement("first", "inserted } text"),
+            new FileEditReplacement("}", "]")
+        ]);
+
+        result.Should().Contain("kind=\"overlapping_multi_edit\"");
+        File.ReadAllText("overlap.txt").Should().Be("first\nseparate } target\n");
+    }
+
+    [Fact]
+    public async Task EditFile_IndentationRecoveryHandlesCarriageReturnLines()
+    {
+        await File.WriteAllTextAsync("classic.txt", "header\r    alpha\r    beta\r    gamma\rfooter\r");
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "classic.txt");
+
+        var result = await EditFileTextAsync(context, harness, "classic.txt", "alpha\rbeta\rgamma", "ALPHA\rbeta\rgamma");
+
+        result.Should().Contain("kind=\"indentation_only_block\"");
+        File.ReadAllText("classic.txt").Should().Contain("ALPHA");
+    }
+
     private static async Task<string> ReadFileTextAsync(
         AgentContext agentContext,
         CodingToolHarness toolharness,

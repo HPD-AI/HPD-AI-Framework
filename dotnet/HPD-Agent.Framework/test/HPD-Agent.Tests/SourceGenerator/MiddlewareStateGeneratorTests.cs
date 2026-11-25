@@ -50,6 +50,38 @@ public sealed class MiddlewareStateGeneratorTests
         Assert.Contains("global::GeneratedState.NamespacedTurnCounter", generated);
     }
 
+    [Fact]
+    public void JsonSerializableContextForState_IsIncludedInRegistry()
+    {
+        const string source = """
+            using System;
+            using HPD.Agent;
+            using System.Text.Json.Serialization;
+            using System.Text.Json.Serialization.Metadata;
+
+            namespace GeneratedState;
+
+            [MiddlewareState]
+            public sealed record ContextBackedState(int Count);
+
+            [JsonSerializable(typeof(ContextBackedState))]
+            internal sealed class ContextBackedStateJsonContext
+            {
+                internal static ContextBackedStateJsonContext Default { get; } = new();
+                internal JsonTypeInfo? GetTypeInfo(Type type) => null;
+            }
+            """;
+
+        var (generated, diagnostics) = Run(source);
+
+        Assert.DoesNotContain(
+            diagnostics,
+            static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains(
+            "global::GeneratedState.ContextBackedStateJsonContext.Default.GetTypeInfo(typeof(T))",
+            generated);
+    }
+
     private static (string Generated, ImmutableArray<Diagnostic> Diagnostics) Run(
         string source)
     {
