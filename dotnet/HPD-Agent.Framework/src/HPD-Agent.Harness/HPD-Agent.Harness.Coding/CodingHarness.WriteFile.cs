@@ -35,10 +35,14 @@ public partial class CodingToolHarness
                     path,
                     "No Environment workspace binding is available for WriteFile.");
             }
+            var harnessConfig = _config.For(context);
+            harnessConfig.ValidateSettings();
+            var fileConfig = harnessConfig.Files;
             return await WriteWorkspaceFileAsync(
                 workspace,
                 path,
                 content,
+                fileConfig,
                 context).ConfigureAwait(false);
         }
         catch (FileMutationException exception) when (exception.Kind == FileMutationErrorKind.StaleFile)
@@ -70,6 +74,7 @@ public partial class CodingToolHarness
         RuntimeWorkspaceBinding workspace,
         string path,
         string content,
+        FileMutationConfig fileConfig,
         FunctionExecutionContext context)
     {
         WorkspacePath logical =
@@ -104,7 +109,8 @@ public partial class CodingToolHarness
                 workspace,
                 logical,
                 allowMissing: true,
-                displayPath).ConfigureAwait(false);
+                displayPath,
+                fileConfig).ConfigureAwait(false);
         WriteFileValidationResult validation =
             ValidateWritePolicy(
                 displayPath,
@@ -140,11 +146,13 @@ public partial class CodingToolHarness
                     TextEdits: [textEdit],
                     Notes: [],
                     FunctionContext: context,
+                    Config: fileConfig,
                     ValidateBeforeMutation: before =>
                         ValidateWriteBeforeMutation(
                             displayPath,
                             validation.PriorRead,
-                            before),
+                            before,
+                            mode),
                     EventFactory: request =>
                         BuildFileWriteAppliedEvent(request, mode)))
                 .ConfigureAwait(false);
@@ -170,16 +178,40 @@ public partial class CodingToolHarness
         FileMutationContent current,
         FunctionExecutionContext context)
     {
-        if (!current.Exists)
-            return new WriteFileValidationResult(FileWriteMode.Create, RequiresFullRead: false, null, null, null);
-
-        if (current.ByteLength == 0)
-            return new WriteFileValidationResult(FileWriteMode.FillEmpty, RequiresFullRead: false, null, null, null);
-
         var readFileStateKey = typeof(ReadFileState).FullName!;
         var priorRead = context
             .Analyze(state => state.MiddlewareState.GetState<ReadFileState>(readFileStateKey))
             ?.FilesByPath.GetValueOrDefault(fullPath);
+
+        if (!current.Exists)
+        {
+            if (priorRead != null)
+            {
+                return new WriteFileValidationResult(
+                    FileWriteMode.Rewrite,
+                    RequiresFullRead: false,
+                    priorRead,
+                    WriteFileErrorKind.StaleRead,
+                    "File was deleted after it was read. Read it again before rewriting it.");
+            }
+
+            return new WriteFileValidationResult(FileWriteMode.Create, RequiresFullRead: false, null, null, null);
+        }
+
+        if (current.ByteLength == 0)
+        {
+            if (priorRead is { Length: > 0 })
+            {
+                return new WriteFileValidationResult(
+                    FileWriteMode.Rewrite,
+                    RequiresFullRead: false,
+                    priorRead,
+                    WriteFileErrorKind.StaleRead,
+                    "File was emptied after it was read. Read it again before rewriting it.");
+            }
+
+            return new WriteFileValidationResult(FileWriteMode.FillEmpty, RequiresFullRead: false, null, null, null);
+        }
 
         if (priorRead == null)
         {
@@ -203,7 +235,11 @@ public partial class CodingToolHarness
 
         try
         {
-            ValidateWriteBeforeMutation(fullPath, priorRead, current);
+            ValidateWriteBeforeMutation(
+                fullPath,
+                priorRead,
+                current,
+                FileWriteMode.Rewrite);
         }
         catch (FileMutationException exception) when (exception.Kind == FileMutationErrorKind.StaleFile)
         {
@@ -218,10 +254,52 @@ public partial class CodingToolHarness
         return new WriteFileValidationResult(FileWriteMode.Rewrite, RequiresFullRead: false, priorRead, null, null);
     }
 
-    private static void ValidateWriteBeforeMutation(string fullPath, ReadFileSnapshot? priorRead, FileMutationContent current)
+    private static void ValidateWriteBeforeMutation(
+        string fullPath,
+        ReadFileSnapshot? priorRead,
+        FileMutationContent current,
+        FileWriteMode mode)
     {
-        if (!current.Exists || current.ByteLength == 0)
-            return;
+        switch (mode)
+        {
+            case FileWriteMode.Create:
+                if (!current.Exists)
+                    return;
+
+                throw new FileMutationException(
+                    FileMutationErrorKind.StaleFile,
+                    "File was created after write validation.");
+
+            case FileWriteMode.FillEmpty:
+                if (current.Exists && current.ByteLength == 0)
+                    return;
+
+                throw new FileMutationException(
+                    FileMutationErrorKind.StaleFile,
+                    "Empty file state changed before it could be filled.");
+
+            case FileWriteMode.Rewrite:
+                if (!current.Exists)
+                {
+                    throw new FileMutationException(
+                        FileMutationErrorKind.StaleFile,
+                        "File was deleted before it could be rewritten.");
+                }
+
+                if (current.ByteLength == 0)
+                {
+                    throw new FileMutationException(
+                        FileMutationErrorKind.StaleFile,
+                        "File was emptied before it could be rewritten.");
+                }
+
+                break;
+
+            default:
+                throw new FileMutationException(
+                    FileMutationErrorKind.StaleFile,
+                    "Unknown write mode.");
+        }
 
         if (priorRead == null)
             throw new FileMutationException(FileMutationErrorKind.StaleFile, "Existing file has not been fully read.");
@@ -229,12 +307,27 @@ public partial class CodingToolHarness
         if (priorRead.Coverage != ReadFileCoverage.FullFile)
             throw new FileMutationException(FileMutationErrorKind.StaleFile, "Existing file was only partially read.");
 
-        if (string.Equals(priorRead.Path, fullPath, StringComparison.Ordinal) &&
-            priorRead.Length == current.ByteLength &&
-            priorRead.LastWriteTimeUtc == current.LastWriteTimeUtc)
+        if (!string.Equals(priorRead.Path, fullPath, StringComparison.Ordinal))
+            throw new FileMutationException(FileMutationErrorKind.StaleFile, "File has been modified since it was read.");
+
+        if (priorRead.SourceContentHash != null)
         {
-            return;
+            if (string.Equals(
+                    priorRead.SourceContentHash,
+                    current.SourceVersionHash,
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            throw new FileMutationException(
+                FileMutationErrorKind.StaleFile,
+                "File has been modified since it was read.");
         }
+
+        if (priorRead.Length == current.ByteLength &&
+            priorRead.LastWriteTimeUtc == current.LastWriteTimeUtc)
+            return;
 
         if (priorRead.ReturnedContentHash == ComputeWriteContentFallbackHash(current.Text))
             return;

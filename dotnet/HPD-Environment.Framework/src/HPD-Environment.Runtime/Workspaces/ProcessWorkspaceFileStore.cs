@@ -121,61 +121,33 @@ internal sealed class ProcessWorkspaceFileStore
             throw new IOException(
                 "The requested workspace entry is a directory.");
         }
-        string target = Resolve(path);
-        string script =
-            RejectSymlinkScript(target) +
-            $"total=$(awk 'END{{print NR}}' {Quote(target)}); " +
-            $"remaining=$(tail -n +{options.StartLine.ToString(CultureInfo.InvariantCulture)} {Quote(target)} | wc -c); " +
-            "printf '%s|%s\\n' \"$total\" \"$remaining\"; " +
-            $"tail -n +{options.StartLine.ToString(CultureInfo.InvariantCulture)} {Quote(target)} " +
-            $"| head -c {options.MaxBytes.ToString(CultureInfo.InvariantCulture)} | base64";
-        byte[] output = await CaptureAsync(
-            script,
-            standardInput: null,
-            cancellationToken).ConfigureAwait(false);
-        (long totalLines, long remainingBytes, string encoded) =
-            ParseMetadataAndPayload(output);
-        byte[] content = Convert.FromBase64String(encoded);
-        string text;
-        try
-        {
-            text = DecodeUtf8Bounded(content);
-        }
-        catch (IOException exception)
+        if (info.Version.Size.Value >
+            Utf8WorkspaceTextLineReader.MaxSourceBytes)
         {
             throw new IOException(
-                "Guest text payload was not valid UTF-8.",
-                exception);
+                $"Text reads are limited to {Utf8WorkspaceTextLineReader.MaxSourceBytes.ToString(CultureInfo.InvariantCulture)} source bytes.");
         }
-        bool truncated = false;
-        string returnedText = text;
-        if (options.MaxLines is { } maxLines &&
-            CountLines(text) > maxLines)
-        {
-            returnedText = TakeFirstLines(text, maxLines);
-            truncated = true;
-        }
-        if (remainingBytes > options.MaxBytes)
-        {
-            truncated = true;
-        }
-        long returnedLines = CountLines(returnedText);
-        long endLine = returnedLines == 0
-            ? options.StartLine - 1
-            : options.StartLine + returnedLines - 1;
-        if (endLine > totalLines)
-        {
-            endLine = totalLines;
-        }
+
+        string target = Resolve(path);
+        byte[] output = await CaptureAsync(
+                RejectSymlinkScript(target) +
+                $"base64 {Quote(target)}",
+                standardInput: null,
+                cancellationToken)
+            .ConfigureAwait(false);
+        byte[] source = Convert.FromBase64String(
+            Encoding.ASCII.GetString(output));
+        Utf8WorkspaceTextReadResult read =
+            Utf8WorkspaceTextLineReader.Read(source, options);
         return new WorkspaceTextSnapshot
         {
             Path = path,
-            Content = returnedText,
+            Content = read.Content,
             Version = info.Version,
-            StartLine = options.StartLine,
-            EndLine = endLine,
-            TotalLines = totalLines,
-            Truncated = truncated,
+            StartLine = read.StartLine,
+            EndLine = read.EndLine,
+            TotalLines = read.TotalLines,
+            Truncated = read.Truncated,
         };
     }
 
@@ -1568,108 +1540,6 @@ internal sealed class ProcessWorkspaceFileStore
                 .Append("); [ -L \"$current\" ] && exit 83; ");
         }
         return script.ToString();
-    }
-
-    private (long TotalLines, long RemainingBytes, string Payload)
-        ParseMetadataAndPayload(byte[] output)
-    {
-        int newline = Array.IndexOf(output, (byte)'\n');
-        if (newline < 0)
-        {
-            throw new InvalidOperationException(
-                $"{_providerName}.WorkspaceResponseMalformed: process text read metadata response was malformed: " +
-                Encoding.UTF8.GetString(output));
-        }
-        string[] parts = Encoding.ASCII
-            .GetString(output, 0, newline)
-            .Split('|');
-        if (parts.Length != 2 ||
-            !long.TryParse(
-                parts[0].Trim(),
-                NumberStyles.None,
-                CultureInfo.InvariantCulture,
-                out long total) ||
-            !long.TryParse(
-                parts[1].Trim(),
-                NumberStyles.None,
-                CultureInfo.InvariantCulture,
-                out long remaining))
-        {
-            throw new InvalidOperationException(
-                $"{_providerName}.WorkspaceResponseMalformed: process text read metadata response was malformed: " +
-                Encoding.UTF8.GetString(output));
-        }
-        return (
-            total,
-            remaining,
-            Encoding.ASCII.GetString(
-                output,
-                newline + 1,
-                output.Length - newline - 1));
-    }
-
-    private static string DecodeUtf8Bounded(byte[] content)
-    {
-        int length = content.Length;
-        while (length > 0)
-        {
-            try
-            {
-                return new UTF8Encoding(
-                    encoderShouldEmitUTF8Identifier: false,
-                    throwOnInvalidBytes: true)
-                    .GetString(content, 0, length);
-            }
-            catch (DecoderFallbackException exception)
-            {
-                if (length > content.Length - 4)
-                {
-                    length--;
-                    continue;
-                }
-                throw new IOException(
-                    "Workspace text contains invalid UTF-8.",
-                    exception);
-            }
-        }
-        return string.Empty;
-    }
-
-    private static long CountLines(string text)
-    {
-        if (text.Length == 0)
-        {
-            return 0;
-        }
-        long lines = 0;
-        for (int index = 0; index < text.Length; index++)
-        {
-            if (text[index] == '\n')
-            {
-                lines++;
-            }
-        }
-        return text.EndsWith('\n') ? lines : lines + 1;
-    }
-
-    private static string TakeFirstLines(
-        string text,
-        int lineCount)
-    {
-        int seen = 0;
-        for (int index = 0; index < text.Length; index++)
-        {
-            if (text[index] != '\n')
-            {
-                continue;
-            }
-            seen++;
-            if (seen >= lineCount)
-            {
-                return text[..(index + 1)];
-            }
-        }
-        return text;
     }
 
     private static bool VersionsMatch(

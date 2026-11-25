@@ -54,6 +54,42 @@ public sealed class FileMutationTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyWorkspaceTextMutationAsync_RejectsFileDeletedBeforeCommit()
+    {
+        await File.WriteAllTextAsync("A.cs", "before\n");
+        var harness = CodingHarnessTestFactory.Create();
+
+        var act = () => ApplyAsync(harness, CreateRequest(
+            "A.cs",
+            "after\n",
+            allowCreate: false,
+            validateBeforeMutation: _ => File.Delete(FullPath("A.cs"))));
+
+        await act.Should().ThrowAsync<FileMutationException>()
+            .Where(exception => exception.Kind == FileMutationErrorKind.StaleFile);
+        File.Exists("A.cs").Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ApplyWorkspaceTextMutationAsync_RejectsFileEmptiedBeforeCommit()
+    {
+        await File.WriteAllTextAsync("A.cs", "before\n");
+        var harness = CodingHarnessTestFactory.Create();
+
+        var act = () => ApplyAsync(harness, CreateRequest(
+            "A.cs",
+            "after\n",
+            allowCreate: false,
+            validateBeforeMutation: _ => File.WriteAllText(
+                FullPath("A.cs"),
+                string.Empty)));
+
+        await act.Should().ThrowAsync<FileMutationException>()
+            .Where(exception => exception.Kind == FileMutationErrorKind.StaleFile);
+        File.ReadAllText("A.cs").Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task ApplyWorkspaceTextMutationAsync_OmitsOversizedTextEditPayloadInEvent()
     {
         var bigText = new string('x', 100_001);
@@ -170,6 +206,7 @@ public sealed class FileMutationTests : IDisposable
         bool createParents = true,
         bool normalizeLineEndings = false,
         IReadOnlyList<FileMutationTextEdit>? textEdits = null,
+        FileMutationConfig? config = null,
         Action<FileMutationContent>? validateBeforeMutation = null,
         FileMutationEventFactory? eventFactory = null)
         => new(
@@ -183,6 +220,7 @@ public sealed class FileMutationTests : IDisposable
             textEdits ?? [],
             [],
             FunctionContext: null,
+            Config: config ?? new(),
             ValidateBeforeMutation: validateBeforeMutation,
             EventFactory: eventFactory);
 

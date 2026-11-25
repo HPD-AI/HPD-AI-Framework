@@ -13,11 +13,6 @@ using Microsoft.Extensions.AI;
 
 public partial class CodingToolHarness
 {
-    private const int MaxEditCount = 20;
-    private const int MaxNormalizationNotes = 50;
-    private const int MinRecoveryOldStringChars = 10;
-    private const int MaxRecoveryCandidates = 20;
-
     [AIFunction]
     [RequiresPermission]
     [Description("Edits a text file by applying one or more targeted string replacements. Use after ReadFile has shown the relevant content. The oldString values should match file content exactly and uniquely unless replaceAll is true; the tool may recover from mechanical mismatches such as line endings, escaping, quotes, indentation, or whitespace when the target is still unique and inside the read range. Use WriteFile for whole-file rewrites, Grep to find unknown text, and ReadFile to inspect context before editing. Do not include ReadFile line-number prefixes in oldString or newString.")]
@@ -26,10 +21,17 @@ public partial class CodingToolHarness
         [Description("One or more targeted replacements to apply sequentially.")] IReadOnlyList<FileEditReplacement> edits,
         FunctionExecutionContext context)
     {
-        ResolvedMutationPath? resolvedPath = null;
+        string? resolvedDisplayPath = null;
         try
         {
-            var argumentError = ValidateEditArguments(path, edits);
+            var harnessConfig = _config.For(context);
+            harnessConfig.ValidateSettings();
+            var editConfig = harnessConfig.EditFile;
+            var mutationConfig = harnessConfig.Files;
+            var argumentError = ValidateEditArguments(
+                path,
+                edits,
+                editConfig);
             if (argumentError != null)
                 return FormatEditError(EditFileErrorKind.InvalidArguments, path, argumentError);
 
@@ -40,47 +42,54 @@ public partial class CodingToolHarness
                     path,
                     "No Environment workspace binding is available for EditFile.");
             }
+
+            WorkspacePath logical =
+                CodingWorkspacePathAccess.Resolve(workspace, path);
+            resolvedDisplayPath =
+                CodingWorkspacePathAccess.Display(workspace, logical);
             return await EditWorkspaceFileAsync(
                 workspace,
-                path,
+                logical,
+                resolvedDisplayPath,
                 edits,
+                editConfig,
+                mutationConfig,
                 context).ConfigureAwait(false);
         }
         catch (FileMutationException exception) when (exception.Kind == FileMutationErrorKind.StaleFile)
         {
             return FormatEditError(
                 EditFileErrorKind.StaleRead,
-                resolvedPath?.FullPath ?? path,
+                resolvedDisplayPath ?? path,
                 "File has been modified since it was read. Read it again before editing.");
         }
         catch (FileMutationException exception)
         {
-            return FormatMutationError("EditFile", exception.Kind, resolvedPath?.FullPath ?? path, exception.Message);
+            return FormatMutationError("EditFile", exception.Kind, resolvedDisplayPath ?? path, exception.Message);
         }
         catch (DecoderFallbackException)
         {
-            return FormatMutationError("EditFile", FileMutationErrorKind.DecodeError, resolvedPath?.FullPath ?? path, "Unable to decode file as text.");
+            return FormatMutationError("EditFile", FileMutationErrorKind.DecodeError, resolvedDisplayPath ?? path, "Unable to decode file as text.");
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            return FormatMutationError("EditFile", FileMutationErrorKind.WriteFailed, resolvedPath?.FullPath ?? path, $"Unable to edit file: {exception.Message}");
+            return FormatMutationError("EditFile", FileMutationErrorKind.WriteFailed, resolvedDisplayPath ?? path, $"Unable to edit file: {exception.Message}");
         }
         catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            return FormatEditError(EditFileErrorKind.InvalidArguments, path, $"Invalid path: {exception.Message}");
+            return FormatEditError(EditFileErrorKind.InvalidArguments, resolvedDisplayPath ?? path, $"Invalid path: {exception.Message}");
         }
     }
 
     private async Task<string> EditWorkspaceFileAsync(
         RuntimeWorkspaceBinding workspace,
-        string path,
+        WorkspacePath logical,
+        string displayPath,
         IReadOnlyList<FileEditReplacement> edits,
+        EditFileConfig editConfig,
+        FileMutationConfig mutationConfig,
         FunctionExecutionContext context)
     {
-        WorkspacePath logical =
-            CodingWorkspacePathAccess.Resolve(workspace, path);
-        string displayPath =
-            CodingWorkspacePathAccess.Display(workspace, logical);
         WorkspaceRootBinding root =
             CodingWorkspacePathAccess.GetRoot(workspace, logical);
         if (root.Access == AccessMode.ReadOnly)
@@ -97,13 +106,25 @@ public partial class CodingToolHarness
                 "File is a notebook. Use NotebookEdit when available.");
         }
 
+        var invalidEmptyIndex = FindInvalidEmptyOldString(edits);
+        if (invalidEmptyIndex >= 0 && !IsCreateEdit(edits))
+        {
+            return FormatEditError(
+                EditFileErrorKind.InvalidEmptyOldString,
+                displayPath,
+                $"OldString is required for edit {invalidEmptyIndex + 1} unless creating or filling an empty file.");
+        }
+
         bool allowMissing = IsCreateEdit(edits);
+        ReadFileSnapshot? knownPriorRead =
+            FindPriorRead(displayPath, context);
         FileMutationContent current =
             await ReadWorkspaceMutationContentAsync(
                 workspace,
                 logical,
-                allowMissing,
-                displayPath).ConfigureAwait(false);
+                allowMissing || knownPriorRead != null,
+                displayPath,
+                mutationConfig).ConfigureAwait(false);
         if (current.Exists &&
             current.ByteLength > 0 &&
             allowMissing)
@@ -119,7 +140,7 @@ public partial class CodingToolHarness
                 displayPath,
                 current,
                 allowMissing,
-                context);
+                knownPriorRead);
         if (priorRead.ErrorKind != null)
         {
             return FormatEditError(
@@ -129,10 +150,10 @@ public partial class CodingToolHarness
         }
         EditApplicationResult application =
             ApplyEdits(
-                displayPath,
                 current,
                 edits,
-                priorRead.PriorRead);
+                priorRead.PriorRead,
+                editConfig);
         if (application.ErrorKind != null)
         {
             return FormatEditError(
@@ -161,13 +182,15 @@ public partial class CodingToolHarness
                         current.Exists,
                     TextEdits: application.TextEdits,
                     Notes: application.NormalizationNotes
-                        .Take(MaxNormalizationNotes)
+                        .Take(editConfig.MaxNormalizationNotes)
                         .Select(note =>
                             new FileMutationNote(
                                 note.EditIndex,
-                                note.Kind))
+                                note.Kind,
+                                note.Count))
                         .ToArray(),
                     FunctionContext: context,
+                    Config: mutationConfig,
                     ValidateBeforeMutation: before =>
                         ValidateEditBeforeMutation(
                             displayPath,
@@ -182,7 +205,10 @@ public partial class CodingToolHarness
         return FormatEditResult(result, application);
     }
 
-    private static string? ValidateEditArguments(string? path, IReadOnlyList<FileEditReplacement>? edits)
+    private static string? ValidateEditArguments(
+        string? path,
+        IReadOnlyList<FileEditReplacement>? edits,
+        EditFileConfig config)
     {
         if (string.IsNullOrWhiteSpace(path))
             return "Path is required.";
@@ -193,19 +219,23 @@ public partial class CodingToolHarness
         if (edits.Count == 0)
             return "At least one edit is required.";
 
-        if (edits.Count > MaxEditCount)
-            return $"Too many edits. Maximum is {MaxEditCount}.";
+        if (edits.Count > config.MaxEdits)
+            return $"Too many edits. Maximum is {config.MaxEdits}.";
 
         for (var i = 0; i < edits.Count; i++)
         {
             var editNumber = i + 1;
-            if (edits[i].OldString == null)
+            var edit = edits[i];
+            if (edit is null)
+                return $"Null edit entry at edit {editNumber} is invalid.";
+
+            if (edit.OldString == null)
                 return $"OldString is required for edit {editNumber} unless creating or filling an empty file.";
 
-            if (edits[i].NewString == null)
+            if (edit.NewString == null)
                 return $"NewString is required for edit {editNumber}.";
 
-            if (edits[i].OldString == edits[i].NewString)
+            if (edit.OldString == edit.NewString)
                 return $"OldString and NewString must be different for edit {editNumber}.";
         }
 
@@ -215,24 +245,51 @@ public partial class CodingToolHarness
     private static bool IsCreateEdit(IReadOnlyList<FileEditReplacement> edits)
         => edits.Count == 1 && edits[0].OldString.Length == 0;
 
+    private static int FindInvalidEmptyOldString(
+        IReadOnlyList<FileEditReplacement> edits)
+    {
+        for (var i = 0; i < edits.Count; i++)
+        {
+            if (edits[i].OldString.Length == 0)
+                return i;
+        }
+
+        return -1;
+    }
+
     private static EditReadValidationResult ValidateEditReadPolicy(
         string fullPath,
         FileMutationContent current,
         bool allowMissingCreate,
-        FunctionExecutionContext context)
+        ReadFileSnapshot? priorRead)
     {
         if (!current.Exists)
+        {
+            if (priorRead != null)
+            {
+                return new EditReadValidationResult(
+                    priorRead,
+                    EditFileErrorKind.StaleRead,
+                    "File was deleted after it was read. Read it again before editing.");
+            }
+
             return allowMissingCreate
                 ? new EditReadValidationResult(null, null, null)
                 : new EditReadValidationResult(null, EditFileErrorKind.NoMatch, "String to replace was not found for edit 1.");
+        }
 
         if (current.ByteLength == 0)
-            return new EditReadValidationResult(null, null, null);
+        {
+            if (priorRead is { Length: > 0 })
+            {
+                return new EditReadValidationResult(
+                    priorRead,
+                    EditFileErrorKind.StaleRead,
+                    "File was emptied after it was read. Read it again before editing.");
+            }
 
-        var readFileStateKey = typeof(ReadFileState).FullName!;
-        var priorRead = context
-            .Analyze(state => state.MiddlewareState.GetState<ReadFileState>(readFileStateKey))
-            ?.FilesByPath.GetValueOrDefault(fullPath);
+            return new EditReadValidationResult(null, null, null);
+        }
 
         if (priorRead == null)
         {
@@ -257,20 +314,71 @@ public partial class CodingToolHarness
         return new EditReadValidationResult(priorRead, null, null);
     }
 
+    private static ReadFileSnapshot? FindPriorRead(
+        string fullPath,
+        FunctionExecutionContext context)
+    {
+        var readFileStateKey = typeof(ReadFileState).FullName!;
+        return context
+            .Analyze(state => state.MiddlewareState.GetState<ReadFileState>(readFileStateKey))
+            ?.FilesByPath.GetValueOrDefault(fullPath);
+    }
+
     private static void ValidateEditBeforeMutation(
         string fullPath,
         ReadFileSnapshot? priorRead,
         FileMutationContent current,
         bool creating)
     {
-        if (creating || !current.Exists || current.ByteLength == 0)
+        if (creating)
+        {
+            if (!current.Exists)
+                return;
+
+            throw new FileMutationException(
+                FileMutationErrorKind.StaleFile,
+                "File was created after edit validation.");
+        }
+
+        if (!current.Exists)
+        {
+            throw new FileMutationException(
+                FileMutationErrorKind.StaleFile,
+                "File was deleted before the edit could be committed.");
+        }
+
+        if (current.ByteLength == 0)
+        {
+            if (priorRead is { Length: > 0 })
+            {
+                throw new FileMutationException(
+                    FileMutationErrorKind.StaleFile,
+                    "File was emptied before the edit could be committed.");
+            }
+
             return;
+        }
 
         if (priorRead == null)
             throw new FileMutationException(FileMutationErrorKind.StaleFile, "File has not been read yet.");
 
         if (priorRead.Path != fullPath)
             throw new FileMutationException(FileMutationErrorKind.StaleFile, "File has been modified since it was read.");
+
+        if (priorRead.SourceContentHash != null)
+        {
+            if (string.Equals(
+                    priorRead.SourceContentHash,
+                    current.SourceVersionHash,
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            throw new FileMutationException(
+                FileMutationErrorKind.StaleFile,
+                "File has been modified since it was read.");
+        }
 
         if (priorRead.Length == current.ByteLength &&
             priorRead.LastWriteTimeUtc == current.LastWriteTimeUtc)
@@ -288,16 +396,22 @@ public partial class CodingToolHarness
     }
 
     private static EditApplicationResult ApplyEdits(
-        string fullPath,
         FileMutationContent current,
         IReadOnlyList<FileEditReplacement> edits,
-        ReadFileSnapshot? priorRead)
+        ReadFileSnapshot? priorRead,
+        EditFileConfig config)
     {
-        if (edits.Any(edit => edit.OldString.Length == 0) && !IsCreateEdit(edits))
+        for (var i = 0; i < edits.Count; i++)
         {
-            return EditApplicationResult.Error(
-                EditFileErrorKind.InvalidEmptyOldString,
-                "OldString is required for edit 1 unless creating or filling an empty file.");
+            var edit = edits[i];
+            if (ContainsNewOmissionPlaceholder(
+                    edit.OldString,
+                    edit.NewString))
+            {
+                return EditApplicationResult.Error(
+                    EditFileErrorKind.NewOmissionPlaceholder,
+                    $"NewString for edit {i + 1} contains an omission placeholder. Provide exact literal replacement text.");
+            }
         }
 
         if (!current.Exists)
@@ -305,7 +419,8 @@ public partial class CodingToolHarness
             if (!IsCreateEdit(edits))
                 return EditApplicationResult.Error(EditFileErrorKind.NoMatch, "String to replace was not found for edit 1.");
 
-            var newText = NormalizeEditNewString(fullPath, edits[0].NewString, normalizeTrailingWhitespace: false, out var createNotes, 1);
+            var newText = edits[0].NewString;
+            IReadOnlyList<EditNormalizationNote> createNotes = [];
             return new EditApplicationResult(
                 OriginalContent: string.Empty,
                 UpdatedContent: newText,
@@ -339,7 +454,8 @@ public partial class CodingToolHarness
 
         if (current.ByteLength == 0 && IsCreateEdit(edits))
         {
-            var newText = NormalizeEditNewString(fullPath, edits[0].NewString, normalizeTrailingWhitespace: false, out var fillNotes, 1);
+            var newText = edits[0].NewString;
+            IReadOnlyList<EditNormalizationNote> fillNotes = [];
             return new EditApplicationResult(
                 OriginalContent: string.Empty,
                 UpdatedContent: newText,
@@ -375,44 +491,47 @@ public partial class CodingToolHarness
             return EditApplicationResult.Error(EditFileErrorKind.InvalidEmptyOldString, "Cannot edit a non-empty file with an empty OldString.");
 
         var buffer = current.Text;
+        var originMap = EditOriginMap.Create(buffer.Length);
+        var readCoverage = GetEditReadCoverage(buffer, priorRead);
         var textEdits = new List<FileMutationTextEdit>();
         var resolvedReplacements = new List<ResolvedEditReplacement>();
         var normalizationNotes = new List<EditNormalizationNote>();
-        var insertedTexts = new List<string>();
         var replacementCount = 0;
 
         for (var i = 0; i < edits.Count; i++)
         {
             var editIndex = i + 1;
             var edit = edits[i];
-            var oldWithoutTrailingNewlines = TrimTrailingNewlines(edit.OldString);
-            if (oldWithoutTrailingNewlines.Length > 0 &&
-                insertedTexts.Any(inserted => inserted.Contains(oldWithoutTrailingNewlines, StringComparison.Ordinal)))
-            {
-                return EditApplicationResult.Error(
-                    EditFileErrorKind.OverlappingMultiEdit,
-                    "Later edit OldString overlaps text inserted by an earlier edit.");
-            }
 
-            if (ContainsNewOmissionPlaceholder(edit.OldString, edit.NewString))
-            {
-                return EditApplicationResult.Error(
-                    EditFileErrorKind.NewOmissionPlaceholder,
-                    $"NewString for edit {editIndex} contains an omission placeholder. Provide exact literal replacement text.");
-            }
-
-            var normalizedNewString = NormalizeEditNewString(fullPath, edit.NewString, normalizeTrailingWhitespace: true, out var editNotes, editIndex);
-            var resolution = ResolveReplacement(buffer, edit, normalizedNewString, editIndex, priorRead, current.HasBom);
+            var normalizedNewString = edit.NewString;
+            var resolution = ResolveReplacement(
+                buffer,
+                edit,
+                normalizedNewString,
+                editIndex,
+                current.HasBom,
+                originMap,
+                readCoverage,
+                config);
             if (resolution.ErrorKind != null)
                 return EditApplicationResult.Error(resolution.ErrorKind.Value, resolution.ErrorMessage!, resolution.ErrorStrategy);
 
             var resolved = resolution.Resolved!;
             var ranges = resolution.Ranges!;
             var beforeBuffer = buffer;
+            var touchesEof = ranges.Any(
+                range => range.Start + range.Length == beforeBuffer.Length);
             if (!EndsWithAnyNewline(beforeBuffer) &&
                 EndsWithAnyNewline(resolved.ActualNewString) &&
-                ranges.Any(range => range.Start + range.Length == beforeBuffer.Length))
+                touchesEof)
             {
+                if (ranges.Count > 1)
+                {
+                    return EditApplicationResult.Error(
+                        EditFileErrorKind.InvalidArguments,
+                        $"Edit {editIndex} combines an EOF match with interior matches while NewString ends in a newline. Split the edit so each replacement has one newline policy.");
+                }
+
                 resolved = resolved with
                 {
                     ActualNewString = TrimTrailingNewlines(resolved.ActualNewString),
@@ -432,8 +551,28 @@ public partial class CodingToolHarness
                 offsetDelta += resolved.ActualNewString.Length - range.Length;
             }
 
-            foreach (var range in Enumerable.Reverse(orderedRanges))
-                buffer = buffer.Remove(range.Start, range.Length).Insert(range.Start, resolved.ActualNewString);
+            var originUpdate = originMap.ApplyReplacements(
+                orderedRanges,
+                resolved.ActualNewString.Length);
+            if (originUpdate.Status == EditOriginMapApplyStatus.InvalidRange)
+            {
+                return EditApplicationResult.Error(
+                    EditFileErrorKind.InvalidArguments,
+                    $"Edit {editIndex} produced an invalid replacement range.");
+            }
+
+            if (originUpdate.Status == EditOriginMapApplyStatus.CoverageGap)
+            {
+                return EditApplicationResult.Error(
+                    EditFileErrorKind.InternalError,
+                    $"Edit {editIndex} could not be applied safely. Read the file again and retry.");
+            }
+
+            originMap = originUpdate.Map!;
+            buffer = ApplyReplacementsToBuffer(
+                beforeBuffer,
+                orderedRanges,
+                resolved.ActualNewString);
 
             if (string.Equals(beforeBuffer, buffer, StringComparison.Ordinal))
                 return EditApplicationResult.Error(EditFileErrorKind.NoChange, $"Edit {editIndex} would not change the file.");
@@ -451,9 +590,7 @@ public partial class CodingToolHarness
                 OmissionReason: null)));
 
             resolvedReplacements.Add(resolved);
-            normalizationNotes.AddRange(editNotes);
             normalizationNotes.AddRange(resolved.NormalizationNotes);
-            insertedTexts.Add(resolved.ActualNewString);
             replacementCount += ranges.Count;
         }
 
@@ -464,7 +601,7 @@ public partial class CodingToolHarness
             resolvedReplacements,
             replacementCount,
             Created: false,
-            normalizationNotes.Take(MaxNormalizationNotes).ToArray());
+            normalizationNotes.Take(config.MaxNormalizationNotes).ToArray());
     }
 
     private static EditReplacementResolution ResolveReplacement(
@@ -472,188 +609,391 @@ public partial class CodingToolHarness
         FileEditReplacement edit,
         string normalizedNewString,
         int editIndex,
-        ReadFileSnapshot? priorRead,
-        bool fileHasBom)
+        bool fileHasBom,
+        EditOriginMap originMap,
+        EditReadCoverage readCoverage,
+        EditFileConfig config)
     {
         if (edit.OldString.Length == 0)
             return EditReplacementResolution.Error(EditFileErrorKind.InvalidEmptyOldString, "Cannot edit a non-empty file with an empty OldString.");
 
         if (normalizedNewString.Length == 0 && !EndsWithAnyNewline(edit.OldString))
         {
-            var newlineOldString = TryAppendExistingNewline(buffer, edit.OldString);
-            if (newlineOldString != null)
-            {
-                var deleteLine = ResolveCandidateSet(
-                    buffer,
-                    newlineOldString,
-                    normalizedNewString,
-                    edit.ReplaceAll,
-                    editIndex,
-                    EditMatchStrategy.Exact,
-                    recovered: false,
-                    priorRead,
-                    []);
-                if (deleteLine.Resolved != null || deleteLine.ErrorKind is EditFileErrorKind.AmbiguousMatch or EditFileErrorKind.OutsideReadRange)
-                    return deleteLine;
-            }
+            var deleteCandidates = CollectCandidates(
+                EnumerateDeleteLineCandidates(buffer, edit.OldString),
+                originMap,
+                GetCandidateCollectionLimit(config, recovered: false));
+            var deleteLine = ResolveCandidateSet(
+                buffer,
+                edit.OldString,
+                normalizedNewString,
+                edit.ReplaceAll,
+                editIndex,
+                EditMatchStrategy.Exact,
+                recovered: false,
+                originMap,
+                readCoverage,
+                config,
+                [],
+                deleteCandidates);
+            if (deleteLine.Resolved != null || IsTerminalCandidateError(deleteLine.ErrorKind))
+                return deleteLine;
         }
-
-        var bom = TryResolveBomHiddenFirstLineMatch(buffer, edit, normalizedNewString, editIndex, priorRead, fileHasBom);
-        if (bom.HasResult)
-            return bom.Resolution;
 
         var exact = ResolveCandidateSet(
             buffer,
+            edit.OldString,
             edit.OldString,
             normalizedNewString,
             edit.ReplaceAll,
             editIndex,
             EditMatchStrategy.Exact,
             recovered: false,
-            priorRead,
+            originMap,
+            readCoverage,
+            config,
             []);
-        if (exact.Resolved != null || exact.ErrorKind is EditFileErrorKind.AmbiguousMatch or EditFileErrorKind.OutsideReadRange)
+        if (exact.Resolved != null || IsTerminalCandidateError(exact.ErrorKind))
             return exact;
 
-        if (edit.OldString.Length < MinRecoveryOldStringChars)
+        if (edit.OldString.Length < config.MinRecoveryOldStringChars)
             return EditReplacementResolution.Error(EditFileErrorKind.NoMatch, $"String to replace was not found for edit {editIndex}.");
 
-        var lineEnding = TryResolveLineEndingNormalizedMatch(buffer, edit, normalizedNewString, editIndex, priorRead);
+        var lineEnding = TryResolveLineEndingNormalizedMatch(buffer, edit, normalizedNewString, editIndex, originMap, readCoverage, config);
         if (lineEnding.HasResult)
             return lineEnding.Resolution;
 
-        if (TryDesanitize(edit.OldString, out var desanitized, out var desanitizeKind))
+        var bom = TryResolveBomHiddenFirstLineMatch(buffer, edit, normalizedNewString, editIndex, originMap, readCoverage, config, fileHasBom);
+        if (bom.HasResult)
+            return bom.Resolution;
+
+        if (config.Recovery.Desanitization &&
+            TryDesanitize(
+                edit.OldString,
+                config.Recovery.DesanitizationMap,
+                out var desanitized,
+                out var desanitizeKind))
         {
             var desanitizedResult = ResolveCandidateSet(
                 buffer,
+                edit.OldString,
                 desanitized,
                 normalizedNewString,
                 edit.ReplaceAll,
                 editIndex,
                 EditMatchStrategy.Desanitized,
                 recovered: true,
-                priorRead,
+                originMap,
+                readCoverage,
+                config,
                 [new EditNormalizationNote(editIndex, desanitizeKind)]);
             if (desanitizedResult.Resolved != null || IsRecoverySpecificError(desanitizedResult.ErrorKind))
                 return desanitizedResult;
         }
 
-        var quote = TryResolveQuoteNormalizedMatch(buffer, edit, normalizedNewString, editIndex, priorRead);
-        if (quote.HasResult)
-            return quote.Resolution;
-
-        var unescaped = UnescapeSearchString(edit.OldString, out var unescapedChanged);
-        if (unescapedChanged)
+        if (config.Recovery.QuoteNormalization)
         {
-            var unescapedResult = ResolveCandidateSet(
-                buffer,
-                unescaped,
-                normalizedNewString,
-                edit.ReplaceAll,
-                editIndex,
-                EditMatchStrategy.EscapedStringNormalized,
-                recovered: true,
-                priorRead,
-                [new EditNormalizationNote(editIndex, "escaped_string")]);
-            if (unescapedResult.Resolved != null || IsRecoverySpecificError(unescapedResult.ErrorKind))
-                return unescapedResult;
+            var quote = TryResolveQuoteNormalizedMatch(buffer, edit, normalizedNewString, editIndex, originMap, readCoverage, config);
+            if (quote.HasResult)
+                return quote.Resolution;
+        }
+
+        if (config.Recovery.EscapedStringNormalization)
+        {
+            var unescaped = UnescapeSearchString(
+                edit.OldString,
+                out var unescapedChanged);
+            if (unescapedChanged)
+            {
+                var unescapedResult = ResolveCandidateSet(
+                    buffer,
+                    edit.OldString,
+                    unescaped,
+                    normalizedNewString,
+                    edit.ReplaceAll,
+                    editIndex,
+                    EditMatchStrategy.EscapedStringNormalized,
+                    recovered: true,
+                    originMap,
+                    readCoverage,
+                    config,
+                    [new EditNormalizationNote(editIndex, "escaped_string")]);
+                if (unescapedResult.Resolved != null ||
+                    IsRecoverySpecificError(unescapedResult.ErrorKind))
+                {
+                    return unescapedResult;
+                }
+            }
         }
 
         var trimmed = edit.OldString.Trim();
-        if (trimmed.Length != edit.OldString.Length && trimmed.Length >= MinRecoveryOldStringChars)
+        if (config.Recovery.TrimmedBoundary &&
+            trimmed.Length != edit.OldString.Length &&
+            trimmed.Length >= config.MinRecoveryOldStringChars)
         {
+            var trimmedNewString = ApplyOldBoundaryTrimmingToNewString(
+                edit.OldString,
+                normalizedNewString,
+                out var replacementTrimmed);
+            var notes = replacementTrimmed
+                ? new[]
+                {
+                    new EditNormalizationNote(editIndex, "trimmed_boundary"),
+                    new EditNormalizationNote(editIndex, "replacement_boundary_trimmed")
+                }
+                : [new EditNormalizationNote(editIndex, "trimmed_boundary")];
             var trimmedResult = ResolveCandidateSet(
                 buffer,
+                edit.OldString,
                 trimmed,
-                normalizedNewString,
+                trimmedNewString,
                 edit.ReplaceAll,
                 editIndex,
                 EditMatchStrategy.TrimmedBoundary,
                 recovered: true,
-                priorRead,
-                [new EditNormalizationNote(editIndex, "trimmed_boundary")]);
+                originMap,
+                readCoverage,
+                config,
+                notes);
             if (trimmedResult.Resolved != null || IsRecoverySpecificError(trimmedResult.ErrorKind))
                 return trimmedResult;
         }
 
-        var indentation = TryResolveIndentationOnlyBlockMatch(buffer, edit, normalizedNewString, editIndex, priorRead);
-        if (indentation.HasResult)
-            return indentation.Resolution;
-
-        var whitespace = TryResolveWhitespaceOnlyAnchoredBlockMatch(buffer, edit, normalizedNewString, editIndex, priorRead);
-        if (whitespace.HasResult)
-            return whitespace.Resolution;
+        if (config.Recovery.IndentationOnlyBlock)
+        {
+            var indentation = TryResolveIndentationOnlyBlockMatch(buffer, edit, normalizedNewString, editIndex, originMap, readCoverage, config);
+            if (indentation.HasResult)
+                return indentation.Resolution;
+        }
 
         return EditReplacementResolution.Error(EditFileErrorKind.NoMatch, $"String to replace was not found for edit {editIndex}.");
     }
 
     private static EditReplacementResolution ResolveCandidateSet(
         string buffer,
+        string requestedOldString,
         string actualOldString,
         string actualNewString,
         bool replaceAll,
         int editIndex,
         EditMatchStrategy strategy,
         bool recovered,
-        ReadFileSnapshot? priorRead,
+        EditOriginMap originMap,
+        EditReadCoverage readCoverage,
+        EditFileConfig config,
         IReadOnlyList<EditNormalizationNote> notes)
     {
-        var candidates = FindAllOccurrences(buffer, actualOldString)
-            .Select(start => new EditCandidate(start, actualOldString.Length))
-            .ToArray();
+        var collection = CollectCandidates(
+            EnumerateOccurrences(buffer, actualOldString)
+                .Select(start => new EditCandidate(
+                    start,
+                    actualOldString.Length)),
+            originMap,
+            GetCandidateCollectionLimit(config, recovered));
 
-        return ResolveCandidateSet(buffer, actualOldString, actualNewString, replaceAll, editIndex, strategy, recovered, priorRead, notes, candidates);
+        return ResolveCandidateSet(
+            buffer,
+            requestedOldString,
+            actualNewString,
+            replaceAll,
+            editIndex,
+            strategy,
+            recovered,
+            originMap,
+            readCoverage,
+            config,
+            notes,
+            collection);
     }
 
     private static EditReplacementResolution ResolveCandidateSet(
         string buffer,
-        string actualOldString,
+        string requestedOldString,
         string actualNewString,
         bool replaceAll,
         int editIndex,
         EditMatchStrategy strategy,
         bool recovered,
-        ReadFileSnapshot? priorRead,
+        EditOriginMap originMap,
+        EditReadCoverage readCoverage,
+        EditFileConfig config,
         IReadOnlyList<EditNormalizationNote> notes,
-        IReadOnlyList<EditCandidate> candidates)
+        EditCandidateCollection collection)
     {
-        if (candidates.Count > MaxRecoveryCandidates && recovered)
-            return EditReplacementResolution.Error(EditFileErrorKind.RecoveryLimitExceeded, $"Recovered match for edit {editIndex} exceeded the recovery candidate limit. Provide a more exact OldString.", strategy);
-
-        if (candidates.Count == 0)
-            return EditReplacementResolution.Error(EditFileErrorKind.NoMatch, $"String to replace was not found for edit {editIndex}.");
-
-        if (!replaceAll && candidates.Count > 1)
-        {
-            var kind = recovered ? EditFileErrorKind.RecoveryAmbiguous : EditFileErrorKind.AmbiguousMatch;
-            return EditReplacementResolution.Error(kind, $"Found {candidates.Count} matches for edit {editIndex}, but replaceAll is false.", recovered ? strategy : null);
-        }
-
-        if (HasOverlappingCandidates(candidates))
-            return EditReplacementResolution.Error(EditFileErrorKind.RecoveryAmbiguous, $"Recovered match for edit {editIndex} is ambiguous. Provide a more exact OldString.", strategy);
-
-        var outsideRange = candidates
-            .Where(candidate => !IsEditInsideReadRange(buffer, candidate, priorRead))
-            .ToArray();
-
-        if (outsideRange.Length > 0 && priorRead != null)
-        {
-            var kind = recovered ? EditFileErrorKind.RecoveryOutsideReadRange : EditFileErrorKind.OutsideReadRange;
-            return EditReplacementResolution.Error(kind, $"Edit {editIndex} is outside the previously read range. Read the relevant lines before editing.", recovered ? strategy : null);
-        }
-
-        if (recovered && replaceAll && HasMixedRecoveredCandidateShape(buffer, candidates))
+        var selection = SelectCandidateSet(
+            buffer,
+            replaceAll,
+            editIndex,
+            strategy,
+            recovered,
+            originMap,
+            readCoverage,
+            config,
+            notes,
+            collection);
+        if (selection.ErrorKind != null)
         {
             return EditReplacementResolution.Error(
-                EditFileErrorKind.RecoverySemanticDifference,
-                $"Recovered match for edit {editIndex} changes non-whitespace tokens. Provide the exact OldString.",
+                selection.ErrorKind.Value,
+                selection.ErrorMessage!,
+                selection.ErrorStrategy);
+        }
+
+        var selected = selection.Selected!;
+        var selectedActualOldString = buffer.Substring(
+            selected[0].Start,
+            selected[0].Length);
+        return BuildCandidateResolution(
+            editIndex,
+            requestedOldString,
+            selectedActualOldString,
+            actualNewString,
+            replaceAll,
+            strategy,
+            recovered,
+            selection.Notes,
+            selected);
+    }
+
+    private static EditCandidateSelectionResult SelectCandidateSet(
+        string buffer,
+        bool replaceAll,
+        int editIndex,
+        EditMatchStrategy strategy,
+        bool recovered,
+        EditOriginMap originMap,
+        EditReadCoverage readCoverage,
+        EditFileConfig config,
+        IReadOnlyList<EditNormalizationNote> notes,
+        EditCandidateCollection collection)
+    {
+        var candidates = collection.Candidates;
+        if (candidates.Count == 0)
+        {
+            return collection.SkippedGeneratedCount > 0
+                ? EditCandidateSelectionResult.Error(
+                    EditFileErrorKind.OverlappingMultiEdit,
+                    "Later edit OldString overlaps text inserted by an earlier edit.")
+                : EditCandidateSelectionResult.Error(
+                    EditFileErrorKind.NoMatch,
+                    $"String to replace was not found for edit {editIndex}.");
+        }
+
+        if (collection.SkippedGeneratedCount > 0)
+        {
+            notes = notes
+                .Concat(
+                    [
+                        new EditNormalizationNote(
+                            editIndex,
+                            "generated_matches_skipped",
+                            collection.SkippedGeneratedCount)
+                    ])
+                .ToArray();
+        }
+
+        if (recovered &&
+            candidates.Count > config.MaxRecoveryCandidates)
+        {
+            return EditCandidateSelectionResult.Error(
+                EditFileErrorKind.RecoveryLimitExceeded,
+                $"Recovered match for edit {editIndex} exceeded the recovery candidate limit. Provide a more exact OldString.",
                 strategy);
         }
 
-        var selected = replaceAll ? candidates : [candidates[0]];
+        if (candidates.Count > config.MaxReplacementCandidates)
+        {
+            return EditCandidateSelectionResult.Error(
+                EditFileErrorKind.ReplacementLimitExceeded,
+                $"Edit {editIndex} selected at least {candidates.Count} occurrences. The maximum is {config.MaxReplacementCandidates}.",
+                recovered ? strategy : null);
+        }
+
+        if (!replaceAll && candidates.Count > 1)
+        {
+            var kind = recovered
+                ? EditFileErrorKind.RecoveryAmbiguous
+                : EditFileErrorKind.AmbiguousMatch;
+            return EditCandidateSelectionResult.Error(
+                kind,
+                $"Found {candidates.Count} matches for edit {editIndex}, but replaceAll is false.",
+                recovered ? strategy : null);
+        }
+
+        if (HasOverlappingCandidates(candidates))
+        {
+            return recovered
+                ? EditCandidateSelectionResult.Error(
+                    EditFileErrorKind.RecoveryAmbiguous,
+                    $"Recovered match for edit {editIndex} is ambiguous. Provide a more exact OldString.",
+                    strategy)
+                : EditCandidateSelectionResult.Error(
+                    EditFileErrorKind.AmbiguousMatch,
+                    $"Found overlapping matches for edit {editIndex}. Provide a more exact OldString.");
+        }
+
+        if (readCoverage.IsRestricted &&
+            candidates.Any(candidate =>
+                !originMap.IsInsideOriginalRange(
+                    candidate,
+                    readCoverage.StartOffset,
+                    readCoverage.EndOffset)))
+        {
+            return EditCandidateSelectionResult.Error(
+                recovered
+                    ? EditFileErrorKind.RecoveryOutsideReadRange
+                    : EditFileErrorKind.OutsideReadRange,
+                $"Edit {editIndex} is outside the previously read range. Read the relevant lines before editing.",
+                recovered ? strategy : null);
+        }
+
+        var discontinuousCount = candidates.Count(
+            candidate => !originMap.HasContinuousOriginalProvenance(candidate));
+        if (discontinuousCount > 0)
+        {
+            notes = notes
+                .Concat(
+                [
+                    new EditNormalizationNote(
+                        editIndex,
+                        "source_discontinuity",
+                        discontinuousCount)
+                ])
+                .ToArray();
+        }
+
+        if (recovered &&
+            replaceAll &&
+            HasMixedRecoveredCandidateShape(buffer, candidates))
+        {
+            return EditCandidateSelectionResult.Error(
+                EditFileErrorKind.RecoverySemanticDifference,
+                $"Selected recovered occurrences for edit {editIndex} have different literal representations and cannot share one replacement. Provide a more exact OldString.",
+                strategy);
+        }
+
+        return new EditCandidateSelectionResult(
+            replaceAll ? candidates : [candidates[0]],
+            notes,
+            null,
+            null,
+            null);
+    }
+
+    private static EditReplacementResolution BuildCandidateResolution(
+        int editIndex,
+        string requestedOldString,
+        string actualOldString,
+        string actualNewString,
+        bool replaceAll,
+        EditMatchStrategy strategy,
+        bool recovered,
+        IReadOnlyList<EditNormalizationNote> notes,
+        IReadOnlyList<EditCandidate> selected)
+    {
         var resolved = new ResolvedEditReplacement(
             editIndex,
-            RequestedOldString: actualOldString,
+            RequestedOldString: requestedOldString,
             ActualOldString: actualOldString,
             ActualNewString: actualNewString,
             ReplaceAll: replaceAll,
@@ -664,15 +1004,29 @@ public partial class CodingToolHarness
             ReplacementCount = selected.Count
         };
 
-        return new EditReplacementResolution(resolved, selected, null, null, null);
+        return new EditReplacementResolution(
+            resolved,
+            selected,
+            null,
+            null,
+            null);
     }
+
+    private static EditReplacementResolution ToResolutionError(
+        EditCandidateSelectionResult selection)
+        => EditReplacementResolution.Error(
+            selection.ErrorKind!.Value,
+            selection.ErrorMessage!,
+            selection.ErrorStrategy);
 
     private static (bool HasResult, EditReplacementResolution Resolution) TryResolveLineEndingNormalizedMatch(
         string buffer,
         FileEditReplacement edit,
         string normalizedNewString,
         int editIndex,
-        ReadFileSnapshot? priorRead)
+        EditOriginMap originMap,
+        EditReadCoverage readCoverage,
+        EditFileConfig config)
     {
         var normalizedBuffer = NormalizeForLineEndingMatch(buffer, out var map);
         var normalizedOldString = NormalizeForLineEndingMatch(edit.OldString, out _);
@@ -682,24 +1036,39 @@ public partial class CodingToolHarness
             return (false, default!);
         }
 
-        var starts = FindAllOccurrences(normalizedBuffer, normalizedOldString).ToArray();
-        var candidates = starts
+        var candidates = CollectCandidates(
+            EnumerateOccurrences(normalizedBuffer, normalizedOldString)
             .Select(start => new EditCandidate(map[start], map[start + normalizedOldString.Length] - map[start]))
-            .Distinct()
-            .ToArray();
+            ,
+            originMap,
+            GetCandidateCollectionLimit(config, recovered: true));
 
-        var actualOld = candidates.Length > 0 ? buffer.Substring(candidates[0].Start, candidates[0].Length) : edit.OldString;
-        var resolution = ResolveCandidateSet(
+        var selection = SelectCandidateSet(
             buffer,
-            actualOld,
-            normalizedNewString,
             edit.ReplaceAll,
             editIndex,
             EditMatchStrategy.LineEndingNormalized,
             recovered: true,
-            priorRead,
+            originMap,
+            readCoverage,
+            config,
             [new EditNormalizationNote(editIndex, "line_endings")],
             candidates);
+        if (selection.ErrorKind != null)
+            return (IsRecoverySpecificError(selection.ErrorKind), ToResolutionError(selection));
+
+        var selected = selection.Selected!;
+        var actualOld = buffer.Substring(selected[0].Start, selected[0].Length);
+        var resolution = BuildCandidateResolution(
+            editIndex,
+            edit.OldString,
+            actualOld,
+            normalizedNewString,
+            edit.ReplaceAll,
+            EditMatchStrategy.LineEndingNormalized,
+            recovered: true,
+            selection.Notes,
+            selected);
         return (resolution.Resolved != null || IsRecoverySpecificError(resolution.ErrorKind), resolution);
     }
 
@@ -708,7 +1077,9 @@ public partial class CodingToolHarness
         FileEditReplacement edit,
         string normalizedNewString,
         int editIndex,
-        ReadFileSnapshot? priorRead,
+        EditOriginMap originMap,
+        EditReadCoverage readCoverage,
+        EditFileConfig config,
         bool fileHasBom)
     {
         if (edit.OldString.StartsWith('\uFEFF'))
@@ -724,17 +1095,35 @@ public partial class CodingToolHarness
             return (false, default!);
 
         var candidate = new EditCandidate(candidateStart, edit.OldString.Length);
-        var resolution = ResolveCandidateSet(
+        var candidates = CollectCandidates(
+            [candidate],
+            originMap,
+            GetCandidateCollectionLimit(config, recovered: true));
+        var selection = SelectCandidateSet(
             buffer,
-            edit.OldString,
-            normalizedNewString,
             edit.ReplaceAll,
             editIndex,
             EditMatchStrategy.BomHiddenFirstLine,
             recovered: true,
-            priorRead,
+            originMap,
+            readCoverage,
+            config,
             [new EditNormalizationNote(editIndex, "bom_hidden_first_line")],
-            [candidate]);
+            candidates);
+        if (selection.ErrorKind != null)
+            return (IsRecoverySpecificError(selection.ErrorKind), ToResolutionError(selection));
+
+        var selected = selection.Selected!;
+        var resolution = BuildCandidateResolution(
+            editIndex,
+            edit.OldString,
+            edit.OldString,
+            normalizedNewString,
+            edit.ReplaceAll,
+            EditMatchStrategy.BomHiddenFirstLine,
+            recovered: true,
+            selection.Notes,
+            selected);
         return (resolution.Resolved != null || IsRecoverySpecificError(resolution.ErrorKind), resolution);
     }
 
@@ -743,32 +1132,57 @@ public partial class CodingToolHarness
         FileEditReplacement edit,
         string normalizedNewString,
         int editIndex,
-        ReadFileSnapshot? priorRead)
+        EditOriginMap originMap,
+        EditReadCoverage readCoverage,
+        EditFileConfig config)
     {
         var normalizedBuffer = NormalizeQuotes(buffer);
         var normalizedOldString = NormalizeQuotes(edit.OldString);
         if (normalizedBuffer == buffer && normalizedOldString == edit.OldString)
             return (false, default!);
 
-        var starts = FindAllOccurrences(normalizedBuffer, normalizedOldString).ToArray();
-        var candidates = starts.Select(start => new EditCandidate(start, normalizedOldString.Length)).ToArray();
-        var actualNewString = PreserveQuoteStyle(buffer, candidates.FirstOrDefault(), normalizedNewString, out var preserved);
-        var notes = preserved
-            ? [new EditNormalizationNote(editIndex, "curly_quotes")]
-            : new[] { new EditNormalizationNote(editIndex, "quote_normalized") };
-
-        var actualOld = candidates.Length > 0 ? buffer.Substring(candidates[0].Start, candidates[0].Length) : edit.OldString;
-        var resolution = ResolveCandidateSet(
+        var candidates = CollectCandidates(
+            EnumerateOccurrences(normalizedBuffer, normalizedOldString)
+                .Select(start => new EditCandidate(
+                    start,
+                    normalizedOldString.Length)),
+            originMap,
+            GetCandidateCollectionLimit(config, recovered: true));
+        var selection = SelectCandidateSet(
             buffer,
-            actualOld,
-            actualNewString,
             edit.ReplaceAll,
             editIndex,
             EditMatchStrategy.QuoteNormalized,
             recovered: true,
-            priorRead,
-            notes,
+            originMap,
+            readCoverage,
+            config,
+            [],
             candidates);
+        if (selection.ErrorKind != null)
+            return (IsRecoverySpecificError(selection.ErrorKind), ToResolutionError(selection));
+
+        var selected = selection.Selected!;
+        var actualOld = buffer.Substring(selected[0].Start, selected[0].Length);
+        var actualNewString = normalizedNewString;
+        var notes = selection.Notes
+            .Concat(
+            [
+                new EditNormalizationNote(
+                    editIndex,
+                    "quote_normalized")
+            ])
+            .ToArray();
+        var resolution = BuildCandidateResolution(
+            editIndex,
+            edit.OldString,
+            actualOld,
+            actualNewString,
+            edit.ReplaceAll,
+            EditMatchStrategy.QuoteNormalized,
+            recovered: true,
+            notes,
+            selected);
         return (resolution.Resolved != null || IsRecoverySpecificError(resolution.ErrorKind), resolution);
     }
 
@@ -777,150 +1191,264 @@ public partial class CodingToolHarness
         FileEditReplacement edit,
         string normalizedNewString,
         int editIndex,
-        ReadFileSnapshot? priorRead)
+        EditOriginMap originMap,
+        EditReadCoverage readCoverage,
+        EditFileConfig config)
     {
-        if (!edit.OldString.Contains('\n', StringComparison.Ordinal))
+        if (!ContainsLineBoundary(edit.OldString))
             return (false, default!);
 
         var requested = RemoveCommonIndentation(edit.OldString);
         var requestedNormalized = TrimTrailingNewlines(requested.NormalizedText);
 
         var lineCount = SplitPreservingLineEnds(edit.OldString).Length;
-        var candidates = EnumerateLineBlockCandidates(buffer, lineCount)
-            .Where(candidate => TrimTrailingNewlines(RemoveCommonIndentation(buffer.Substring(candidate.Start, candidate.Length)).NormalizedText) == requestedNormalized)
-            .ToArray();
+        var candidates = CollectCandidates(
+            EnumerateLineBlockCandidates(buffer, lineCount)
+                .Where(candidate =>
+                {
+                    if (!LineBlockMightMatchIndentation(
+                            buffer,
+                            candidate,
+                            requestedNormalized))
+                    {
+                        return false;
+                    }
 
-        var actualOld = candidates.Length > 0 ? buffer.Substring(candidates[0].Start, candidates[0].Length) : edit.OldString;
-        var resolution = ResolveCandidateSet(
+                    var actual = buffer.Substring(candidate.Start, candidate.Length);
+                    return
+                        TrimTrailingNewlines(
+                            RemoveCommonIndentation(actual).NormalizedText) == requestedNormalized;
+                }),
+            originMap,
+            GetCandidateCollectionLimit(config, recovered: true));
+
+        var selection = SelectCandidateSet(
             buffer,
-            actualOld,
-            normalizedNewString,
             edit.ReplaceAll,
             editIndex,
             EditMatchStrategy.IndentationOnlyBlock,
             recovered: true,
-            priorRead,
+            originMap,
+            readCoverage,
+            config,
             [new EditNormalizationNote(editIndex, "indentation")],
             candidates);
-        return (resolution.Resolved != null || IsRecoverySpecificError(resolution.ErrorKind), resolution);
-    }
+        if (selection.ErrorKind != null)
+            return (IsRecoverySpecificError(selection.ErrorKind), ToResolutionError(selection));
 
-    private static (bool HasResult, EditReplacementResolution Resolution) TryResolveWhitespaceOnlyAnchoredBlockMatch(
-        string buffer,
-        FileEditReplacement edit,
-        string normalizedNewString,
-        int editIndex,
-        ReadFileSnapshot? priorRead)
-    {
-        var requestedLines = SplitLogicalLines(edit.OldString);
-        var requestedNonEmpty = requestedLines.Where(line => line.Trim().Length > 0).ToArray();
-        if (requestedNonEmpty.Length < 3)
-            return (false, default!);
-
-        var lineCount = requestedLines.Length;
-        var requestedSignature = RemoveAllWhitespace(edit.OldString);
-        var candidates = EnumerateLineBlockCandidates(buffer, lineCount)
-            .Where(candidate =>
-            {
-                var actual = buffer.Substring(candidate.Start, candidate.Length);
-                var actualLines = SplitLogicalLines(actual);
-                var actualNonEmpty = actualLines.Where(line => line.Trim().Length > 0).ToArray();
-                return actualNonEmpty.Length == requestedNonEmpty.Length &&
-                       string.Equals(actualNonEmpty[0].Trim(), requestedNonEmpty[0].Trim(), StringComparison.Ordinal) &&
-                       string.Equals(actualNonEmpty[^1].Trim(), requestedNonEmpty[^1].Trim(), StringComparison.Ordinal) &&
-                       string.Equals(RemoveAllWhitespace(actual), requestedSignature, StringComparison.Ordinal);
-            })
-            .ToArray();
-
-        var actualOld = candidates.Length > 0 ? buffer.Substring(candidates[0].Start, candidates[0].Length) : edit.OldString;
-        var resolution = ResolveCandidateSet(
-            buffer,
-            actualOld,
-            normalizedNewString,
-            edit.ReplaceAll,
-            editIndex,
-            EditMatchStrategy.WhitespaceOnlyAnchoredBlock,
-            recovered: true,
-            priorRead,
-            [new EditNormalizationNote(editIndex, "whitespace_anchored")],
-            candidates);
-        return (resolution.Resolved != null || IsRecoverySpecificError(resolution.ErrorKind), resolution);
-    }
-
-    private static string NormalizeEditNewString(
-        string path,
-        string newString,
-        bool normalizeTrailingWhitespace,
-        out IReadOnlyList<EditNormalizationNote> notes,
-        int editIndex)
-    {
-        var normalized = newString;
-        var localNotes = new List<EditNormalizationNote>();
-        if (normalizeTrailingWhitespace && !IsMarkdownPath(path))
+        var selected = selection.Selected!;
+        var actualNewString = normalizedNewString;
+        var replacementRebased = false;
+        if (normalizedNewString.Length > 0)
         {
-            var stripped = StripTrailingWhitespace(normalized);
-            if (stripped != normalized)
+            var requestedIndent = requested.Indentation;
+            var candidateNewStrings = selected
+                .Select(candidate =>
+                {
+                    var actual = buffer.Substring(candidate.Start, candidate.Length);
+                    var actualIndent = RemoveCommonIndentation(actual).Indentation;
+                    return RebaseCommonIndentation(
+                        normalizedNewString,
+                        requestedIndent,
+                        actualIndent);
+                })
+                .ToArray();
+            if (candidateNewStrings.Any(value => value == null) ||
+                candidateNewStrings.Select(value => value!).Distinct(StringComparer.Ordinal).Count() != 1)
             {
-                normalized = stripped;
-                localNotes.Add(new EditNormalizationNote(editIndex, "trailing_whitespace"));
+                return (
+                    true,
+                    EditReplacementResolution.Error(
+                        EditFileErrorKind.RecoverySemanticDifference,
+                        $"Indentation recovery for edit {editIndex} cannot safely map the replacement indentation. Provide the exact OldString and NewString.",
+                        EditMatchStrategy.IndentationOnlyBlock));
+            }
+
+            actualNewString = candidateNewStrings[0]!;
+            replacementRebased = !string.Equals(
+                actualNewString,
+                normalizedNewString,
+                StringComparison.Ordinal);
+            actualNewString = PreserveBlockReplacementLineEnding(
+                buffer,
+                selected,
+                actualNewString,
+                out var lineEndingPreserved,
+                out var lineEndingConflict);
+            if (lineEndingConflict)
+            {
+                return (
+                    true,
+                    EditReplacementResolution.Error(
+                        EditFileErrorKind.RecoverySemanticDifference,
+                        $"Indentation recovery for edit {editIndex} matched incompatible line endings. Provide the exact OldString.",
+                        EditMatchStrategy.IndentationOnlyBlock));
+            }
+
+            if (lineEndingPreserved)
+            {
+                selection = selection with
+                {
+                    Notes = selection.Notes
+                        .Concat(
+                        [
+                            new EditNormalizationNote(
+                                editIndex,
+                                "replacement_line_ending_preserved")
+                        ])
+                        .ToArray()
+                };
             }
         }
 
-        notes = localNotes;
-        return normalized;
+        var notes = replacementRebased
+            ? selection.Notes
+                .Concat(
+                [
+                    new EditNormalizationNote(
+                        editIndex,
+                        "replacement_indentation_rebased")
+                ])
+                .ToArray()
+            : selection.Notes;
+        var actualOld = buffer.Substring(selected[0].Start, selected[0].Length);
+        var resolution = BuildCandidateResolution(
+            editIndex,
+            edit.OldString,
+            actualOld,
+            actualNewString,
+            edit.ReplaceAll,
+            EditMatchStrategy.IndentationOnlyBlock,
+            recovered: true,
+            notes,
+            selected);
+        return (resolution.Resolved != null || IsRecoverySpecificError(resolution.ErrorKind), resolution);
     }
 
     private static bool ContainsNewOmissionPlaceholder(string oldString, string newString)
         => StandaloneEditOmissionPlaceholderRegex().IsMatch(newString) &&
            !StandaloneEditOmissionPlaceholderRegex().IsMatch(oldString);
 
-    private static string StripTrailingWhitespace(string value)
-        => TrailingWhitespaceRegex().Replace(value, string.Empty);
-
-    private static bool IsMarkdownPath(string path)
+    private static string ApplyOldBoundaryTrimmingToNewString(
+        string oldString,
+        string newString,
+        out bool changed)
     {
-        var extension = Path.GetExtension(path);
-        return string.Equals(extension, ".md", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(extension, ".mdx", StringComparison.OrdinalIgnoreCase);
+        var trimmedStart = oldString.TrimStart();
+        var trimmedEnd = oldString.TrimEnd();
+        var leadingLength = oldString.Length - trimmedStart.Length;
+        var trailingLength = oldString.Length - trimmedEnd.Length;
+        var result = newString;
+
+        if (leadingLength > 0)
+        {
+            var leading = oldString[..leadingLength];
+            if (result.StartsWith(leading, StringComparison.Ordinal))
+                result = result[leadingLength..];
+        }
+
+        if (trailingLength > 0)
+        {
+            var trailing = oldString[^trailingLength..];
+            if (result.EndsWith(trailing, StringComparison.Ordinal))
+                result = result[..^trailingLength];
+        }
+
+        changed = !string.Equals(result, newString, StringComparison.Ordinal);
+        return result;
     }
 
-    private static IReadOnlyList<int> FindAllOccurrences(string value, string search)
+    private static IEnumerable<int> EnumerateOccurrences(
+        string value,
+        string search)
     {
         if (search.Length == 0)
-            return [];
+            yield break;
 
-        var starts = new List<int>();
         var index = 0;
         while (index <= value.Length)
         {
             var found = value.IndexOf(search, index, StringComparison.Ordinal);
             if (found < 0)
                 break;
-            starts.Add(found);
-            index = found + Math.Max(1, search.Length);
+            yield return found;
+            index = found + 1;
         }
-
-        return starts;
     }
 
-    private static bool IsEditInsideReadRange(string buffer, EditCandidate candidate, ReadFileSnapshot? priorRead)
+    private static EditCandidateCollection CollectCandidates(
+        IEnumerable<EditCandidate> source,
+        EditOriginMap originMap,
+        int limit)
+    {
+        var candidates = new List<EditCandidate>();
+        long skippedGenerated = 0;
+        EditCandidate? previous = null;
+        foreach (var candidate in source)
+        {
+            if (previous == candidate)
+                continue;
+            previous = candidate;
+
+            if (originMap.IntersectsGeneratedContent(candidate))
+            {
+                skippedGenerated++;
+                continue;
+            }
+
+            candidates.Add(candidate);
+            if (candidates.Count > limit)
+                break;
+        }
+
+        return new EditCandidateCollection(
+            candidates,
+            checked((int)Math.Min(
+                skippedGenerated,
+                int.MaxValue)));
+    }
+
+    private static int GetCandidateCollectionLimit(
+        EditFileConfig config,
+        bool recovered)
+        => recovered
+            ? Math.Min(
+                config.MaxRecoveryCandidates,
+                config.MaxReplacementCandidates)
+            : config.MaxReplacementCandidates;
+
+    private static EditReadCoverage GetEditReadCoverage(
+        string originalText,
+        ReadFileSnapshot? priorRead)
     {
         if (priorRead == null ||
             priorRead.Coverage is ReadFileCoverage.FullFile or ReadFileCoverage.EmptyFile)
         {
-            return true;
+            return EditReadCoverage.Unrestricted;
         }
 
         if (priorRead.Coverage == ReadFileCoverage.Truncated)
-            return false;
+            return EditReadCoverage.Blocked;
 
-        var range = GetRange(buffer, candidate.Start, candidate.Length);
-        var lastTouchedLine = range.EndColumn == 1 && range.EndLine > range.StartLine
-            ? range.EndLine - 1
-            : range.EndLine;
+        var lineStarts = GetLineStarts(originalText);
+        var coveredEndLine = Math.Max(
+            priorRead.EndLine,
+            priorRead.StartLine + Math.Max(1, priorRead.LinesRead) - 1);
+        if (priorRead.StartLine < 1 ||
+            coveredEndLine < priorRead.StartLine ||
+            priorRead.StartLine > lineStarts.Count)
+        {
+            return EditReadCoverage.Blocked;
+        }
 
-        return range.StartLine >= priorRead.StartLine &&
-               lastTouchedLine <= priorRead.EndLine;
+        var startOffset = lineStarts[priorRead.StartLine - 1];
+        var endOffset = coveredEndLine < lineStarts.Count
+            ? lineStarts[coveredEndLine]
+            : originalText.Length;
+        return new EditReadCoverage(
+            IsRestricted: true,
+            startOffset,
+            endOffset);
     }
 
     private static bool HasOverlappingCandidates(IReadOnlyList<EditCandidate> candidates)
@@ -950,17 +1478,47 @@ public partial class CodingToolHarness
         => kind is EditFileErrorKind.RecoveryAmbiguous or
             EditFileErrorKind.RecoveryLimitExceeded or
             EditFileErrorKind.RecoveryOutsideReadRange or
-            EditFileErrorKind.RecoverySemanticDifference;
+            EditFileErrorKind.RecoverySemanticDifference or
+            EditFileErrorKind.ReplacementLimitExceeded or
+            EditFileErrorKind.OverlappingMultiEdit;
 
-    private static string? TryAppendExistingNewline(string buffer, string oldString)
+    private static bool IsTerminalCandidateError(EditFileErrorKind? kind)
+        => kind is EditFileErrorKind.AmbiguousMatch or
+            EditFileErrorKind.OutsideReadRange or
+            EditFileErrorKind.RecoveryOutsideReadRange or
+            EditFileErrorKind.OverlappingMultiEdit or
+            EditFileErrorKind.ReplacementLimitExceeded;
+
+    private static IEnumerable<EditCandidate> EnumerateDeleteLineCandidates(
+        string buffer,
+        string oldString)
     {
-        if (buffer.Contains(oldString + "\r\n", StringComparison.Ordinal))
-            return oldString + "\r\n";
+        foreach (var start in EnumerateOccurrences(buffer, oldString))
+        {
+            var matchEnd = start + oldString.Length;
+            var startsAtLineStart =
+                start == 0 ||
+                buffer[start - 1] is '\r' or '\n';
+            var endsAtLineEnd =
+                matchEnd == buffer.Length ||
+                buffer[matchEnd] is '\r' or '\n';
+            if (startsAtLineStart && endsAtLineEnd)
+            {
+                var lineEndingLength =
+                    matchEnd < buffer.Length &&
+                    buffer[matchEnd] == '\r' &&
+                    matchEnd + 1 < buffer.Length &&
+                    buffer[matchEnd + 1] == '\n'
+                        ? 2
+                        : matchEnd < buffer.Length ? 1 : 0;
+                yield return new EditCandidate(
+                    start,
+                    oldString.Length + lineEndingLength);
+                continue;
+            }
 
-        if (buffer.Contains(oldString + "\n", StringComparison.Ordinal))
-            return oldString + "\n";
-
-        return null;
+            yield return new EditCandidate(start, oldString.Length);
+        }
     }
 
     private static bool EndsWithAnyNewline(string value)
@@ -999,28 +1557,12 @@ public partial class CodingToolHarness
         return normalized.ToString();
     }
 
-    private static bool TryDesanitize(string value, out string desanitized, out string kind)
+    private static bool TryDesanitize(
+        string value,
+        IReadOnlyDictionary<string, string> replacements,
+        out string desanitized,
+        out string kind)
     {
-        var replacements = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["<fnr>"] = "<function_results>",
-            ["<n>"] = "<name>",
-            ["</n>"] = "</name>",
-            ["<o>"] = "<output>",
-            ["</o>"] = "</output>",
-            ["<e>"] = "<error>",
-            ["</e>"] = "</error>",
-            ["<s>"] = "<system>",
-            ["</s>"] = "</system>",
-            ["<r>"] = "<result>",
-            ["</r>"] = "</result>",
-            ["< META_START >"] = "<META_START>",
-            ["< META_END >"] = "<META_END>",
-            ["< EOT >"] = "<EOT>",
-            ["< META >"] = "<META>",
-            ["< SOS >"] = "<SOS>"
-        };
-
         desanitized = value;
         foreach (var (from, to) in replacements)
             desanitized = desanitized.Replace(from, to, StringComparison.Ordinal);
@@ -1035,52 +1577,6 @@ public partial class CodingToolHarness
             .Replace('’', '\'')
             .Replace('“', '"')
             .Replace('”', '"');
-
-    private static string PreserveQuoteStyle(string buffer, EditCandidate candidate, string newString, out bool preserved)
-    {
-        preserved = false;
-        if (candidate.Length == 0 || candidate.Start < 0 || candidate.Start + candidate.Length > buffer.Length)
-            return newString;
-
-        var actual = buffer.Substring(candidate.Start, candidate.Length);
-        var usesDouble = actual.Contains('“') || actual.Contains('”');
-        var usesSingle = actual.Contains('‘') || actual.Contains('’');
-        if (!usesDouble && !usesSingle)
-            return newString;
-
-        preserved = true;
-        var builder = new StringBuilder(newString.Length);
-        for (var i = 0; i < newString.Length; i++)
-        {
-            var ch = newString[i];
-            if (usesDouble && ch == '"')
-            {
-                builder.Append(IsOpeningQuote(newString, i) ? '“' : '”');
-                continue;
-            }
-
-            if (usesSingle && ch == '\'')
-            {
-                builder.Append(IsApostropheBetweenLetters(newString, i) ? '’' : IsOpeningQuote(newString, i) ? '‘' : '’');
-                continue;
-            }
-
-            builder.Append(ch);
-        }
-
-        return builder.ToString();
-    }
-
-    private static bool IsOpeningQuote(string value, int index)
-        => index == 0 ||
-           char.IsWhiteSpace(value[index - 1]) ||
-           "([{<".Contains(value[index - 1], StringComparison.Ordinal);
-
-    private static bool IsApostropheBetweenLetters(string value, int index)
-        => index > 0 &&
-           index + 1 < value.Length &&
-           char.IsLetter(value[index - 1]) &&
-           char.IsLetter(value[index + 1]);
 
     private static string UnescapeSearchString(string value, out bool changed)
     {
@@ -1151,6 +1647,157 @@ public partial class CodingToolHarness
         return new CommonIndentationResult(indentation, normalized);
     }
 
+    private static bool LineBlockMightMatchIndentation(
+        string buffer,
+        EditCandidate candidate,
+        string requestedNormalized)
+    {
+        var candidateLine = FindFirstNonWhitespaceLine(
+            buffer,
+            candidate.Start,
+            candidate.Start + candidate.Length);
+        var requestedLine = FindFirstNonWhitespaceLine(
+            requestedNormalized,
+            0,
+            requestedNormalized.Length);
+        if (candidateLine == null || requestedLine == null)
+            return candidateLine == null && requestedLine == null;
+
+        return string.Equals(
+            candidateLine.TrimStart(),
+            requestedLine.TrimStart(),
+            StringComparison.Ordinal);
+    }
+
+    private static string? FindFirstNonWhitespaceLine(
+        string text,
+        int start,
+        int end)
+    {
+        var lineStart = start;
+        while (lineStart < end)
+        {
+            var lineEnd = lineStart;
+            while (lineEnd < end &&
+                   text[lineEnd] is not '\r' and not '\n')
+            {
+                lineEnd++;
+            }
+
+            var line = text.AsSpan(lineStart, lineEnd - lineStart);
+            if (!line.Trim().IsEmpty)
+                return line.ToString();
+
+            if (lineEnd == end)
+                break;
+
+            if (text[lineEnd] == '\r' &&
+                lineEnd + 1 < end &&
+                text[lineEnd + 1] == '\n')
+            {
+                lineEnd++;
+            }
+
+            lineStart = lineEnd + 1;
+        }
+
+        return null;
+    }
+
+    private static string ApplyReplacementsToBuffer(
+        string source,
+        IReadOnlyList<EditCandidate> orderedRanges,
+        string replacement)
+    {
+        var builder = new StringBuilder(source.Length);
+        var sourcePosition = 0;
+        foreach (var range in orderedRanges)
+        {
+            builder.Append(
+                source,
+                sourcePosition,
+                range.Start - sourcePosition);
+            builder.Append(replacement);
+            sourcePosition = range.Start + range.Length;
+        }
+
+        builder.Append(
+            source,
+            sourcePosition,
+            source.Length - sourcePosition);
+        return builder.ToString();
+    }
+
+    private static string? RebaseCommonIndentation(
+        string newString,
+        string requestedIndent,
+        string actualIndent)
+    {
+        if (newString.Length == 0)
+            return string.Empty;
+
+        var newIndent = RemoveCommonIndentation(newString).Indentation;
+        if (!string.Equals(newIndent, requestedIndent, StringComparison.Ordinal))
+            return null;
+
+        var lines = SplitPreservingLineEnds(newString);
+        return string.Concat(lines.Select(line =>
+        {
+            var lineEnding = GetLineEnding(line);
+            var body = RemoveLineEnding(line);
+            if (body.Trim().Length == 0)
+                return line;
+
+            return actualIndent +
+                   body[requestedIndent.Length..] +
+                   lineEnding;
+        }));
+    }
+
+    private static string PreserveBlockReplacementLineEnding(
+        string buffer,
+        IReadOnlyList<EditCandidate> selected,
+        string newString,
+        out bool preserved,
+        out bool conflict)
+    {
+        preserved = false;
+        conflict = false;
+        if (newString.Length == 0 || EndsWithAnyNewline(newString))
+            return newString;
+
+        var endings = selected
+            .Select(candidate =>
+            {
+                var end = candidate.Start + candidate.Length;
+                if (end == candidate.Start || end > buffer.Length)
+                    return string.Empty;
+                if (buffer[end - 1] == '\n')
+                {
+                    return end >= 2 && buffer[end - 2] == '\r'
+                        ? "\r\n"
+                        : "\n";
+                }
+
+                return buffer[end - 1] == '\r'
+                    ? "\r"
+                    : string.Empty;
+            })
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (endings.Length != 1)
+        {
+            conflict = endings.Length > 1;
+            return newString;
+        }
+
+        if (endings[0].Length == 0)
+            return newString;
+
+        preserved = true;
+        return newString + endings[0];
+    }
+
     private static IEnumerable<EditCandidate> EnumerateLineBlockCandidates(string buffer, int lineCount)
     {
         var lineStarts = GetLineStarts(buffer);
@@ -1171,8 +1818,21 @@ public partial class CodingToolHarness
         var starts = new List<int> { 0 };
         for (var i = 0; i < text.Length; i++)
         {
-            if (text[i] == '\n' && i + 1 < text.Length)
+            if (text[i] == '\r' &&
+                i + 1 < text.Length &&
+                text[i + 1] == '\n')
+            {
+                i++;
+                if (i + 1 < text.Length)
+                    starts.Add(i + 1);
+                continue;
+            }
+
+            if (text[i] is '\r' or '\n' &&
+                i + 1 < text.Length)
+            {
                 starts.Add(i + 1);
+            }
         }
 
         return starts;
@@ -1187,8 +1847,15 @@ public partial class CodingToolHarness
         var start = 0;
         for (var i = 0; i < text.Length; i++)
         {
-            if (text[i] != '\n')
+            if (text[i] is not '\r' and not '\n')
                 continue;
+
+            if (text[i] == '\r' &&
+                i + 1 < text.Length &&
+                text[i + 1] == '\n')
+            {
+                i++;
+            }
 
             lines.Add(text[start..(i + 1)]);
             start = i + 1;
@@ -1200,8 +1867,9 @@ public partial class CodingToolHarness
         return lines.ToArray();
     }
 
-    private static string[] SplitLogicalLines(string text)
-        => SplitPreservingLineEnds(text).Select(RemoveLineEnding).ToArray();
+    private static bool ContainsLineBoundary(string text)
+        => text.Contains('\r', StringComparison.Ordinal) ||
+           text.Contains('\n', StringComparison.Ordinal);
 
     private static string RemoveLineEnding(string line)
         => line.EndsWith("\r\n", StringComparison.Ordinal)
@@ -1234,18 +1902,6 @@ public partial class CodingToolHarness
         while (index < length && left[index] == right[index])
             index++;
         return left[..index];
-    }
-
-    private static string RemoveAllWhitespace(string value)
-    {
-        var builder = new StringBuilder(value.Length);
-        foreach (var ch in value)
-        {
-            if (!char.IsWhiteSpace(ch))
-                builder.Append(ch);
-        }
-
-        return builder.ToString();
     }
 
     private static string ComputeEditReturnedContentHash(string text)
@@ -1286,6 +1942,10 @@ public partial class CodingToolHarness
                     replacement.ReplacementCount,
                     FormatEnum(replacement.MatchStrategy),
                     replacement.Recovered,
+                    ComputeContentHash(replacement.RequestedOldString),
+                    ComputeContentHash(replacement.ActualOldString),
+                    replacement.RequestedOldString.Length,
+                    replacement.ActualOldString.Length,
                     application.TextEdits
                         .Where(edit => edit.EditIndex == replacement.Index)
                         .Select(edit => edit.BeforeRange)
@@ -1296,7 +1956,10 @@ public partial class CodingToolHarness
                         .ToArray()))
                 .ToArray(),
             Normalizations = application.NormalizationNotes
-                .Select(note => new FileEditNormalizationNote(note.EditIndex, note.Kind))
+                .Select(note => new FileEditNormalizationNote(
+                    note.EditIndex,
+                    note.Kind,
+                    note.Count))
                 .ToArray()
         };
 
@@ -1333,6 +1996,8 @@ public partial class CodingToolHarness
             writer.WriteStartElement("normalization");
             writer.WriteAttributeString("edit", note.EditIndex.ToString(CultureInfo.InvariantCulture));
             writer.WriteAttributeString("kind", note.Kind);
+            if (note.Count.HasValue)
+                writer.WriteAttributeString("count", note.Count.Value.ToString(CultureInfo.InvariantCulture));
             writer.WriteEndElement();
         }
 
@@ -1360,9 +2025,6 @@ public partial class CodingToolHarness
 
     [GeneratedRegex(@"(?m)^\s*(?:(?://\s*)?\((?:rest of (?:methods|code)|unchanged code) \.\.\.\)|//\s*(?:rest of (?:methods|code)|unchanged code) \.\.\.)\s*$")]
     private static partial Regex StandaloneEditOmissionPlaceholderRegex();
-
-    [GeneratedRegex(@"[ \t]+(?=\r?$)", RegexOptions.Multiline)]
-    private static partial Regex TrailingWhitespaceRegex();
 }
 
 /// <summary>Describes one exact text replacement applied by <see cref="CodingToolHarness.EditFile"/>.</summary>
@@ -1422,6 +2084,24 @@ internal sealed record EditReplacementResolution(
         => new(null, null, kind, message, strategy);
 }
 
+internal sealed record EditCandidateSelectionResult(
+    IReadOnlyList<EditCandidate>? Selected,
+    IReadOnlyList<EditNormalizationNote> Notes,
+    EditFileErrorKind? ErrorKind,
+    string? ErrorMessage,
+    EditMatchStrategy? ErrorStrategy)
+{
+    public static EditCandidateSelectionResult Error(
+        EditFileErrorKind kind,
+        string message,
+        EditMatchStrategy? strategy = null)
+        => new(null, [], kind, message, strategy);
+}
+
+internal sealed record EditCandidateCollection(
+    IReadOnlyList<EditCandidate> Candidates,
+    int SkippedGeneratedCount);
+
 internal sealed record ResolvedEditReplacement(
     int Index,
     string RequestedOldString,
@@ -1435,9 +2115,309 @@ internal sealed record ResolvedEditReplacement(
     public int ReplacementCount { get; init; } = 1;
 }
 
-internal sealed record EditNormalizationNote(int EditIndex, string Kind);
+internal sealed record EditNormalizationNote(
+    int EditIndex,
+    string Kind,
+    int? Count = null);
 
 internal readonly record struct EditCandidate(int Start, int Length);
+
+internal readonly record struct EditReadCoverage(
+    bool IsRestricted,
+    int StartOffset,
+    int EndOffset)
+{
+    public static EditReadCoverage Unrestricted { get; } = new(false, 0, 0);
+    public static EditReadCoverage Blocked { get; } = new(true, 0, 0);
+}
+
+internal sealed record EditOriginMapApplyResult(
+    EditOriginMap? Map,
+    EditOriginMapApplyStatus Status);
+
+internal enum EditOriginMapApplyStatus
+{
+    Success,
+    InvalidRange,
+    CoverageGap
+}
+
+internal sealed class EditOriginMap
+{
+    private readonly IReadOnlyList<EditOriginSegment> _segments;
+    private readonly int _length;
+
+    private EditOriginMap(
+        IReadOnlyList<EditOriginSegment> segments,
+        int length)
+    {
+        _segments = segments;
+        _length = length;
+    }
+
+    public static EditOriginMap Create(int length)
+    {
+        if (length == 0)
+            return new EditOriginMap([], 0);
+
+        return new EditOriginMap(
+            [new EditOriginSegment(0, length, 0)],
+            length);
+    }
+
+    public bool IntersectsGeneratedContent(EditCandidate candidate)
+    {
+        var candidateEnd = candidate.Start + candidate.Length;
+        var segmentIndex = FindFirstOverlappingSegment(
+            candidate.Start);
+        for (var i = segmentIndex; i < _segments.Count; i++)
+        {
+            var segment = _segments[i];
+            if (segment.Start >= candidateEnd)
+                break;
+            if (segment.OriginalStart == null &&
+                segment.Start + segment.Length > candidate.Start)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public bool IsInsideOriginalRange(
+        EditCandidate candidate,
+        int startOffset,
+        int endOffset)
+    {
+        if (candidate.Length == 0 ||
+            startOffset < 0 ||
+            endOffset <= startOffset ||
+            candidate.Start < 0 ||
+            candidate.Start + candidate.Length > _length)
+        {
+            return false;
+        }
+
+        var coveredLength = 0;
+        var candidateEnd = candidate.Start + candidate.Length;
+        var segmentIndex = FindFirstOverlappingSegment(
+            candidate.Start);
+        for (var i = segmentIndex; i < _segments.Count; i++)
+        {
+            var segment = _segments[i];
+            if (segment.Start >= candidateEnd)
+                break;
+
+            var intersectionStart = Math.Max(candidate.Start, segment.Start);
+            var intersectionEnd = Math.Min(
+                candidateEnd,
+                segment.Start + segment.Length);
+            if (intersectionEnd <= intersectionStart)
+                continue;
+
+            if (segment.OriginalStart == null)
+                return false;
+
+            var originalOffset =
+                segment.OriginalStart.Value +
+                intersectionStart -
+                segment.Start;
+            var intersectionLength = intersectionEnd - intersectionStart;
+            if (originalOffset < startOffset ||
+                originalOffset + intersectionLength > endOffset)
+            {
+                return false;
+            }
+
+            coveredLength += intersectionLength;
+        }
+
+        return coveredLength == candidate.Length;
+    }
+
+    public bool HasContinuousOriginalProvenance(EditCandidate candidate)
+    {
+        if (candidate.Length <= 0)
+            return true;
+
+        var candidateEnd = candidate.Start + candidate.Length;
+        var segmentIndex = FindFirstOverlappingSegment(
+            candidate.Start);
+        int? expectedOriginalOffset = null;
+        for (var i = segmentIndex; i < _segments.Count; i++)
+        {
+            var segment = _segments[i];
+            if (segment.Start >= candidateEnd)
+                break;
+
+            var intersectionStart = Math.Max(candidate.Start, segment.Start);
+            var intersectionEnd = Math.Min(
+                candidateEnd,
+                segment.Start + segment.Length);
+            if (intersectionEnd <= intersectionStart)
+                continue;
+            if (segment.OriginalStart == null)
+                return false;
+
+            var originalStart =
+                segment.OriginalStart.Value +
+                intersectionStart -
+                segment.Start;
+            if (expectedOriginalOffset.HasValue &&
+                originalStart != expectedOriginalOffset.Value)
+            {
+                return false;
+            }
+
+            expectedOriginalOffset =
+                originalStart + intersectionEnd - intersectionStart;
+        }
+
+        return true;
+    }
+
+    public EditOriginMapApplyResult ApplyReplacements(
+        IReadOnlyList<EditCandidate> orderedRanges,
+        int replacementLength)
+    {
+        var validatedCursor = 0;
+        foreach (var range in orderedRanges)
+        {
+            if (range.Start < validatedCursor ||
+                range.Length <= 0 ||
+                range.Start + range.Length > _length)
+            {
+                return new EditOriginMapApplyResult(
+                    null,
+                    EditOriginMapApplyStatus.InvalidRange);
+            }
+
+            validatedCursor = range.Start + range.Length;
+        }
+
+        var nextSegments = new List<EditOriginSegment>();
+        var sourcePosition = 0;
+        var segmentIndex = 0;
+        var segmentOffset = 0;
+        var newCursor = 0;
+        var coverageGap = false;
+
+        void AppendSegment(
+            int length,
+            int? originalStart)
+        {
+            if (length == 0)
+                return;
+
+            if (nextSegments.Count > 0)
+            {
+                var previous = nextSegments[^1];
+                var previousEnd = previous.Start + previous.Length;
+                var originContinues =
+                    previous.OriginalStart.HasValue &&
+                    originalStart == previous.OriginalStart.Value + previous.Length;
+                var generatedContinues =
+                    previous.OriginalStart == null &&
+                    originalStart == null;
+                if (previousEnd == newCursor &&
+                    (originContinues || generatedContinues))
+                {
+                    nextSegments[^1] = previous with
+                    {
+                        Length = previous.Length + length
+                    };
+                    newCursor += length;
+                    return;
+                }
+            }
+
+            nextSegments.Add(new EditOriginSegment(
+                newCursor,
+                length,
+                originalStart));
+            newCursor += length;
+        }
+
+        void ConsumeTo(
+            int end,
+            bool copy)
+        {
+            if (coverageGap || end <= sourcePosition)
+                return;
+
+            while (sourcePosition < end)
+            {
+                if (segmentIndex >= _segments.Count)
+                {
+                    coverageGap = true;
+                    return;
+                }
+
+                var segment = _segments[segmentIndex];
+                var length = Math.Min(
+                    end - sourcePosition,
+                    segment.Length - segmentOffset);
+                int? originalStart = segment.OriginalStart == null
+                    ? null
+                    : segment.OriginalStart.Value + segmentOffset;
+                if (copy)
+                    AppendSegment(length, originalStart);
+
+                sourcePosition += length;
+                segmentOffset += length;
+                if (segmentOffset == segment.Length)
+                {
+                    segmentIndex++;
+                    segmentOffset = 0;
+                }
+            }
+        }
+
+        foreach (var range in orderedRanges)
+        {
+            ConsumeTo(range.Start, copy: true);
+            ConsumeTo(range.Start + range.Length, copy: false);
+            AppendSegment(replacementLength, originalStart: null);
+        }
+
+        ConsumeTo(_length, copy: true);
+        return coverageGap
+            ? new EditOriginMapApplyResult(
+                null,
+                EditOriginMapApplyStatus.CoverageGap)
+            : new EditOriginMapApplyResult(
+                new EditOriginMap(nextSegments, newCursor),
+                EditOriginMapApplyStatus.Success);
+    }
+
+    private int FindFirstOverlappingSegment(int start)
+    {
+        var low = 0;
+        var high = _segments.Count - 1;
+        var result = _segments.Count;
+        while (low <= high)
+        {
+            var middle = low + ((high - low) / 2);
+            var segment = _segments[middle];
+            if (segment.Start + segment.Length <= start)
+            {
+                low = middle + 1;
+                continue;
+            }
+
+            result = middle;
+            high = middle - 1;
+        }
+
+        return result;
+    }
+}
+
+internal sealed record EditOriginSegment(
+    int Start,
+    int Length,
+    int? OriginalStart);
 
 internal sealed record CommonIndentationResult(
     string Indentation,
@@ -1453,13 +2433,13 @@ internal enum EditMatchStrategy
     QuoteNormalized,
     EscapedStringNormalized,
     TrimmedBoundary,
-    IndentationOnlyBlock,
-    WhitespaceOnlyAnchoredBlock
+    IndentationOnlyBlock
 }
 
 internal enum EditFileErrorKind
 {
     InvalidArguments,
+    InternalError,
     NotRead,
     HistoryReducedRead,
     StaleRead,
@@ -1472,6 +2452,7 @@ internal enum EditFileErrorKind
     NewOmissionPlaceholder,
     RecoveryAmbiguous,
     RecoveryLimitExceeded,
+    ReplacementLimitExceeded,
     RecoveryOutsideReadRange,
     RecoverySemanticDifference
 }

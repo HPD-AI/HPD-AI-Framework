@@ -14,6 +14,10 @@ using HPDOS.ToolHarnesses.Middleware;
     WriteIndented = false)]
 [JsonSerializable(typeof(LanguageServerOptions))]
 [JsonSerializable(typeof(EnvironmentContextConfig))]
+[JsonSerializable(typeof(CodingHarnessConfig))]
+[JsonSerializable(typeof(EditFileConfig))]
+[JsonSerializable(typeof(EditRecoveryConfig))]
+[JsonSerializable(typeof(FileMutationConfig))]
 
 [JsonSerializable(typeof(ContentAddress))]
 [JsonSerializable(typeof(ExecuteCommandPermissionPlan))]

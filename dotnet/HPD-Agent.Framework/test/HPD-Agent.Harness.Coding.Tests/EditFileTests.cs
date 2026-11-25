@@ -1,10 +1,13 @@
 using HPD.Agent;
+using HPD.Agent.Sandbox;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
 using HPD.Events;
 using HPD.Events.Core;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
+using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Text;
 
 namespace HPD.Agent.ToolHarness.Coding.Tests;
@@ -55,6 +58,169 @@ public sealed class EditFileTests : IDisposable
     }
 
     [Fact]
+    public async Task EditFile_UsesConfiguredEditCount()
+    {
+        await File.WriteAllTextAsync("A.cs", "one two\n");
+        var harness = CodingHarnessTestFactory.Create(
+            editFileConfig: new EditFileConfig { MaxEdits = 1 });
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        var result = await EditFileTextAsync(context, harness, "A.cs",
+        [
+            new FileEditReplacement("one", "ONE"),
+            new FileEditReplacement("two", "TWO")
+        ]);
+
+        result.Should().Contain("kind=\"invalid_arguments\"");
+        result.Should().Contain("Maximum is 1");
+        File.ReadAllText("A.cs").Should().Be("one two\n");
+    }
+
+    [Fact]
+    public async Task EditFile_ValidatesDirectHarnessConfiguration()
+    {
+        var harness = CodingHarnessTestFactory.Create(
+            editFileConfig: new EditFileConfig { MaxEdits = 0 });
+
+        var act = () => EditFileTextAsync(
+            CreateAgentContext(),
+            harness,
+            "A.cs",
+            "old",
+            "new");
+
+        var error = await act.Should()
+            .ThrowAsync<AgentRunConfigurationException>();
+        error.Which.Code.Should().Be("CodingEditSettingsInvalid");
+    }
+
+    [Fact]
+    public async Task EditFile_UsesConfiguredReplacementCandidateLimit()
+    {
+        await File.WriteAllTextAsync("A.cs", "aaa\n");
+        var harness = CodingHarnessTestFactory.Create(
+            editFileConfig: new EditFileConfig
+            {
+                MaxReplacementCandidates = 2
+            });
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        var result = await EditFileTextAsync(
+            context,
+            harness,
+            "A.cs",
+            "a",
+            "b",
+            replaceAll: true);
+
+        result.Should().Contain("kind=\"replacement_limit_exceeded\"");
+        result.Should().Contain("selected at least 3 occurrences");
+        File.ReadAllText("A.cs").Should().Be("aaa\n");
+    }
+
+    [Fact]
+    public async Task EditFile_RecoveryPropagatesConfiguredReplacementCandidateLimit()
+    {
+        var original = string.Concat(
+            Enumerable.Repeat(
+                "    target()\n    {\n        work();\n    }\n",
+                3));
+        await File.WriteAllTextAsync("A.cs", original);
+        var harness = CodingHarnessTestFactory.Create(
+            editFileConfig: new EditFileConfig
+            {
+                MaxRecoveryCandidates = 20,
+                MaxReplacementCandidates = 2
+            });
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        var result = await EditFileTextAsync(
+            context,
+            harness,
+            "A.cs",
+            "target()\n{\n    work();\n}",
+            "changed()\n{\n    next();\n}",
+            replaceAll: true);
+
+        result.Should().Contain("kind=\"replacement_limit_exceeded\"");
+        result.Should().Contain("selected at least 3 occurrences");
+        result.Should().Contain("strategy=\"indentation_only_block\"");
+        File.ReadAllText("A.cs").Should().Be(original);
+    }
+
+    [Fact]
+    public async Task EditFile_UsesConfiguredRecoveryStrategiesAndMap()
+    {
+        await File.WriteAllTextAsync("quote.txt", "var s = “hello”;\n");
+        await File.WriteAllTextAsync("token.txt", "TOKEN marker\n");
+        var quoteHarness = CodingHarnessTestFactory.Create(
+            editFileConfig: new EditFileConfig
+            {
+                Recovery = new EditRecoveryConfig
+                {
+                    QuoteNormalization = false
+                }
+            });
+        var quoteContext = CreateAgentContext();
+        await ReadFileTextAsync(quoteContext, quoteHarness, "quote.txt");
+
+        var quote = await EditFileTextAsync(
+            quoteContext,
+            quoteHarness,
+            "quote.txt",
+            "var s = \"hello\";",
+            "var s = \"bye\";");
+
+        var tokenHarness = CodingHarnessTestFactory.Create(
+            editFileConfig: new EditFileConfig
+            {
+                Recovery = new EditRecoveryConfig
+                {
+                    DesanitizationMap = ImmutableDictionary
+                        .Create<string, string>(StringComparer.Ordinal)
+                        .Add("token", "TOKEN")
+                }
+            });
+        var tokenContext = CreateAgentContext();
+        await ReadFileTextAsync(tokenContext, tokenHarness, "token.txt");
+        var token = await EditFileTextAsync(
+            tokenContext,
+            tokenHarness,
+            "token.txt",
+            "token marker",
+            "changed marker");
+
+        quote.Should().Contain("kind=\"no_match\"");
+        File.ReadAllText("quote.txt").Should().Be("var s = “hello”;\n");
+        token.Should().Contain("kind=\"desanitized\"");
+        File.ReadAllText("token.txt").Should().Be("changed marker\n");
+    }
+
+    [Fact]
+    public async Task EditFile_UsesConfiguredMutableFileLimit()
+    {
+        await File.WriteAllTextAsync("A.cs", "before\n");
+        var harness = CodingHarnessTestFactory.Create(
+            fileMutationConfig: new FileMutationConfig
+            {
+                MaxMutableFileBytes = 4
+            });
+
+        var result = await EditFileTextAsync(
+            CreateAgentContext(),
+            harness,
+            "A.cs",
+            "before",
+            "after");
+
+        result.Should().Contain("kind=\"file_too_large\"");
+        File.ReadAllText("A.cs").Should().Be("before\n");
+    }
+
+    [Fact]
     public async Task EditFile_PropagatesSharedGuardErrors()
     {
         Directory.CreateDirectory("dir");
@@ -66,10 +232,14 @@ public sealed class EditFileTests : IDisposable
         var toolharness = CodingHarnessTestFactory.Create();
 
         (await EditFileTextAsync(CreateAgentContext(), toolharness, "dir", "x", "y")).Should().Contain("kind=\"path_is_directory\"");
-        (await EditFileTextAsync(CreateAgentContext(), toolharness, "/dev/zero", "x", "y")).Should().Contain("Absolute execution paths are not model-facing workspace addresses.");
+        var unresolved = await EditFileTextAsync(CreateAgentContext(), toolharness, "/dev/zero", "x", "y");
+        unresolved.Should().Contain("Absolute execution paths are not model-facing workspace addresses.");
+        unresolved.Should().Contain("path=\"/dev/zero\"");
         (await EditFileTextAsync(CreateAgentContext(), toolharness, "//server/share/file.txt", "x", "y")).Should().Contain("UNC and network-style paths are not workspace addresses.");
         (await EditFileTextAsync(CreateAgentContext(), toolharness, "binary.bin", "x", "y")).Should().Contain("kind=\"binary_file\"");
-        (await EditFileTextAsync(CreateAgentContext(), toolharness, "notebook.ipynb", "x", "y")).Should().Contain("kind=\"notebook_file\"");
+        var notebook = await EditFileTextAsync(CreateAgentContext(), toolharness, "./notebook.ipynb", "x", "y");
+        notebook.Should().Contain("kind=\"notebook_file\"");
+        notebook.Should().Contain("path=\"notebook.ipynb\"");
         (await EditFileTextAsync(CreateAgentContext(), toolharness, "large.txt", "x", "y")).Should().Contain("kind=\"file_too_large\"");
     }
 
@@ -105,6 +275,47 @@ public sealed class EditFileTests : IDisposable
     }
 
     [Fact]
+    public async Task EditFile_MissingFileReportsInvalidEmptyEditIndex()
+    {
+        var harness = CodingHarnessTestFactory.Create();
+
+        var result = await EditFileTextAsync(CreateAgentContext(), harness, "missing.txt",
+        [
+            new FileEditReplacement(string.Empty, "first"),
+            new FileEditReplacement("second", "changed")
+        ]);
+
+        result.Should().Contain("kind=\"invalid_empty_old_string\"");
+        result.Should().Contain("edit 1");
+        File.Exists("missing.txt").Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task EditFile_RejectsOmissionPlaceholderDuringCreateAndFill()
+    {
+        var harness = CodingHarnessTestFactory.Create();
+
+        var create = await EditFileTextAsync(
+            CreateAgentContext(),
+            harness,
+            "new.txt",
+            string.Empty,
+            "// rest of methods ...");
+        await File.WriteAllTextAsync("empty.txt", string.Empty);
+        var fill = await EditFileTextAsync(
+            CreateAgentContext(),
+            harness,
+            "empty.txt",
+            string.Empty,
+            "// rest of methods ...");
+
+        create.Should().Contain("kind=\"new_omission_placeholder\"");
+        fill.Should().Contain("kind=\"new_omission_placeholder\"");
+        File.Exists("new.txt").Should().BeFalse();
+        File.ReadAllText("empty.txt").Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task EditFile_ExistingFileRequiresPriorReadAndRejectsStaleRead()
     {
         await File.WriteAllTextAsync("A.cs", "before\n");
@@ -119,6 +330,127 @@ public sealed class EditFileTests : IDisposable
 
         notRead.Should().Contain("kind=\"not_read\"");
         stale.Should().Contain("kind=\"stale_read\"");
+    }
+
+    [Fact]
+    public async Task EditFile_RejectsFileDeletedBeforeFinalMutationSnapshot()
+    {
+        await File.WriteAllTextAsync("A.cs", "before\n");
+        var toolharness = CodingHarnessTestFactory.Create();
+        var workspace = TestRuntimeWorkspace.Create(
+            Directory.GetCurrentDirectory(),
+            rootId: "default");
+        var context = CreateAgentContext(workspace: workspace);
+        await ReadFileTextAsync(context, toolharness, "A.cs");
+        context.RuntimeCapabilities.Set(
+            TestRuntimeWorkspace.WithMutationBeforeTextRead(
+                workspace,
+                readNumber: 2,
+                () => File.Delete("A.cs")));
+
+        var result = await EditFileTextAsync(
+            context,
+            toolharness,
+            "A.cs",
+            "before",
+            "after");
+
+        result.Should().Contain("kind=\"stale_read\"");
+        File.Exists("A.cs").Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task EditFile_RejectsFileDeletedAfterReadBeforeToolValidation()
+    {
+        await File.WriteAllTextAsync("A.cs", "before\n");
+        var toolharness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, toolharness, "A.cs");
+        File.Delete("A.cs");
+
+        var result = await EditFileTextAsync(
+            context,
+            toolharness,
+            "A.cs",
+            "before",
+            "after");
+
+        result.Should().Contain("kind=\"stale_read\"");
+        File.Exists("A.cs").Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task EditFile_RejectsFileEmptiedBeforeFinalMutationSnapshot()
+    {
+        await File.WriteAllTextAsync("A.cs", "before\n");
+        var toolharness = CodingHarnessTestFactory.Create();
+        var workspace = TestRuntimeWorkspace.Create(
+            Directory.GetCurrentDirectory(),
+            rootId: "default");
+        var context = CreateAgentContext(workspace: workspace);
+        await ReadFileTextAsync(context, toolharness, "A.cs");
+        context.RuntimeCapabilities.Set(
+            TestRuntimeWorkspace.WithMutationBeforeTextRead(
+                workspace,
+                readNumber: 2,
+                () => File.WriteAllText("A.cs", string.Empty)));
+
+        var result = await EditFileTextAsync(
+            context,
+            toolharness,
+            "A.cs",
+            "before",
+            "after");
+
+        result.Should().Contain("kind=\"stale_read\"");
+        File.ReadAllText("A.cs").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task EditFile_RejectsCreationWhenFileAppearsBeforeFinalMutationSnapshot()
+    {
+        var harness = CodingHarnessTestFactory.Create();
+        var workspace = TestRuntimeWorkspace.Create(
+            Directory.GetCurrentDirectory(),
+            rootId: "default");
+        var context = CreateAgentContext(workspace: workspace);
+        context.RuntimeCapabilities.Set(
+            TestRuntimeWorkspace.WithMutationBeforeInfo(
+                workspace,
+                readNumber: 2,
+                () => File.WriteAllText("created.txt", "external\n")));
+
+        var result = await EditFileTextAsync(
+            context,
+            harness,
+            "created.txt",
+            string.Empty,
+            "agent\n");
+
+        result.Should().Contain("kind=\"stale_read\"");
+        File.ReadAllText("created.txt").Should().Be("external\n");
+    }
+
+    [Fact]
+    public async Task EditFile_RejectsChangedContentWithSameSizeAndTimestamp()
+    {
+        await File.WriteAllTextAsync("A.cs", "before\n");
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs");
+        var originalTimestamp = File.GetLastWriteTimeUtc("A.cs");
+
+        await File.WriteAllTextAsync("A.cs", "after!\n");
+        File.SetLastWriteTimeUtc("A.cs", originalTimestamp);
+        var result = await EditFileTextAsync(
+            context,
+            harness,
+            "A.cs",
+            "after!",
+            "changed");
+
+        result.Should().Contain("kind=\"stale_read\"");
+        File.ReadAllText("A.cs").Should().Be("after!\n");
     }
 
     [Fact]
@@ -187,6 +519,88 @@ public sealed class EditFileTests : IDisposable
         overlap.Should().Contain("kind=\"overlapping_multi_edit\"");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EditFile_RejectsOverlappingOccurrences(bool replaceAll)
+    {
+        const string original = "ababa\n";
+        await File.WriteAllTextAsync("A.cs", original);
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        var result = await EditFileTextAsync(
+            context,
+            harness,
+            "A.cs",
+            "aba",
+            "x",
+            replaceAll);
+
+        result.Should().Contain("kind=\"ambiguous_match\"");
+        File.ReadAllText("A.cs").Should().Be(original);
+    }
+
+    [Fact]
+    public async Task EditFile_RejectsCandidateSpanningOriginalAndGeneratedContent()
+    {
+        const string original = "AAABBB";
+        await File.WriteAllTextAsync("A.cs", original);
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        var result = await EditFileTextAsync(context, harness, "A.cs",
+        [
+            new FileEditReplacement("BBB", "ZZZ"),
+            new FileEditReplacement("AAAZZZ", "OK")
+        ]);
+
+        result.Should().Contain("kind=\"overlapping_multi_edit\"");
+        File.ReadAllText("A.cs").Should().Be(original);
+    }
+
+    [Fact]
+    public async Task EditFile_AllowsButReportsDeletionCreatedContinuity()
+    {
+        await File.WriteAllTextAsync("A.cs", "AAAXXXBBB");
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        var result = await EditFileTextAsync(context, harness, "A.cs",
+        [
+            new FileEditReplacement("XXX", string.Empty),
+            new FileEditReplacement("AAABBB", "OK")
+        ]);
+
+        result.Should().Contain("kind=\"source_discontinuity\"");
+        result.Should().Contain("count=\"1\"");
+        File.ReadAllText("A.cs").Should().Be("OK");
+    }
+
+    [Fact]
+    public async Task EditFile_RejectsExactReplaceAllAboveCandidateLimit()
+    {
+        var original = new string('x', 20_001);
+        await File.WriteAllTextAsync("A.cs", original);
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        var result = await EditFileTextAsync(
+            context,
+            harness,
+            "A.cs",
+            "x",
+            "y",
+            replaceAll: true);
+
+        result.Should().Contain("kind=\"replacement_limit_exceeded\"");
+        File.ReadAllText("A.cs").Should().Be(original);
+    }
+
     [Fact]
     public async Task EditFile_DeletesFollowingNewlineAndRejectsNoChange()
     {
@@ -201,6 +615,65 @@ public sealed class EditFileTests : IDisposable
         deleted.Should().Contain("changed=\"true\"");
         File.ReadAllText("A.cs").Should().Be("one\nthree\n");
         noChange.Should().Contain("kind=\"no_match\"");
+    }
+
+    [Fact]
+    public async Task EditFile_DeletionDoesNotConsumeNewlineAfterMidLineMatch()
+    {
+        await File.WriteAllTextAsync("A.cs", "int x = 1;\nfoo\n");
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        var result = await EditFileTextAsync(
+            context,
+            harness,
+            "A.cs",
+            "x = 1;",
+            string.Empty);
+
+        result.Should().Contain("changed=\"true\"");
+        File.ReadAllText("A.cs").Should().Be("int \nfoo\n");
+    }
+
+    [Fact]
+    public async Task EditFile_ReplaceAllDeletionConsumesEachLineEndingStyle()
+    {
+        await File.WriteAllTextAsync("mixed.txt", "drop\r\nkeep\ndrop\nkeep\r\n");
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "mixed.txt");
+
+        var result = await EditFileTextAsync(
+            context,
+            harness,
+            "mixed.txt",
+            "drop",
+            string.Empty,
+            replaceAll: true);
+
+        result.Should().Contain("replacements=\"2\"");
+        File.ReadAllText("mixed.txt").Should().Be("keep\nkeep\r\n");
+    }
+
+    [Fact]
+    public async Task EditFile_DeletionKeepsWholeLineAndMidLineMatchesAmbiguous()
+    {
+        const string original = "x = 1;\ntext x = 1;\n";
+        await File.WriteAllTextAsync("A.cs", original);
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        var result = await EditFileTextAsync(
+            context,
+            harness,
+            "A.cs",
+            "x = 1;",
+            string.Empty);
+
+        result.Should().Contain("kind=\"ambiguous_match\"");
+        File.ReadAllText("A.cs").Should().Be(original);
     }
 
     [Fact]
@@ -228,24 +701,46 @@ public sealed class EditFileTests : IDisposable
     }
 
     [Fact]
+    public async Task EditFile_RejectsMixedInteriorAndEofReplacementNewlinePolicy()
+    {
+        const string original = "target\ntarget";
+        await File.WriteAllTextAsync("A.cs", original);
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        var result = await EditFileTextAsync(
+            context,
+            harness,
+            "A.cs",
+            "target",
+            "changed\n",
+            replaceAll: true);
+
+        result.Should().Contain("kind=\"invalid_arguments\"");
+        result.Should().Contain("combines an EOF match with interior matches");
+        File.ReadAllText("A.cs").Should().Be(original);
+    }
+
+    [Fact]
     public async Task EditFile_RecoversMechanicalOldStringMismatches()
     {
-        await File.WriteAllTextAsync("A.cs", "var s = “hello”;\r\nvar xml = <name>ewoof</name>;\r\nvar escaped = \"a\\nb\";\r\n");
+        await File.WriteAllTextAsync("A.cs", "var s = “hello”;\r\nvar xml = <function_results>ewoof</function_results>;\r\nvar escaped = \"a\\nb\";\r\n");
         var toolharness = CodingHarnessTestFactory.Create();
         var agentContext = CreateAgentContext();
         await ReadFileTextAsync(agentContext, toolharness, "A.cs");
 
         var lineEnding = await EditFileTextAsync(agentContext, toolharness, "A.cs", "var s = “hello”;\n", "var s = “hi”;\n");
         var quote = await EditFileTextAsync(agentContext, toolharness, "A.cs", "var s = \"hi\";", "var s = \"bye\";");
-        var desanitize = await EditFileTextAsync(agentContext, toolharness, "A.cs", "var xml = <n>ewoof</n>;", "var xml = <name>codex</name>;");
+        var desanitize = await EditFileTextAsync(agentContext, toolharness, "A.cs", "var xml = <fnr>ewoof</function_results>;", "var xml = <function_results>codex</function_results>;");
         var escaped = await EditFileTextAsync(agentContext, toolharness, "A.cs", "var escaped = \"a\\\\nb\";", "var escaped = \"a\\nc\";");
 
         lineEnding.Should().Contain("kind=\"line_ending_normalized\"");
         quote.Should().Contain("kind=\"quote_normalized\"");
         desanitize.Should().Contain("kind=\"desanitized\"");
         escaped.Should().Contain("kind=\"escaped_string_normalized\"");
-        File.ReadAllText("A.cs").Should().Contain("“bye”");
-        File.ReadAllText("A.cs").Should().Contain("<name>codex</name>");
+        File.ReadAllText("A.cs").Should().Contain("\"bye\"");
+        File.ReadAllText("A.cs").Should().Contain("<function_results>codex</function_results>");
     }
 
     [Fact]
@@ -270,7 +765,7 @@ public sealed class EditFileTests : IDisposable
     }
 
     [Fact]
-    public async Task EditFile_RecoversTrimmedIndentationAndWhitespaceAnchoredBlocks()
+    public async Task EditFile_RecoversTrimmedBoundaryAndIndentationBlocks()
     {
         await File.WriteAllTextAsync("A.cs", "class A\n{\n    void M()\n    {\n        Console.WriteLine(1);\n    }\n}\n");
         var toolharness = CodingHarnessTestFactory.Create();
@@ -280,14 +775,140 @@ public sealed class EditFileTests : IDisposable
         var trimmed = await EditFileTextAsync(agentContext, toolharness, "A.cs", "  Console.WriteLine(1);  ", "Console.WriteLine(2);");
         var indentation = await EditFileTextAsync(agentContext, toolharness, "A.cs", "void M()\n{\n    Console.WriteLine(2);\n}", "void M()\n{\n    Console.WriteLine(3);\n}");
 
-        await File.WriteAllTextAsync("B.cs", "class B\n{\n    void N()\n    {\n        Console.WriteLine(3);\n    }\n}\n");
-        var whitespaceContext = CreateAgentContext();
-        await ReadFileTextAsync(whitespaceContext, toolharness, "B.cs");
-        var whitespace = await EditFileTextAsync(whitespaceContext, toolharness, "B.cs", "void N()\n{\nConsole.WriteLine(3);\n}", "void N()\n{\nConsole.WriteLine(4);\n}");
-
         trimmed.Should().Contain("kind=\"trimmed_boundary\"");
         indentation.Should().Contain("kind=\"indentation_only_block\"");
-        whitespace.Should().Contain("kind=\"whitespace_only_anchored_block\"");
+        File.ReadAllText("A.cs").Should().Contain("        Console.WriteLine(3);");
+    }
+
+    [Fact]
+    public async Task EditFile_TrimmedBoundaryAlsoTrimsReplacementContext()
+    {
+        await File.WriteAllTextAsync("A.cs", "fooBar(123)\n");
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        var result = await EditFileTextAsync(
+            context,
+            harness,
+            "A.cs",
+            "\n fooBar(123)",
+            "\n barBaz(456)");
+
+        result.Should().Contain("kind=\"trimmed_boundary\"");
+        result.Should().Contain("kind=\"replacement_boundary_trimmed\"");
+        File.ReadAllText("A.cs").Should().Be("barBaz(456)\n");
+    }
+
+    [Fact]
+    public async Task EditFile_RejectsIndentationRecoveryWhenReplacementIndentDiffers()
+    {
+        await File.WriteAllTextAsync("A.cs", "    void M()\n    {\n        Work();\n    }\n");
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        var result = await EditFileTextAsync(
+            context,
+            harness,
+            "A.cs",
+            "  void M()\n  {\n      Work();\n  }",
+            "void Changed()\n{\n    Next();\n}");
+
+        result.Should().Contain("kind=\"recovery_semantic_difference\"");
+        File.ReadAllText("A.cs").Should().Be("    void M()\n    {\n        Work();\n    }\n");
+    }
+
+    [Fact]
+    public async Task EditFile_DoesNotIgnoreWhitespaceInsideStringLiteral()
+    {
+        const string original =
+            "header\n    setText(\"John Smith\");\n    finish();\nfooter\n";
+        await File.WriteAllTextAsync("A.cs", original);
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        var result = await EditFileTextAsync(
+            context,
+            harness,
+            "A.cs",
+            "setText(\"JohnSmith\");\n    finish();",
+            "setText(\"Changed\");\n    finish();");
+
+        result.Should().Contain("kind=\"no_match\"");
+        File.ReadAllText("A.cs").Should().Be(original);
+    }
+
+    [Fact]
+    public async Task EditFile_IndentationIgnoresGeneratedCandidateWhenRebasing()
+    {
+        await File.WriteAllTextAsync(
+            "A.cs",
+            "header\n    void Target()\n    {\n        Work();\n    }\nfooter\n");
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        var result = await EditFileTextAsync(context, harness, "A.cs",
+        [
+            new FileEditReplacement(
+                "header",
+                "header\n  void Target()\n  {\n      Work();\n  }"),
+            new FileEditReplacement(
+                "void Target()\n{\n    Work();\n}",
+                "void Changed()\n{\n    Next();\n}")
+        ]);
+
+        result.Should().Contain("kind=\"generated_matches_skipped\"");
+        result.Should().Contain("kind=\"replacement_indentation_rebased\"");
+        result.Should().Contain("kind=\"replacement_line_ending_preserved\"");
+        File.ReadAllText("A.cs").Should().Be(
+            "header\n  void Target()\n  {\n      Work();\n  }\n    void Changed()\n    {\n        Next();\n    }\nfooter\n");
+    }
+
+    [Fact]
+    public async Task EditFile_IndentationRejectsOutsideCandidateBeforeRebasing()
+    {
+        const string original =
+            "header\n    void Target()\n    {\n        Work();\n    }\nfooter\n";
+        await File.WriteAllTextAsync("A.cs", original);
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs", offset: 1, limit: 1);
+
+        var result = await EditFileTextAsync(
+            context,
+            harness,
+            "A.cs",
+            "  void Target()\n  {\n      Work();\n  }",
+            "void Changed()\n{\n    Next();\n}");
+
+        result.Should().Contain("kind=\"recovery_outside_read_range\"");
+        File.ReadAllText("A.cs").Should().Be(original);
+    }
+
+    [Fact]
+    public async Task EditFile_RecoveryOverlapErrorIsTerminal()
+    {
+        await File.WriteAllTextAsync("A.cs", "header\n");
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        var result = await EditFileTextAsync(context, harness, "A.cs",
+        [
+            new FileEditReplacement(
+                "header",
+                "header\n  void Target()\n  {\n      Work();\n  }"),
+            new FileEditReplacement(
+                "void Target()\n{\n    Work();\n}",
+                "void Changed()\n{\n    Next();\n}")
+        ]);
+
+        result.Should().Contain("kind=\"overlapping_multi_edit\"");
+        result.Should().NotContain("kind=\"no_match\"");
+        File.ReadAllText("A.cs").Should().Be("header\n");
     }
 
     [Fact]
@@ -308,10 +929,35 @@ public sealed class EditFileTests : IDisposable
 
         result.Should().Contain("kind=\"recovery_semantic_difference\"");
         result.Should().Contain("strategy=\"line_ending_normalized\"");
+        result.Should().Contain("different literal representations");
     }
 
     [Fact]
-    public async Task EditFile_NormalizesTrailingWhitespaceExceptMarkdownAndRejectsOmissionPlaceholder()
+    public async Task EditFile_RejectsRecoveryAboveCandidateLimit()
+    {
+        var original = string.Concat(
+            Enumerable.Repeat(
+                "    target()\n    {\n        work();\n    }\n",
+                21));
+        await File.WriteAllTextAsync("A.cs", original);
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        var result = await EditFileTextAsync(
+            context,
+            harness,
+            "A.cs",
+            "target()\n{\n    work();\n}",
+            "changed()\n{\n    next();\n}",
+            replaceAll: true);
+
+        result.Should().Contain("kind=\"recovery_limit_exceeded\"");
+        File.ReadAllText("A.cs").Should().Be(original);
+    }
+
+    [Fact]
+    public async Task EditFile_PreservesTrailingWhitespaceAndRejectsOmissionPlaceholder()
     {
         await File.WriteAllTextAsync("A.cs", "before\n");
         await File.WriteAllTextAsync("A.md", "before\n");
@@ -328,8 +974,8 @@ public sealed class EditFileTests : IDisposable
         await ReadFileTextAsync(omissionContext, toolharness, "B.cs");
         var omission = await EditFileTextAsync(omissionContext, toolharness, "B.cs", "before", "// rest of methods ...");
 
-        code.Should().Contain("kind=\"trailing_whitespace\"");
-        File.ReadAllText("A.cs").Should().Be("after\n");
+        code.Should().NotContain("trailing_whitespace");
+        File.ReadAllText("A.cs").Should().Be("after   \n");
         File.ReadAllText("A.md").Should().Be("after  \n");
         markdown.Should().NotContain("trailing_whitespace");
         omission.Should().Contain("kind=\"new_omission_placeholder\"");
@@ -351,6 +997,69 @@ public sealed class EditFileTests : IDisposable
 
         existing.Should().Contain("changed=\"true\"");
         literal.Should().Contain("changed=\"true\"");
+    }
+
+    [Fact]
+    public async Task EditFile_DoesNotApplySearchRecoveryToLiteralNewString()
+    {
+        await File.WriteAllTextAsync("escaped.txt", "before \tESCAPED\n");
+        await File.WriteAllTextAsync("sanitized.txt", "value <function_results> here\n");
+        var harness = CodingHarnessTestFactory.Create();
+        var escapedContext = CreateAgentContext();
+        var sanitizedContext = CreateAgentContext();
+        await ReadFileTextAsync(escapedContext, harness, "escaped.txt");
+        await ReadFileTextAsync(sanitizedContext, harness, "sanitized.txt");
+
+        var escaped = await EditFileTextAsync(
+            escapedContext,
+            harness,
+            "escaped.txt",
+            "before \\tESCAPED",
+            "replacement \\n literal");
+        var sanitized = await EditFileTextAsync(
+            sanitizedContext,
+            harness,
+            "sanitized.txt",
+            "value <fnr> here",
+            "new <r> value");
+
+        escaped.Should().Contain("kind=\"escaped_string_normalized\"");
+        sanitized.Should().Contain("kind=\"desanitized\"");
+        File.ReadAllText("escaped.txt").Should().Be("replacement \\n literal\n");
+        File.ReadAllText("sanitized.txt").Should().Be("new <r> value\n");
+    }
+
+    [Fact]
+    public async Task EditFile_ExactShortMarkupTokenRemainsLiteral()
+    {
+        await File.WriteAllTextAsync("markup.txt", "<s>\n");
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "markup.txt");
+
+        var result = await EditFileTextAsync(context, harness, "markup.txt", "<s>", "<r>");
+
+        result.Should().Contain("kind=\"exact\"");
+        File.ReadAllText("markup.txt").Should().Be("<r>\n");
+    }
+
+    [Fact]
+    public async Task EditFile_ShortMarkupTokenDoesNotDesanitizeIntoAnotherTag()
+    {
+        await File.WriteAllTextAsync("markup.txt", "value <system> here\n");
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "markup.txt");
+
+        var result = await EditFileTextAsync(
+            context,
+            harness,
+            "markup.txt",
+            "value <s> here",
+            "changed");
+
+        result.Should().Contain("kind=\"no_match\"");
+        File.ReadAllText("markup.txt").Should().Be("value <system> here\n");
     }
 
     [Fact]
@@ -403,6 +1112,105 @@ public sealed class EditFileTests : IDisposable
     }
 
     [Fact]
+    public async Task EditFile_EventDistinguishesRequestedAndActualRecoveredOldString()
+    {
+        await File.WriteAllTextAsync(
+            "A.cs",
+            "var xml = <function_results>old</function_results>;\n");
+        using var coordinator = new EventCoordinator();
+        var events = new List<FileEditAppliedEvent>();
+        using var subscription = coordinator.Subscribe<FileEditAppliedEvent>(evt =>
+        {
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        });
+        var context = CreateAgentContext(coordinator);
+        var harness = CodingHarnessTestFactory.Create();
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        await EditFileWithContextAsync(
+            context,
+            harness,
+            "A.cs",
+            "var xml = <fnr>old</function_results>;",
+            "var xml = <function_results>new</function_results>;");
+
+        await WaitUntilAsync(() => events.Count == 1);
+        var replacement = events.Should().ContainSingle()
+            .Which.Replacements.Should().ContainSingle().Subject;
+        replacement.MatchStrategy.Should().Be("desanitized");
+        replacement.RequestedOldStringHash.Should()
+            .NotBe(replacement.ActualOldStringHash);
+        replacement.RequestedOldStringLength.Should()
+            .NotBe(replacement.ActualOldStringLength);
+    }
+
+    [Fact]
+    public async Task EditFile_DeletionMetadataIncludesConsumedLineEnding()
+    {
+        await File.WriteAllTextAsync("A.cs", "one\ntwo\nthree\n");
+        using var coordinator = new EventCoordinator();
+        var events = new List<FileEditAppliedEvent>();
+        using var subscription = coordinator.Subscribe<FileEditAppliedEvent>(evt =>
+        {
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        });
+        var context = CreateAgentContext(coordinator);
+        var harness = CodingHarnessTestFactory.Create();
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        await EditFileWithContextAsync(
+            context,
+            harness,
+            "A.cs",
+            "two",
+            string.Empty);
+
+        await WaitUntilAsync(() => events.Count == 1);
+        var replacement = events.Should().ContainSingle()
+            .Which.Replacements.Should().ContainSingle().Subject;
+        replacement.RequestedOldStringLength.Should().Be(3);
+        replacement.ActualOldStringLength.Should().Be(4);
+        replacement.RequestedOldStringHash.Should()
+            .NotBe(replacement.ActualOldStringHash);
+    }
+
+    [Fact]
+    public async Task EditFile_UsesConfiguredEventBudgets()
+    {
+        await File.WriteAllTextAsync("A.cs", "before\n");
+        using var coordinator = new EventCoordinator();
+        var events = new List<FileEditAppliedEvent>();
+        using var subscription = coordinator.Subscribe<FileEditAppliedEvent>(evt =>
+        {
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        });
+        var context = CreateAgentContext(coordinator);
+        var harness = CodingHarnessTestFactory.Create(
+            fileMutationConfig: new FileMutationConfig
+            {
+                MaxEventSnapshotChars = 2,
+                MaxEventTextEditChars = 2
+            });
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        await EditFileWithContextAsync(
+            context,
+            harness,
+            "A.cs",
+            "before",
+            "after");
+
+        await WaitUntilAsync(() => events.Count == 1);
+        var editEvent = events.Should().ContainSingle().Subject;
+        editEvent.Before.Text.Should().BeNull();
+        editEvent.After.Text.Should().BeNull();
+        editEvent.TextEdits.Should().ContainSingle().Which.TextOmitted.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task EditFile_EventEmissionFailureDoesNotFailSuccessfulEdit()
     {
         await File.WriteAllTextAsync("A.cs", "before\n");
@@ -430,6 +1238,7 @@ public sealed class EditFileTests : IDisposable
         source.Should().NotContain("ExecuteCommand");
         source.Should().NotContain("git apply");
         source.Should().NotContain("FileSystemWatcher");
+        source.Should().NotContain("catch (InvalidOperationException)");
     }
 
     [Fact]
@@ -485,6 +1294,44 @@ public sealed class EditFileTests : IDisposable
     }
 
     [Fact]
+    public async Task EditFile_PartialReadTracksOriginalLineAfterDeletion()
+    {
+        const string original = "before\nfirst\nsecond\nafter\n";
+        await File.WriteAllTextAsync("range.txt", original);
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "range.txt", offset: 2, limit: 2);
+
+        var result = await EditFileTextAsync(context, harness, "range.txt",
+        [
+            new FileEditReplacement("first\n", string.Empty),
+            new FileEditReplacement("second", "SECOND")
+        ]);
+
+        result.Should().Contain("changed=\"true\"");
+        File.ReadAllText("range.txt").Should().Be("before\nSECOND\nafter\n");
+    }
+
+    [Fact]
+    public async Task EditFile_PartialReadDoesNotAllowUnreadLineAfterInsertion()
+    {
+        const string original = "before\nfirst\nsecond\nafter\n";
+        await File.WriteAllTextAsync("range.txt", original);
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "range.txt", offset: 2, limit: 2);
+
+        var result = await EditFileTextAsync(context, harness, "range.txt",
+        [
+            new FileEditReplacement("first", "first expanded\nextra"),
+            new FileEditReplacement("after", "AFTER")
+        ]);
+
+        result.Should().Contain("kind=\"outside_read_range\"");
+        File.ReadAllText("range.txt").Should().Be(original);
+    }
+
+    [Fact]
     public async Task EditFile_PartialReadDoesNotAllowUnreadLineAfterDeletion()
     {
         const string original = "before\nfirst\nsecond\nafter\n";
@@ -501,6 +1348,36 @@ public sealed class EditFileTests : IDisposable
 
         result.Should().Contain("kind=\"outside_read_range\"");
         File.ReadAllText("range.txt").Should().Be(original);
+    }
+
+    [Fact]
+    public async Task EditFile_CarriageReturnPartialReadUsesSameLineNumbers()
+    {
+        const string original = "header\rfirst\rsecond\rfooter\r";
+        await File.WriteAllTextAsync("classic.txt", original);
+        var harness = CodingHarnessTestFactory.Create();
+        var insideContext = CreateAgentContext();
+        await ReadFileTextAsync(insideContext, harness, "classic.txt", offset: 2, limit: 1);
+        var inside = await EditFileTextAsync(
+            insideContext,
+            harness,
+            "classic.txt",
+            "first",
+            "FIRST");
+
+        await File.WriteAllTextAsync("classic.txt", original);
+        var outsideContext = CreateAgentContext();
+        await ReadFileTextAsync(outsideContext, harness, "classic.txt", offset: 2, limit: 1);
+        var outside = await EditFileTextAsync(
+            outsideContext,
+            harness,
+            "classic.txt",
+            "second",
+            "SECOND");
+
+        inside.Should().Contain("changed=\"true\"");
+        outside.Should().Contain("kind=\"outside_read_range\"");
+        File.ReadAllText("classic.txt").Should().Be(original);
     }
 
     [Fact]
@@ -547,7 +1424,7 @@ public sealed class EditFileTests : IDisposable
     }
 
     [Fact]
-    public async Task EditFile_ConservativeOverlapRuleRejectsSeparateTarget()
+    public async Task EditFile_AllowsSeparateMatchThatAlsoAppearsInEarlierInsertion()
     {
         await File.WriteAllTextAsync("overlap.txt", "first\nseparate } target\n");
         var harness = CodingHarnessTestFactory.Create();
@@ -560,8 +1437,83 @@ public sealed class EditFileTests : IDisposable
             new FileEditReplacement("}", "]")
         ]);
 
+        result.Should().Contain("changed=\"true\"");
+        result.Should().Contain("kind=\"generated_matches_skipped\"");
+        result.Should().Contain("count=\"1\"");
+        File.ReadAllText("overlap.txt").Should().Be("inserted } text\nseparate ] target\n");
+    }
+
+    [Fact]
+    public async Task EditFile_RejectsMatchInsideEarlierInsertion()
+    {
+        await File.WriteAllTextAsync("overlap.txt", "first\n");
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "overlap.txt");
+
+        var result = await EditFileTextAsync(context, harness, "overlap.txt",
+        [
+            new FileEditReplacement("first", "inserted target"),
+            new FileEditReplacement("target", "changed")
+        ]);
+
         result.Should().Contain("kind=\"overlapping_multi_edit\"");
-        File.ReadAllText("overlap.txt").Should().Be("first\nseparate } target\n");
+        File.ReadAllText("overlap.txt").Should().Be("first\n");
+    }
+
+    [Fact]
+    public async Task EditFile_ReplaceAllSkipsGeneratedButEditsOriginalMatches()
+    {
+        await File.WriteAllTextAsync("overlap.txt", "first\nsecond target\n");
+        using var coordinator = new EventCoordinator();
+        var events = new List<FileEditAppliedEvent>();
+        using var subscription = coordinator.Subscribe<FileEditAppliedEvent>(evt =>
+        {
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        });
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext(coordinator);
+        await ReadFileTextAsync(context, harness, "overlap.txt");
+
+        var result = ResultToString((await EditFileWithContextAsync(
+            context,
+            harness,
+            "overlap.txt",
+            [
+                new FileEditReplacement("first", "generated target"),
+                new FileEditReplacement("target", "changed", ReplaceAll: true)
+            ])).Result);
+
+        result.Should().Contain("replacements=\"2\"");
+        result.Should().Contain("kind=\"generated_matches_skipped\"");
+        result.Should().Contain("count=\"1\"");
+        File.ReadAllText("overlap.txt").Should().Be("generated target\nsecond changed\n");
+        await WaitUntilAsync(() => events.Count == 1);
+        events.Should().ContainSingle()
+            .Which.Normalizations.Should()
+            .ContainSingle(note =>
+                note.Kind == "generated_matches_skipped" &&
+                note.Count == 1);
+    }
+
+    [Fact]
+    public async Task EditFile_PreservesTrailingTabsInMultilineReplacement()
+    {
+        await File.WriteAllTextAsync("values.txt", "before\n");
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "values.txt");
+
+        var result = await EditFileTextAsync(
+            context,
+            harness,
+            "values.txt",
+            "before",
+            "first \nsecond\t");
+
+        result.Should().Contain("changed=\"true\"");
+        File.ReadAllText("values.txt").Should().Be("first \nsecond\t\n");
     }
 
     [Fact]
@@ -576,6 +1528,46 @@ public sealed class EditFileTests : IDisposable
 
         result.Should().Contain("kind=\"indentation_only_block\"");
         File.ReadAllText("classic.txt").Should().Contain("ALPHA");
+    }
+
+    [Fact]
+    public void EditOriginMap_InvalidRangeReturnsStructuredFailure()
+    {
+        var result = EditOriginMap
+            .Create(length: 5)
+            .ApplyReplacements(
+                [new EditCandidate(Start: 4, Length: 2)],
+                replacementLength: 1);
+
+        result.Status.Should().Be(EditOriginMapApplyStatus.InvalidRange);
+        result.Map.Should().BeNull();
+    }
+
+    [Fact]
+    [Trait("Category", "Performance")]
+    public async Task EditFile_LargeReplaceAllFollowedBySequentialEditRemainsBounded()
+    {
+        var original = string.Join(
+            '\n',
+            Enumerable.Repeat("xxxxxx", 1_500)) + "\nMARKER";
+        await File.WriteAllTextAsync("A.cs", original);
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs");
+        var stopwatch = Stopwatch.StartNew();
+
+        var result = await EditFileTextAsync(context, harness, "A.cs",
+        [
+            new FileEditReplacement("x", "y", ReplaceAll: true),
+            new FileEditReplacement("MARKER", "DONE")
+        ]);
+        stopwatch.Stop();
+
+        result.Should().Contain("changed=\"true\"");
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
+        File.ReadAllText("A.cs").Should().Be(
+            string.Join('\n', Enumerable.Repeat("yyyyyy", 1_500)) +
+            "\nDONE");
     }
 
     private static async Task<string> ReadFileTextAsync(
@@ -707,7 +1699,9 @@ public sealed class EditFileTests : IDisposable
         return directory?.FullName ?? AppContext.BaseDirectory;
     }
 
-    private static AgentContext CreateAgentContext(IEventCoordinator? eventCoordinator = null)
+    private static AgentContext CreateAgentContext(
+        IEventCoordinator? eventCoordinator = null,
+        RuntimeWorkspaceBinding? workspace = null)
     {
         var state = AgentLoopState.InitialSafe(
             [],
@@ -730,25 +1724,29 @@ public sealed class EditFileTests : IDisposable
             });
         context.RuntimeCapabilities.Set(
             TestRuntimeWorkspace.FromRunConfig(
-                CreateWorkspaceRunConfig()));
+                CreateWorkspaceRunConfig(workspace)));
         return context;
     }
 
     private static BeforeFunctionContext CreateBeforeFunctionContext(AgentContext? agentContext = null)
     {
         agentContext ??= CreateAgentContext();
+        RuntimeWorkspaceBinding workspace =
+            agentContext.RuntimeCapabilities.GetRequired<RuntimeWorkspaceBinding>();
         return agentContext.AsBeforeFunction(
             function: null,
             callId: "call-1",
             arguments: new Dictionary<string, object?>(),
-            runConfig: CreateWorkspaceRunConfig(),
+            runConfig: TestRuntimeWorkspace.RunConfig(workspace),
             toolharnessName: "CodingToolHarness");
     }
 
-    private static AgentRunConfig CreateWorkspaceRunConfig()
+    private static AgentRunConfig CreateWorkspaceRunConfig(RuntimeWorkspaceBinding? workspace = null)
     {
         return TestRuntimeWorkspace.RunConfig(
-            TestRuntimeWorkspace.Create(Directory.GetCurrentDirectory(), rootId: "default"));
+            workspace ?? TestRuntimeWorkspace.Create(
+                Directory.GetCurrentDirectory(),
+                rootId: "default"));
     }
 
     private sealed class ThrowingEventCoordinator : IEventCoordinator

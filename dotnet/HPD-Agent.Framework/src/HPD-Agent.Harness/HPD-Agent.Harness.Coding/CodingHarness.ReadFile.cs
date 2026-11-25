@@ -167,6 +167,7 @@ public partial class CodingToolHarness
                 snapshot.Truncated || linesWereShortened),
             SourceKind = ReadFileSourceKind.Workspace,
             SourceVersion = sourceVersion,
+            SourceContentHash = sourceVersion,
             ReturnedContentHash =
                 ComputeReturnedContentHash(lines),
         };
@@ -201,6 +202,7 @@ public partial class CodingToolHarness
             Coverage = result.Coverage,
             SourceKind = result.SourceKind,
             SourceVersion = result.SourceVersion,
+            SourceContentHash = result.SourceContentHash,
             ReturnedContentHash = result.ReturnedContentHash,
         };
         context.ResultMetadata.Set(
@@ -325,6 +327,7 @@ public partial class CodingToolHarness
             Coverage = coverage,
             SourceKind = sourceKind,
             SourceVersion = sourceVersion,
+            SourceContentHash = sourceVersion,
             ReturnedContentHash = returnedContentHash
         };
     }
@@ -345,6 +348,7 @@ public partial class CodingToolHarness
                snapshot.LastWriteTimeUtc == result.LastWriteTimeUtc &&
                snapshot.SourceKind == result.SourceKind &&
                string.Equals(snapshot.SourceVersion, result.SourceVersion, StringComparison.Ordinal) &&
+               string.Equals(snapshot.SourceContentHash, result.SourceContentHash, StringComparison.Ordinal) &&
                snapshot.ReturnedContentHash == result.ReturnedContentHash;
     }
 
@@ -580,6 +584,12 @@ public sealed record ReadFileSnapshot
     public string? SourceVersion { get; init; }
 
     /// <summary>
+    /// Exact source-version token for this read, preferably a content hash
+    /// that includes line endings and trailing newlines.
+    /// </summary>
+    public string? SourceContentHash { get; init; }
+
+    /// <summary>
     /// SHA-256 hash of returned file text without line-number prefixes.
     /// </summary>
     public string? ReturnedContentHash { get; init; }
@@ -634,6 +644,7 @@ internal sealed record ReadFileTextResult
     public ReadFileSourceKind SourceKind { get; init; }
 
     public string? SourceVersion { get; init; }
+    public string? SourceContentHash { get; init; }
 
     public string ReturnedContentHash { get; init; } = string.Empty;
 }

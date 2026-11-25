@@ -1,5 +1,6 @@
 using System.Text;
 using HPD.Agent;
+using HPD.Agent.Sandbox;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
 using HPD.Events;
@@ -150,6 +151,189 @@ public sealed class WriteFileTests : IDisposable
         var result = await WriteFileTextAsync(agentContext, toolharness, "A.cs", "after\n");
 
         result.Should().Contain("kind=\"stale_read\"");
+    }
+
+    [Fact]
+    public async Task WriteFile_RejectsRewriteWhenFileIsDeletedBeforeFinalSnapshot()
+    {
+        await File.WriteAllTextAsync("A.cs", "before\n");
+        var harness = CodingHarnessTestFactory.Create();
+        var workspace = TestRuntimeWorkspace.Create(
+            Directory.GetCurrentDirectory(),
+            rootId: "default");
+        var context = CreateAgentContext(workspace: workspace);
+        await ReadFileTextAsync(context, harness, "A.cs");
+        context.RuntimeCapabilities.Set(
+            TestRuntimeWorkspace.WithMutationBeforeTextRead(
+                workspace,
+                readNumber: 2,
+                () => File.Delete("A.cs")));
+
+        var result = await WriteFileTextAsync(
+            context,
+            harness,
+            "A.cs",
+            "after\n");
+
+        result.Should().Contain("kind=\"stale_read\"");
+        File.Exists("A.cs").Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task WriteFile_RejectsRewriteWhenFileIsDeletedAfterReadBeforeToolValidation()
+    {
+        await File.WriteAllTextAsync("A.cs", "before\n");
+        var harness = CodingHarnessTestFactory.Create();
+        var context = CreateAgentContext();
+        await ReadFileTextAsync(context, harness, "A.cs");
+        File.Delete("A.cs");
+
+        var result = await WriteFileTextAsync(
+            context,
+            harness,
+            "A.cs",
+            "after\n");
+
+        result.Should().Contain("kind=\"stale_read\"");
+        File.Exists("A.cs").Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task WriteFile_RejectsRewriteWhenFileIsEmptiedBeforeFinalSnapshot()
+    {
+        await File.WriteAllTextAsync("A.cs", "before\n");
+        var harness = CodingHarnessTestFactory.Create();
+        var workspace = TestRuntimeWorkspace.Create(
+            Directory.GetCurrentDirectory(),
+            rootId: "default");
+        var context = CreateAgentContext(workspace: workspace);
+        await ReadFileTextAsync(context, harness, "A.cs");
+        context.RuntimeCapabilities.Set(
+            TestRuntimeWorkspace.WithMutationBeforeTextRead(
+                workspace,
+                readNumber: 2,
+                () => File.WriteAllText("A.cs", string.Empty)));
+
+        var result = await WriteFileTextAsync(
+            context,
+            harness,
+            "A.cs",
+            "after\n");
+
+        result.Should().Contain("kind=\"stale_read\"");
+        File.ReadAllText("A.cs").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task WriteFile_RejectsFillWhenFileIsDeletedBeforeFinalSnapshot()
+    {
+        await File.WriteAllTextAsync("empty.txt", string.Empty);
+        var harness = CodingHarnessTestFactory.Create();
+        var workspace = TestRuntimeWorkspace.Create(
+            Directory.GetCurrentDirectory(),
+            rootId: "default");
+        var context = CreateAgentContext(workspace: workspace);
+        context.RuntimeCapabilities.Set(
+            TestRuntimeWorkspace.WithMutationBeforeTextRead(
+                workspace,
+                readNumber: 2,
+                () => File.Delete("empty.txt")));
+
+        var result = await WriteFileTextAsync(
+            context,
+            harness,
+            "empty.txt",
+            "after\n");
+
+        result.Should().Contain("kind=\"stale_read\"");
+        File.Exists("empty.txt").Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task WriteFile_RejectsCreationWhenFileAppearsBeforeFinalSnapshot()
+    {
+        var harness = CodingHarnessTestFactory.Create();
+        var workspace = TestRuntimeWorkspace.Create(
+            Directory.GetCurrentDirectory(),
+            rootId: "default");
+        var context = CreateAgentContext(workspace: workspace);
+        context.RuntimeCapabilities.Set(
+            TestRuntimeWorkspace.WithMutationBeforeInfo(
+                workspace,
+                readNumber: 2,
+                () => File.WriteAllText("created.txt", "external\n")));
+
+        var result = await WriteFileTextAsync(
+            context,
+            harness,
+            "created.txt",
+            "agent\n");
+
+        result.Should().Contain("kind=\"stale_read\"");
+        File.ReadAllText("created.txt").Should().Be("external\n");
+    }
+
+    [Fact]
+    public async Task WriteFile_RejectsChangedContentWithSameSizeAndTimestamp()
+    {
+        await File.WriteAllTextAsync("A.cs", "before\n");
+        var context = CreateAgentContext();
+        var harness = CodingHarnessTestFactory.Create();
+        await ReadFileTextAsync(context, harness, "A.cs");
+        var originalTimestamp = File.GetLastWriteTimeUtc("A.cs");
+
+        await File.WriteAllTextAsync("A.cs", "after!\n");
+        File.SetLastWriteTimeUtc("A.cs", originalTimestamp);
+        var result = await WriteFileTextAsync(
+            context,
+            harness,
+            "A.cs",
+            "rewritten\n");
+
+        result.Should().Contain("kind=\"stale_read\"");
+        File.ReadAllText("A.cs").Should().Be("after!\n");
+    }
+
+    [Fact]
+    public async Task WriteFile_UsesConfiguredMutableFileLimit()
+    {
+        await File.WriteAllTextAsync("A.cs", "before\n");
+        var context = CreateAgentContext();
+        var harness = CodingHarnessTestFactory.Create(
+            fileMutationConfig: new FileMutationConfig
+            {
+                MaxMutableFileBytes = 4
+            });
+        await ReadFileTextAsync(context, harness, "A.cs");
+
+        var result = await WriteFileTextAsync(
+            context,
+            harness,
+            "A.cs",
+            "after\n");
+
+        result.Should().Contain("kind=\"file_too_large\"");
+        File.ReadAllText("A.cs").Should().Be("before\n");
+    }
+
+    [Fact]
+    public async Task WriteFile_ValidatesDirectHarnessConfiguration()
+    {
+        var harness = CodingHarnessTestFactory.Create(
+            fileMutationConfig: new FileMutationConfig
+            {
+                MaxMutableFileBytes = 0
+            });
+
+        var act = () => WriteFileTextAsync(
+            CreateAgentContext(),
+            harness,
+            "A.cs",
+            "content");
+
+        var error = await act.Should()
+            .ThrowAsync<AgentRunConfigurationException>();
+        error.Which.Code.Should().Be("CodingFileMutationSettingsInvalid");
     }
 
     [Fact]
@@ -439,7 +623,9 @@ public sealed class WriteFileTests : IDisposable
     private static ReadFileState? GetReadFileState(AgentContext agentContext)
         => CreateBeforeFunctionContext(agentContext).GetMiddlewareState<ReadFileState>();
 
-    private static AgentContext CreateAgentContext(IEventCoordinator? eventCoordinator = null)
+    private static AgentContext CreateAgentContext(
+        IEventCoordinator? eventCoordinator = null,
+        RuntimeWorkspaceBinding? workspace = null)
     {
         var state = AgentLoopState.InitialSafe(
             [],
@@ -462,25 +648,29 @@ public sealed class WriteFileTests : IDisposable
             });
         context.RuntimeCapabilities.Set(
             TestRuntimeWorkspace.FromRunConfig(
-                CreateWorkspaceRunConfig()));
+                CreateWorkspaceRunConfig(workspace)));
         return context;
     }
 
     private static BeforeFunctionContext CreateBeforeFunctionContext(AgentContext? agentContext = null)
     {
         agentContext ??= CreateAgentContext();
+        RuntimeWorkspaceBinding workspace =
+            agentContext.RuntimeCapabilities.GetRequired<RuntimeWorkspaceBinding>();
         return agentContext.AsBeforeFunction(
             function: null,
             callId: "call-1",
             arguments: new Dictionary<string, object?>(),
-            runConfig: CreateWorkspaceRunConfig(),
+            runConfig: TestRuntimeWorkspace.RunConfig(workspace),
             toolharnessName: "CodingToolHarness");
     }
 
-    private static AgentRunConfig CreateWorkspaceRunConfig()
+    private static AgentRunConfig CreateWorkspaceRunConfig(RuntimeWorkspaceBinding? workspace = null)
     {
         return TestRuntimeWorkspace.RunConfig(
-            TestRuntimeWorkspace.Create(Directory.GetCurrentDirectory(), rootId: "default"));
+            workspace ?? TestRuntimeWorkspace.Create(
+                Directory.GetCurrentDirectory(),
+                rootId: "default"));
     }
 
     private static string FullPath(string relativePath)

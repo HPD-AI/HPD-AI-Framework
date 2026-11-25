@@ -1,5 +1,6 @@
 namespace HPD.Environment.Runtime.Workspaces;
 
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -92,24 +93,26 @@ public sealed class HostDirectoryWorkspaceFileStore
         WorkspaceContentVersion version =
             await ComputeVersionAsync(fullPath, cancellationToken)
                 .ConfigureAwait(false);
-        long totalLines = await CountLinesAsync(
-                fullPath,
-                cancellationToken)
-            .ConfigureAwait(false);
-        (byte[] bytes, long endLine, bool truncated) =
-            await ReadTextBytesAsync(
-                fullPath,
-                options,
-                cancellationToken).ConfigureAwait(false);
+        if (version.Size.Value >
+            Utf8WorkspaceTextLineReader.MaxSourceBytes)
+        {
+            throw new IOException(
+                $"Text reads are limited to {Utf8WorkspaceTextLineReader.MaxSourceBytes.ToString(CultureInfo.InvariantCulture)} source bytes.");
+        }
+        byte[] source =
+            await File.ReadAllBytesAsync(fullPath, cancellationToken)
+                .ConfigureAwait(false);
+        Utf8WorkspaceTextReadResult read =
+            Utf8WorkspaceTextLineReader.Read(source, options);
         return new WorkspaceTextSnapshot
         {
             Path = path,
-            Content = DecodeUtf8(bytes),
+            Content = read.Content,
             Version = version,
-            StartLine = options.StartLine,
-            EndLine = endLine,
-            TotalLines = totalLines,
-            Truncated = truncated,
+            StartLine = read.StartLine,
+            EndLine = read.EndLine,
+            TotalLines = read.TotalLines,
+            Truncated = read.Truncated,
         };
     }
 
@@ -1288,40 +1291,6 @@ public sealed class HostDirectoryWorkspaceFileStore
             Size: new ByteSize(stream.Length));
     }
 
-    private static async ValueTask<long> CountLinesAsync(
-        string fullPath,
-        CancellationToken cancellationToken)
-    {
-        await using FileStream stream = OpenRead(fullPath);
-        if (stream.Length == 0)
-        {
-            return 0;
-        }
-        long lines = 0;
-        byte[] buffer = new byte[16 * 1024];
-        int last = -1;
-        while (true)
-        {
-            int read = await stream.ReadAsync(
-                    buffer,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            if (read == 0)
-            {
-                break;
-            }
-            for (int index = 0; index < read; index++)
-            {
-                if (buffer[index] == (byte)'\n')
-                {
-                    lines++;
-                }
-            }
-            last = buffer[read - 1];
-        }
-        return last == (byte)'\n' ? lines : lines + 1;
-    }
-
     private async ValueTask<WorkspaceMutationResult?>
         ValidateWriteConditionAsync(
             WorkspacePath logicalPath,
@@ -1397,130 +1366,6 @@ public sealed class HostDirectoryWorkspaceFileStore
             return observed.BackendRevision == expectedRevision;
         }
         return false;
-    }
-
-    private async ValueTask<(byte[] Content, long EndLine, bool Truncated)>
-        ReadTextBytesAsync(
-            string fullPath,
-            WorkspaceTextReadOptions options,
-            CancellationToken cancellationToken)
-    {
-        await using FileStream stream = OpenRead(fullPath);
-        long startOffset = await FindLineOffsetAsync(
-                stream,
-                options.StartLine,
-                cancellationToken)
-            .ConfigureAwait(false);
-        if (startOffset >= stream.Length)
-        {
-            return ([], options.StartLine - 1, false);
-        }
-
-        stream.Position = startOffset;
-        int initialCapacity = (int)Math.Min(
-            options.MaxBytes,
-            Math.Max(0, stream.Length - startOffset));
-        using var output = new MemoryStream(initialCapacity);
-        long lines = 0;
-        bool truncated = false;
-        byte[] buffer = new byte[16 * 1024];
-        while (output.Length < options.MaxBytes)
-        {
-            int requested = Math.Min(
-                buffer.Length,
-                options.MaxBytes - (int)output.Length);
-            int read = await stream.ReadAsync(
-                    buffer.AsMemory(0, requested),
-                    cancellationToken)
-                .ConfigureAwait(false);
-            if (read == 0)
-            {
-                break;
-            }
-            int writeCount = read;
-            for (int index = 0; index < read; index++)
-            {
-                if (buffer[index] != (byte)'\n')
-                {
-                    continue;
-                }
-                lines++;
-                if (options.MaxLines is { } maxLines &&
-                    lines >= maxLines)
-                {
-                    writeCount = index + 1;
-                    break;
-                }
-            }
-            await output.WriteAsync(
-                buffer.AsMemory(0, writeCount),
-                cancellationToken).ConfigureAwait(false);
-            if (writeCount < read ||
-                (options.MaxLines is { } limit && lines >= limit))
-            {
-                truncated = stream.Position < stream.Length;
-                break;
-            }
-        }
-        if (output.Length >= options.MaxBytes &&
-            stream.Position < stream.Length)
-        {
-            truncated = true;
-        }
-
-        byte[] content = output.ToArray();
-        if (startOffset == 0 &&
-            content.AsSpan().StartsWith(
-                new byte[] { 0xEF, 0xBB, 0xBF }))
-        {
-            content = content[3..];
-        }
-        long newlineCount = content.LongCount(
-            value => value == (byte)'\n');
-        long endLine = options.StartLine;
-        if (newlineCount > 0)
-        {
-            endLine += newlineCount -
-                (content.Length > 0 &&
-                 content[^1] == (byte)'\n' ? 1 : 0);
-        }
-        return (content, endLine, truncated);
-    }
-
-    private static async ValueTask<long> FindLineOffsetAsync(
-        FileStream stream,
-        long startLine,
-        CancellationToken cancellationToken)
-    {
-        if (startLine <= 1)
-        {
-            return 0;
-        }
-        long line = 1;
-        byte[] buffer = new byte[16 * 1024];
-        while (true)
-        {
-            int read = await stream.ReadAsync(
-                    buffer,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            if (read == 0)
-            {
-                return stream.Length;
-            }
-            for (int index = 0; index < read; index++)
-            {
-                if (buffer[index] != (byte)'\n')
-                {
-                    continue;
-                }
-                line++;
-                if (line == startLine)
-                {
-                    return stream.Position - read + index + 1L;
-                }
-            }
-        }
     }
 
     private IEnumerable<string> EnumerateEntries(
@@ -1705,27 +1550,6 @@ public sealed class HostDirectoryWorkspaceFileStore
             return match.Success ? match.Index : -1;
         }
         return line.IndexOf(query, comparison);
-    }
-
-    private static string DecodeUtf8(byte[] bytes)
-    {
-        int validLength = bytes.Length;
-        while (validLength > 0)
-        {
-            try
-            {
-                return new UTF8Encoding(
-                    encoderShouldEmitUTF8Identifier: false,
-                    throwOnInvalidBytes: true)
-                    .GetString(bytes, 0, validLength);
-            }
-            catch (DecoderFallbackException)
-                when (validLength > bytes.Length - 4)
-            {
-                validLength--;
-            }
-        }
-        return string.Empty;
     }
 
     private static FileStream OpenRead(string fullPath) =>

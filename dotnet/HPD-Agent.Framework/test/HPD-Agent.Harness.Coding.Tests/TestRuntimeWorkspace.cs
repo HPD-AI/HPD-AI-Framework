@@ -83,6 +83,123 @@ internal static class TestRuntimeWorkspace
         };
     }
 
+    public static RuntimeWorkspaceBinding WithMutationBeforeTextRead(
+        RuntimeWorkspaceBinding workspace,
+        int readNumber,
+        Action mutation)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(readNumber, 1);
+        ArgumentNullException.ThrowIfNull(mutation);
+        return workspace with
+        {
+            Files = new MutatingWorkspaceFileStore(
+                workspace.Files,
+                infoMutationNumber: null,
+                textMutationNumber: readNumber,
+                mutation)
+        };
+    }
+
+    public static RuntimeWorkspaceBinding WithMutationBeforeInfo(
+        RuntimeWorkspaceBinding workspace,
+        int readNumber,
+        Action mutation)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(readNumber, 1);
+        ArgumentNullException.ThrowIfNull(mutation);
+        return workspace with
+        {
+            Files = new MutatingWorkspaceFileStore(
+                workspace.Files,
+                infoMutationNumber: readNumber,
+                textMutationNumber: null,
+                mutation)
+        };
+    }
+
+    private sealed class MutatingWorkspaceFileStore(
+        IWorkspaceFileStore inner,
+        int? infoMutationNumber,
+        int? textMutationNumber,
+        Action mutation)
+        : IWorkspaceFileStore
+    {
+        private int _infoReadCount;
+        private int _textReadCount;
+
+        public ValueTask<WorkspaceFileInfo?> GetInfoAsync(
+            WorkspacePath path,
+            CancellationToken cancellationToken = default)
+        {
+            if (infoMutationNumber is { } number &&
+                Interlocked.Increment(ref _infoReadCount) == number)
+            {
+                mutation();
+            }
+
+            return inner.GetInfoAsync(path, cancellationToken);
+        }
+
+        public async ValueTask<WorkspaceTextSnapshot?> ReadTextAsync(
+            WorkspacePath path,
+            WorkspaceTextReadOptions options,
+            CancellationToken cancellationToken = default)
+        {
+            if (textMutationNumber is { } number &&
+                Interlocked.Increment(ref _textReadCount) == number)
+            {
+                mutation();
+            }
+
+            return await inner.ReadTextAsync(
+                path,
+                options,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        public ValueTask<WorkspaceBinarySnapshot?> ReadBytesAsync(
+            WorkspacePath path,
+            WorkspaceByteReadOptions options,
+            CancellationToken cancellationToken = default)
+            => inner.ReadBytesAsync(path, options, cancellationToken);
+
+        public ValueTask<WorkspaceMutationResult> WriteTextAsync(
+            WorkspacePath path,
+            string content,
+            WorkspaceWriteCondition condition,
+            CancellationToken cancellationToken = default)
+            => inner.WriteTextAsync(path, content, condition, cancellationToken);
+
+        public ValueTask<WorkspaceMutationResult> WriteBytesAsync(
+            WorkspacePath path,
+            ReadOnlyMemory<byte> content,
+            WorkspaceWriteCondition condition,
+            CancellationToken cancellationToken = default)
+            => inner.WriteBytesAsync(path, content, condition, cancellationToken);
+
+        public ValueTask<WorkspaceMutationResult> DeleteAsync(
+            WorkspacePath path,
+            WorkspaceWriteCondition condition,
+            CancellationToken cancellationToken = default)
+            => inner.DeleteAsync(path, condition, cancellationToken);
+
+        public ValueTask CreateDirectoryAsync(
+            WorkspacePath path,
+            CancellationToken cancellationToken = default)
+            => inner.CreateDirectoryAsync(path, cancellationToken);
+
+        public ValueTask<WorkspaceListResultSet> ListAsync(
+            WorkspacePath directory,
+            WorkspaceListOptions options,
+            CancellationToken cancellationToken = default)
+            => inner.ListAsync(directory, options, cancellationToken);
+
+        public ValueTask<WorkspaceSearchResultSet> SearchTextAsync(
+            WorkspaceSearchRequest request,
+            CancellationToken cancellationToken = default)
+            => inner.SearchTextAsync(request, cancellationToken);
+    }
+
     private sealed class LocalWorkspacePathMapper(
         IReadOnlyDictionary<WorkspaceRootId, string> roots,
         bool resolveLinks = true)
@@ -713,10 +830,16 @@ internal static class TestRuntimeWorkspace
             int start = 0;
             for (int index = 0; index < text.Length; index++)
             {
-                if (text[index] != '\n')
-                {
+                if (text[index] is not '\r' and not '\n')
                     continue;
+
+                if (text[index] == '\r' &&
+                    index + 1 < text.Length &&
+                    text[index + 1] == '\n')
+                {
+                    index++;
                 }
+
                 ranges.Add((start, index + 1));
                 start = index + 1;
             }

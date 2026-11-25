@@ -15,13 +15,6 @@ using HPDOS.ToolHarnesses.Middleware;
 
 public partial class CodingToolHarness
 {
-    private const long MaxMutableFileBytes = 50 * 1024 * 1024;
-    private const int MaxEventSnapshotChars = 500_000;
-    private const int MaxEventTextEditChars = 100_000;
-    private const int MaxEventHunks = 200;
-    private const int FileMutationDiffContextLines = 3;
-    private const int MaxMutationEventNotes = 50;
-
     private static bool IsNotebookPath(string fullPath)
         => string.Equals(Path.GetExtension(fullPath), ".ipynb", StringComparison.OrdinalIgnoreCase);
 
@@ -64,6 +57,12 @@ public partial class CodingToolHarness
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(text));
         return $"sha256:{Convert.ToHexString(bytes).ToLowerInvariant()}";
     }
+
+    private static string? FormatSourceVersionHash(
+        WorkspaceContentVersion version)
+        => version.ContentDigest is { } digest
+            ? $"{digest.Algorithm}:{digest.Value}"
+            : version.BackendRevision?.ToString(CultureInfo.InvariantCulture);
 
     private static IReadOnlyList<string> SplitMutationLines(string text)
     {
@@ -132,7 +131,11 @@ public partial class CodingToolHarness
             Math.Max(0, before.Length - after.Length));
     }
 
-    private static IReadOnlyList<FileMutationHunk> BuildDiffHunks(string before, string after, out bool truncated)
+    private static IReadOnlyList<FileMutationHunk> BuildDiffHunks(
+        string before,
+        string after,
+        FileMutationConfig config,
+        out bool truncated)
     {
         truncated = false;
         var diff = InlineDiffBuilder.Diff(before, after);
@@ -163,17 +166,19 @@ public partial class CodingToolHarness
             lines.Add(entry);
         }
 
-        var windows = BuildDiffWindows(lines, FileMutationDiffContextLines);
+        var windows = BuildDiffWindows(lines, config.DiffContextLines);
         if (windows.Count == 0 && lines.Count > 0)
         {
-            windows.Add(new FileMutationDiffWindow(0, Math.Min(lines.Count - 1, MaxEventHunks - 1)));
+            windows.Add(new FileMutationDiffWindow(
+                0,
+                Math.Min(lines.Count - 1, config.MaxEventHunks - 1)));
         }
 
         var hunks = new List<FileMutationHunk>();
         var emittedLines = 0;
         foreach (var window in windows)
         {
-            if (emittedLines >= MaxEventHunks)
+            if (emittedLines >= config.MaxEventHunks)
             {
                 truncated = true;
                 break;
@@ -183,7 +188,7 @@ public partial class CodingToolHarness
                 .Skip(window.Start)
                 .Take(window.End - window.Start + 1)
                 .ToList();
-            var remaining = MaxEventHunks - emittedLines;
+            var remaining = config.MaxEventHunks - emittedLines;
             if (windowLines.Count > remaining)
             {
                 windowLines = windowLines.Take(remaining).ToList();
@@ -285,6 +290,7 @@ public partial class CodingToolHarness
         FileMutationRequest request,
         CancellationToken cancellationToken = default)
     {
+        var fileConfig = request.Config;
         WorkspaceFileInfo? info =
             await workspace.Files.GetInfoAsync(
                 path,
@@ -293,13 +299,14 @@ public partial class CodingToolHarness
         WorkspaceContentVersion? expectedVersion = null;
         if (info is null)
         {
+            before = FileMutationContent.Missing(request.Path);
+            request.ValidateBeforeMutation?.Invoke(before);
             if (!request.AllowCreate)
             {
                 throw new FileMutationException(
                     FileMutationErrorKind.FileNotFound,
                     BuildMissingMutationMessage(request.Path));
             }
-            before = FileMutationContent.Missing(request.Path);
         }
         else
         {
@@ -316,12 +323,10 @@ public partial class CodingToolHarness
                     {
                         StartLine = 1,
                         MaxLines = null,
-                        MaxBytes = checked((int)MaxMutableFileBytes),
+                        MaxBytes = checked((int)fileConfig.MaxMutableFileBytes),
                     },
                     cancellationToken).ConfigureAwait(false)) ??
-                throw new FileMutationException(
-                    FileMutationErrorKind.FileNotFound,
-                    $"Workspace file '{request.Path}' does not exist.");
+                MissingAfterMetadataRead(request);
             if (snapshot.Truncated)
             {
                 throw new FileMutationException(
@@ -340,9 +345,13 @@ public partial class CodingToolHarness
                 LastWriteTimeUtc: snapshot.Version.ModifiedAt,
                 ByteLength: snapshot.Version.Size.Value,
                 ContentHash: ComputeContentHash(
-                    snapshot.Content));
+                    snapshot.Content))
+            {
+                SourceVersionHash = FormatSourceVersionHash(
+                    snapshot.Version)
+            };
+            request.ValidateBeforeMutation?.Invoke(before);
         }
-        request.ValidateBeforeMutation?.Invoke(before);
 
         bool created = !before.Exists;
         string finalText = request.NormalizeLineEndingsToExistingFile
@@ -356,10 +365,12 @@ public partial class CodingToolHarness
                 finalText,
                 StringComparison.Ordinal);
         var notes = request.Notes
-            .Take(MaxMutationEventNotes)
+            .Take(fileConfig.MaxEventNotes)
             .ToList();
         var textEdits =
-            NormalizeMutationTextEdits(request.TextEdits);
+            NormalizeMutationTextEdits(
+                request.TextEdits,
+                fileConfig);
         WorkspaceContentVersion finalVersion =
             expectedVersion ??
             new WorkspaceContentVersion(
@@ -428,7 +439,7 @@ public partial class CodingToolHarness
                 request.ToolName,
                 request.Path,
                 request.Kind,
-                finalText.Length <= MaxEventSnapshotChars
+                finalText.Length <= fileConfig.MaxEventSnapshotChars
                     ? finalText
                     : null,
                 finalByteLength,
@@ -473,6 +484,16 @@ public partial class CodingToolHarness
             eventEmitted);
     }
 
+    private static WorkspaceTextSnapshot MissingAfterMetadataRead(
+        FileMutationRequest request)
+    {
+        request.ValidateBeforeMutation?.Invoke(
+            FileMutationContent.Missing(request.Path));
+        throw new FileMutationException(
+            FileMutationErrorKind.FileNotFound,
+            $"Workspace file '{request.Path}' no longer exists.");
+    }
+
     /// <summary>
     /// Reads the current workspace content needed by write and edit policy
     /// checks. The returned version remains bound to this exact snapshot.
@@ -483,6 +504,7 @@ public partial class CodingToolHarness
             WorkspacePath path,
             bool allowMissing,
             string displayPath,
+            FileMutationConfig fileConfig,
             CancellationToken cancellationToken = default)
     {
         WorkspaceFileInfo? info =
@@ -505,7 +527,7 @@ public partial class CodingToolHarness
                 FileMutationErrorKind.PathIsDirectory,
                 "Cannot mutate a directory.");
         }
-        if (info.Version.Size.Value > MaxMutableFileBytes)
+        if (info.Version.Size.Value > fileConfig.MaxMutableFileBytes)
         {
             throw new FileMutationException(
                 FileMutationErrorKind.FileTooLarge,
@@ -535,7 +557,7 @@ public partial class CodingToolHarness
                 {
                     StartLine = 1,
                     MaxLines = null,
-                    MaxBytes = checked((int)MaxMutableFileBytes),
+                    MaxBytes = checked((int)fileConfig.MaxMutableFileBytes),
                 },
                 cancellationToken).ConfigureAwait(false)) ??
             throw new FileMutationException(
@@ -557,10 +579,16 @@ public partial class CodingToolHarness
             LineEnding: DetectLineEnding(snapshot.Content),
             LastWriteTimeUtc: snapshot.Version.ModifiedAt,
             ByteLength: snapshot.Version.Size.Value,
-            ContentHash: ComputeContentHash(snapshot.Content));
+            ContentHash: ComputeContentHash(snapshot.Content))
+        {
+            SourceVersionHash = FormatSourceVersionHash(
+                snapshot.Version)
+        };
     }
 
-    private static IReadOnlyList<FileMutationTextEdit> NormalizeMutationTextEdits(IReadOnlyList<FileMutationTextEdit> textEdits)
+    private static IReadOnlyList<FileMutationTextEdit> NormalizeMutationTextEdits(
+        IReadOnlyList<FileMutationTextEdit> textEdits,
+        FileMutationConfig config)
     {
         if (textEdits.Count == 0)
             return textEdits;
@@ -569,7 +597,7 @@ public partial class CodingToolHarness
         foreach (var edit in textEdits)
         {
             var payloadLength = (edit.OldText?.Length ?? 0) + (edit.NewText?.Length ?? 0);
-            normalized.Add(payloadLength > MaxEventTextEditChars
+            normalized.Add(payloadLength > config.MaxEventTextEditChars
                 ? edit with
                 {
                     OldText = null,
@@ -649,7 +677,9 @@ public partial class CodingToolHarness
         bool changed)
     {
         var context = request.FunctionContext;
-        var beforeSnapshot = BuildMutationSnapshot(before);
+        var beforeSnapshot = BuildMutationSnapshot(
+            before,
+            request.Config);
         var afterSnapshot = BuildMutationSnapshot(
             updatedText,
             finalHash,
@@ -658,8 +688,13 @@ public partial class CodingToolHarness
             before.Exists ? before.Encoding.WebName : "utf-8",
             before.Exists && before.HasBom,
             DetectLineEnding(updatedText),
-            finalLastWrite);
-        var hunks = BuildDiffHunks(before.Text, updatedText, out var hunksTruncated);
+            finalLastWrite,
+            request.Config);
+        var hunks = BuildDiffHunks(
+            before.Text,
+            updatedText,
+            request.Config,
+            out var hunksTruncated);
         var diffStat = BuildDiffStat(before.Text, updatedText);
 
         return request.EventFactory!(new FileMutationEventBuildRequest(
@@ -679,7 +714,9 @@ public partial class CodingToolHarness
             Notes: request.Notes));
     }
 
-    private static FileMutationSnapshot BuildMutationSnapshot(FileMutationContent content)
+    private static FileMutationSnapshot BuildMutationSnapshot(
+        FileMutationContent content,
+        FileMutationConfig config)
         => BuildMutationSnapshot(
             content.Text,
             content.ContentHash,
@@ -688,7 +725,8 @@ public partial class CodingToolHarness
             content.Encoding.WebName,
             content.HasBom,
             content.LineEnding,
-            content.LastWriteTimeUtc);
+            content.LastWriteTimeUtc,
+            config);
 
     private static FileMutationSnapshot BuildMutationSnapshot(
         string text,
@@ -698,9 +736,10 @@ public partial class CodingToolHarness
         string encodingName,
         bool hasBom,
         FileMutationLineEnding lineEnding,
-        DateTimeOffset? lastWriteTimeUtc)
+        DateTimeOffset? lastWriteTimeUtc,
+        FileMutationConfig config)
     {
-        var omitText = text.Length > MaxEventSnapshotChars;
+        var omitText = text.Length > config.MaxEventSnapshotChars;
         return new FileMutationSnapshot(
             omitText ? null : text,
             contentHash,
@@ -723,6 +762,20 @@ public partial class CodingToolHarness
         var column = 1;
         for (var i = 0; i < offset && i < text.Length; i++)
         {
+            if (text[i] == '\r')
+            {
+                line++;
+                column = 1;
+                if (i + 1 < offset &&
+                    i + 1 < text.Length &&
+                    text[i + 1] == '\n')
+                {
+                    i++;
+                }
+
+                continue;
+            }
+
             if (text[i] == '\n')
             {
                 line++;
@@ -749,6 +802,8 @@ internal sealed record FileMutationContent(
     long ByteLength,
     string ContentHash)
 {
+    public string? SourceVersionHash { get; init; }
+
     public static FileMutationContent Missing(string path)
         => new(
             string.Empty,
@@ -772,6 +827,7 @@ internal sealed record FileMutationRequest(
     IReadOnlyList<FileMutationTextEdit> TextEdits,
     IReadOnlyList<FileMutationNote> Notes,
     FunctionExecutionContext FunctionContext,
+    FileMutationConfig Config,
     Action<FileMutationContent>? ValidateBeforeMutation = null,
     FileMutationEventFactory? EventFactory = null);
 

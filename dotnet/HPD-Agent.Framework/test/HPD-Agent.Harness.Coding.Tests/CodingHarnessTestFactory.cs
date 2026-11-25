@@ -10,10 +10,15 @@ internal static class CodingHarnessTestFactory
 {
     public static TestCodingHarness Create(
         GlobSearchOptions? globSearchOptions = null,
-        ExecuteCommandOptions? executeCommandOptions = null)
+        ExecuteCommandOptions? executeCommandOptions = null,
+        EditFileConfig? editFileConfig = null,
+        FileMutationConfig? fileMutationConfig = null)
         => new(new TestConfig(new CodingHarnessConfig
         {
-            Glob = globSearchOptions ?? new(), Commands = executeCommandOptions ?? new()
+            Glob = globSearchOptions ?? new(),
+            Commands = executeCommandOptions ?? new(),
+            EditFile = editFileConfig ?? new(),
+            Files = fileMutationConfig ?? new()
         }));
 
     private sealed class TestConfig(CodingHarnessConfig value) : IHarnessConfig<CodingHarnessConfig>

@@ -91,7 +91,8 @@ public sealed record FileMutationDiffStat(
 
 public sealed record FileMutationNote(
     int? EditIndex,
-    string Kind);
+    string Kind,
+    int? Count = null);
 
 public sealed record FileEditAppliedReplacement(
     int EditIndex,
@@ -99,9 +100,14 @@ public sealed record FileEditAppliedReplacement(
     int ReplacementCount,
     string MatchStrategy,
     bool Recovered,
+    string RequestedOldStringHash,
+    string ActualOldStringHash,
+    int RequestedOldStringLength,
+    int ActualOldStringLength,
     IReadOnlyList<FileMutationRange> BeforeRanges,
     IReadOnlyList<FileMutationRange> AfterRanges);
 
 public sealed record FileEditNormalizationNote(
     int EditIndex,
-    string Kind);
+    string Kind,
+    int? Count = null);
