@@ -8,7 +8,12 @@ HPD-Agent 0.9.7 continues pre-1.0 development. Public APIs, serialized events, a
 - Image tool results are preserved across provider requests, and thread history restoration and headless UI projections are improved.
 - External function input contracts are preserved, including MCP and OpenAPI tool handling.
 - Agent resources are public, and hosts can opt into configuration validation limits.
+- Provider selection remains deferred until a run needs a client. Missing clients, models, local paths, credentials, and provider configuration now produce structured, provider-aware setup diagnostics.
 - Agent Studio adds creation, configuration, inspection, lifecycle, and observability capabilities. Studio packages follow a separate release path.
+
+## Client setup diagnostics
+
+Provider validation now publishes stable `ProviderValidationIssue` values. Client resolution and authentication failures expose `ClientSetupDiagnostic` through typed exceptions and `MessageTurnErrorEvent.ClientSetup`. Hosted clients and the generated TypeScript SDK receive the same safe structured details. A direct `RunAsync(...)` call still throws the exception, so a direct host must catch `IClientSetupFailure` when it wants to continue.
 
 ## Sandbox migration
 

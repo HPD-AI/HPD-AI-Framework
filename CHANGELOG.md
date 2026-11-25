@@ -9,7 +9,14 @@ All notable changes to the HPD AI Framework are documented in this file.
 - Debugging is built into the coding harness, which now uses Environment sandbox bindings.
 - Preserve image tool results, restore thread history, and preserve external function input contracts.
 - Expose agent resources and add optional host-defined configuration validation limits.
+- Preserve deferred provider selection while reporting missing clients, models, local model paths, credentials, and provider configuration through structured setup diagnostics.
 - Expand Agent Studio creation, inspection, lifecycle, and observability capabilities; Studio follows a separate release path.
+
+### Agent client setup diagnostics
+
+Provider validation now returns stable `ProviderValidationIssue` values instead of English-only error strings. Provider resolution and authentication failures expose `ClientSetupDiagnostic` through typed exceptions and `MessageTurnErrorEvent.ClientSetup`. Direct `RunAsync(...)` callers still receive the exception and must catch `IClientSetupFailure` when the host should continue.
+
+The generated TypeScript event contract includes `clientSetup` on `MESSAGE_TURN_ERROR`.
 
 ### Agent sandbox package consolidation
 
