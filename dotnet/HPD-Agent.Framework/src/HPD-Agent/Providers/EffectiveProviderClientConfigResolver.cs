@@ -42,7 +42,8 @@ internal sealed class EffectiveProviderClientConfigResolver
             profileIndex ??= AgentProviderProfileIndex.Create(agent, _composition);
             if (!profileIndex.TryGetDefault(family, out var selectedDefault))
                 throw Error("ProviderDefaultRequired", $"providerDefaults.{family}",
-                    $"Client family '{family}' requires one explicit provider/backend default.");
+                    $"Client family '{family}' requires a provider or client. Configure one on the agent or for this run.",
+                    family: family);
             var provider = selectedDefault.ProviderKey;
             var backend = CompleteBackend(provider, selectedDefault.BackendKey, family);
             profile = profileIndex.FindProfile(new ProviderBackendIdentity(provider, backend))
@@ -425,7 +426,7 @@ internal sealed class EffectiveProviderClientConfigResolver
                 header.Equals("x-api-key", StringComparison.OrdinalIgnoreCase) ||
                 header.Equals("Cookie", StringComparison.OrdinalIgnoreCase))
                 throw Error("AuthenticationHeaderNotAllowed", $"clients.{family}.customHeaders.{header}",
-                    $"Header '{header}' cannot carry provider credentials.", providerKey);
+                    $"Header '{header}' cannot carry provider credentials.", providerKey, family);
     }
 
     private static string ComputeHash(string value) =>
@@ -435,7 +436,15 @@ internal sealed class EffectiveProviderClientConfigResolver
         string code,
         string path,
         string message,
-        string? providerKey = null) => new(code, path, message, providerKey);
+        string? providerKey = null,
+        ProviderClientFamily? family = null) => new ClientSetupException(new ClientSetupDiagnostic
+        {
+            Code = code,
+            Path = path,
+            Message = message,
+            ProviderKey = providerKey,
+            Family = family
+        });
 }
 
 // Keep the default serializer shape used by existing provider fingerprints, with generated metadata.

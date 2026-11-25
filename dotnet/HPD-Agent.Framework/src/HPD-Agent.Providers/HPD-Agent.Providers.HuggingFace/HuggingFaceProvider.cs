@@ -130,13 +130,13 @@ internal class HuggingFaceProvider : IProvider, IProviderClientFactory<IChatClie
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
     public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
 
         if (config.Family != ProviderClientFamily.Chat)
-            errors.Add("Hugging Face supports only chat.");
+            errors.Add(new ProviderValidationIssue("provider.family_unsupported", "family", "Hugging Face supports only chat."));
 
         if (string.IsNullOrEmpty(config.ModelName))
-            errors.Add("Model name (repository ID like 'meta-llama/Meta-Llama-3-8B-Instruct') is required");
+            errors.Add(new ProviderValidationIssue("provider.model_required", "modelName", "Model name (repository ID like 'meta-llama/Meta-Llama-3-8B-Instruct') is required"));
 
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())

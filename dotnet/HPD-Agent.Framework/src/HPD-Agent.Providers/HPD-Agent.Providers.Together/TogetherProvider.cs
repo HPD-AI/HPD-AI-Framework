@@ -132,11 +132,11 @@ internal class TogetherProvider : IProvider,
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
 
         if (config.Family == ProviderClientFamily.Chat && string.IsNullOrWhiteSpace(config.ModelName))
         {
-            errors.Add("Model name is required for Together AI");
+            errors.Add(new ProviderValidationIssue("provider.model_required", "modelName", "Model name is required for Together AI"));
         }
 
 

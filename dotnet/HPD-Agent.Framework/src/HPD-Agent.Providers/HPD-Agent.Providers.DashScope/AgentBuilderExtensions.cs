@@ -125,10 +125,10 @@ public static class AgentBuilderExtensions
 
     private static void ValidateProviderConfig(DashScopeProviderConfig config, Action<DashScopeProviderConfig>? configure)
     {
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
         DashScopeProvider.ValidateProviderOptions(config, errors);
 
         if (errors.Count > 0)
-            throw new ArgumentException(string.Join("; ", errors), nameof(configure));
+            throw new ArgumentException(string.Join("; ", errors.Select(static issue => issue.Message)), nameof(configure));
     }
 }

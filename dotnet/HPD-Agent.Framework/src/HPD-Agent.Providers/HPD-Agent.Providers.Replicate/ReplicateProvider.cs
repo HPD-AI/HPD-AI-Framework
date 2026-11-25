@@ -110,17 +110,17 @@ internal sealed class ReplicateProvider : IProvider,
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
 
         if (config.Family != ProviderClientFamily.ImageGeneration)
-            errors.Add("Replicate currently supports only image generation in HPD Agent.");
+            errors.Add(new ProviderValidationIssue("provider.family_unsupported", "family", "Replicate currently supports only image generation in HPD Agent."));
 
 
         var replicateConfig = config.ProviderConfiguration.CanonicalPayload.IsEmpty ? null :
             JsonSerializer.Deserialize(config.ProviderConfiguration.CanonicalPayload.AsSpan(), ReplicateJsonContext.Default.ReplicateProviderConfig);
         var modelName = string.IsNullOrWhiteSpace(config.ModelName) ? DefaultModel : config.ModelName;
         if (replicateConfig?.ModelOwner is { Length: 0 })
-            errors.Add("ModelOwner cannot be empty");
+            errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "ModelOwner cannot be empty"));
         ValidateModel(modelName!, replicateConfig?.ModelOwner, errors);
 
         if (!config.FamilyOperation.CanonicalPayload.IsEmpty &&
@@ -132,23 +132,23 @@ internal sealed class ReplicateProvider : IProvider,
             : ProviderValidationResult.Success();
     }
 
-    internal static void ValidateProviderOptions(ReplicateImageOptions config, List<string> errors)
+    internal static void ValidateProviderOptions(ReplicateImageOptions config, List<ProviderValidationIssue> errors)
     {
         if (config.Prefer is { Length: 0 })
-            errors.Add("Prefer cannot be empty");
+            errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "Prefer cannot be empty"));
 
         if (config.TimeoutSeconds.HasValue && config.TimeoutSeconds.Value <= 0)
-            errors.Add("TimeoutSeconds must be greater than 0");
+            errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "TimeoutSeconds must be greater than 0"));
 
         if (config.PollingIntervalSeconds.HasValue && config.PollingIntervalSeconds.Value <= 0)
-            errors.Add("PollingIntervalSeconds must be greater than 0");
+            errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "PollingIntervalSeconds must be greater than 0"));
 
         if (config.Input is not null)
         {
             foreach (var key in config.Input.Keys)
             {
                 if (string.IsNullOrWhiteSpace(key))
-                    errors.Add("Input keys cannot be empty");
+                    errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "Input keys cannot be empty"));
             }
         }
     }
@@ -163,11 +163,11 @@ internal sealed class ReplicateProvider : IProvider,
         return client;
     }
 
-    private static void ValidateModel(string modelName, string? modelOwner, List<string> errors)
+    private static void ValidateModel(string modelName, string? modelOwner, List<ProviderValidationIssue> errors)
     {
         if (string.IsNullOrWhiteSpace(modelName))
         {
-            errors.Add("Model name is required for Replicate image generation");
+            errors.Add(new ProviderValidationIssue("provider.model_required", "modelName", "Model name is required for Replicate image generation"));
             return;
         }
 
@@ -176,7 +176,7 @@ internal sealed class ReplicateProvider : IProvider,
 
         var slash = modelName.IndexOf('/');
         if (slash <= 0 || slash == modelName.Length - 1)
-            errors.Add("Replicate ModelName must use owner/model format unless ModelOwner is configured.");
+            errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "Replicate ModelName must use owner/model format unless ModelOwner is configured."));
     }
 
     private static ReplicateModel ParseModel(string modelName, string? modelOwner)

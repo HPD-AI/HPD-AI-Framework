@@ -109,9 +109,9 @@ internal class AnthropicProvider : IProvider, IProviderClientFactory<IChatClient
     public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
         if (config.Family != ProviderClientFamily.Chat)
-            return ProviderValidationResult.Failure("Anthropic supports only chat.");
+            return ProviderValidationResult.Failure(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "Anthropic supports only chat."));
         if (string.IsNullOrWhiteSpace(config.ModelName))
-            return ProviderValidationResult.Failure("Model name is required");
+            return ProviderValidationResult.Failure(new ProviderValidationIssue("provider.model_required", "modelName", "Model name is required"));
 
         return ProviderValidationResult.Success();
     }

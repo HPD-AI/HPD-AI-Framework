@@ -139,13 +139,13 @@ internal class DeepInfraProvider : IProvider, IProviderClientFactory<Meai.IChatC
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
 
         if (config.Family != ProviderClientFamily.Chat)
-            errors.Add("DeepInfra supports only chat.");
+            errors.Add(new ProviderValidationIssue("provider.family_unsupported", "family", "DeepInfra supports only chat."));
         if (config.Family == ProviderClientFamily.Chat && string.IsNullOrWhiteSpace(config.ModelName))
         {
-            errors.Add("Model name is required for DeepInfra");
+            errors.Add(new ProviderValidationIssue("provider.model_required", "modelName", "Model name is required for DeepInfra"));
         }
 
 

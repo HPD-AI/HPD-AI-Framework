@@ -58,10 +58,10 @@ public static class AgentBuilderExtensions
 
     private static void ValidateProviderOptions(ReplicateImageOptions config, Action<ReplicateImageOptions>? configure)
     {
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
         ReplicateProvider.ValidateProviderOptions(config, errors);
 
         if (errors.Count > 0)
-            throw new ArgumentException(string.Join("; ", errors), nameof(configure));
+            throw new ArgumentException(string.Join("; ", errors.Select(static issue => issue.Message)), nameof(configure));
     }
 }

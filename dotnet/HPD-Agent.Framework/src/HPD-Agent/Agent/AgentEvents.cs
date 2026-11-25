@@ -593,6 +593,7 @@ public record MessageTurnErrorEvent : AgentEvent, IErrorEvent
         this.ErrorMessage = ErrorMessage;
         this.Usage = Usage;
         ErrorException = Exception;
+        ClientSetup = (Exception as Providers.IClientSetupFailure)?.Diagnostic;
     }
 
     public string MessageTurnId { get; init; }
@@ -610,6 +611,9 @@ public record MessageTurnErrorEvent : AgentEvent, IErrorEvent
     public string? AgentId { get; init; }
     public string? AgentName { get; init; }
     public string? ErrorType { get; init; }
+
+    /// <summary>Safe structured details when client setup prevented this turn.</summary>
+    public Providers.ClientSetupDiagnostic? ClientSetup { get; init; }
 
     /// <summary>Trusted cancellation provenance, retained for replay and recovery.</summary>
     public AgentInputCancellation? Cancellation { get; init; }

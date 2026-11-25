@@ -2564,6 +2564,7 @@ export interface HPDAgentMessageTurnErrorEvent {
   agentId?: string | null;
   agentName?: string | null;
   errorType?: string | null;
+  clientSetup?: InlineHPDAgentMessageTurnErrorEventClientSetup | null;
   cancellation?: InlineHPDAgentMessageTurnErrorEventCancellation | null;
   category?: number | null;
   eventId?: string | null;
@@ -11018,6 +11019,28 @@ export interface InlineHPDAgentMessageTurnErrorEventCancellation {
   cause: "Unknown" | "Caller" | "Explicit" | "RuntimeShutdown" | "Middleware";
   reason?: string | null;
   source: string;
+}
+
+export interface InlineHPDAgentMessageTurnErrorEventClientSetup {
+  schemaVersion?: string | null;
+  code: string;
+  message: string;
+  family?: number | null;
+  providerKey?: string | null;
+  backendKey?: string | null;
+  modelName?: string | null;
+  path?: string | null;
+  guidance?: string | null;
+  expectedType?: string | null;
+  actualType?: string | null;
+  issues?: Array<InlineHPDAgentMessageTurnErrorEventClientSetupIssuesItem> | null;
+}
+
+export interface InlineHPDAgentMessageTurnErrorEventClientSetupIssuesItem {
+  code: string;
+  path: string;
+  message: string;
+  guidance?: string | null;
 }
 
 export interface InlineHPDAgentMessageTurnErrorEventUsage {

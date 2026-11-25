@@ -4,7 +4,7 @@ namespace HPD.Agent.Secrets;
 /// Chains multiple resolvers in priority order. First non-null result wins.
 /// This is the default resolver wired up by AgentBuilder.
 /// </summary>
-public sealed class ChainedSecretResolver : ISecretResolver
+public sealed class ChainedSecretResolver : ISecretResolver, ISecretResolverDiagnostics
 {
     private readonly ISecretResolver[] _resolvers;
 
@@ -29,4 +29,10 @@ public sealed class ChainedSecretResolver : ISecretResolver
 
         return null;
     }
+
+    /// <inheritdoc />
+    public string? GetSetupGuidance(string key) => _resolvers
+        .OfType<ISecretResolverDiagnostics>()
+        .Select(resolver => resolver.GetSetupGuidance(key))
+        .FirstOrDefault(static guidance => !string.IsNullOrWhiteSpace(guidance));
 }

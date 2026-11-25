@@ -107,7 +107,7 @@ internal class OpenRouterProvider : IProvider, IProviderClientFactory<IChatClien
         // Credential availability is validated by the authentication coordinator during acquisition.
         // This method only validates config structure, not secret resolution
         if (string.IsNullOrEmpty(config.ModelName))
-            return ProviderValidationResult.Failure("Model name is required");
+            return ProviderValidationResult.Failure(new ProviderValidationIssue("provider.model_required", "modelName", "Model name is required"));
 
         return ProviderValidationResult.Success();
     }

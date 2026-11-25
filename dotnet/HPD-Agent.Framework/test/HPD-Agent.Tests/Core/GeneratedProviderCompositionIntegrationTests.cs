@@ -178,10 +178,12 @@ public sealed class GeneratedProviderCompositionIntegrationTests
             }
         };
 
-        var error = Assert.Throws<AgentRunConfigurationException>(() =>
+        var error = Assert.Throws<ClientSetupException>(() =>
             new EffectiveProviderClientConfigResolver(composition).Resolve(config, ProviderClientFamily.Chat));
 
-        Assert.Equal("AuthenticationHeaderNotAllowed", error.Code);
+        Assert.Equal("AuthenticationHeaderNotAllowed", error.Diagnostic.Code);
+        Assert.Equal(ProviderClientFamily.Chat, error.Diagnostic.Family);
+        Assert.Equal("anthropic", error.Diagnostic.ProviderKey);
         Assert.DoesNotContain("secret-material", error.ToString(), StringComparison.Ordinal);
     }
 

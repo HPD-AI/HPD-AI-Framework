@@ -97,10 +97,14 @@ public sealed class ProviderComposition
         if (value is null)
             return;
         if (string.IsNullOrWhiteSpace(providerKey))
-            throw new AgentRunConfigurationException(
-                "ProviderKeyRequired",
-                path,
-                $"A provider key is required when '{path}' is supplied.");
+            throw new ClientSetupException(new ClientSetupDiagnostic
+            {
+                Code = "provider.key_required",
+                Path = path,
+                Family = family,
+                Message = $"A provider key is required when '{path}' is supplied.",
+                Guidance = "Set providerKey to the provider that owns the supplied payload."
+            });
 
         var canonical = Descriptors.Canonicalize(providerKey);
         if (!Serialization.TryGet(canonical, family, kind, out var contract) || contract is null ||
@@ -109,13 +113,17 @@ public sealed class ProviderComposition
             var code = kind == ProviderPayloadKind.Configuration
                 ? "ProviderConfigTypeMismatch"
                 : "ProviderOptionsTypeMismatch";
-            throw new AgentRunConfigurationException(
-                code,
-                path,
-                $"The value at '{path}' is not compatible with provider '{canonical}' and family '{family}'.",
-                canonical,
-                contract?.RuntimeType,
-                value.GetType());
+            throw new ClientSetupException(new ClientSetupDiagnostic
+            {
+                Code = code,
+                Path = path,
+                Family = family,
+                ProviderKey = canonical,
+                Message = $"The value at '{path}' is not compatible with provider '{canonical}' and family '{family}'.",
+                Guidance = "Use the provider configuration or operation-options type declared by the selected provider.",
+                ExpectedType = contract?.RuntimeType.FullName,
+                ActualType = value.GetType().FullName
+            });
         }
     }
 
@@ -155,7 +163,13 @@ public sealed class ProviderComposition
             ArgumentException.ThrowIfNullOrWhiteSpace(providerKey);
             return _canonicalKeys.TryGetValue(providerKey, out var canonical)
                 ? canonical
-                : throw new KeyNotFoundException($"Provider key or alias '{providerKey}' is not registered.");
+                : throw new ClientSetupException(new ClientSetupDiagnostic
+                {
+                    Code = "provider.not_registered",
+                    Message = $"Provider '{providerKey}' is not registered. Register the provider before selecting it.",
+                    ProviderKey = providerKey,
+                    Guidance = "Install and register the selected provider package, or choose a registered provider."
+                });
         }
 
         public bool TryGet(string providerKey, out IProviderDescriptor? descriptor)
@@ -377,7 +391,14 @@ public sealed class ProviderComposition
         public ProviderRuntimeFactoryRegistration GetFactory(string providerKey, string backendKey, ProviderClientFamily family) =>
             TryGetFactory(providerKey, backendKey, family, out var registration)
                 ? registration!
-                : throw new KeyNotFoundException($"Provider '{providerKey}' backend '{backendKey}' does not support client family '{family}'.");
+                : throw new ClientSetupException(new ClientSetupDiagnostic
+                {
+                    Code = "provider.family_unavailable",
+                    Message = $"Provider '{providerKey}' backend '{backendKey}' does not support client family '{family}'.",
+                    ProviderKey = providerKey,
+                    BackendKey = backendKey,
+                    Family = family
+                });
 
         public bool TryGetFactory(string providerKey, string backendKey, ProviderClientFamily family, out ProviderRuntimeFactoryRegistration? registration)
         {

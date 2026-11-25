@@ -366,7 +366,13 @@ public sealed class ProviderAuthenticationCoordinator : IProviderCredentialSourc
         ProviderCredentialPlan plan, ApiKeyProviderAuthentication authentication, CancellationToken cancellationToken)
     {
         var secret = await _secrets.ResolveAsync(authentication.SecretKey, cancellationToken).ConfigureAwait(false)
-            ?? throw Error("SecretNotFound", plan, "The configured provider secret reference was not found.");
+            ?? throw new ProviderAuthenticationException(
+                ProviderAuthenticationFailureKind.ConfigurationError,
+                plan.Backend.ProviderKey, plan.Backend.BackendKey, plan.Family, plan.Identity.Subject,
+                $"The configured API key for provider '{plan.Backend.ProviderKey}' could not be resolved.",
+                diagnosticCode: "SecretNotFound",
+                guidance: (_secrets as ISecretResolverDiagnostics)?.GetSetupGuidance(authentication.SecretKey)
+                    ?? "Configure the selected secret in the host's secret resolver and try again.");
         return Lease(plan, new ProviderCredential.ApiKey(new OwnedProviderSecretBuffer(secret.Value)),
             Hash($"{authentication.SecretKey}|{secret.Source}|{secret.ExpiresAt?.UtcTicks}"), secret.ExpiresAt);
     }

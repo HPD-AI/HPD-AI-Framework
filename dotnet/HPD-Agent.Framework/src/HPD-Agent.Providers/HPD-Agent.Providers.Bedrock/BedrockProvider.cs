@@ -292,10 +292,10 @@ internal class BedrockProvider : IProvider, IProviderClientFactory<IChatClient>,
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
     public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
 
         if (string.IsNullOrEmpty(config.ModelName))
-            errors.Add("Model name (model ID) is required for AWS Bedrock");
+            errors.Add(new ProviderValidationIssue("provider.model_required", "modelName", "Model name (model ID) is required for AWS Bedrock"));
 
         // Get typed config for validation
         var bedrockConfig = config.ProviderConfiguration.CanonicalPayload.IsEmpty ? null :
@@ -305,34 +305,34 @@ internal class BedrockProvider : IProvider, IProviderClientFactory<IChatClient>,
         if (bedrockConfig != null)
         {
             if (bedrockConfig.RequestTimeoutMs is <= 0)
-                errors.Add("RequestTimeoutMs must be greater than 0 when specified");
+                errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "RequestTimeoutMs must be greater than 0 when specified"));
 
             if (bedrockConfig.ConnectTimeoutMs is <= 0)
-                errors.Add("ConnectTimeoutMs must be greater than 0 when specified");
+                errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "ConnectTimeoutMs must be greater than 0 when specified"));
 
             if (bedrockConfig.MaxRetryAttempts is < 0)
-                errors.Add("MaxRetryAttempts must be greater than or equal to 0 when specified");
+                errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "MaxRetryAttempts must be greater than or equal to 0 when specified"));
 
             if (bedrockConfig.MaxStaleConnectionRetries is < 0)
-                errors.Add("MaxStaleConnectionRetries must be greater than or equal to 0 when specified");
+                errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "MaxStaleConnectionRetries must be greater than or equal to 0 when specified"));
 
             if (bedrockConfig.RequestMinCompressionSizeBytes is < 0)
-                errors.Add("RequestMinCompressionSizeBytes must be greater than or equal to 0 when specified");
+                errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "RequestMinCompressionSizeBytes must be greater than or equal to 0 when specified"));
 
             if (bedrockConfig.HttpClientCacheSize is <= 0)
-                errors.Add("HttpClientCacheSize must be greater than 0 when specified");
+                errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "HttpClientCacheSize must be greater than 0 when specified"));
 
             if (bedrockConfig.ProxyPort is <= 0 or > 65535)
-                errors.Add("ProxyPort must be between 1 and 65535 when specified");
+                errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "ProxyPort must be between 1 and 65535 when specified"));
 
             if (bedrockConfig.MaxConnectionsPerServer is <= 0)
-                errors.Add("MaxConnectionsPerServer must be greater than 0 when specified");
+                errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "MaxConnectionsPerServer must be greater than 0 when specified"));
 
             if (bedrockConfig.BufferSize is <= 0)
-                errors.Add("BufferSize must be greater than 0 when specified");
+                errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "BufferSize must be greater than 0 when specified"));
 
             if (bedrockConfig.ProgressUpdateIntervalMs is <= 0)
-                errors.Add("ProgressUpdateIntervalMs must be greater than 0 when specified");
+                errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "ProgressUpdateIntervalMs must be greater than 0 when specified"));
         }
 
         return errors.Count > 0

@@ -164,11 +164,11 @@ internal class OpenAIProvider :
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Generated OpenAI provider payload contracts are AOT-compatible")]
     public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
 
         // Validate model name for model-scoped families. Hosted files are account/client scoped.
         if (config.Family != ProviderClientFamily.HostedFiles && string.IsNullOrEmpty(config.ModelName))
-            errors.Add("Model name is required for OpenAI");
+            errors.Add(new ProviderValidationIssue("provider.model_required", "modelName", "Model name is required for OpenAI"));
 
         OpenAIProviderConfigValidation.Validate(config, errors);
 
@@ -277,7 +277,7 @@ internal class OpenAIProvider :
 
 internal static class OpenAIProviderConfigValidation
 {
-    public static void Validate(EffectiveProviderClientConfig config, List<string> errors)
+    public static void Validate(EffectiveProviderClientConfig config, List<ProviderValidationIssue> errors)
     {
         var openAIConfig = config.ProviderConfiguration.CanonicalPayload.IsEmpty ? null :
             JsonSerializer.Deserialize(config.ProviderConfiguration.CanonicalPayload.AsSpan(), OpenAIJsonContext.Default.OpenAIProviderConfig);
@@ -285,10 +285,10 @@ internal static class OpenAIProviderConfigValidation
             return;
 
         if (!Enum.IsDefined(openAIConfig.ChatApi))
-            errors.Add("OpenAI ChatApi must be Responses or ChatCompletions.");
+            errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "OpenAI ChatApi must be Responses or ChatCompletions."));
 
         if (openAIConfig.NetworkTimeoutMs is <= 0)
-            errors.Add("OpenAI NetworkTimeoutMs must be greater than 0 when specified.");
+            errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "OpenAI NetworkTimeoutMs must be greater than 0 when specified."));
     }
 }
 
@@ -432,11 +432,11 @@ internal class AzureOpenAIProvider :
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Generated OpenAI provider payload contracts are AOT-compatible")]
     public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
 
         // Validate model/deployment name for model-scoped families. Hosted files are account/client scoped.
         if (config.Family != ProviderClientFamily.HostedFiles && string.IsNullOrEmpty(config.ModelName))
-            errors.Add("Model name (deployment name) is required for Azure OpenAI");
+            errors.Add(new ProviderValidationIssue("provider.model_required", "modelName", "Model name (deployment name) is required for Azure OpenAI"));
 
         AzureOpenAIProviderConfigValidation.Validate(config, errors);
 
@@ -539,7 +539,7 @@ internal class AzureOpenAIProvider :
 
 internal static class AzureOpenAIProviderConfigValidation
 {
-    public static void Validate(EffectiveProviderClientConfig config, List<string> errors)
+    public static void Validate(EffectiveProviderClientConfig config, List<ProviderValidationIssue> errors)
     {
         var azureConfig = config.ProviderConfiguration.CanonicalPayload.IsEmpty ? null :
             JsonSerializer.Deserialize(config.ProviderConfiguration.CanonicalPayload.AsSpan(), OpenAIJsonContext.Default.AzureOpenAIProviderConfig);
@@ -547,12 +547,12 @@ internal static class AzureOpenAIProviderConfigValidation
             return;
 
         if (!Enum.IsDefined(azureConfig.ChatApi))
-            errors.Add("Azure OpenAI ChatApi must be Responses or ChatCompletions.");
+            errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "Azure OpenAI ChatApi must be Responses or ChatCompletions."));
 
         if (azureConfig.ServiceVersion.HasValue && !Enum.IsDefined(azureConfig.ServiceVersion.Value))
-            errors.Add("Azure OpenAI ServiceVersion must be a supported AzureOpenAIClientOptions.ServiceVersion value.");
+            errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "Azure OpenAI ServiceVersion must be a supported AzureOpenAIClientOptions.ServiceVersion value."));
 
         if (azureConfig.NetworkTimeoutMs is <= 0)
-            errors.Add("Azure OpenAI NetworkTimeoutMs must be greater than 0 when specified.");
+            errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "Azure OpenAI NetworkTimeoutMs must be greater than 0 when specified."));
     }
 }

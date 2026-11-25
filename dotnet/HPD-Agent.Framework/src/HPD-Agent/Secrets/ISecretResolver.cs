@@ -19,6 +19,13 @@ public interface ISecretResolver
     ValueTask<ResolvedSecret?> ResolveAsync(string key, CancellationToken cancellationToken = default);
 }
 
+/// <summary>Provides safe, resolver-specific setup guidance for a secret reference.</summary>
+public interface ISecretResolverDiagnostics
+{
+    /// <summary>Returns guidance only when this resolver can identify a valid setup path.</summary>
+    string? GetSetupGuidance(string key);
+}
+
 /// <summary>
 /// A resolved secret with metadata about its source.
 /// </summary>

@@ -1,3 +1,4 @@
+using HPD.Agent.Providers;
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -101,11 +102,11 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> :
     public virtual ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
         if (config.Family != ProviderClientFamily.Chat)
-            errors.Add($"{DisplayName} currently supports only the chat provider family.");
+            errors.Add(new ProviderValidationIssue("provider.family_unsupported", "family", $"{DisplayName} currently supports only the chat provider family."));
         if (string.IsNullOrWhiteSpace(config.ModelName))
-            errors.Add($"Model name is required for {DisplayName}.");
+            errors.Add(new ProviderValidationIssue("provider.model_required", "modelName", $"Model name is required for {DisplayName}."));
         return errors.Count == 0
             ? ProviderValidationResult.Success()
             : ProviderValidationResult.Failure(errors.ToArray());

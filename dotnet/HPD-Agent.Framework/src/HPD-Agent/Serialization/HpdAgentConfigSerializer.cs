@@ -677,26 +677,39 @@ public static class HpdAgentConfigSerializer
 
         var canonical = composition.Descriptors.Canonicalize(providerKey);
         if (!composition.Serialization.TryGet(canonical, family, kind, out var contract))
-            throw new AgentRunConfigurationException(
-                "ProviderPayloadNotRegistered",
-                path,
-                $"Provider '{canonical}' does not declare a generated {kind} payload for '{family}'.",
-                canonical);
+            throw new ClientSetupException(new ClientSetupDiagnostic
+            {
+                Code = "provider.payload_contract_missing",
+                Path = path,
+                Family = family,
+                ProviderKey = canonical,
+                Message = $"Provider '{canonical}' does not declare a generated {kind} payload for '{family}'.",
+                Guidance = "Install a compatible provider package that declares the required payload contract."
+            });
 
         var value = JsonSerializer.Deserialize(node.ToJsonString(), contract!.JsonTypeInfo)
-            ?? throw new AgentRunConfigurationException(
-                "ProviderPayloadInvalid",
-                path,
-                $"Provider payload at '{path}' deserialized to null.",
-                canonical);
+            ?? throw new ClientSetupException(new ClientSetupDiagnostic
+            {
+                Code = "provider.payload_invalid",
+                Path = path,
+                Family = family,
+                ProviderKey = canonical,
+                Message = $"Provider payload at '{path}' could not be read."
+            });
         composition.ValidatePayload(canonical, family, kind, value, path);
         var validation = contract.Validate(value);
         if (!validation.IsValid)
-            throw new AgentRunConfigurationException(
-                "ProviderPayloadInvalid",
-                path,
-                string.Join("; ", validation.Errors),
-                canonical);
+            throw new ClientSetupException(new ClientSetupDiagnostic
+            {
+                Code = validation.Errors.Count == 1
+                    ? validation.Errors[0].Code
+                    : "provider.payload_invalid",
+                Path = path,
+                Family = family,
+                ProviderKey = canonical,
+                Message = string.Join("; ", validation.Errors.Select(static issue => issue.Message)),
+                Issues = validation.Errors
+            });
         return value;
     }
 

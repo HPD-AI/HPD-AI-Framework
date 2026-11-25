@@ -207,10 +207,14 @@ internal sealed class AgentChatClientResolver : IAsyncDisposable
         }
 
         if (request.ParentInheritance == ClientFamilyInheritanceMode.InheritResolved)
-            return request.ParentResolved?.AcquireLease() ?? throw new AgentRunConfigurationException(
-                "subagent_parent_client_unavailable",
-                "clients.chat",
-                "Chat requires the current controlling invocation's resolved client, but none is available.");
+            return request.ParentResolved?.AcquireLease() ?? throw new ClientSetupException(new ClientSetupDiagnostic
+            {
+                Code = "subagent_parent_client_unavailable",
+                Path = "clients.chat",
+                Family = ProviderClientFamily.Chat,
+                Message = "Chat requires the current controlling invocation's resolved client, but none is available.",
+                Guidance = "Configure a default Chat client on the agent or select one for this run."
+            });
 
         if (request.RunConfig?.Clients.Chat?.Override is { } runOverride)
             return InstallOverride(runOverride, AgentChatClientSource.InjectedOverride, request.RunConfig.Clients.Chat);
@@ -312,9 +316,13 @@ internal sealed class AgentChatClientResolver : IAsyncDisposable
         AgentChatClientSource source,
         CancellationToken cancellationToken)
     {
-        var composition = _composition ?? throw new AgentRunConfigurationException(
-            "ProviderCompositionNotInstalled", "clients.chat",
-            "Provider client resolution requires a generated provider composition.");
+        var composition = _composition ?? throw new ClientSetupException(new ClientSetupDiagnostic
+        {
+            Code = "ProviderCompositionNotInstalled",
+            Path = "clients.chat",
+            Family = ProviderClientFamily.Chat,
+            Message = "Provider client resolution requires a generated provider composition."
+        });
         var effective = new EffectiveProviderClientConfigResolver(composition)
             .Resolve(agent, ProviderClientFamily.Chat, runClients,
                 AgentProviderProfileIndex.Create(agent, composition));
@@ -325,13 +333,14 @@ internal sealed class AgentChatClientResolver : IAsyncDisposable
         var factory = provider is CompositeProvider composite
             ? composite.GetTypedFamilyProvider<IProviderClientFactory<IChatClient>>(ProviderClientFamily.Chat)
             : provider as IProviderClientFactory<IChatClient>
-                ?? throw new InvalidOperationException(
+                ?? throw ClientSetupException.ForConfiguration(
+                    effective,
+                    "provider.family_unavailable",
+                    "clients.chat",
                     $"Provider '{effective.Provider.Backend.ProviderKey}' backend '{effective.Provider.Backend.BackendKey}' does not implement chat.");
         var validation = provider.ValidateConfiguration(effective);
         if (!validation.IsValid)
-            throw new AgentRunConfigurationException(
-                "ProviderConfigurationInvalid", "clients.chat",
-                string.Join("; ", validation.Errors), effective.Provider.Backend.ProviderKey);
+            throw ClientSetupException.FromValidation(validation, effective);
 
         var bindingDescriptor = new ProviderClientBindingDescriptor
         {
@@ -339,7 +348,12 @@ internal sealed class AgentChatClientResolver : IAsyncDisposable
         };
         var binding = factory.ResolveCredentialBinding(bindingDescriptor);
         var credentialSource = _services?.GetService<IProviderCredentialSource>()
-            ?? throw new InvalidOperationException("IProviderCredentialSource is required for provider construction.");
+            ?? throw ClientSetupException.ForConfiguration(
+                effective,
+                "provider.credential_service_unavailable",
+                "services.IProviderCredentialSource",
+                "Provider credential resolution is not configured.",
+                "Register an IProviderCredentialSource in the host service provider.");
         var scope = _services?.GetService<ProviderAuthorizationScope>()
             ?? new ProviderAuthorizationScope { TrustDomainId = "local-process" };
         var runAuthentication = runClients?.Chat?.Provider?.Authentication;
@@ -347,10 +361,12 @@ internal sealed class AgentChatClientResolver : IAsyncDisposable
         {
             var authorizer = _services?.GetService<IProviderAuthenticationSelectionAuthorizer>();
             if (authorizer is null)
-                throw new AgentRunConfigurationException(
+                throw ClientSetupException.ForConfiguration(
+                    effective,
                     "AuthenticationSelectionAuthorizerRequired",
                     "clients.chat.provider.authentication",
-                    "Explicit per-run authentication references require a host selection authorizer.");
+                    "Explicit per-run authentication references require a host selection authorizer.",
+                    "Register an authentication-selection authorizer in the host service provider.");
             await authorizer.AuthorizeAsync(new ProviderAuthenticationSelectionContext
             {
                 Caller = new ProviderAuthorizationScopeSnapshot

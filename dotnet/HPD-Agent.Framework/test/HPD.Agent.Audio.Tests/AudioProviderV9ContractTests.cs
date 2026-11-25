@@ -230,15 +230,17 @@ public sealed class AudioProviderV9ContractTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<AgentRunConfigurationException>(() =>
+        var exception = await Assert.ThrowsAsync<ClientSetupException>(() =>
             runtime.CreateAsync<IEndOfTurnDetector>(
                 new AgentConfig(),
                 ProviderClientFamily.EndOfTurnDetection,
                 runClients,
                 ProviderSelectionSource.RemoteAgent).AsTask());
 
-        Assert.Equal("AuthenticationSelectionAuthorizerRequired", exception.Code);
-        Assert.Equal("clients.EndOfTurnDetection.provider.authentication", exception.Path);
+        Assert.Equal("AuthenticationSelectionAuthorizerRequired", exception.Diagnostic.Code);
+        Assert.Equal("clients.EndOfTurnDetection.provider.authentication", exception.Diagnostic.Path);
+        Assert.Equal(ProviderClientFamily.EndOfTurnDetection, exception.Diagnostic.Family);
+        Assert.Equal("end-test", exception.Diagnostic.ProviderKey);
     }
 
     private static (ProviderFamilyClientRuntime Runtime, TestEndOfTurnProvider Provider) CreateEndOfTurnRuntime()

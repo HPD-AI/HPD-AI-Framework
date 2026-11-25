@@ -105,13 +105,13 @@ internal class MistralProvider : IProvider, IProviderClientFactory<IChatClient>,
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider registers AOT-compatible deserializer in provider module")]
     public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
 
         if (config.Family != ProviderClientFamily.Chat)
-            errors.Add("Mistral supports only chat.");
+            errors.Add(new ProviderValidationIssue("provider.family_unsupported", "family", "Mistral supports only chat."));
 
         if (string.IsNullOrWhiteSpace(config.ModelName))
-            errors.Add("Model name is required for Mistral");
+            errors.Add(new ProviderValidationIssue("provider.model_required", "modelName", "Model name is required for Mistral"));
 
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())

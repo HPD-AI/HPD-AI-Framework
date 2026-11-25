@@ -109,10 +109,13 @@ public sealed partial class Agent
 
         var composition = _chatClientResolver.Composition;
         if (composition is null || _providerRegistry is null)
-            throw new AgentRunConfigurationException(
-                "ProviderCompositionNotInstalled",
-                $"clients.{family}",
-                "Provider client resolution requires a generated provider composition.");
+            throw new ClientSetupException(new ClientSetupDiagnostic
+            {
+                Code = "ProviderCompositionNotInstalled",
+                Path = $"clients.{family}",
+                Family = family,
+                Message = "Provider client resolution requires a generated provider composition."
+            });
         var effective = new EffectiveProviderClientConfigResolver(composition)
             .Resolve(agent, family, runConfig is null ? null : CreateRunFamily(family, runConfig), _providerProfileIndex);
         var providerKey = effective.Provider.Backend.ProviderKey;
@@ -121,15 +124,14 @@ public sealed partial class Agent
         var factory = provider is CompositeProvider composite
             ? composite.GetTypedFamilyProvider<IProviderClientFactory<TClient>>(family)
             : provider as IProviderClientFactory<TClient>
-                ?? throw new InvalidOperationException(
+                ?? throw ClientSetupException.ForConfiguration(
+                    effective,
+                    "provider.family_unavailable",
+                    $"clients.{family}",
                     $"Provider '{providerKey}' backend '{effective.Provider.Backend.BackendKey}' does not implement family '{family}'.");
         var validation = provider.ValidateConfiguration(effective);
         if (!validation.IsValid)
-            throw new AgentRunConfigurationException(
-                "ProviderConfigurationInvalid",
-                $"clients.{family}",
-                string.Join("; ", validation.Errors),
-                providerKey);
+            throw ClientSetupException.FromValidation(validation, effective);
 
         var bindingDescriptor = new ProviderClientBindingDescriptor
         {
@@ -137,7 +139,12 @@ public sealed partial class Agent
         };
         var binding = factory.ResolveCredentialBinding(bindingDescriptor);
         var credentialSource = _serviceProvider?.GetService<IProviderCredentialSource>()
-            ?? throw new InvalidOperationException("IProviderCredentialSource is required for provider construction.");
+            ?? throw ClientSetupException.ForConfiguration(
+                effective,
+                "provider.credential_service_unavailable",
+                "services.IProviderCredentialSource",
+                "Provider credential resolution is not configured.",
+                "Register an IProviderCredentialSource in the host service provider.");
         var scope = _serviceProvider?.GetService<ProviderAuthorizationScope>()
             ?? new ProviderAuthorizationScope { TrustDomainId = "local-process" };
         var runAuthentication = runConfig?.Provider?.Authentication;
@@ -145,10 +152,12 @@ public sealed partial class Agent
         {
             var authorizer = _serviceProvider?.GetService<IProviderAuthenticationSelectionAuthorizer>();
             if (authorizer is null)
-                throw new AgentRunConfigurationException(
+                throw ClientSetupException.ForConfiguration(
+                    effective,
                     "AuthenticationSelectionAuthorizerRequired",
                     $"clients.{family}.provider.authentication",
-                    "Explicit per-run authentication references require a host selection authorizer.");
+                    "Explicit per-run authentication references require a host selection authorizer.",
+                    "Register an authentication-selection authorizer in the host service provider.");
             await authorizer.AuthorizeAsync(new ProviderAuthenticationSelectionContext
             {
                 Caller = new ProviderAuthorizationScopeSnapshot
@@ -381,10 +390,14 @@ public sealed partial class Agent
         if (string.IsNullOrWhiteSpace(runtimeOverride.ProviderKey) ||
             string.IsNullOrWhiteSpace(runtimeOverride.BackendKey) ||
             string.IsNullOrWhiteSpace(runtimeOverride.OperationAdapterKey))
-            throw new AgentRunConfigurationException(
-                "subagent_provider_attribution_missing",
-                $"clients.{family}",
-                "A selected provider client override must declare provider, backend, and operation-adapter identity.");
+            throw new ClientSetupException(new ClientSetupDiagnostic
+            {
+                Code = "provider.override_attribution_missing",
+                Path = $"clients.{family}",
+                Family = family,
+                Message = "A selected provider client override must declare provider, backend, and operation-adapter identity.",
+                Guidance = "Declare the override's provider key, backend key, and operation-adapter key."
+            });
         lock (resolved)
         {
             if (config is not null)

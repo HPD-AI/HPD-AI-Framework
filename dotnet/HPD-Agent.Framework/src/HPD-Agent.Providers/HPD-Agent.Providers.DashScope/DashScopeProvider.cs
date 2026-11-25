@@ -147,11 +147,11 @@ internal class DashScopeProvider : IProvider,
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
 
         if (config.Family == ProviderClientFamily.Chat && string.IsNullOrWhiteSpace(config.ModelName))
         {
-            errors.Add("Model name is required for DashScope");
+            errors.Add(new ProviderValidationIssue("provider.model_required", "modelName", "Model name is required for DashScope"));
         }
 
 
@@ -166,17 +166,17 @@ internal class DashScopeProvider : IProvider,
             : ProviderValidationResult.Success();
     }
 
-    internal static void ValidateProviderOptions(DashScopeProviderConfig config, List<string> errors)
+    internal static void ValidateProviderOptions(DashScopeProviderConfig config, List<ProviderValidationIssue> errors)
     {
         if (!string.IsNullOrWhiteSpace(config.WebsocketBaseAddress) &&
             !Uri.IsWellFormedUriString(config.WebsocketBaseAddress, UriKind.Absolute))
-            errors.Add("WebsocketBaseAddress must be a valid, absolute URI");
+            errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "WebsocketBaseAddress must be a valid, absolute URI"));
 
         if (config.SocketPoolSize.HasValue && config.SocketPoolSize.Value <= 0)
-            errors.Add("SocketPoolSize must be greater than 0");
+            errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "SocketPoolSize must be greater than 0"));
 
         if (config.TimeoutSeconds.HasValue && config.TimeoutSeconds.Value <= 0)
-            errors.Add("TimeoutSeconds must be greater than 0");
+            errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "TimeoutSeconds must be greater than 0"));
 
     }
 

@@ -85,11 +85,11 @@ internal sealed class OpenAICodexProvider :
     {
         ArgumentNullException.ThrowIfNull(config);
         if (string.IsNullOrWhiteSpace(config.ModelName))
-            return ProviderValidationResult.Failure("A Codex model is required.");
+            return ProviderValidationResult.Failure(new ProviderValidationIssue("provider.model_required", "modelName", "A Codex model is required."));
         var policy = ReadModelPolicy(config);
         return policy is null || string.Equals(policy.ModelId, config.ModelName, StringComparison.Ordinal)
             ? ProviderValidationResult.Success()
-            : ProviderValidationResult.Failure("The Codex model policy belongs to a different model.");
+            : ProviderValidationResult.Failure(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "The Codex model policy belongs to a different model."));
     }
 
     ProviderClientCredentialBinding IProviderClientFactory<IChatClient>.ResolveCredentialBinding(

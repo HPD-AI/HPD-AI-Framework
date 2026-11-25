@@ -1,12 +1,12 @@
 {
   "irVersion": "1.0",
   "generatorVersion": "0.1.0",
-  "sourceOpenApiSha256": "sha256:425fa0df2396ddcb092ad13924f2acf377563342b1e9611cbe4cc2d24741d9f6",
-  "eventDigest": "a5fcd7906c249058050726987dbf9847a68f65967c9660aebfb01bb2b3f9ecee",
+  "sourceOpenApiSha256": "sha256:67025da069231e0739aebe7a28a20561358a9b30554bc0c1b3fe4f38e3309946",
+  "eventDigest": "48786ede225270fa42219d0ec79fce5db398faf890ead5feb0d8d5e501175297",
   "inputDigest": "sha256:be4f985d04fabf388ad5fb7410ef875025d1c5cb0038dfb1a05ff0abe38a7cf3",
   "api": {
     "title": "HPD Agent API",
-    "apiVersion": "0.9.6\u002B697a22a10ec6b6e9996deadbcc2d90e36bcc70b5",
+    "apiVersion": "0.9.7\u002B23abedd7595ef6b220f978ff9b446e2727899149",
     "openApiVersion": "3.1.2"
   },
   "types": [
@@ -23389,6 +23389,15 @@
             }
           },
           {
+            "name": "clientSetup",
+            "required": false,
+            "type": {
+              "kind": "reference",
+              "nullable": true,
+              "reference": "#/components/schemas/Inline_HPD.Agent.MessageTurnErrorEvent_clientSetup"
+            }
+          },
+          {
             "name": "cancellation",
             "required": false,
             "type": {
@@ -23570,7 +23579,7 @@
         ],
         "objectModel": true,
         "annotations": {
-          "x-hpd-event-contract-digest": "7092199a91acb9b399270695d3a41cd1096c5eae2de1c66cd928e122f8838dae",
+          "x-hpd-event-contract-digest": "f436bc765d8e171fbcde9d507612f1dc7fd10d6653b19006ddf367281b77ecb5",
           "x-hpd-event-discriminator": "MESSAGE_TURN_ERROR",
           "x-hpd-event-durability": "Durable",
           "x-hpd-event-module": "hpd.agent.core",
@@ -95707,6 +95716,183 @@
         "requiredProperties": [
           "cause",
           "source"
+        ],
+        "objectModel": true
+      }
+    },
+    {
+      "componentId": "Inline_HPD.Agent.MessageTurnErrorEvent_clientSetup",
+      "schema": {
+        "kind": "object",
+        "nullable": true,
+        "properties": [
+          {
+            "name": "schemaVersion",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "code",
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": false
+            }
+          },
+          {
+            "name": "message",
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": false
+            }
+          },
+          {
+            "name": "family",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "integer",
+              "nullable": true
+            }
+          },
+          {
+            "name": "providerKey",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "backendKey",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "modelName",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "path",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "guidance",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "expectedType",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "actualType",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "issues",
+            "required": false,
+            "type": {
+              "kind": "array",
+              "nullable": true,
+              "itemType": {
+                "kind": "reference",
+                "nullable": false,
+                "reference": "#/components/schemas/Inline_HPD.Agent.MessageTurnErrorEvent_clientSetup_issues_Item"
+              }
+            }
+          }
+        ],
+        "requiredProperties": [
+          "code",
+          "message"
+        ],
+        "objectModel": true
+      }
+    },
+    {
+      "componentId": "Inline_HPD.Agent.MessageTurnErrorEvent_clientSetup_issues_Item",
+      "schema": {
+        "kind": "object",
+        "nullable": false,
+        "properties": [
+          {
+            "name": "code",
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": false
+            }
+          },
+          {
+            "name": "path",
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": false
+            }
+          },
+          {
+            "name": "message",
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": false
+            }
+          },
+          {
+            "name": "guidance",
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "primitive": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "requiredProperties": [
+          "code",
+          "message",
+          "path"
         ],
         "objectModel": true
       }

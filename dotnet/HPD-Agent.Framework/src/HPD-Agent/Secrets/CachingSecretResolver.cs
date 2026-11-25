@@ -17,7 +17,7 @@ namespace HPD.Agent.Secrets;
 ///   - The configured TTL
 ///   - The secret's ExpiresAt (if set by the inner resolver)
 /// </summary>
-public sealed class CachingSecretResolver : ISecretResolver
+public sealed class CachingSecretResolver : ISecretResolver, ISecretResolverDiagnostics
 {
     private readonly ISecretResolver _inner;
     private readonly TimeSpan _ttl;
@@ -53,6 +53,10 @@ public sealed class CachingSecretResolver : ISecretResolver
 
     /// <summary>Clears all cached secrets.</summary>
     public void Clear() => _cache.Clear();
+
+    /// <inheritdoc />
+    public string? GetSetupGuidance(string key) =>
+        (_inner as ISecretResolverDiagnostics)?.GetSetupGuidance(key);
 
     private static DateTimeOffset Min(DateTimeOffset a, DateTimeOffset b) => a < b ? a : b;
 

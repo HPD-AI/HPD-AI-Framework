@@ -1,5 +1,6 @@
 using HPD.Agent;
 using HPD.Agent.Middleware;
+using HPD.Agent.Providers;
 using HPD.Agent.Providers.OpenRouter;
 using HPD.Agent.Serialization;
 using HPD.Agent.ToolHarness.Coding;
@@ -250,9 +251,19 @@ while (true)
         }
         catch (Exception ex)
         {
-            CliConsole.WriteErrorLine(ConsoleColor.Red, $"[run:error] {ex.Message}");
-            if (ex.InnerException is not null)
-                CliConsole.WriteErrorLine(ConsoleColor.DarkRed, $"{ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
+            if (ex is IClientSetupFailure setupFailure)
+            {
+                var diagnostic = setupFailure.Diagnostic;
+                CliConsole.WriteErrorLine(ConsoleColor.Red, $"[client-setup:{diagnostic.Code}] {diagnostic.Message}");
+                if (!string.IsNullOrWhiteSpace(diagnostic.Guidance))
+                    CliConsole.WriteErrorLine(ConsoleColor.Yellow, diagnostic.Guidance);
+            }
+            else
+            {
+                CliConsole.WriteErrorLine(ConsoleColor.Red, $"[run:error] {ex.Message}");
+                if (ex.InnerException is not null)
+                    CliConsole.WriteErrorLine(ConsoleColor.DarkRed, $"{ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
+            }
         }
     }
 

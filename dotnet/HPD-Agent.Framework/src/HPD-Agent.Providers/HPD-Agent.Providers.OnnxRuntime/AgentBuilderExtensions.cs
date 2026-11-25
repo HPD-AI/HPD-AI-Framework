@@ -93,9 +93,9 @@ public static class AgentBuilderExtensions
                 nameof(configure));
         }
 
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
         OnnxRuntimeProvider.ValidateProviderOptions(config, errors);
         if (errors.Count > 0)
-            throw new ArgumentException(string.Join("; ", errors), nameof(configure));
+            throw new ArgumentException(string.Join("; ", errors.Select(static issue => issue.Message)), nameof(configure));
     }
 }

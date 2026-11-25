@@ -32,7 +32,7 @@ public enum ProviderAuthenticationFailureKind
 }
 
 /// <summary>Represents a redacted typed provider-authentication failure.</summary>
-public class ProviderAuthenticationException : InvalidOperationException
+public class ProviderAuthenticationException : InvalidOperationException, IClientSetupFailure
 {
     /// <summary>Initializes a redacted provider-authentication failure.</summary>
     public ProviderAuthenticationException(
@@ -44,7 +44,8 @@ public class ProviderAuthenticationException : InvalidOperationException
         string message,
         bool isRetryable = false,
         bool interactionCanResolve = false,
-        string? diagnosticCode = null) : base(message)
+        string? diagnosticCode = null,
+        string? guidance = null) : base(message)
     {
         FailureKind = failureKind;
         ProviderKey = providerKey;
@@ -54,6 +55,15 @@ public class ProviderAuthenticationException : InvalidOperationException
         IsRetryable = isRetryable;
         InteractionCanResolve = interactionCanResolve;
         DiagnosticCode = diagnosticCode;
+        Diagnostic = new ClientSetupDiagnostic
+        {
+            Code = diagnosticCode ?? failureKind.ToString(),
+            Message = message,
+            ProviderKey = providerKey,
+            BackendKey = backendKey,
+            Family = family,
+            Guidance = guidance
+        };
     }
 
     /// <summary>Gets the failure category.</summary>
@@ -72,6 +82,9 @@ public class ProviderAuthenticationException : InvalidOperationException
     public bool InteractionCanResolve { get; }
     /// <summary>Gets a redacted provider diagnostic code.</summary>
     public string? DiagnosticCode { get; }
+
+    /// <inheritdoc />
+    public ClientSetupDiagnostic Diagnostic { get; }
 }
 
 /// <summary>Signals that explicit host authorization must occur before client acquisition.</summary>

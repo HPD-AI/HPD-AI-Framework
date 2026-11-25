@@ -1243,6 +1243,8 @@ import type {
   InlineHPDAgentGoalsGoalUsageLimitedEventGoalCompletionProposalEvidenceItem,
   InlineHPDAgentGoalsGoalUsageLimitedEventGoalContinuation,
   InlineHPDAgentMessageTurnErrorEventCancellation,
+  InlineHPDAgentMessageTurnErrorEventClientSetup,
+  InlineHPDAgentMessageTurnErrorEventClientSetupIssuesItem,
   InlineHPDAgentMessageTurnErrorEventUsage,
   InlineHPDAgentMessageTurnErrorEventUsageOperationsItem,
   InlineHPDAgentMessageTurnErrorEventUsageOperationsItemUsage,

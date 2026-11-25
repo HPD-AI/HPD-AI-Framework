@@ -1,3 +1,4 @@
+using HPD.Agent.Providers;
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Http;
 using System.Threading;
@@ -124,11 +125,11 @@ internal sealed class XaiProvider : IProvider, IProviderClientFactory<IChatClien
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
 
         if (config.Family != ProviderClientFamily.Chat)
         {
-            errors.Add("xAI currently supports only the chat provider family");
+            errors.Add(new ProviderValidationIssue("provider.family_unsupported", "family", "xAI currently supports only the chat provider family"));
         }
 
 

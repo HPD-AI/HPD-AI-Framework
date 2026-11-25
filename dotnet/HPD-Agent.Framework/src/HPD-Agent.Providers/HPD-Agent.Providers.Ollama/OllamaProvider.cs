@@ -133,17 +133,17 @@ internal class OllamaProvider : IProvider, IProviderClientFactory<IChatClient>, 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
     public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
 
         if (config.Family != ProviderClientFamily.Chat)
-            errors.Add("Ollama supports only chat.");
+            errors.Add(new ProviderValidationIssue("provider.family_unsupported", "family", "Ollama supports only chat."));
 
         if (string.IsNullOrEmpty(config.ModelName))
-            errors.Add("Model name is required for Ollama");
+            errors.Add(new ProviderValidationIssue("provider.model_required", "modelName", "Model name is required for Ollama"));
 
         var providerConfig = ReadConfig(config);
         if (providerConfig?.TimeoutMs is <= 0)
-            errors.Add("TimeoutMs must be greater than zero when specified.");
+            errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "TimeoutMs must be greater than zero when specified."));
 
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())

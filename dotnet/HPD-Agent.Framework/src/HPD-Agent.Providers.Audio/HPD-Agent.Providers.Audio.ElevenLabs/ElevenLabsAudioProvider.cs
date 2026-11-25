@@ -158,11 +158,11 @@ public sealed class ElevenLabsAudioProvider : IProvider,
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
 
         if (config.Family is not (ProviderClientFamily.SpeechToText or ProviderClientFamily.TextToSpeech))
         {
-            errors.Add($"ElevenLabs audio does not support provider family '{config.Family}'.");
+            errors.Add(new ProviderValidationIssue("provider.family_unsupported", "family", $"ElevenLabs audio does not support provider family '{config.Family}'."));
         }
 
         if (!config.ProviderConfiguration.CanonicalPayload.IsEmpty)
@@ -215,11 +215,11 @@ public sealed class ElevenLabsAudioProvider : IProvider,
         ValueTask.FromResult(new ProviderClientConstruction<TClient>
         { Client = client, Owner = ProviderClientConstructionUtilities.Own(httpClient, client) });
 
-    private static void AddRangeError(List<string> errors, double? value, string name)
+    private static void AddRangeError(List<ProviderValidationIssue> errors, double? value, string name)
     {
         if (value is < 0 or > 1)
         {
-            errors.Add($"ElevenLabs {name} must be between 0 and 1.");
+            errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", $"ElevenLabs {name} must be between 0 and 1."));
         }
     }
 

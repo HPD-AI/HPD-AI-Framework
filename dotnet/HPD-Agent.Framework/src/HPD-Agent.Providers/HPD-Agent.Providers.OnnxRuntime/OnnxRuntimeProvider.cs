@@ -113,19 +113,19 @@ internal class OnnxRuntimeProvider : IProvider, IProviderClientFactory<IChatClie
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
         if (config.Family != ProviderClientFamily.Chat)
-            errors.Add("ONNX Runtime supports only chat.");
+            errors.Add(new ProviderValidationIssue("provider.family_unsupported", "family", "ONNX Runtime supports only chat."));
         var onnxConfig = ReadConfig(config);
         var modelPath = onnxConfig?.ModelPath;
 
         if (string.IsNullOrWhiteSpace(modelPath))
         {
-            errors.Add("ModelPath is required. Configure it via WithOnnxRuntime(modelPath) or the ONNX_MODEL_PATH environment variable.");
+            errors.Add(new ProviderValidationIssue("provider.model_path_required", "providerConfig.modelPath", "ModelPath is required. Configure it via WithOnnxRuntime(modelPath) or the ONNX_MODEL_PATH environment variable."));
         }
         else if (!Directory.Exists(modelPath))
         {
-            errors.Add($"Model path does not exist: {modelPath}");
+            errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", $"Model path does not exist: {modelPath}"));
         }
 
         if (onnxConfig is not null)
@@ -138,28 +138,28 @@ internal class OnnxRuntimeProvider : IProvider, IProviderClientFactory<IChatClie
             : ProviderValidationResult.Success();
     }
 
-    internal static void ValidateProviderOptions(OnnxRuntimeProviderConfig config, List<string> errors)
+    internal static void ValidateProviderOptions(OnnxRuntimeProviderConfig config, List<ProviderValidationIssue> errors)
     {
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(errors);
 
         if (config.Providers is { Count: 0 })
-            errors.Add("Providers cannot be empty.");
+            errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "Providers cannot be empty."));
 
         if (config.Providers?.Any(string.IsNullOrWhiteSpace) == true)
-            errors.Add("Providers cannot contain empty provider names.");
+            errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "Providers cannot contain empty provider names."));
 
         if (config.ExecutionProviderOptions is not null)
         {
             foreach (var provider in config.ExecutionProviderOptions)
             {
                 if (string.IsNullOrWhiteSpace(provider.Key))
-                    errors.Add("ExecutionProviderOptions cannot contain an empty provider name.");
+                    errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "ExecutionProviderOptions cannot contain an empty provider name."));
 
                 foreach (var option in provider.Value)
                 {
                     if (string.IsNullOrWhiteSpace(option.Key))
-                        errors.Add($"ExecutionProviderOptions for '{provider.Key}' cannot contain an empty option name.");
+                        errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", $"ExecutionProviderOptions for '{provider.Key}' cannot contain an empty option name."));
                 }
             }
         }
@@ -169,7 +169,7 @@ internal class OnnxRuntimeProvider : IProvider, IProviderClientFactory<IChatClie
              config.HardwareVendorId is not null) &&
             config.Providers is not { Count: > 0 })
         {
-            errors.Add("Hardware decoder options require Providers so HPD knows which ONNX Runtime providers to configure.");
+            errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "Hardware decoder options require Providers so HPD knows which ONNX Runtime providers to configure."));
         }
     }
 

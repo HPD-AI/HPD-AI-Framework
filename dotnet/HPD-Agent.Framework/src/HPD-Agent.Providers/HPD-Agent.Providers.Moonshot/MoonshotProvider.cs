@@ -126,11 +126,11 @@ internal sealed class MoonshotProvider : IProvider, IProviderClientFactory<IChat
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
 
         if (config.Family != ProviderClientFamily.Chat)
         {
-            errors.Add("Moonshot currently supports only the chat provider family");
+            errors.Add(new ProviderValidationIssue("provider.family_unsupported", "family", "Moonshot currently supports only the chat provider family"));
         }
 
 
@@ -139,7 +139,7 @@ internal sealed class MoonshotProvider : IProvider, IProviderClientFactory<IChat
             : ProviderValidationResult.Success();
     }
 
-    internal static void ValidateProviderOptions(MoonshotProviderConfig config, List<string> errors)
+    internal static void ValidateProviderOptions(MoonshotProviderConfig config, List<ProviderValidationIssue> errors)
     {
     }
 

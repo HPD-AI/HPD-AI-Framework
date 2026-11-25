@@ -54,15 +54,14 @@ public sealed class ProviderFamilyClientRuntime
         var factory = provider is CompositeProvider composite
             ? composite.GetTypedFamilyProvider<IProviderClientFactory<TClient>>(family)
             : provider as IProviderClientFactory<TClient>
-                ?? throw new InvalidOperationException(
+                ?? throw ClientSetupException.ForConfiguration(
+                    effective,
+                    "provider.family_unavailable",
+                    $"clients.{family}",
                     $"Provider '{providerKey}' does not implement the async factory for family '{family}'.");
         var validation = provider.ValidateConfiguration(effective);
         if (!validation.IsValid)
-            throw new AgentRunConfigurationException(
-                "ProviderConfigurationInvalid",
-                $"clients.{family}",
-                string.Join("; ", validation.Errors),
-                providerKey);
+            throw ClientSetupException.FromValidation(validation, effective);
 
         var scope = _services.GetService<ProviderAuthorizationScope>()
             ?? new ProviderAuthorizationScope { TrustDomainId = "local-process" };
@@ -71,10 +70,12 @@ public sealed class ProviderFamilyClientRuntime
         {
             var authorizer = _services.GetService<IProviderAuthenticationSelectionAuthorizer>();
             if (authorizer is null)
-                throw new AgentRunConfigurationException(
+                throw ClientSetupException.ForConfiguration(
+                    effective,
                     "AuthenticationSelectionAuthorizerRequired",
                     $"clients.{family}.provider.authentication",
-                    "Explicit non-builder authentication references require a host selection authorizer.");
+                    "Explicit non-builder authentication references require a host selection authorizer.",
+                    "Register an authentication-selection authorizer in the host service provider.");
             await authorizer.AuthorizeAsync(new ProviderAuthenticationSelectionContext
             {
                 Caller = new ProviderAuthorizationScopeSnapshot
@@ -90,7 +91,13 @@ public sealed class ProviderFamilyClientRuntime
             }, cancellationToken).ConfigureAwait(false);
         }
 
-        var credentialSource = _services.GetRequiredService<IProviderCredentialSource>();
+        var credentialSource = _services.GetService<IProviderCredentialSource>()
+            ?? throw ClientSetupException.ForConfiguration(
+                effective,
+                "provider.credential_service_unavailable",
+                "services.IProviderCredentialSource",
+                "Provider credential resolution is not configured.",
+                "Register an IProviderCredentialSource in the host service provider.");
         var bindingDescriptor = new ProviderClientBindingDescriptor
         {
             EffectiveConfig = effective
@@ -122,11 +129,11 @@ public sealed class ProviderFamilyClientRuntime
                 ? found.Backends[effective.Provider.Backend.BackendKey].Families[family]
                 : throw new InvalidOperationException($"Provider descriptor '{providerKey}' is not registered.");
             if (lifetime is not null && lifetime.Lifetime != descriptor.Lifetime)
-                throw new AgentRunConfigurationException(
+                throw ClientSetupException.ForConfiguration(
+                    effective,
                     "ProviderLifetimeMismatch",
                     $"clients.{family}.lifetime",
-                    $"Provider family '{family}' requires lifetime '{descriptor.Lifetime}', not '{lifetime.Lifetime}'.",
-                    providerKey);
+                    $"Provider family '{family}' requires lifetime '{descriptor.Lifetime}', not '{lifetime.Lifetime}'.");
             var created = await factory.CreateAsync(new ProviderClientConstructionContext
             {
                 EffectiveConfig = effective,

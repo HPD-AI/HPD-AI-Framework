@@ -305,23 +305,23 @@ internal class AzureAIProvider : IProvider, IProviderClientFactory<IChatClient>,
 
     public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
 
         if (string.IsNullOrEmpty(config.ModelName))
-            errors.Add("Model name (deployment name) is required for Azure AI");
+            errors.Add(new ProviderValidationIssue("provider.model_required", "modelName", "Model name (deployment name) is required for Azure AI"));
 
         var azureConfig = config.ProviderConfiguration.CanonicalPayload.IsEmpty ? null :
             JsonSerializer.Deserialize(config.ProviderConfiguration.CanonicalPayload.AsSpan(), AzureAIJsonContext.Default.AzureAIProviderConfig);
         if (azureConfig is not null)
         {
             if (azureConfig.ProjectServiceVersion.HasValue && !Enum.IsDefined(azureConfig.ProjectServiceVersion.Value))
-                errors.Add("Azure AI ProjectServiceVersion must be a supported AIProjectClientOptions.ServiceVersion value.");
+                errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "Azure AI ProjectServiceVersion must be a supported AIProjectClientOptions.ServiceVersion value."));
 
             if (azureConfig.OpenAIServiceVersion.HasValue && !Enum.IsDefined(azureConfig.OpenAIServiceVersion.Value))
-                errors.Add("Azure AI OpenAIServiceVersion must be a supported AzureOpenAIClientOptions.ServiceVersion value.");
+                errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "Azure AI OpenAIServiceVersion must be a supported AzureOpenAIClientOptions.ServiceVersion value."));
 
             if (azureConfig.NetworkTimeoutMs is <= 0)
-                errors.Add("Azure AI NetworkTimeoutMs must be greater than 0 when specified.");
+                errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "Azure AI NetworkTimeoutMs must be greater than 0 when specified."));
         }
 
         return errors.Count > 0

@@ -178,11 +178,11 @@ public sealed class OpenAIAudioProvider : IProvider,
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
 
         if (config.Family is not (ProviderClientFamily.SpeechToText or ProviderClientFamily.TextToSpeech or ProviderClientFamily.Realtime))
         {
-            errors.Add($"OpenAI audio does not support provider family '{config.Family}'.");
+            errors.Add(new ProviderValidationIssue("provider.family_unsupported", "family", $"OpenAI audio does not support provider family '{config.Family}'."));
         }
 
         if (!config.ProviderConfiguration.CanonicalPayload.IsEmpty)
@@ -193,7 +193,7 @@ public sealed class OpenAIAudioProvider : IProvider,
             }
             else
             {
-                errors.Add($"OpenAI {config.Family} does not define provider client configuration; use portable family fields and ProviderOptions.");
+                errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", $"OpenAI {config.Family} does not define provider client configuration; use portable family fields and ProviderOptions."));
             }
         }
 

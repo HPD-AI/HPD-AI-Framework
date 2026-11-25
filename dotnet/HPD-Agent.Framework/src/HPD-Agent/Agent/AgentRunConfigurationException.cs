@@ -1,7 +1,7 @@
 namespace HPD.Agent;
 
 /// <summary>Reports a deterministic run-configuration validation failure.</summary>
-public sealed class AgentRunConfigurationException : InvalidOperationException
+public class AgentRunConfigurationException : InvalidOperationException
 {
     /// <summary>Initializes the exception with structured mismatch information.</summary>
     public AgentRunConfigurationException(

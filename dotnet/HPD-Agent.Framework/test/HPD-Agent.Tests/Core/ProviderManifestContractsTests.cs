@@ -186,23 +186,23 @@ public sealed class ProviderManifestContractsTests
             HPDJsonContext.Default.ProviderClientConfig);
         var composition = ProviderComposition.Create([new([descriptor], [], [contract], [])]);
 
-        var missing = Assert.Throws<AgentRunConfigurationException>(() => composition.ValidatePayload(
+        var missing = Assert.Throws<ClientSetupException>(() => composition.ValidatePayload(
             null,
             ProviderClientFamily.Chat,
             ProviderPayloadKind.Configuration,
             new ProviderClientConfig(),
             "Clients.Chat.ProviderConfig"));
-        var mismatch = Assert.Throws<AgentRunConfigurationException>(() => composition.ValidatePayload(
+        var mismatch = Assert.Throws<ClientSetupException>(() => composition.ValidatePayload(
             "test",
             ProviderClientFamily.Chat,
             ProviderPayloadKind.Configuration,
             new object(),
             "Clients.Chat.ProviderConfig"));
 
-        Assert.Equal("ProviderKeyRequired", missing.Code);
-        Assert.Equal("ProviderConfigTypeMismatch", mismatch.Code);
-        Assert.Equal(typeof(ProviderClientConfig), mismatch.ExpectedType);
-        Assert.Equal(typeof(object), mismatch.ActualType);
+        Assert.Equal("provider.key_required", missing.Diagnostic.Code);
+        Assert.Equal("ProviderConfigTypeMismatch", mismatch.Diagnostic.Code);
+        Assert.Equal(typeof(ProviderClientConfig).FullName, mismatch.Diagnostic.ExpectedType);
+        Assert.Equal(typeof(object).FullName, mismatch.Diagnostic.ActualType);
     }
 
     private static ProviderBackendDescriptor Backend(

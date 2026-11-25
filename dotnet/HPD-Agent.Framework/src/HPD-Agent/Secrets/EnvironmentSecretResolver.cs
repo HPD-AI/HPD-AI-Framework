@@ -6,7 +6,7 @@ namespace HPD.Agent.Secrets;
 /// Resolves secrets from environment variables.
 /// Aliases come from the immutable generated provider composition installed by the host.
 /// </summary>
-public sealed class EnvironmentSecretResolver : ISecretResolver
+public sealed class EnvironmentSecretResolver : ISecretResolver, ISecretResolverDiagnostics
 {
     private readonly IProviderSecretAliasRegistry? _generatedAliases;
 
@@ -29,5 +29,14 @@ public sealed class EnvironmentSecretResolver : ISecretResolver
         }
 
         return default;
+    }
+
+    /// <inheritdoc />
+    public string? GetSetupGuidance(string key)
+    {
+        var aliases = _generatedAliases?.GetEnvironmentVariables(key);
+        return aliases is { Count: > 0 }
+            ? $"Set one of these environment variables: {string.Join(", ", aliases)}."
+            : null;
     }
 }

@@ -183,19 +183,31 @@ public static class ProviderClientConfigSnapshot
         if (value is null)
             return null;
         if (!composition.Serialization.TryGet(providerKey, family, kind, out var contract) || contract is null)
-            throw new AgentRunConfigurationException(
-                kind == ProviderPayloadKind.Configuration ? "ProviderConfigTypeMismatch" : "ProviderOptionsTypeMismatch",
-                $"providerProfiles.{providerKey}.clients.{family}",
-                $"Provider '{providerKey}' does not declare a {kind} payload for family '{family}'.",
-                providerKey);
+            throw new ClientSetupException(new ClientSetupDiagnostic
+            {
+                Code = kind == ProviderPayloadKind.Configuration
+                    ? "ProviderConfigTypeMismatch"
+                    : "ProviderOptionsTypeMismatch",
+                Path = $"clients.{family}",
+                Family = family,
+                ProviderKey = providerKey,
+                Message = $"Provider '{providerKey}' does not declare a {kind} payload for family '{family}'.",
+                Guidance = "Install a compatible provider package that declares the required payload contract."
+            });
         if (!contract.RuntimeType.IsInstanceOfType(value))
-            throw new AgentRunConfigurationException(
-                kind == ProviderPayloadKind.Configuration ? "ProviderConfigTypeMismatch" : "ProviderOptionsTypeMismatch",
-                $"providerProfiles.{providerKey}.clients.{family}",
-                $"The provider-owned payload is not compatible with provider '{providerKey}' and family '{family}'.",
-                providerKey,
-                contract.RuntimeType,
-                value.GetType());
+            throw new ClientSetupException(new ClientSetupDiagnostic
+            {
+                Code = kind == ProviderPayloadKind.Configuration
+                    ? "ProviderConfigTypeMismatch"
+                    : "ProviderOptionsTypeMismatch",
+                Path = $"clients.{family}",
+                Family = family,
+                ProviderKey = providerKey,
+                Message = $"The provider-owned payload is not compatible with provider '{providerKey}' and family '{family}'.",
+                Guidance = "Use the provider configuration or operation-options type declared by the selected provider.",
+                ExpectedType = contract.RuntimeType.FullName,
+                ActualType = value.GetType().FullName
+            });
         return contract.Snapshot(value);
     }
 

@@ -1,6 +1,6 @@
 {
   "Version": "1.0",
-  "Digest": "a5fcd7906c249058050726987dbf9847a68f65967c9660aebfb01bb2b3f9ecee",
+  "Digest": "48786ede225270fa42219d0ec79fce5db398faf890ead5feb0d8d5e501175297",
   "BehaviorDigest": "a8f47ebc846d8b09f9e42e42af0468a21ed674cd4d332a02e8e6861abfb755d2",
   "EventCount": 144,
   "Events": [
@@ -447,7 +447,7 @@
     },
     {
       "Discriminator": "MESSAGE_TURN_ERROR",
-      "ContractDigest": "7092199a91acb9b399270695d3a41cd1096c5eae2de1c66cd928e122f8838dae",
+      "ContractDigest": "f436bc765d8e171fbcde9d507612f1dc7fd10d6653b19006ddf367281b77ecb5",
       "Durability": "Durable",
       "RequiresDurable": true,
       "ModuleId": "hpd.agent.core"

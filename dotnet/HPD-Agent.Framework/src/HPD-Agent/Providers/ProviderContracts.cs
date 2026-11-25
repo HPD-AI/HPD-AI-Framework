@@ -269,17 +269,22 @@ public class ProviderMetadata
         = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>();
 }
 
-/// <summary>
-/// Result of provider configuration validation.
-/// </summary>
+/// <summary>One provider-owned configuration validation issue.</summary>
+/// <param name="Code">Stable machine-readable issue code.</param>
+/// <param name="Path">Configuration path relative to the selected client.</param>
+/// <param name="Message">A safe description of the issue.</param>
+/// <param name="Guidance">Optional safe corrective guidance.</param>
+public sealed record ProviderValidationIssue(string Code, string Path, string Message, string? Guidance = null);
+
+/// <summary>Result of provider configuration validation.</summary>
 public class ProviderValidationResult
 {
     public bool IsValid { get; init; }
-    public List<string> Errors { get; init; } = new();
-    public List<string> Warnings { get; init; } = new();
+    public List<ProviderValidationIssue> Errors { get; init; } = new();
+    public List<ProviderValidationIssue> Warnings { get; init; } = new();
 
     public static ProviderValidationResult Success() => new() { IsValid = true };
 
-    public static ProviderValidationResult Failure(params string[] errors) =>
-        new() { IsValid = false, Errors = new List<string>(errors) };
+    public static ProviderValidationResult Failure(params ProviderValidationIssue[] errors) =>
+        new() { IsValid = false, Errors = new List<ProviderValidationIssue>(errors) };
 }

@@ -47,7 +47,7 @@ public sealed class SileroAudioProvider : IVoiceActivitySourceProvider, IDisposa
             throw new ArgumentException("Silero requires one isolated source per audio session.", nameof(context));
         var options = ReadOptions(context.EffectiveConfig);
         var validation = ValidateConfiguration(context.EffectiveConfig);
-        if (!validation.IsValid) throw new ArgumentException(string.Join(" ", validation.Errors), nameof(context));
+        if (!validation.IsValid) throw new ArgumentException(string.Join(" ", validation.Errors.Select(static issue => issue.Message)), nameof(context));
         var identity = $"{Path.GetFullPath(options.ModelPath!)}|{options.ModelSha256}|{options.IntraOpThreads}";
         lock (_gate)
         {
@@ -104,9 +104,9 @@ public sealed class SileroAudioProvider : IVoiceActivitySourceProvider, IDisposa
     public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
         if (config.Family != ProviderClientFamily.VoiceActivityDetection)
-            errors.Add($"Silero does not support provider family '{config.Family}'.");
+            errors.Add(new ProviderValidationIssue("provider.family_unsupported", "family", $"Silero does not support provider family '{config.Family}'."));
         SileroVadOptions? options = null;
         try
         {
@@ -114,14 +114,14 @@ public sealed class SileroAudioProvider : IVoiceActivitySourceProvider, IDisposa
         }
         catch (Exception exception) when (exception is ArgumentException or JsonException)
         {
-            errors.Add("SileroVadOptions are required in provider configuration.");
+            errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "SileroVadOptions are required in provider configuration."));
         }
         if (options is not null)
         {
-            if (string.IsNullOrWhiteSpace(options.ModelPath)) errors.Add("An explicit local Silero ONNX model path is required.");
-            else if (!File.Exists(options.ModelPath)) errors.Add("The configured Silero ONNX model does not exist.");
-            if (!IsSha256(options.ModelSha256)) errors.Add("ModelSha256 must be exactly 64 lowercase hexadecimal characters.");
-            if (options.IntraOpThreads is < 1 or > 64) errors.Add("IntraOpThreads must be between 1 and 64.");
+            if (string.IsNullOrWhiteSpace(options.ModelPath)) errors.Add(new ProviderValidationIssue("provider.model_path_required", "providerConfig.modelPath", "An explicit local Silero ONNX model path is required."));
+            else if (!File.Exists(options.ModelPath)) errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "The configured Silero ONNX model does not exist."));
+            if (!IsSha256(options.ModelSha256)) errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "ModelSha256 must be exactly 64 lowercase hexadecimal characters."));
+            if (options.IntraOpThreads is < 1 or > 64) errors.Add(new ProviderValidationIssue("provider.configuration_invalid", "providerConfig", "IntraOpThreads must be between 1 and 64."));
         }
         return errors.Count == 0 ? ProviderValidationResult.Success() : ProviderValidationResult.Failure(errors.ToArray());
     }

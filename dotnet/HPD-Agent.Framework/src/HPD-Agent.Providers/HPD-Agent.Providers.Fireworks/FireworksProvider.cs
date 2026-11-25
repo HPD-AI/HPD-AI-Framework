@@ -137,16 +137,16 @@ internal class FireworksProvider : IProvider, IProviderClientFactory<Meai.IChatC
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
 
         if (config.Family != ProviderClientFamily.Chat)
         {
-            errors.Add("Fireworks AI currently supports only the chat provider family.");
+            errors.Add(new ProviderValidationIssue("provider.family_unsupported", "family", "Fireworks AI currently supports only the chat provider family."));
         }
 
         if (string.IsNullOrWhiteSpace(config.ModelName))
         {
-            errors.Add("Model name is required for Fireworks AI");
+            errors.Add(new ProviderValidationIssue("provider.model_required", "modelName", "Model name is required for Fireworks AI"));
         }
 
 

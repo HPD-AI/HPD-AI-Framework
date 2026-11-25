@@ -112,17 +112,17 @@ internal class GoogleAIProvider : IProvider, IProviderClientFactory<IChatClient>
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
     public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
-        var errors = new List<string>();
+        var errors = new List<ProviderValidationIssue>();
         var googleConfig = ReadConfig(config);
 
         // Credential availability is validated by the authentication coordinator during acquisition.
         // This method only validates config structure, not secret resolution.
 
         if (string.IsNullOrEmpty(config.ModelName))
-            errors.Add("Model name is required");
+            errors.Add(new ProviderValidationIssue("provider.model_required", "modelName", "Model name is required"));
 
         if (config.Family != ProviderClientFamily.Chat)
-            errors.Add("Google AI supports only chat.");
+            errors.Add(new ProviderValidationIssue("provider.family_unsupported", "family", "Google AI supports only chat."));
 
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())
